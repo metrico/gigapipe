@@ -11,5 +11,5 @@ func RoutePromDataApis(router *mux.Router, cfg controllerv1.MiddlewareConfig) {
 	router.HandleFunc("/prom/remote/write", controllerv1.WriteStreamV2(cfg)).Methods("POST")
 	router.HandleFunc("/api/prom/remote/write", controllerv1.WriteStreamV2(cfg)).Methods("POST")
 	router.HandleFunc("/api/prom/push", controllerv1.WriteStreamV2(cfg)).Methods("POST")
-	router.HandleFunc("/prom/remote/write", controllerv1.StatusOK(cfg)).Methods("GET")
+	router.HandleFunc("/prom/remote/write", controllerv1.WriteStreamProbeV2).Methods("GET")
 }

@@ -45,11 +45,9 @@ func WriteStreamV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Req
 			withOkStatusAndBody(204, nil))...)
 }
 
-func StatusOK(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte("OK"))
-	}
+func WriteStreamProbeV2(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+	w.Write([]byte("OK"))
 }
 
 //var WriteStreamV2 = Build(
