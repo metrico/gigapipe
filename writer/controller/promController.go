@@ -45,6 +45,11 @@ func WriteStreamV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Req
 			withOkStatusAndBody(204, nil))...)
 }
 
+func WriteStreamProbeV2(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+	w.Write([]byte("OK"))
+}
+
 //var WriteStreamV2 = Build(
 //	append(WithExtraMiddlewareDefault,
 //		withTSAndSampleService,
