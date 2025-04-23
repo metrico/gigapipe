@@ -88,6 +88,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 	cfg.Setting.DATABASE_DATA[0].Name = db
 	if os.Getenv("CLUSTER_NAME") != "" {
 		cfg.Setting.DATABASE_DATA[0].ClusterName = os.Getenv("CLUSTER_NAME")
+		cfg.Setting.DATABASE_DATA[0].Cloud = true
 	}
 	server := "localhost"
 	if os.Getenv("CLICKHOUSE_SERVER") != "" {
