@@ -1,7 +1,7 @@
 docker-compose ?= docker-compose
 
 docker:
-	docker build -t scripts/deploy/docker/Dockerfile gigapipe .
+	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
 
 e2e-deps:
 	if [ ! -d ./deps/qryn-test ]; then git clone https://github.com/metrico/qryn-test.git ./deps/qryn-test; fi

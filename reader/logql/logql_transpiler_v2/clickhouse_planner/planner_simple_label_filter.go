@@ -15,6 +15,8 @@ type SimpleLabelFilterPlanner struct {
 }
 
 func (s *SimpleLabelFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	//TODO: offset
+	//TODO: add time from-to?
 	main, err := s.FPSel.Process(ctx)
 	if err != nil {
 		return nil, err

@@ -138,7 +138,8 @@ func getCol(req sql.ISelect, alias string) sql.SQLObject {
 }
 
 func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With) (sql.ISelect, error) {
-	_from, err := NewTimeSeriesInitPlanner().Process(ctx)
+	//TODO: offset?
+	_from, err := NewTimeSeriesInitPlanner(nil).Process(ctx)
 	if err != nil {
 		return nil, err
 	}

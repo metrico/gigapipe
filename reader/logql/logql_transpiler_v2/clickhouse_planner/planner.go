@@ -31,6 +31,7 @@ type planner struct {
 	matrixFunctionsOrder     []func() error
 	matrixFunctionsLabelsIDX int
 	metrics15Shortcut        bool
+	offsetModifier           *time.Duration
 
 	//SQL Planners
 	fpPlanner      shared.SQLRequestPlanner
@@ -91,7 +92,7 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 		p.samplesPlanner = &LabelsJoinPlanner{
 			Main:         p.samplesPlanner,
 			Fingerprints: p.fpPlanner,
-			TimeSeries:   NewTimeSeriesInitPlanner(),
+			TimeSeries:   NewTimeSeriesInitPlanner(p.offsetModifier),
 			FpCache:      &p.fpCache,
 		}
 	}
@@ -157,7 +158,7 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 		}
 		p.samplesPlanner = &FingerprintFilterPlanner{
 			FingerprintsSelectPlanner:  p.fpPlanner,
-			MainRequestPlanner:         NewMetrics15ShortcutPlanner(script.Fn, duration),
+			MainRequestPlanner:         NewMetrics15ShortcutPlanner(script.Fn, duration, p.offsetModifier),
 			FingerprintSelectWithCache: &p.fpCache,
 		}
 		return p.planComparison(script.Comparison)
@@ -181,7 +182,7 @@ func (p *planner) planTS() error {
 		}
 		values = append(values, val)
 	}
-	_fpPlanner := NewStreamSelectPlanner(labelNames, ops, values)
+	_fpPlanner := NewStreamSelectPlanner(labelNames, ops, values, p.offsetModifier)
 
 	p.fpPlanner = _fpPlanner
 
@@ -206,7 +207,7 @@ func (p *planner) planSpl() error {
 
 	p.samplesPlanner = &FingerprintFilterPlanner{
 		FingerprintsSelectPlanner:  p.fpPlanner,
-		MainRequestPlanner:         NewSQLMainInitPlanner(),
+		MainRequestPlanner:         NewSQLMainInitPlanner(p.offsetModifier),
 		FingerprintSelectWithCache: &p.fpCache,
 	}
 	for i, ppl := range streamSelector.Pipelines {
@@ -214,7 +215,7 @@ func (p *planner) planSpl() error {
 			p.samplesPlanner = &LabelsJoinPlanner{
 				Main:         &MainOrderByPlanner{[]string{"timestamp_ns"}, p.samplesPlanner},
 				Fingerprints: p.fpPlanner,
-				TimeSeries:   NewTimeSeriesInitPlanner(),
+				TimeSeries:   NewTimeSeriesInitPlanner(p.offsetModifier),
 				FpCache:      &p.fpCache,
 				LabelsCache:  &p.labelsCache,
 			}
