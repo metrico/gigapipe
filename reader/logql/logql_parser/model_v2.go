@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type LogQLScript struct {
@@ -299,7 +300,8 @@ type LRAOrUnwrap struct {
 	ByOrWithoutPrefix *ByOrWithout `( @@)?`
 	StrSel            StrSelector  `"(" @@ `
 	Time              string       `"[" @Integer `
-	TimeUnit          string       `@("ns"|"us"|"ms"|"s"|"m"|"h") "]" ")" `
+	TimeUnit          string       `@("ns"|"us"|"ms"|"s"|"m"|"h") "]" `
+	Offset            *Offset      `("offset" @@)? ")" `
 	ByOrWithoutSuffix *ByOrWithout `@@?`
 	Comparison        *Comparison  `@@?`
 }
@@ -309,7 +311,11 @@ func (l LRAOrUnwrap) String() string {
 	if l.ByOrWithoutPrefix != nil {
 		res += " " + l.ByOrWithoutPrefix.String()
 	}
-	res += " (" + l.StrSel.String() + "[" + l.Time + l.TimeUnit + "])"
+	res += " (" + l.StrSel.String() + "[" + l.Time + l.TimeUnit + "]"
+	if l.Offset != nil {
+		res += " " + l.Offset.String()
+	}
+	res += ")"
 	if l.ByOrWithoutPrefix == nil && l.ByOrWithoutSuffix != nil {
 		res += l.ByOrWithoutSuffix.String()
 	}
@@ -434,4 +440,21 @@ func (l QuantileOverTime) String() string {
 		res += l.Comparison.String()
 	}
 	return res
+}
+
+type Offset struct {
+	Time     string `@Integer `
+	TimeUnit string `@("ns"|"us"|"ms"|"s"|"m"|"h")`
+}
+
+func (l Offset) String() string {
+	return fmt.Sprintf("offset %s%s", l.Time, l.TimeUnit)
+}
+
+func (l Offset) Duration() (time.Duration, error) {
+	dur, err := time.ParseDuration(fmt.Sprintf("%s%s", l.Time, l.TimeUnit))
+	if err != nil {
+		return 0, err
+	}
+	return dur, nil
 }
