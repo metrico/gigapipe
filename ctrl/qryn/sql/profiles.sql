@@ -148,3 +148,95 @@ DROP TABLE IF EXISTS {{.DB}}.profiles_mv_bak {{.OnCluster}};
 
 INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 VALUES (cityHash64('profiles_v2'), 'update', 'profiles_v2', toString(toUnixTimestamp(NOW())), NOW());
+
+## TTL
+ALTER TABLE {{.DB}}.profiles_input {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS `ttl_days` UInt16;
+
+ALTER TABLE {{.DB}}.profiles
+    ADD COLUMN IF NOT EXISTS `ttl_days` UInt16;
+
+ALTER TABLE {{.DB}}.profiles_series {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16,
+    MODIFY ORDER BY (date, type_id, fingerprint, ttl_days);
+
+ALTER TABLE {{.DB}}.profiles_series_gin {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16,
+    MODIFY ORDER BY (date, key, val, type_id, fingerprint, ttl_days);
+
+ALTER TABLE {{.DB}}.profiles_series_keys {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16,
+    MODIFY ORDER BY (date, key, val_id, ttl_days);
+
+RENAME TABLE {{.DB}}.profiles_mv TO profiles_mv_bak {{.OnCluster}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.profiles_mv {{.OnCluster}} TO profiles AS
+SELECT
+    timestamp_ns,
+    cityHash64(arraySort(arrayConcat(
+            profiles_input.tags, [
+      ('__type__', concatWithSeparator(':', type, period_type, period_unit) as _type_id),
+            ('__sample_types_units__', arrayStringConcat(arrayMap(x -> x.1 || ':' || x.2, arraySort(sample_types_units)), ';')),
+            ('service_name', service_name)
+                ])) as _tags) as fingerprint,
+    _type_id as type_id,
+    sample_types_units,
+    service_name,
+    duration_ns,
+    payload_type,
+    payload,
+    values_agg,
+    ttl_days
+FROM profiles_input;
+
+DROP TABLE IF EXISTS {{.DB}}.profiles_mv_bak {{.OnCluster}};
+
+RENAME TABLE {{.DB}}.profiles_series_keys_mv TO profiles_series_keys_mv_bak {{.OnCluster}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.profiles_series_keys_mv {{.OnCluster}} TO profiles_series_keys AS
+SELECT
+    date,
+    key,
+    val,
+    cityHash64(val) % 50000 as val_id,
+    ttl_days
+FROM profiles_series_gin;
+
+DROP TABLE IF EXISTS {{.DB}}.profiles_series_keys_mv_bak {{.OnCluster}};
+
+RENAME TABLE {{.DB}}.profiles_series_mv TO profiles_series_mv_bak {{.OnCluster}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.profiles_series_mv {{.OnCluster}} TO profiles_series AS
+SELECT
+  toDate(intDiv(timestamp_ns, 1000000000)) as date,
+  concatWithSeparator(':', type, period_type, period_unit) as type_id,
+  sample_types_units,
+  service_name,
+  cityHash64(arraySort(arrayConcat(
+    profiles_input.tags, [
+    ('__type__', type_id),
+    ('__sample_types_units__', arrayStringConcat(arrayMap(x -> x.1 || ':' || x.2, arraySort(sample_types_units)), ';')),
+    ('service_name', service_name)
+  ])) as _tags) as fingerprint,
+  arrayConcat(profiles_input.tags, [('service_name', service_name)]) as tags,
+  ttl_days
+FROM profiles_input;
+
+DROP TABLE IF EXISTS {{.DB}}.profiles_series_mv_bak {{.OnCluster}};
+
+RENAME TABLE {{.DB}}.profiles_series_gin_mv TO profiles_series_gin_mv_bak {{.OnCluster}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.profiles_series_gin_mv {{.OnCluster}} TO profiles_series_gin AS
+SELECT
+    date,
+    kv.1 as key,
+    kv.2 as val,
+    type_id,
+    sample_types_units,
+    service_name,
+    fingerprint,
+    ttl_days
+FROM profiles_series ARRAY JOIN tags as kv;
+
+DROP TABLE IF EXISTS {{.DB}}.profiles_series_gin_mv_bak {{.OnCluster}};
+

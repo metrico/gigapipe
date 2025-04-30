@@ -52,14 +52,26 @@ ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}} ADD COLUMN IF NOT EXISTS `ty
 
 ALTER TABLE {{.DB}}.time_series_gin_dist {{.OnCluster}} ADD COLUMN IF NOT EXISTS `type` UInt8;
 
-ALTER TABLE time_series_dist
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
 
-ALTER TABLE time_series_gin_dist
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.time_series_gin_dist {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
 
-ALTER TABLE samples_v3_dist
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.samples_v3_dist {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
 
-ALTER TABLE metrics_15s_dist
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.metrics_15s_dist {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
+
+ALTER TABLE {{.DB}}.metrics_15s_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.samples_v3_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.time_series_gin_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;

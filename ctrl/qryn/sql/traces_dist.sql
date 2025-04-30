@@ -35,3 +35,12 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_attrs_gin_dist {{.OnCluster}} (
     timestamp_ns Int64,
     duration Int64
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_attrs_gin', sipHash64(oid, trace_id)) {{.DIST_CREATE_SETTINGS}};
+
+ALTER TABLE {{.DB}}.tempo_traces_kv_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.tempo_traces_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.tempo_traces_attrs_gin_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;

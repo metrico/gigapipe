@@ -49,3 +49,15 @@ ALTER TABLE {{.DB}}.profiles_series_dist {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.profiles_series_gin_dist {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS `sample_types_units` Array(Tuple(String, String));
+
+ALTER TABLE {{.DB}}.profiles_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.profiles_series_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.profiles_series_gin_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.profiles_series_keys_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;

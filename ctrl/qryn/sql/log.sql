@@ -159,14 +159,63 @@ GROUP BY fingerprint, timestamp_ns, type;
 
 DROP TABLE IF EXISTS {{.DB}}.metrics_15s_mv_bak {{.OnCluster}};
 
-ALTER TABLE time_series
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
 
-ALTER TABLE time_series_gin
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.time_series_gin {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
 
-ALTER TABLE samples_v3
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.samples_v3 {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
 
-ALTER TABLE metrics_15s
-    (ADD COLUMN `type_v2` UInt8 ALIAS type);
+ALTER TABLE {{.DB}}.metrics_15s {{.OnCluster}}
+    (ADD COLUMN IF NOT EXISTS `type_v2` UInt8 ALIAS type);
+
+## TTL
+ALTER TABLE {{.DB}}.metrics_15s {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16,
+    MODIFY ORDER BY (fingerprint, timestamp_ns, type, ttl_days);
+
+ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16,
+    MODIFY ORDER BY (fingerprint, type, ttl_Days);
+
+ALTER TABLE {{.DB}}.samples_v3 {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16;
+
+ALTER TABLE {{.DB}}.time_series_gin {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS ttl_days UInt16,
+    MODIFY ORDER BY (key, val, fingerprint, type, ttl_days);
+
+RENAME TABLE {{.DB}}.metrics_15s_mv TO metrics_15s_mv_bak {{.OnCluster}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_15s_mv {{.OnCluster}} TO metrics_15s
+AS SELECT
+    fingerprint,
+    intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
+    argMaxState(value, samples.timestamp_ns) as last,
+    maxSimpleState(value) as max,
+    minSimpleState(value) as min,
+    countState() as count,
+    sumSimpleState(value) as sum,
+    sumSimpleState(length(string)) as bytes.
+    ttl_days
+FROM {{.DB}}.samples_v3 as samples
+GROUP BY fingerprint, timestamp_ns;
+
+DROP TABLE IF EXISTS {{.DB}}.metrics_15s_mv_bak {{.OnCluster}};
+
+RENAME TABLE {{.DB}}.time_series_gin_view TO time_series_gin_view_bak {{.OnCluster}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.time_series_gin_view {{.OnCluster}} TO time_series_gin
+AS SELECT
+    date,
+    pairs.1 as key,
+    pairs.2 as val,
+    fingerprint,
+    type,
+    ttl_days
+FROM time_series
+ARRAY JOIN JSONExtractKeysAndValues(time_series.labels, 'String') as pairs;
+
+DROP TABLE IF EXISTS {{.DB}}.time_series_gin_view_bak {{.OnCluster}};
