@@ -6,15 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/snappy"
-	"github.com/metrico/qryn/writer/ch_wrapper"
-	custom_errors "github.com/metrico/qryn/writer/utils/errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang/snappy"
+	"github.com/metrico/qryn/writer/ch_wrapper"
+	custom_errors "github.com/metrico/qryn/writer/utils/errors"
 )
 
 var DbClient ch_wrapper.IChClient
@@ -185,8 +186,9 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 		}
 		r.Body = readColser{reader}
 	case "snappy":
-		reader := snappy.NewReader(r.Body)
-		r.Body = readColser{reader}
+		// Disable snappy decoding because it handles in withUnsnappyRequest middleware
+		// reader := snappy.NewReader(r.Body)
+		// r.Body = readColser{reader}
 		// Handle snappy encoding if needed
 		break
 	default:
