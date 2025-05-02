@@ -4,13 +4,15 @@ import (
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	"github.com/metrico/qryn/reader/plugins"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"time"
 )
 
 type SeriesPlanner struct {
 	FingerprintsPlanner shared.SQLRequestPlanner
+	Offset              *time.Duration
 }
 
-func NewSeriesPlanner(fingerprintsPlanner shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+func NewSeriesPlanner(fingerprintsPlanner shared.SQLRequestPlanner, offset *time.Duration) shared.SQLRequestPlanner {
 	p := plugins.GetSeriesPlannerPlugin()
 	if p != nil {
 		return (*p)(fingerprintsPlanner)
@@ -19,6 +21,12 @@ func NewSeriesPlanner(fingerprintsPlanner shared.SQLRequestPlanner) shared.SQLRe
 }
 
 func (s *SeriesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	from := ctx.From
+	to := ctx.To
+	if s.Offset != nil {
+		from = from.Add(*s.Offset)
+		to = to.Add(*s.Offset)
+	}
 	fpSel, err := s.FingerprintsPlanner.Process(ctx)
 	if err != nil {
 		return nil, err
@@ -32,8 +40,8 @@ func (s *SeriesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		Select(sql.NewSimpleCol("labels", "labels")).
 		From(sql.NewSimpleCol(tableName, "time_series")).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(to.Format("2006-01-02"))),
 			sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFPSel)),
 			GetTypes(ctx))
 	if ctx.Limit > 0 {

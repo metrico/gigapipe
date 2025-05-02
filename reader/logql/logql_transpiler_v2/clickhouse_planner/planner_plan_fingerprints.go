@@ -17,6 +17,6 @@ func (p *planner) planFingerprints() (shared.SQLRequestPlanner, error) {
 		}
 		values = append(values, val)
 	}
-	res := NewStreamSelectPlanner(labelNames, ops, values)
+	res := NewStreamSelectPlanner(labelNames, ops, values, p.offsetModifier)
 	return res, nil
 }

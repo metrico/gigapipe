@@ -11,6 +11,11 @@ func (p *planner) analyzeScript() {
 
 	p.labelsJoinIdx = -1
 
+	offset := analyzeOffset(p.script)
+	if offset != nil {
+		p.offsetModifier = offset
+	}
+
 	p.metrics15Shortcut = AnalyzeMetrics15sShortcut(p.script)
 	if p.metrics15Shortcut {
 		return
@@ -58,6 +63,15 @@ func (p *planner) analyzeScript() {
 	p.matrixFunctionsLabelsIDX = -1
 	p.getFunctionOrder(p.script)
 
+}
+
+func analyzeOffset(script *logql_parser.LogQLScript) *time.Duration {
+	offset := findFirst[logql_parser.Offset](script)
+	if offset == nil {
+		return nil
+	}
+	d, _ := offset.Duration()
+	return &d
 }
 
 func AnalyzeMetrics15sShortcut(script *logql_parser.LogQLScript) bool {
@@ -200,6 +214,7 @@ func findFirst[T any](nodes ...any) *T {
 				_n.ByOrWithoutPrefix,
 				_n.ByOrWithoutSuffix,
 				_n.Comparison,
+				_n.Offset,
 			)
 		case *logql_parser.AggOperator:
 			_n := n.(*logql_parser.AggOperator)

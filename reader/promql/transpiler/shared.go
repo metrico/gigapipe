@@ -20,7 +20,7 @@ func fingerprintsQuery(ctx *shared.PlannerContext, matchers ...*labels.Matcher) 
 		ops = append(ops, matcher.GetOp())
 		values = append(values, matcher.GetVal())
 	}
-	plannerStreamSelect := logql_transpiler.NewStreamSelectPlanner(labelNames, ops, values)
+	plannerStreamSelect := logql_transpiler.NewStreamSelectPlanner(labelNames, ops, values, nil)
 
 	return plannerStreamSelect.Process(ctx)
 }

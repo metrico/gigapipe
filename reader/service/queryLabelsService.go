@@ -214,7 +214,7 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 			return nil, err
 		}
 	} else {
-		planner = clickhouse_planner.NewValuesPlanner(nil, label)
+		planner = clickhouse_planner.NewValuesPlanner(nil, label, nil)
 	}
 	if conn.Config.ClusterName != "" {
 		tsGinTableName += "_dist"
@@ -270,7 +270,7 @@ func (q *QueryLabelsService) getMultiMatchValuesPlanner(match []string, key stri
 		}
 	}
 	var planner shared.SQLRequestPlanner = &clickhouse_planner.MultiStreamSelectPlanner{selects}
-	planner = clickhouse_planner.NewValuesPlanner(planner, key)
+	planner = clickhouse_planner.NewValuesPlanner(planner, key, nil)
 	return planner, nil
 }
 
@@ -361,6 +361,6 @@ func (q *QueryLabelsService) querySeries(requests []string) (shared.SQLRequestPl
 		}
 	}
 	var planner shared.SQLRequestPlanner = &clickhouse_planner.MultiStreamSelectPlanner{Mains: fpPlanners}
-	planner = clickhouse_planner.NewSeriesPlanner(planner)
+	planner = clickhouse_planner.NewSeriesPlanner(planner, nil)
 	return planner, nil
 }
