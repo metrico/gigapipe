@@ -20,7 +20,7 @@
 * **Familiar**: Use stable & popular **LogQL**, **PromQL**, **TempoQL** languages to _query and visualize data_
 * **Voracious**: Ingest using **OpenTelemetry, Loki, Prometheus, Tempo, Influx, Datadog, Elastic** _+ more_
 * **Versatile**: Explore data with qryn's **built-in Explorer** and CLI or native **Grafana** datasource compatibility
-* **Secure**: Retain total control of data, using **ClickHouse**, **DuckDB** or **InfluxDB** IOx with **S3** object storage
+* **Secure**: Retain total control of data, using **ClickHouse**, **DuckDB** or **GigAPI** with **S3** object storage
 * **Independent**: Open source, community powered, anti lock-in alternative to vendor controlled stacks
 
 <br>

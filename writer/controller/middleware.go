@@ -185,9 +185,18 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 		}
 		r.Body = readColser{reader}
 	case "snappy":
-		reader := snappy.NewReader(r.Body)
+		bBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+		uncompressed, err := snappy.Decode(nil, bBody)
+		if err != nil {
+			// Sometimes senders just send uncompressed data with content-encoding: snappy
+			// Complete mess, 0 out of 10
+			uncompressed = bBody
+		}
+		reader := bytes.NewReader(uncompressed)
 		r.Body = readColser{reader}
-		// Handle snappy encoding if needed
 		break
 	default:
 		return custom_errors.New400Error(fmt.Sprintf("%s encoding not supported", r.Header.Get("Content-Encoding")))
