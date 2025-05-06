@@ -36,7 +36,7 @@ require (
 	github.com/go-faster/jx v1.1.0
 	github.com/go-kit/kit v0.13.0
 	github.com/go-logfmt/logfmt v0.6.0
-	github.com/gofiber/fiber/v2 v2.52.5
+	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20241029153458-d1b30febd7db
