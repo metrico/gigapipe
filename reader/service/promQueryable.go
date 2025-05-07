@@ -13,6 +13,7 @@ import (
 	"github.com/metrico/qryn/reader/utils/logger"
 	"github.com/metrico/qryn/reader/utils/tables"
 	"math/rand"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,13 +140,18 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 	matchers []*labels.Matcher, versionInfo dbVersion.VersionInfo) (*transpiler.TranspileResponse, error) {
 	isSupported, ok := supportedFunctions[hints.Func]
 
+	c.adjustHintsForRate(hints)
+
 	useRawData := hints.Start%15000 != 0 ||
 		hints.Step < 15000 ||
 		(hints.Range > 0 && hints.Range < 15000) ||
 		!(isSupported || !ok)
+
+	start := hints.Start - hints.Range
+
 	ctx := shared.PlannerContext{
 		IsCluster:   c.db.Config.ClusterName != "",
-		From:        time.Unix(0, hints.Start*1000000),
+		From:        time.Unix(0, start*1000000),
 		To:          time.Unix(0, hints.End*1000000),
 		Ctx:         c.ctx,
 		CHDb:        c.db.Session,
@@ -159,6 +165,20 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		return transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
 	}
 	return transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
+}
+
+var rateFunctions = []string{"deriv", "rate", "delta"}
+
+func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
+	step := hints.Step
+	if slices.Contains(rateFunctions, hints.Func) && hints.Step > (hints.Range/2) || hints.Step == 0 {
+		step = max(hints.Range/2, 15000)
+	}
+	hints.Step = step
+}
+
+func (c *CLokiQuerier) isProlong(hints *storage.SelectHints) bool {
+	return (slices.Contains(rateFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
 }
 
 func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
@@ -197,12 +217,13 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 	)
 	res := model.SeriesSet{
 		Error:  nil,
-		Series: make([]*model.Series, 0, 1000),
+		Series: make([]*model.SeriesV2, 0, 1000),
 	}
 	res.Reset()
 	cntRows := 0
 	cntSeries := 0
 	lblsGetter := newLabelsGetter(time.UnixMilli(hints.Start), time.UnixMilli(hints.End), c.db, c.ctx)
+	isProlong := c.isProlong(hints)
 	for rows.Next() {
 		err = rows.Scan(&fp, &val, &ts)
 		if err != nil {
@@ -214,10 +235,12 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 			if len(res.Series) > 0 && q.MapResult != nil {
 				res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
 			}
-			res.Series = append(res.Series, &model.Series{
+			res.Series = append(res.Series, &model.SeriesV2{
 				LabelsGetter: lblsGetter,
 				Fp:           fp,
 				Samples:      make([]model.Sample, 0, 500),
+				StepMs:       hints.Step,
+				Prolong:      isProlong,
 			})
 			cntSeries++
 		}
@@ -251,8 +274,8 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 	return &res
 }
 
-func (c *CLokiQuerier) ReshuffleSeries(series []*model.Series) {
-	seriesMap := make(map[uint64]*model.Series, len(series)*2)
+func (c *CLokiQuerier) ReshuffleSeries(series []*model.SeriesV2) {
+	seriesMap := make(map[uint64]*model.SeriesV2, len(series)*2)
 	for _, ent := range series {
 		labels := ent.LabelsGetter.Get(ent.Fp)
 		strLabels := make([][]byte, labels.Len())
