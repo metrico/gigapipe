@@ -157,6 +157,9 @@ With **gigapipe** and **Grafana** everything _just works_ right out of the box:
 
 ------------
 
+### Got Questions?
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
+
 #### Contributions
 
 Whether it's code, documentation or grammar, we ❤️ all contributions. Not sure where to get started?
