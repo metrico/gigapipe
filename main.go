@@ -41,7 +41,7 @@ func initFlags() {
 }
 
 func boolEnv(key string) (bool, error) {
-	val := os.Getenv("key")
+	val := os.Getenv(key)
 	for _, v := range []string{"true", "1", "yes", "y"} {
 		if v == val {
 			return true, nil
