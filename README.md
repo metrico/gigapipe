@@ -16,7 +16,6 @@
 :rocket: Gigapipe is a _lighweight, multi-standard, polyglot **observability** stack for **Logs, Metrics**, **Traces** and **Profiling**_<br/>
 
 * **Polyglot**: All-in-one, drop-in compatible with **Loki**, **Prometheus**, **Tempo**, **Pyroscope** 
-* **Lightweight**: Powered by **Bun** - the fast, all-in-one JavaScript runtime + ClickHouse **OLAP** Engine
 * **Familiar**: Use stable & popular **LogQL**, **PromQL**, **TempoQL** languages to _query and visualize data_
 * **Voracious**: Ingest using **OpenTelemetry, Loki, Prometheus, Tempo, Influx, Datadog, Elastic** _+ more_
 * **Versatile**: Explore data with qryn's **built-in Explorer** and CLI or native **Grafana** datasource compatibility
