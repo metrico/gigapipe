@@ -1,6 +1,7 @@
 package clickhouse_planner
 
 import (
+	"fmt"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
@@ -39,9 +40,29 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 
 	joinType := "ANY LEFT "
 	if ctx.IsCluster {
-		joinType = "GLOBAL ANY LEFT "
-	}
+		withTSRef := sql.NewWithRef(withTS)
+		withTSSelect := sql.NewSelect().
+			Select(sql.NewSimpleCol("mapFromArrays(groupArray(fingerprint), groupArray(labels))", "map")).
+			From(sql.NewCol(withTSRef, "_time_series"))
 
+		labelsCol := sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+			strRes, err := withTSSelect.String(ctx, options...)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("(%s)[main.fingerprint]", strRes), nil
+		})
+		return sql.NewSelect().
+			With(withMain, withTS).
+			Select(
+				sql.NewSimpleCol("main.fingerprint", "fingerprint"),
+				sql.NewSimpleCol("main.timestamp_ns", "timestamp_ns"),
+				sql.NewCol(labelsCol, "labels"),
+				sql.NewSimpleCol("main.string", "string"),
+				sql.NewSimpleCol("main.value", "value")).
+			From(sql.NewWithRef(withMain)), nil
+
+	}
 	return sql.NewSelect().
 		With(withMain, withTS).
 		Select(
