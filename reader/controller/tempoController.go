@@ -109,6 +109,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(bTraceData)
 	default:
+		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"resourceSpans": [{ 
 			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]}, 
 			"instrumentationLibrarySpans": [{ "spans": [`))
@@ -145,6 +146,7 @@ func (t *TempoController) Tags(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"tagNames": [`))
 	i := 0
 	for tag := range cRes {
@@ -334,6 +336,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 			PromError(500, err.Error(), w)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		w.Write([]byte(`{"traces": [`))
 		i := 0
@@ -363,6 +366,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"traces": [`))
 	i := 0
 	for trace := range resChan {
