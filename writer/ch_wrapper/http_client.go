@@ -91,11 +91,6 @@ func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input prot
 	if rowCount == 0 {
 		return nil
 	}
-
-	//// Direct call to c.conn.PrepareBatch
-	//var batch interface{}
-	//var err error
-
 	batch, err := c.conn.PrepareBatch(ctx, sql)
 
 	if err != nil {
