@@ -184,6 +184,15 @@ func (c *CLokiQuerier) isProlong(hints *storage.SelectHints) bool {
 func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 	matchers ...*labels.Matcher) storage.SeriesSet {
 
+	var _matchers []*labels.Matcher
+	for _, m := range matchers {
+		if m.Name == "__ignore_usage__" && m.Type == labels.MatchEqual && m.Value == "" {
+			continue
+		}
+		_matchers = append(_matchers, m)
+	}
+	matchers = _matchers
+
 	versionInfo, err := dbVersion.GetVersionInfo(c.ctx, c.db.Config.ClusterName != "", c.db.Session)
 	if err != nil {
 		return &model.SeriesSet{Error: err}
