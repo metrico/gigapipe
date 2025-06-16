@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/ClickHouse/ch-go"
+	"github.com/ClickHouse/ch-go/proto"
 	"github.com/metrico/qryn/writer/utils/heputils"
 	"github.com/metrico/qryn/writer/utils/logger"
+	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -65,7 +68,135 @@ func (c *HttpChClient) Do(ctx context.Context, query ch.Query) error {
 	if c.conn == nil {
 		return fmt.Errorf("connection is nil")
 	}
-	return c.Exec(ctx, query.Body)
+
+	sqlQuery := strings.TrimSpace(query.Body)
+	if sqlQuery == "" {
+		return fmt.Errorf("query body is empty")
+	}
+
+	// Handle INSERT with data
+	if len(query.Input) > 0 {
+		return c.executeInsert(ctx, sqlQuery, query.Input)
+	}
+	return fmt.Errorf("input Data is empty")
+}
+func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input proto.Input) error {
+
+	if len(input) == 0 {
+		return nil
+	}
+
+	// Get row count from first column
+	rowCount := c.getRowCount(input[0].Data)
+	if rowCount == 0 {
+		return nil
+	}
+
+	//// Direct call to c.conn.PrepareBatch
+	//var batch interface{}
+	//var err error
+
+	batch, err := c.conn.PrepareBatch(ctx, sql)
+
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	// Insert rows
+	for row := 0; row < rowCount; row++ {
+		values := make([]interface{}, len(input))
+		for col, column := range input {
+			values[col] = c.getValue(column.Data, row)
+		}
+
+		if err := batch.Append(values...); err != nil {
+			return fmt.Errorf("failed to append row %d: %w", row, err)
+		}
+	}
+
+	// Send the batch
+	return batch.Send()
+}
+
+func (c *HttpChClient) getValue(data interface{}, row int) interface{} {
+	if data == nil {
+		return nil
+	}
+	if v, ok := data.(interface{ Row(int) interface{} }); ok {
+		return v.Row(row)
+	}
+	if v, ok := data.(interface{ Get(int) interface{} }); ok {
+		return v.Get(row)
+	}
+	if v, ok := data.(interface{ Value(int) interface{} }); ok {
+		return v.Value(row)
+	}
+
+	// Use reflection
+	rv := reflect.ValueOf(data)
+	if rv.Kind() == reflect.Ptr && !rv.IsNil() {
+		rv = rv.Elem()
+	}
+
+	// Direct indexing for slices/arrays
+	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		if row < rv.Len() {
+			return rv.Index(row).Interface()
+		}
+		return nil
+	}
+
+	// Try reflection methods
+	for _, method := range []string{"Row", "Get", "Value", "At"} {
+		if m := rv.MethodByName(method); m.IsValid() {
+			if m.Type().NumIn() == 1 && m.Type().In(0).Kind() == reflect.Int {
+				result := m.Call([]reflect.Value{reflect.ValueOf(row)})
+				if len(result) > 0 {
+					return result[0].Interface()
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *HttpChClient) getRowCount(data interface{}) int {
+	if data == nil {
+		return 0
+	}
+
+	// Try common interfaces
+	if v, ok := data.(interface{ Rows() int }); ok {
+		return v.Rows()
+	}
+	if v, ok := data.(interface{ Len() int }); ok {
+		return v.Len()
+	}
+
+	// Use reflection
+	rv := reflect.ValueOf(data)
+	if rv.Kind() == reflect.Ptr && !rv.IsNil() {
+		rv = rv.Elem()
+	}
+
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		return rv.Len()
+	}
+
+	for _, method := range []string{"Rows", "Len", "Size", "Count"} {
+		if m := rv.MethodByName(method); m.IsValid() {
+			if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 {
+				result := m.Call(nil)
+				if len(result) > 0 && result[0].Kind() == reflect.Int {
+					return int(result[0].Int())
+				}
+			}
+		}
+	}
+
+	return 0
 }
 
 func (c *HttpChClient) Exec(ctx context.Context, query string, args ...any) error {
