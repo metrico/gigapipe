@@ -6,15 +6,17 @@ import (
 	"github.com/metrico/qryn/reader/plugins"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"strings"
+	"time"
 )
 
 type StreamSelectPlanner struct {
 	LabelNames []string
 	Ops        []string
 	Values     []string
+	Offset     *time.Duration
 }
 
-func NewStreamSelectPlanner(labelNames, ops, values []string) shared.SQLRequestPlanner {
+func NewStreamSelectPlanner(labelNames, ops, values []string, offset *time.Duration) shared.SQLRequestPlanner {
 	p := plugins.GetStreamSelectPlannerPlugin()
 	if p != nil {
 		return (*p)(labelNames, ops, values)
@@ -23,10 +25,15 @@ func NewStreamSelectPlanner(labelNames, ops, values []string) shared.SQLRequestP
 		LabelNames: labelNames,
 		Ops:        ops,
 		Values:     values,
+		Offset:     offset,
 	}
 }
 
 func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	from := ctx.From
+	if s.Offset != nil {
+		from = from.Add(*s.Offset)
+	}
 	clauses := make([]sql.SQLCondition, len(s.LabelNames))
 	for i, name := range s.LabelNames {
 		var valClause sql.SQLCondition
@@ -58,7 +65,7 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		Select(sql.NewRawObject("fingerprint")).
 		From(sql.NewRawObject(ctx.TimeSeriesGinTableName)).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(ctx.From))),
+			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
 			GetTypes(ctx),
 			sql.Or(clauses...)).
 		GroupBy(sql.NewRawObject("fingerprint")).

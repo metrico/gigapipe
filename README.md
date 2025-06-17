@@ -16,11 +16,10 @@
 :rocket: Gigapipe is a _lighweight, multi-standard, polyglot **observability** stack for **Logs, Metrics**, **Traces** and **Profiling**_<br/>
 
 * **Polyglot**: All-in-one, drop-in compatible with **Loki**, **Prometheus**, **Tempo**, **Pyroscope** 
-* **Lightweight**: Powered by **Bun** - the fast, all-in-one JavaScript runtime + ClickHouse **OLAP** Engine
 * **Familiar**: Use stable & popular **LogQL**, **PromQL**, **TempoQL** languages to _query and visualize data_
 * **Voracious**: Ingest using **OpenTelemetry, Loki, Prometheus, Tempo, Influx, Datadog, Elastic** _+ more_
 * **Versatile**: Explore data with qryn's **built-in Explorer** and CLI or native **Grafana** datasource compatibility
-* **Secure**: Retain total control of data, using **ClickHouse**, **DuckDB** or **InfluxDB** IOx with **S3** object storage
+* **Secure**: Retain total control of data, using **ClickHouse**, **DuckDB** or **GigAPI** with **S3** object storage
 * **Independent**: Open source, community powered, anti lock-in alternative to vendor controlled stacks
 
 <br>
@@ -156,6 +155,9 @@ With **gigapipe** and **Grafana** everything _just works_ right out of the box:
 📚 Follow our team _behind the scenes_ on the [gigapipe blog](https://blog.gigapipe.com)
 
 ------------
+
+### Got Questions?
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
 
 #### Contributions
 

@@ -41,7 +41,7 @@ func initFlags() {
 }
 
 func boolEnv(key string) (bool, error) {
-	val := os.Getenv("key")
+	val := os.Getenv(key)
 	for _, v := range []string{"true", "1", "yes", "y"} {
 		if v == val {
 			return true, nil
@@ -88,6 +88,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 	cfg.Setting.DATABASE_DATA[0].Name = db
 	if os.Getenv("CLUSTER_NAME") != "" {
 		cfg.Setting.DATABASE_DATA[0].ClusterName = os.Getenv("CLUSTER_NAME")
+		cfg.Setting.DATABASE_DATA[0].Cloud = true
 	}
 	server := "localhost"
 	if os.Getenv("CLICKHOUSE_SERVER") != "" {
@@ -181,7 +182,7 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 	if os.Getenv("ADVANCED_PROMETHEUS_MAX_SAMPLES") != "" {
 		maxSamples, err := strconv.Atoi(os.Getenv("ADVANCED_PROMETHEUS_MAX_SAMPLES"))
 		if err != nil {
-			return fmt.Errorf("invalid max samples value `%s`: %w", maxSamples, err)
+			return fmt.Errorf("invalid max samples value `%d`: %w", maxSamples, err)
 		}
 		cfg.Setting.SYSTEM_SETTINGS.MetricsMaxSamples = maxSamples
 	}
@@ -202,7 +203,7 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 	if os.Getenv("BULK_MAX_SIZE_BYTES") != "" {
 		maxSize, err := strconv.ParseInt(os.Getenv("BULK_MAX_SIZE_BYTES"), 10, 63)
 		if err != nil {
-			return fmt.Errorf("invalid max size value `%s`: %w", maxSize, err)
+			return fmt.Errorf("invalid max size value `%d`: %w", maxSize, err)
 		}
 		cfg.Setting.SYSTEM_SETTINGS.DBBulk = maxSize
 	}
@@ -213,7 +214,7 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 	}
 	maxAge, err := strconv.Atoi(strMaxAge)
 	if err != nil {
-		return fmt.Errorf("invalid max age value `%s`: %w", maxAge, err)
+		return fmt.Errorf("invalid max age value `%d`: %w", maxAge, err)
 	}
 	cfg.Setting.SYSTEM_SETTINGS.DBTimer = float64(maxAge) / 1000
 	return nil

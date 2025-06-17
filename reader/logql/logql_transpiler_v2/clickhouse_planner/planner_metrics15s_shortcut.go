@@ -11,9 +11,11 @@ import (
 type Metrics15ShortcutPlanner struct {
 	Function string
 	Duration time.Duration
+	Offset   *time.Duration
 }
 
-func NewMetrics15ShortcutPlanner(function string, duration time.Duration) shared.SQLRequestPlanner {
+func NewMetrics15ShortcutPlanner(function string, duration time.Duration,
+	offset *time.Duration) shared.SQLRequestPlanner {
 	p := plugins.GetMetrics15ShortcutPlannerPlugin()
 	if p != nil {
 		return (*p)(function, duration)
@@ -21,14 +23,25 @@ func NewMetrics15ShortcutPlanner(function string, duration time.Duration) shared
 	return &Metrics15ShortcutPlanner{
 		Function: function,
 		Duration: duration,
+		Offset:   offset,
 	}
 }
 
 func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.SQLObject, table string) sql.ISelect {
+	from := ctx.From
+	to := ctx.To
+	offsetNsStr := ""
+	if m.Offset != nil {
+		from = from.Add(*m.Offset)
+		to = to.Add(*m.Offset)
+		offsetNsStr = fmt.Sprintf(" + %d", m.Offset.Nanoseconds())
+	}
 	return sql.NewSelect().
 		Select(
 			sql.NewSimpleCol(
-				fmt.Sprintf("intDiv(samples.timestamp_ns, %d) * %[1]d", m.Duration.Nanoseconds()),
+				fmt.Sprintf("intDiv(samples.timestamp_ns%s, %d) * %[2]d",
+					offsetNsStr,
+					m.Duration.Nanoseconds()),
 				"timestamp_ns",
 			),
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
@@ -37,9 +50,9 @@ func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.
 		From(sql.NewSimpleCol(table, "samples")).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("samples.timestamp_ns"),
-				sql.NewIntVal(ctx.From.UnixNano()/15000000000*15000000000)),
+				sql.NewIntVal(from.UnixNano()/15000000000*15000000000)),
 			sql.Lt(sql.NewRawObject("samples.timestamp_ns"),
-				sql.NewIntVal((ctx.To.UnixNano()/15000000000)*15000000000)),
+				sql.NewIntVal((to.UnixNano()/15000000000)*15000000000)),
 			GetTypes(ctx)).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ns"))
 }

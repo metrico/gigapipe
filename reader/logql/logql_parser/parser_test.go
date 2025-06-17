@@ -46,6 +46,7 @@ func TestParser(t *testing.T) {
 		"{test_id=\"${testID}_json\"} | json sid=\"str_id\" | sid >= 598 or sid < 2 and sid > 0",
 		"{test_id=\"${testID}_json\"} | json | str_id < 2 or str_id >= 598 and str_id > 0",
 		"{test_id=\"${testID}_json\"} | json | drop a, b, __C__, d=\"e\"",
+		"count_over_time({test_id=\"${testID}_json\"} [1m] offset 1m)",
 	}
 	asts := make([]*LogQLScript, len(tests))
 	for i, str := range tests {

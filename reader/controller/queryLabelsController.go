@@ -78,6 +78,7 @@ type SeriesParams struct {
 	Match []string `query:"match[]"`
 	Raw   struct {
 		Match []string `query:"match[]"`
+		Query string   `query:"query"`
 	}
 }
 
@@ -127,7 +128,13 @@ func ParseLogSeriesParamsV2(r *http.Request, unit time.Duration) (SeriesParams, 
 	for _, v := range r.URL.Query()["match[]"] {
 		res.Raw.Match = append(res.Raw.Match, v)
 	}
+	if len(r.URL.Query()["query"]) > 0 {
+		res.Raw.Query = r.URL.Query().Get("query")
+	}
 	res.Match = res.Raw.Match
+	if res.Raw.Query != "" {
+		res.Match = append(res.Match, res.Raw.Query)
+	}
 	return res, nil
 }
 

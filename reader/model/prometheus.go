@@ -4,6 +4,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
+	"sync"
 )
 
 type ILabelsGetter interface {
@@ -12,7 +13,7 @@ type ILabelsGetter interface {
 
 type SeriesSet struct {
 	Error  error
-	Series []*Series
+	Series []*SeriesV2
 	idx    int
 }
 
@@ -42,20 +43,31 @@ type Sample struct {
 	Value       float64
 }
 
-type Series struct {
+type SeriesV2 struct {
 	LabelsGetter ILabelsGetter
 	Fp           uint64
 	Samples      []Sample
+	Prolong      bool
+	StepMs       int64
 }
 
-func (s *Series) Labels() labels.Labels {
+func (s *SeriesV2) Labels() labels.Labels {
 	return s.LabelsGetter.Get(s.Fp)
 }
 
-func (s *Series) Iterator() chunkenc.Iterator {
-	return &seriesIt{
-		samples: s.Samples,
-		idx:     -1,
+func (s *SeriesV2) Iterator() chunkenc.Iterator {
+	if !s.Prolong {
+		return &seriesIt{
+			samples: s.Samples,
+			idx:     -1,
+		}
+	}
+	return &prolongSeriesIt{
+		s: &seriesIt{
+			samples: s.Samples,
+			idx:     -1,
+		},
+		stepMs: s.StepMs,
 	}
 }
 
@@ -99,4 +111,79 @@ func (s *seriesIt) At() (int64, float64) {
 
 func (s *seriesIt) Err() error {
 	return nil
+}
+
+type prolongSeriesIt struct {
+	s           *seriesIt
+	prev        *Sample
+	next        *Sample
+	stepMs      int64
+	timestampMs int64
+	m           sync.Mutex
+}
+
+func (p *prolongSeriesIt) Err() error {
+	return p.s.Err()
+}
+
+func (p *prolongSeriesIt) Seek(t int64) bool {
+	p.m.Lock()
+	defer p.m.Unlock()
+	p.prev = nil
+	p.next = nil
+	if !p.s.Seek(t) {
+		return false
+	}
+	p.prev = &p.s.samples[p.s.idx]
+	p.timestampMs = p.prev.TimestampMs
+	if p.s.Next() {
+		p.next = &p.s.samples[p.s.idx]
+	}
+	return true
+}
+
+func (p *prolongSeriesIt) Next() bool {
+	p.m.Lock()
+	defer p.m.Unlock()
+	if p.prev == nil {
+		if !p.s.Next() {
+			return false
+		}
+		p.prev = &p.s.samples[p.s.idx]
+		if p.s.Next() {
+			p.next = &p.s.samples[p.s.idx]
+		}
+		p.timestampMs = p.prev.TimestampMs
+		return true
+	}
+
+	if p.next == nil {
+		if p.timestampMs > p.prev.TimestampMs+300000 {
+			return false
+		}
+		p.timestampMs += p.stepMs
+		return true
+	}
+
+	done := false
+	for p.timestampMs > p.prev.TimestampMs+300000 || (p.next != nil && p.timestampMs >= p.next.TimestampMs) {
+		p.prev = p.next
+		p.next = nil
+		if p.s.Next() {
+			p.next = &p.s.samples[p.s.idx]
+		}
+		p.timestampMs = p.prev.TimestampMs
+		done = true
+	}
+
+	if done {
+		return true
+	}
+
+	p.timestampMs += p.stepMs
+	return true
+}
+
+func (p *prolongSeriesIt) At() (int64, float64) {
+	return p.timestampMs, p.prev.Value
 }

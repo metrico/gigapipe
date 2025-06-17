@@ -1,4 +1,4 @@
-([]*logql_parser.LogQLScript) (len=38) {
+([]*logql_parser.LogQLScript) (len=39) {
   (*logql_parser.LogQLScript)({test_id="${testID}"}),
   (*logql_parser.LogQLScript)({test_id="${testID}",freq="2"}),
   (*logql_parser.LogQLScript)({test_id="${testID}",freq="2"} |~ "2[0-9]$"),
@@ -36,5 +36,6 @@
   (*logql_parser.LogQLScript)({test_id="${testID}"}| freq > 1 and (freq = "4" or freq == 2 or freq > 0.5)),
   (*logql_parser.LogQLScript)({test_id="${testID}_json"}| json sid = "str_id" | sid >= 598 or sid < 2 and sid > 0),
   (*logql_parser.LogQLScript)({test_id="${testID}_json"}| json | str_id < 2 or str_id >= 598 and str_id > 0),
-  (*logql_parser.LogQLScript)({test_id="${testID}_json"}| json | drop a,b,__C__,d="e")
+  (*logql_parser.LogQLScript)({test_id="${testID}_json"}| json | drop a,b,__C__,d="e"),
+  (*logql_parser.LogQLScript)(count_over_time ({test_id="${testID}_json"}[1m] offset 1m))
 }
