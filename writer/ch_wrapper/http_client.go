@@ -2,70 +2,55 @@ package ch_wrapper
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/metrico/qryn/writer/utils/heputils"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
 // HttpChClient implements the IChClient interface for HTTP connections
 type HttpChClient struct {
-	conn clickhouse.Conn
+	db *sql.DB
 }
 
 func NewHttpChClientFactory(dsn string) IChClientFactory {
 	return func() (IChClient, error) {
 		options, err := clickhouse.ParseDSN(dsn)
 		if err != nil {
-			options = &clickhouse.Options{
-				Addr: []string{dsn},
-				Auth: clickhouse.Auth{
-					Database: "default",
-					Username: "default",
-					Password: "",
-				},
-				Protocol: clickhouse.HTTP,
-				Settings: clickhouse.Settings{
-					"max_execution_time": 60,
-				},
-				DialTimeout:      time.Second * 30,
-				MaxOpenConns:     10,
-				MaxIdleConns:     5,
-				ConnMaxLifetime:  time.Hour,
-				ConnOpenStrategy: clickhouse.ConnOpenInOrder,
-			}
-		} else {
-			options.Protocol = clickhouse.HTTP
+			return nil, err
 		}
 
-		conn, err := clickhouse.Open(options)
-		if err != nil {
+		// Ensure we're using HTTP protocol
+		options.Protocol = clickhouse.HTTP
+
+		db := clickhouse.OpenDB(options)
+		if err := db.Ping(); err != nil {
+			db.Close()
 			return nil, fmt.Errorf("failed to open HTTP connection to ClickHouse: %w", err)
 		}
 
 		return &HttpChClient{
-			conn: conn,
+			db: db,
 		}, nil
 	}
 }
 
 func (c *HttpChClient) Ping(ctx context.Context) error {
-	if c.conn == nil {
+	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
-	return c.conn.Ping(ctx)
+	return c.db.PingContext(ctx)
 }
 
 func (c *HttpChClient) Do(ctx context.Context, query ch.Query) error {
-	if c.conn == nil {
+	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
 
@@ -80,8 +65,8 @@ func (c *HttpChClient) Do(ctx context.Context, query ch.Query) error {
 	}
 	return fmt.Errorf("input Data is empty")
 }
-func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input proto.Input) error {
 
+func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input proto.Input) error {
 	if len(input) == 0 {
 		return nil
 	}
@@ -92,15 +77,19 @@ func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input prot
 		return nil
 	}
 
-	//// Direct call to c.conn.PrepareBatch
-	//var batch interface{}
-	//var err error
-
-	batch, err := c.conn.PrepareBatch(ctx, sql)
-
+	// Start transaction
+	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer tx.Rollback()
+
+	// Prepare statement
+	stmt, err := tx.PrepareContext(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
 
 	// Insert rows
 	for row := 0; row < rowCount; row++ {
@@ -109,13 +98,13 @@ func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input prot
 			values[col] = c.getValue(column.Data, row)
 		}
 
-		if err := batch.Append(values...); err != nil {
-			return fmt.Errorf("failed to append row %d: %w", row, err)
+		if _, err := stmt.ExecContext(ctx, values...); err != nil {
+			return fmt.Errorf("failed to execute row %d: %w", row, err)
 		}
 	}
 
-	// Send the batch
-	return batch.Send()
+	// Commit transaction
+	return tx.Commit()
 }
 
 func (c *HttpChClient) getValue(data interface{}, row int) interface{} {
@@ -200,74 +189,79 @@ func (c *HttpChClient) getRowCount(data interface{}) int {
 }
 
 func (c *HttpChClient) Exec(ctx context.Context, query string, args ...any) error {
-	if c.conn == nil {
+	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
-	return c.conn.Exec(ctx, query, args...)
-}
-
-// ServerVersion returns the ClickHouse server version
-func (c *HttpChClient) ServerVersion() (*driver.ServerVersion, error) {
-	if c.conn == nil {
-		return nil, fmt.Errorf("connection is nil")
-	}
-	return c.conn.ServerVersion()
-}
-
-func (c *HttpChClient) GetFirst(req string, first ...interface{}) error {
-	res, err := c.Query(context.Background(), req)
-	if err != nil {
-		return err
-	}
-	defer res.Close()
-	res.Next()
-	err = res.Scan(first...)
+	_, err := c.db.ExecContext(ctx, query, args...)
 	return err
 }
 
-func (c *HttpChClient) Scan(ctx context.Context, req string, args []any, dest ...interface{}) error {
-	if c.conn == nil {
+// ServerVersion returns the ClickHouse server version
+// Note: This method is limited with SQL interface - we'll query the version
+func (c *HttpChClient) ServerVersion() (*driver.ServerVersion, error) {
+	if c.db == nil {
+		return nil, fmt.Errorf("connection is nil")
+	}
+
+	var version string
+	err := c.db.QueryRowContext(context.Background(), "SELECT version()").Scan(&version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server version: %w", err)
+	}
+
+	// Parse version string (simplified)
+	return &driver.ServerVersion{
+		Name:        "ClickHouse",
+		DisplayName: version,
+	}, nil
+}
+
+func (c *HttpChClient) GetFirst(req string, first ...interface{}) error {
+	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
-	row := c.conn.QueryRow(ctx, req, args...)
-	return row.Scan(dest...)
+	return c.db.QueryRowContext(context.Background(), req).Scan(first...)
+}
+
+func (c *HttpChClient) Scan(ctx context.Context, req string, args []any, dest ...interface{}) error {
+	if c.db == nil {
+		return fmt.Errorf("connection is nil")
+	}
+	return c.db.QueryRowContext(ctx, req, args...).Scan(dest...)
 }
 
 func (c *HttpChClient) DropIfEmpty(ctx context.Context, name string) error {
-	if c.conn == nil {
+	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
 
 	// Check if table is empty
 	countQuery := fmt.Sprintf("SELECT count(*) FROM %s", name)
-	row := c.conn.QueryRow(ctx, countQuery)
-
 	var count int64
-	if err := row.Scan(&count); err != nil {
+	if err := c.db.QueryRowContext(ctx, countQuery).Scan(&count); err != nil {
 		return fmt.Errorf("failed to check table count: %w", err)
 	}
 
 	// Drop if empty
 	if count == 0 {
 		dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s", name)
-		return c.conn.Exec(ctx, dropQuery)
+		_, err := c.db.ExecContext(ctx, dropQuery)
+		return err
 	}
 
 	return nil
 }
 
 func (c *HttpChClient) TableExists(ctx context.Context, name string) (bool, error) {
-	if c.conn == nil {
+	if c.db == nil {
 		return false, fmt.Errorf("connection is nil")
 	}
 
 	query := "SELECT 1 FROM system.tables WHERE name = ? LIMIT 1"
-	row := c.conn.QueryRow(ctx, query, name)
-
 	var exists int
-	err := row.Scan(&exists)
+	err := c.db.QueryRowContext(ctx, query, name).Scan(&exists)
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
+		if err == sql.ErrNoRows {
 			return false, nil
 		}
 		return false, err
@@ -277,7 +271,7 @@ func (c *HttpChClient) TableExists(ctx context.Context, name string) (bool, erro
 
 func (c *HttpChClient) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {
 	return func(ctx context.Context, query string, args ...[]interface{}) error {
-		if c.conn == nil {
+		if c.db == nil {
 			return fmt.Errorf("connection is nil")
 		}
 		// Convert [][]interface{} to []interface{} if needed
@@ -287,49 +281,54 @@ func (c *HttpChClient) GetDBExec(env map[string]string) func(ctx context.Context
 				flatArgs = append(flatArgs, arg)
 			}
 		}
-		return c.conn.Exec(ctx, query, flatArgs...)
+		_, err := c.db.ExecContext(ctx, query, flatArgs...)
+		return err
 	}
 }
 
 func (c *HttpChClient) GetVersion(ctx context.Context, k uint64) (uint64, error) {
-	rows, err := c.Query(ctx, "SELECT max(ver) as ver FROM ver WHERE k = $1 FORMAT JSON", k)
+	rows, err := c.Query(ctx, "SELECT max(ver) as ver FROM ver WHERE k = ? FORMAT JSON", k)
 	if err != nil {
 		return 0, err
 	}
+	defer rows.Close()
+
 	var ver uint64 = 0
-	for rows.Next() {
+	if rows.Next() {
 		err = rows.Scan(&ver)
 		if err != nil {
 			return 0, err
 		}
 	}
-	return ver, nil
+	return ver, rows.Err()
 }
 
 func (c *HttpChClient) GetSetting(ctx context.Context, tp string, name string) (string, error) {
 	fp := heputils.FingerprintLabelsDJBHashPrometheus([]byte(
 		fmt.Sprintf(`{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name)),
 	))
-	rows, err := c.Query(ctx, `SELECT argMax(value, inserted_at) as _value FROM settings WHERE fingerprint = $1 
+	rows, err := c.Query(ctx, `SELECT argMax(value, inserted_at) as _value FROM settings WHERE fingerprint = ? 
 GROUP BY fingerprint HAVING argMax(name, inserted_at) != ''`, fp)
 	if err != nil {
 		return "", err
 	}
+	defer rows.Close()
+
 	res := ""
-	for rows.Next() {
+	if rows.Next() {
 		err = rows.Scan(&res)
 		if err != nil {
 			return "", err
 		}
 	}
-	return res, nil
+	return res, rows.Err()
 }
 
 func (c *HttpChClient) PutSetting(ctx context.Context, tp string, name string, value string) error {
 	_name := fmt.Sprintf(`{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name))
 	fp := heputils.FingerprintLabelsDJBHashPrometheus([]byte(_name))
 	err := c.Exec(ctx, `INSERT INTO settings (fingerprint, type, name, value, inserted_at)
-VALUES ($1, $2, $3, $4, NOW())`, fp, tp, name, value)
+VALUES (?, ?, ?, ?, NOW())`, fp, tp, name, value)
 	return err
 }
 
@@ -340,6 +339,7 @@ func (c *HttpChClient) GetList(req string) ([]string, error) {
 		return nil, err
 	}
 	defer res.Close()
+
 	arr := make([]string, 0)
 	for res.Next() {
 		var val string
@@ -350,28 +350,139 @@ func (c *HttpChClient) GetList(req string) ([]string, error) {
 		}
 		arr = append(arr, val)
 	}
-	return arr, nil
+	return arr, res.Err()
 }
 
 func (c *HttpChClient) Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
-	if c.conn == nil {
+	if c.db == nil {
 		return nil, fmt.Errorf("connection is nil")
 	}
-	return c.conn.Query(ctx, query, args...)
+
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &sqlRowsWrapper{rows: rows}, nil
 }
+
 func (c *HttpChClient) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
-	if c.conn == nil {
+	if c.db == nil {
 		return &errorRow{err: fmt.Errorf("connection is nil")}
 	}
-	return c.conn.QueryRow(ctx, query, args...)
+
+	row := c.db.QueryRowContext(ctx, query, args...)
+	return &sqlRowWrapper{row: row}
 }
 
 // Close closes the connection
 func (c *HttpChClient) Close() error {
-	if c.conn == nil {
+	if c.db == nil {
 		return nil
 	}
-	return c.conn.Close()
+	return c.db.Close()
+}
+
+// sqlRowsWrapper wraps sql.Rows to implement driver.Rows interface
+type sqlRowsWrapper struct {
+	rows *sql.Rows
+}
+
+func (r *sqlRowsWrapper) Next() bool {
+	return r.rows.Next()
+}
+
+func (r *sqlRowsWrapper) Scan(dest ...interface{}) error {
+	return r.rows.Scan(dest...)
+}
+
+func (r *sqlRowsWrapper) ScanStruct(dest interface{}) error {
+	// This is a simplified implementation - you might need to use reflection
+	// or a third-party library for proper struct scanning
+	return fmt.Errorf("ScanStruct not implemented for HTTP client")
+}
+
+func (r *sqlRowsWrapper) Close() error {
+	return r.rows.Close()
+}
+
+func (r *sqlRowsWrapper) Err() error {
+	return r.rows.Err()
+}
+
+func (r *sqlRowsWrapper) Columns() []string {
+	columns, err := r.rows.Columns()
+	if err != nil {
+		return nil
+	}
+	return columns
+}
+
+func (r *sqlRowsWrapper) ColumnTypes() []driver.ColumnType {
+	sqlColumnTypes, err := r.rows.ColumnTypes()
+	if err != nil {
+		return nil
+	}
+
+	columnTypes := make([]driver.ColumnType, len(sqlColumnTypes))
+	for i, sqlCol := range sqlColumnTypes {
+		columnTypes[i] = &columnTypeWrapper{sqlCol}
+	}
+	return columnTypes
+}
+
+func (r *sqlRowsWrapper) Totals(dest ...interface{}) error {
+	// HTTP interface doesn't support totals
+	return fmt.Errorf("totals not supported in HTTP interface")
+}
+
+// columnTypeWrapper wraps sql.ColumnType to implement driver.ColumnType interface
+type columnTypeWrapper struct {
+	sqlColumnType *sql.ColumnType
+}
+
+func (c *columnTypeWrapper) Name() string {
+	return c.sqlColumnType.Name()
+}
+
+func (c *columnTypeWrapper) DatabaseTypeName() string {
+	return c.sqlColumnType.DatabaseTypeName()
+}
+
+func (c *columnTypeWrapper) ScanType() reflect.Type {
+	return c.sqlColumnType.ScanType()
+}
+
+func (c *columnTypeWrapper) Nullable() bool {
+	nullable, ok := c.sqlColumnType.Nullable()
+	return ok && nullable
+}
+
+func (c *columnTypeWrapper) Length() (length int64, ok bool) {
+	return c.sqlColumnType.Length()
+}
+
+func (c *columnTypeWrapper) DecimalSize() (precision, scale int64, ok bool) {
+	return c.sqlColumnType.DecimalSize()
+}
+
+// sqlRowWrapper wraps sql.Row to implement driver.Row interface
+type sqlRowWrapper struct {
+	row *sql.Row
+}
+
+func (r *sqlRowWrapper) Scan(dest ...interface{}) error {
+	return r.row.Scan(dest...)
+}
+
+func (r *sqlRowWrapper) ScanStruct(dest interface{}) error {
+	// This is a simplified implementation
+	return fmt.Errorf("ScanStruct not implemented for HTTP client")
+}
+
+func (r *sqlRowWrapper) Err() error {
+	// sql.Row doesn't have an Err() method, so we return nil
+	return nil
 }
 
 // errorRow is a helper type for returning errors from QueryRow when connection is nil
@@ -390,20 +501,3 @@ func (r *errorRow) ScanStruct(dest interface{}) error {
 func (r *errorRow) Err() error {
 	return r.err
 }
-
-//func TestHttpConnection(factory IHttpChClientFactory) error {
-//	client, err := factory()
-//	if err != nil {
-//		return fmt.Errorf("failed to create client: %w", err)
-//	}
-//	defer client.Close()
-//
-//	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-//	defer cancel()
-//
-//	if err := client.Ping(ctx); err != nil {
-//		return fmt.Errorf("ping failed: %w", err)
-//	}
-//
-//	return nil
-//}
