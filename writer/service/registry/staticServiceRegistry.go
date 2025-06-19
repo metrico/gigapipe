@@ -8,45 +8,46 @@ import (
 )
 
 type staticServiceRegistry struct {
-	TimeSeriesSvcs   []service.IInsertServiceV2
-	SamplesSvcs      []service.IInsertServiceV2
-	MetricSvcs       []service.IInsertServiceV2
-	TempoSamplesSvc  []service.IInsertServiceV2
-	TempoTagsSvc     []service.IInsertServiceV2
-	ProfileInsertSvc []service.IInsertServiceV2
-	rand             *rand.Rand
-	mtx              sync.Mutex
+	TimeSeriesSvcs    []service.IInsertServiceV2
+	SamplesSvcs       []service.IInsertServiceV2
+	MetricSvcs        []service.IInsertServiceV2
+	TempoSamplesSvcs  []service.IInsertServiceV2
+	TempoTagsSvcs     []service.IInsertServiceV2
+	ProfileInsertSvcs []service.IInsertServiceV2
+	PatternInsertSvcs []service.IInsertServiceV2
+	rand              *rand.Rand
+	mtx               sync.Mutex
 }
 
-func NewStaticServiceRegistry(
-	TimeSeriesSvcs map[string]service.IInsertServiceV2,
-	SamplesSvcs map[string]service.IInsertServiceV2,
-	MetricSvcs map[string]service.IInsertServiceV2,
-	TempoSamplesSvc map[string]service.IInsertServiceV2,
-	TempoTagsSvc map[string]service.IInsertServiceV2,
-	ProfileInsertSvc map[string]service.IInsertServiceV2) IServiceRegistry {
+type StaticServiceRegistryOpts struct {
+	TimeSeriesSvcs    map[string]service.IInsertServiceV2
+	SamplesSvcs       map[string]service.IInsertServiceV2
+	MetricSvcs        map[string]service.IInsertServiceV2
+	TempoSamplesSvcs  map[string]service.IInsertServiceV2
+	TempoTagsSvcs     map[string]service.IInsertServiceV2
+	ProfileInsertSvcs map[string]service.IInsertServiceV2
+	PatternInsertSvcs map[string]service.IInsertServiceV2
+}
+
+func mapToSlice(m map[string]service.IInsertServiceV2) []service.IInsertServiceV2 {
+	var ss []service.IInsertServiceV2
+	for _, s := range m {
+		ss = append(ss, s)
+	}
+	return ss
+}
+
+func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) IServiceRegistry {
 	res := staticServiceRegistry{
 		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
-	for _, s := range TimeSeriesSvcs {
-		res.TimeSeriesSvcs = append(res.TimeSeriesSvcs, s)
-	}
-	for _, s := range SamplesSvcs {
-		res.SamplesSvcs = append(res.SamplesSvcs, s)
-	}
-	for _, s := range MetricSvcs {
-		res.MetricSvcs = append(res.MetricSvcs, s)
-	}
-	for _, s := range TempoSamplesSvc {
-		res.TempoSamplesSvc = append(res.TempoSamplesSvc, s)
-	}
-
-	for _, s := range ProfileInsertSvc {
-		res.ProfileInsertSvc = append(res.ProfileInsertSvc, s)
-	}
-	for _, s := range TempoTagsSvc {
-		res.TempoTagsSvc = append(res.TempoTagsSvc, s)
-	}
+	res.TimeSeriesSvcs = mapToSlice(opts.TimeSeriesSvcs)
+	res.SamplesSvcs = mapToSlice(opts.SamplesSvcs)
+	res.MetricSvcs = mapToSlice(opts.MetricSvcs)
+	res.TempoSamplesSvcs = mapToSlice(opts.TempoSamplesSvcs)
+	res.TempoTagsSvcs = mapToSlice(opts.TempoTagsSvcs)
+	res.ProfileInsertSvcs = mapToSlice(opts.ProfileInsertSvcs)
+	res.PatternInsertSvcs = mapToSlice(opts.PatternInsertSvcs)
 	return &res
 }
 
@@ -85,17 +86,21 @@ func (r *staticServiceRegistry) GetMetricsService(id string) (service.IInsertSer
 }
 
 func (r *staticServiceRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {
-	return r.getService(id, r.TempoSamplesSvc)
+	return r.getService(id, r.TempoSamplesSvcs)
 
 }
 
 func (r *staticServiceRegistry) GetSpansSeriesService(id string) (service.IInsertServiceV2, error) {
-	return r.getService(id, r.TempoTagsSvc)
+	return r.getService(id, r.TempoTagsSvcs)
 }
 
 func (r *staticServiceRegistry) GetProfileInsertService(id string) (service.IInsertServiceV2, error) {
-	return r.getService(id, r.ProfileInsertSvc)
+	return r.getService(id, r.ProfileInsertSvcs)
 }
+func (r *staticServiceRegistry) GetPatternInsertService(id string) (service.IInsertServiceV2, error) {
+	return r.getService(id, r.PatternInsertSvcs)
+}
+
 func (r *staticServiceRegistry) Run() {}
 
 func (r *staticServiceRegistry) Stop() {}

@@ -200,5 +200,15 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 		return err
 	}
 
+	err = rotateTables(db, clusterName, distributed, days,
+		minTTL,
+		"toDateTime(timestamp_10m * 600)",
+		logDefaultTTLString("toDateTime(timestamp_10m * 600)"),
+		"patterns",
+		logger, "patterns")
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

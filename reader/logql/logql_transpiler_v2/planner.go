@@ -15,6 +15,7 @@ const (
 )
 
 func Plan(script *logql_parser.LogQLScript) (shared.RequestProcessorChain, error) {
+	cancelJsonAndLogFmt(script)
 	for _, plugin := range plugins.GetLogQLPlannerPlugins() {
 		res, err := plugin.Plan(script)
 		if err == nil {
@@ -84,6 +85,14 @@ func PlanFingerprints(script *logql_parser.LogQLScript) (shared.SQLRequestPlanne
 	return clickhouse_planner.PlanFingerprints(script)
 }
 
+func PlanDetectLabels(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
+	return clickhouse_planner.PlanDetectLabels(script)
+}
+
+func PlanPatterns(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
+	return clickhouse_planner.PlanPatterns(script)
+}
+
 func GetBreakpoint(node any) (int, error) {
 	dfs := func(node ...any) (int, error) {
 		for _, n := range node {
@@ -130,6 +139,18 @@ func GetBreakpoint(node any) (int, error) {
 		return BreakpointNo, nil
 	}
 	return BreakpointNo, nil
+}
+
+// TODO: this should be replaced wit a semistructured log ingestor
+func cancelJsonAndLogFmt(script *logql_parser.LogQLScript) {
+	strSel := shared.GetStrSelector(script)
+	for i := len(strSel.Pipelines) - 2; i >= 0; i-- {
+		ppl := &strSel.Pipelines[i]
+		if ppl.Parser != nil && strSel.Pipelines[i+1].Parser != nil {
+			copy(strSel.Pipelines[i:], strSel.Pipelines[i+2:])
+			strSel.Pipelines = strSel.Pipelines[:len(strSel.Pipelines)-2]
+		}
+	}
 }
 
 func breakScript(breakpoint int, script *logql_parser.LogQLScript,

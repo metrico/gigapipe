@@ -87,6 +87,20 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 }
 
 func parseQueryRangePropsV2(r *http.Request) (QueryRangeProps, error) {
+	res, err := parseQueryRangePropsV3(r)
+	if err != nil {
+		return res, err
+	}
+	if res.Query == "" {
+		return res, fmt.Errorf("query is undefined")
+	}
+	if res.Raw.Step == "" {
+		return res, fmt.Errorf("step is undefined")
+	}
+	return res, nil
+}
+
+func parseQueryRangePropsV3(r *http.Request) (QueryRangeProps, error) {
 	res := QueryRangeProps{}
 	var err error
 	if r.Method == "POST" && r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
@@ -118,10 +132,9 @@ func parseQueryRangePropsV2(r *http.Request) (QueryRangeProps, error) {
 		return res, err
 	}
 	res.Query = res.Raw.Query
-	if res.Query == "" {
-		return res, fmt.Errorf("query is undefined")
+	if res.Raw.Step != "" {
+		res.Step, err = parseDuration(res.Raw.Step)
 	}
-	res.Step, err = parseDuration(res.Raw.Step)
 	return res, err
 }
 

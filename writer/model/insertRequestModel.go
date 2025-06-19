@@ -215,3 +215,34 @@ type TempoSamples struct {
 func (t *TempoSamples) GetSize() int64 {
 	return int64(t.Size)
 }
+
+type PatternsData struct {
+	MTimestamp10m    []uint32
+	MFingerprint     []uint64
+	MTimestampS      []uint32
+	MTokens          [][]string
+	MClasses         [][]uint32
+	MWriterID        []string
+	MOverallCost     []uint32
+	MGeneralizedCost []uint32
+	MSamplesCount    []uint32
+}
+
+func (t *PatternsData) GetSize() int64 {
+	if len(t.MTimestamp10m) == 0 {
+		return 0
+	}
+	//writerIdSize := len(t.MWriterID[0]) + 1 TODO
+	arraysSize := int64(0)
+	for i, tokens := range t.MTokens {
+		for _, t := range tokens {
+			arraysSize += int64(len(t) + 1)
+		}
+		arraysSize += int64(len(t.MClasses[i]) * 4)
+	}
+	return arraysSize +
+		int64(
+			len(t.MTimestamp10m)*4+len(t.MFingerprint)*8+len(t.MTimestampS)*4+len(t.MOverallCost)*4+
+				len(t.MGeneralizedCost)*4+len(t.MSamplesCount)*4)
+	//+len(t.MWriterID)*writerIdSize) TODO
+}

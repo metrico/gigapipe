@@ -8,7 +8,6 @@ import (
 	controllerv1 "github.com/metrico/qryn/writer/controller"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/plugin"
-	"github.com/metrico/qryn/writer/service/impl"
 	"github.com/metrico/qryn/writer/utils/numbercache"
 )
 
@@ -27,14 +26,10 @@ func Init(cfg *clconfig.ClokiConfig, router *mux.Router) {
 	/* first check admin flags */
 	config.Cloki = cfg
 
-	var factory plugin.InsertServiceFactory
-
-	factory = &impl.DevInsertServiceFactory{}
-
 	qrynPlugin := &plugin.QrynWriterPlugin{}
 
 	qrynPlugin.Initialize(*config.Cloki.Setting)
-	qrynPlugin.CreateStaticServiceRegistry(*config.Cloki.Setting, factory)
+	qrynPlugin.CreateStaticServiceRegistry(*config.Cloki.Setting)
 
 	go qrynPlugin.StartPushStat()
 	controllerv1.Registry = plugin.ServiceRegistry

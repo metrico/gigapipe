@@ -34,6 +34,7 @@ type PlannerContext struct {
 	TimeSeriesTableName     string
 	TimeSeriesDistTableName string
 	Metrics15sTableName     string
+	PatternsTable           string
 
 	TracesAttrsTable     string
 	TracesAttrsDistTable string
@@ -48,6 +49,7 @@ type PlannerContext struct {
 	ProfilesDistTable          string
 	ProfilesSeriesTable        string
 	ProfilesSeriesDistTable    string
+	PatternsDistTable          string
 
 	UseCache bool
 

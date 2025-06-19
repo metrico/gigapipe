@@ -41,6 +41,7 @@ var MtrSvcs = make(service.InsertSvcMap)
 var TempoSamplesSvcs = make(service.InsertSvcMap)
 var TempoTagsSvcs = make(service.InsertSvcMap)
 var ProfileInsertSvcs = make(service.InsertSvcMap)
+var PatternInsertSvcs = make(service.InsertSvcMap)
 
 //var servicesObject ServicesObject
 //var usageStatsService *usage.TSStats

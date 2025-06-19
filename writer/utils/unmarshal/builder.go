@@ -295,6 +295,42 @@ func (p *parserDoer) calculateProfileSize() int {
 	return size
 
 }
+
+var serviceNameCandidates = map[string]bool{
+	"service":                true,
+	"app":                    true,
+	"application":            true,
+	"app_name":               true,
+	"name":                   true,
+	"app_kubernetes_io_name": true,
+	"container":              true,
+	"container_name":         true,
+	"k8s_container_name":     true,
+	"component":              true,
+	"workload":               true,
+	"job":                    true,
+	"k8s_job_name":           true,
+}
+
+func (p *parserDoer) discoverServiceName(labels *[][]string, timestampsNS *[]int64,
+	message *[]string, value *[]float64, types *[]uint8) {
+	serviceNameExists := false
+	serviceName := ""
+	for _, l := range *labels {
+		if l[0] == "service_name" {
+			serviceNameExists = true
+			serviceName = ""
+			break
+		}
+		if serviceNameCandidates[l[0]] {
+			serviceName = l[1]
+		}
+	}
+	if !serviceNameExists {
+		*labels = append(*labels, []string{"service_name", serviceName})
+	}
+}
+
 func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	message []string, value []float64, types []uint8) error {
 
@@ -313,6 +349,8 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 		}
 		labels = _labels
 	}
+
+	p.discoverServiceName(&labels, &timestampsNS, &message, &value, &types)
 
 	dates := map[time.Time]bool{}
 	fp := fingerprintLabels(labels)

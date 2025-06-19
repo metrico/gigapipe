@@ -9,6 +9,7 @@ type IServiceRegistry interface {
 	GetSpansService(id string) (service.IInsertServiceV2, error)
 	GetSpansSeriesService(id string) (service.IInsertServiceV2, error)
 	GetProfileInsertService(id string) (service.IInsertServiceV2, error)
+	GetPatternInsertService(id string) (service.IInsertServiceV2, error)
 	Run()
 	Stop()
 }
