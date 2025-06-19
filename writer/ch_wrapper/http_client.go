@@ -63,7 +63,8 @@ func (c *HttpChClient) Do(ctx context.Context, query ch.Query) error {
 	if len(query.Input) > 0 {
 		return c.executeInsert(ctx, sqlQuery, query.Input)
 	}
-	return fmt.Errorf("input Data is empty")
+	_, err := c.db.ExecContext(ctx, sqlQuery)
+	return err
 }
 
 func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input proto.Input) error {
