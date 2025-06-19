@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ClickHouse/ch-go"
+	"github.com/ClickHouse/ch-go/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -57,9 +58,15 @@ func TestNewHttpChClientFactory(t *testing.T) {
 	assert.NoError(t, err, "Table creation should succeed")
 
 	// Insert data with proper error handling
-	insertQuery := fmt.Sprintf("INSERT INTO %s (a) VALUES (1)", tableName)
+	insertQuery := fmt.Sprintf("INSERT INTO %s (a)", tableName)
 	err = client.Do(ctx, ch.Query{
 		Body: insertQuery,
+		Input: proto.Input{
+			proto.InputColumn{
+				Name: "a",
+				Data: proto.ColUInt8{1},
+			},
+		},
 	})
 	if err != nil {
 		t.Logf("Insert error: %v", err)
