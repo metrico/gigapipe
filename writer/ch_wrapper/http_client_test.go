@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewHttpChClientFactory(t *testing.T) {
-	// Improved DSN format - ensure proper encoding
+	//should be DSN Value.
 	dsn := "http://default:PW@localhost:8234/default"
 
 	factory := NewHttpChClientFactory(dsn)
