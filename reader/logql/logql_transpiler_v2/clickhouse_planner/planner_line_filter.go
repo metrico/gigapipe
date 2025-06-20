@@ -60,6 +60,10 @@ func (l *LineFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			}, sql.NewIntVal(1))
 		}
 		break
+	case "|>":
+		likeOp := l.patternMatch(l.Val)
+		clause = sql.BinaryLogicalOp("LIKE", sql.NewRawObject("string"), sql.NewStringVal(likeOp))
+		break
 	default:
 		err = &shared.NotSupportedError{fmt.Sprintf("%s not supported", l.Op)}
 	}
@@ -83,6 +87,38 @@ func (l *LineFilterPlanner) doLike(likeOp string) (sql.SQLCondition, error) {
 	), nil
 }
 
+func (l *LineFilterPlanner) patternMatch(match string) string {
+	var placeholdes []int
+	start := 0
+	for true {
+		i := strings.Index(match[start:], "<_>")
+		if i < 0 {
+			break
+		}
+		if i == 0 {
+			placeholdes = append(placeholdes, i+start)
+			start += i + 3
+			continue
+		}
+		j := i - 1
+		for ; j >= 0 && match[start+j] == '\\'; j-- {
+		}
+		if (i-j-1)%2 != 0 {
+			start += i + 3
+			continue
+		}
+		placeholdes = append(placeholdes, i+start)
+		start += i + 3
+	}
+	likeOp := ""
+	start = 0
+	for _, i := range placeholdes {
+		likeOp += fmt.Sprintf("%s%%", match[start:i])
+		start = i + 3
+	}
+	return likeOp
+}
+
 func (l *LineFilterPlanner) enquoteStr(str string) (string, error) {
 	return sql.NewStringVal(str).String(&sql.Ctx{
 		Params: map[string]sql.SQLObject{},
@@ -98,6 +134,5 @@ func (l *LineFilterPlanner) re2Like() (string, bool, bool) {
 	if exp.Op != syntax.OpLiteral || exp.Flags & ^(syntax.PerlX|syntax.FoldCase) != 0 {
 		return "", false, false
 	}
-
 	return string(exp.Rune), exp.Flags&syntax.FoldCase != 0, true
 }

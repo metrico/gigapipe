@@ -132,7 +132,7 @@ func (s *StrSelectorPipeline) String() string {
 }
 
 type LineFilter struct {
-	Fn  string       `@("|="|"!="|"|~"|"!~")`
+	Fn  string       `@("|="|"!="|"|~"|"!~"|"|>")`
 	Val QuotedString `@@`
 }
 

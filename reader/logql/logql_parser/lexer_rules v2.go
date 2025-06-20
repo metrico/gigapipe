@@ -27,7 +27,7 @@ var LogQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Nre", `!~`},
 	{"Eq", `=`},
 
-	{"PipeLineFilter", `(\|=|\|~)`},
+	{"PipeLineFilter", `(\|=|\|~|\|>)`},
 	{"Pipe", `\|`},
 	{"Dot", `\.`},
 
