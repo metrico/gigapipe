@@ -1,6 +1,8 @@
 package clustering
 
 import (
+	"github.com/go-faster/city"
+	"github.com/metrico/qryn/writer/utils/logger"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +67,7 @@ type TokenType int
 // ------------------------ Drain Clustering Section ------------------------
 
 const (
-	DefaultSimilarity = 0.8 // Similarity threshold for clustering.
+	DefaultSimilarity = 0.7 // Similarity threshold for clustering.
 )
 
 type LogClusterSample struct {
@@ -75,21 +77,88 @@ type LogClusterSample struct {
 	Count           int
 	OverallCost     int
 	GeneralizedCost int
+	PatternId       uint64
+	IterationId     uint64
 }
 
 // LogCluster represents a log message cluster.
 type LogCluster struct {
-	Tokens    []Token
-	LineCount int64
-	Samples   []LogClusterSample
+	PatternId   uint64
+	IterationId uint64
+	Tokens      []Token
+	LineCount   int64
+	Samples     []LogClusterSample
 
 	OverallCost     int
 	GeneralizedCost int
 	ID              LogClusterId
-	lastGeneralized time.Time
+	lastFlush       time.Time
+	matcher         patternMatcherV1
+}
+
+func newLogCluster(line *LogLine) *LogCluster {
+	tokens := make([]Token, len(line.Tokens))
+	copy(tokens, line.Tokens)
+	res := &LogCluster{
+		Tokens:      tokens,
+		PatternId:   city.CH64([]byte(line.Line)),
+		IterationId: uint64(time.Now().UnixNano()),
+		LineCount:   1,
+		Samples: []LogClusterSample{{
+			Fingerprint: line.Fingerprint,
+			TimestampS:  uint32(line.TimestampNs / 1000000000),
+			Count:       1,
+		}},
+		OverallCost:     getOverallCost(line.Tokens),
+		GeneralizedCost: 0,
+		ID:              LogClusterId{},
+		lastFlush:       time.Now(),
+		matcher:         newPatternMatcherV1(line.Tokens),
+	}
+	return res
+}
+
+func loadLogCluster(info *PatternInfo) *LogCluster {
+	tokens := make([]Token, len(info.Tokens))
+	copy(tokens, info.Tokens)
+	res := &LogCluster{
+		Tokens:          tokens,
+		PatternId:       info.Id,
+		IterationId:     info.IterationId,
+		OverallCost:     info.OverallCost,
+		GeneralizedCost: info.GeneralizedCost,
+		ID:              LogClusterId{},
+		lastFlush:       time.Now(),
+		matcher:         newPatternMatcherV1(info.Tokens),
+	}
+	return res
+}
+
+func (c *LogCluster) addSample(line *LogLine) {
+	l := len(c.Samples)
+	timestampS := uint32(line.TimestampNs / 1000000000)
+	if l != 0 && c.Samples[l-1].Fingerprint == line.Fingerprint && c.Samples[l-1].TimestampS == timestampS {
+		c.Samples[l-1].Count++
+		return
+	}
+	c.Samples = append(c.Samples, LogClusterSample{
+		Fingerprint: line.Fingerprint,
+		TimestampS:  timestampS,
+		Count:       1,
+	})
+}
+
+func (c *LogCluster) sync(iteration uint64, tokens []Token) {
+	c.Tokens = tokens
+	c.IterationId = iteration
+	c.matcher = newPatternMatcherV1(tokens)
 }
 
 func (c *LogCluster) generalize(line *LogLine) bool {
+	if c.matcher.match(line.Line) {
+		c.addSample(line)
+		return true
+	}
 	difference := make([]byte, (len(line.Tokens)+7)/8)
 	differenceCost := 0
 	i := 0
@@ -121,21 +190,11 @@ func (c *LogCluster) generalize(line *LogLine) bool {
 		}
 	}
 	c.GeneralizedCost += differenceCost
-	c.lastGeneralized = time.Now()
-
-	lastIdx := len(c.Samples) - 1
-	timestampS := uint32(line.TimestampNs / 1000000000)
-	if lastIdx != 0 || c.Samples[lastIdx].TimestampS != timestampS {
-		c.Samples = append(
-			c.Samples,
-			LogClusterSample{
-				Fingerprint: line.Fingerprint,
-				TimestampS:  timestampS,
-				Count:       1,
-			})
-	} else {
-		c.Samples[len(c.Samples)-1].Count++
+	if differenceCost != 0 {
+		c.IterationId = uint64(time.Now().UnixNano())
+		c.matcher = newPatternMatcherV1(c.Tokens)
 	}
+	c.addSample(line)
 	return true
 }
 
@@ -155,17 +214,20 @@ func (c *LogCluster) flush() []LogClusterSample {
 	for _, s := range c.Samples {
 		overallSamples += s.Count
 	}
-	if overallSamples < 2 {
+	if overallSamples < 10 {
 		return nil
 	}
 	samples := c.Samples
 	tokens := append([]Token{}, c.Tokens...)
 	for i := range c.Samples {
+		samples[i].PatternId = c.PatternId
+		samples[i].IterationId = c.IterationId
 		samples[i].Tokens = tokens
 		samples[i].OverallCost = c.OverallCost
 		samples[i].GeneralizedCost = c.GeneralizedCost
 	}
 	c.Samples = nil
+	c.lastFlush = time.Now()
 	return samples
 }
 
@@ -205,7 +267,7 @@ func getLogId(log *LogLine) LogClusterId {
 
 type LogClusterRow struct {
 	clusters []*LogCluster
-	m        sync.Mutex
+	m        sync.RWMutex
 }
 
 func (r *LogClusterRow) add(line *LogLine) {
@@ -216,20 +278,7 @@ func (r *LogClusterRow) add(line *LogLine) {
 			return
 		}
 	}
-	r.clusters = append(r.clusters,
-		&LogCluster{
-			Tokens:    line.Tokens,
-			LineCount: 1,
-			Samples: []LogClusterSample{{
-				Fingerprint: line.Fingerprint,
-				TimestampS:  uint32(line.TimestampNs / 1000000000),
-				Count:       1,
-			}},
-			OverallCost:     getOverallCost(line.Tokens),
-			GeneralizedCost: 0,
-			ID:              LogClusterId{},
-			lastGeneralized: time.Now(),
-		})
+	r.clusters = append(r.clusters, newLogCluster(line))
 }
 
 func (r *LogClusterRow) flush() []LogClusterSample {
@@ -239,15 +288,27 @@ func (r *LogClusterRow) flush() []LogClusterSample {
 	for _, clust := range r.clusters {
 		samples = append(samples, clust.flush()...)
 	}
-	r.clusters = nil
 	return samples
+}
+
+func (r *LogClusterRow) match(l *LogLine) bool {
+	r.m.RLock()
+	r.m.RUnlock()
+	var res bool
+	for _, c := range r.clusters {
+		if c.matcher.match(l.Line) {
+			res = true
+			c.addSample(l)
+		}
+	}
+	return res
 }
 
 func (r *LogClusterRow) cleanup() {
 	r.m.Lock()
 	defer r.m.Unlock()
 	for i := len(r.clusters) - 1; i >= 0; i-- {
-		if time.Since(r.clusters[i].lastGeneralized) > time.Minute*5 {
+		if time.Since(r.clusters[i].lastFlush) > time.Minute*5 {
 			copy(r.clusters[i:], r.clusters[i+1:])
 			r.clusters = r.clusters[:len(r.clusters)-1]
 		}
@@ -255,13 +316,13 @@ func (r *LogClusterRow) cleanup() {
 }
 
 type LogClusterer struct {
-	clusters map[LogClusterId]*LogClusterRow
+	clusters map[string]map[LogClusterId]*LogClusterRow
 	m        sync.RWMutex
 }
 
 func NewLogClusterer() *LogClusterer {
 	return &LogClusterer{
-		clusters: make(map[LogClusterId]*LogClusterRow),
+		clusters: make(map[string]map[LogClusterId]*LogClusterRow),
 	}
 }
 
@@ -274,30 +335,58 @@ func getOverallCost(tokens []Token) int {
 }
 
 func (c *LogClusterer) get(id LogClusterId) *LogClusterRow {
+	c.m.RLock()
+	defer c.m.RUnlock()
+	if _, ok := c.clusters[id.FirstToken.Value]; !ok {
+		return nil
+	}
+	return c.clusters[id.FirstToken.Value][id]
+}
+
+func (c *LogClusterer) getOrCreate(id LogClusterId) *LogClusterRow {
 	c.m.Lock()
 	defer c.m.Unlock()
-	clusters, ok := c.clusters[id]
-	if !ok {
-		c.clusters[id] = &LogClusterRow{}
-		return c.clusters[id]
+	if _, ok := c.clusters[id.FirstToken.Value]; !ok {
+		c.clusters[id.FirstToken.Value] = make(map[LogClusterId]*LogClusterRow)
 	}
-	return clusters
+	if _, ok := c.clusters[id.FirstToken.Value][id]; !ok {
+		c.clusters[id.FirstToken.Value][id] = &LogClusterRow{}
+	}
+	return c.clusters[id.FirstToken.Value][id]
+}
+
+func (c *LogClusterer) checkMatch(id LogClusterId, log *LogLine) bool {
+	c.m.RLock()
+	defer c.m.RUnlock()
+	var matched bool
+	for _, _c := range c.clusters[id.FirstToken.Value] {
+		matched = matched || _c.match(log)
+	}
+	return matched
 }
 
 func (c *LogClusterer) Add(log *LogLine) {
+	if len(log.Tokens) == 0 || log.Line == "" {
+		return
+	}
 	id := getLogId(log)
 	row := c.get(id)
-	c.m.RLock()
-	defer c.m.RUnlock()
-	row.add(log)
+	if row == nil {
+		row = c.getOrCreate(id)
+	}
+	if !c.checkMatch(id, log) {
+		row.add(log)
+	}
 }
 
 func (c *LogClusterer) Flush() []LogClusterSample {
 	c.m.Lock()
 	defer c.m.Unlock()
 	var samples []LogClusterSample
-	for _, row := range c.clusters {
-		samples = append(samples, row.flush()...)
+	for _, _row := range c.clusters {
+		for _, row := range _row {
+			samples = append(samples, row.flush()...)
+		}
 	}
 	return samples
 }
@@ -306,13 +395,108 @@ func (c *LogClusterer) Cleanup() {
 	c.m.Lock()
 	defer c.m.Unlock()
 	var toDelete []LogClusterId
-	// Waiting for all the pending Add to finish
-	time.Sleep(time.Millisecond)
-	for k, row := range c.clusters {
-		row.cleanup()
-		toDelete = append(toDelete, k)
+	for _, _row := range c.clusters {
+		for k, row := range _row {
+			row.cleanup()
+			if len(row.clusters) == 0 {
+				toDelete = append(toDelete, k)
+			}
+		}
 	}
+	var _toDelete []string
 	for _, id := range toDelete {
+		delete(c.clusters[id.FirstToken.Value], id)
+		if len(c.clusters[id.FirstToken.Value]) == 0 {
+			_toDelete = append(_toDelete, id.FirstToken.Value)
+		}
+	}
+	for _, id := range _toDelete {
 		delete(c.clusters, id)
 	}
+}
+
+type PatternSyncSvc interface {
+	GetPatternIDs() ([][2]uint64, error)
+	GetPatterns(patternIds []uint64) ([]PatternInfo, error)
+}
+
+type PatternInfo struct {
+	Id              uint64
+	IterationId     uint64
+	OverallCost     int
+	GeneralizedCost int
+	Tokens          []Token
+}
+
+func (c *LogClusterer) SyncPatterns(svc PatternSyncSvc) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	logger.Info("Syncing clusters...")
+	start := time.Now()
+	var patternsToRequest []uint64
+	patternIds, err := svc.GetPatternIDs()
+	if err != nil {
+		return err
+	}
+	patternIDsMap := map[uint64]uint64{}
+	for _, id := range patternIds {
+		if iter, ok := patternIDsMap[id[0]]; !ok || iter < id[1] {
+			patternIDsMap[id[0]] = id[1]
+		}
+	}
+	for _, __clust := range c.clusters {
+		for _, _clust := range __clust {
+			for _, clust := range _clust.clusters {
+				iterationId := patternIDsMap[clust.PatternId]
+				if iterationId == 0 {
+					continue
+				}
+				if iterationId <= clust.IterationId {
+					delete(patternIDsMap, clust.PatternId)
+					continue
+				}
+				patternsToRequest = append(patternsToRequest, clust.PatternId)
+			}
+		}
+	}
+	for patternId := range patternIDsMap {
+		patternsToRequest = append(patternsToRequest, patternId)
+	}
+
+	patterns, err := svc.GetPatterns(patternsToRequest)
+	if err != nil {
+		return err
+	}
+	patternsMap := make(map[uint64]*PatternInfo)
+	for _, pattern := range patterns {
+		patternsMap[pattern.Id] = &pattern
+	}
+	var clusterSynced int
+	var clusterAdded int
+	for _, __clust := range c.clusters {
+		for _, _clust := range __clust {
+			for _, clust := range _clust.clusters {
+				newPattern := patternsMap[clust.PatternId]
+				if newPattern != nil {
+					clust.sync(newPattern.IterationId, newPattern.Tokens)
+					delete(patternsMap, clust.PatternId)
+					clusterSynced++
+				}
+			}
+		}
+	}
+	clusterAdded = len(patternsMap)
+	for _, p := range patternsMap {
+		patId := getLogId(&LogLine{Tokens: p.Tokens})
+		if _, ok := c.clusters[patId.FirstToken.Value]; !ok {
+			c.clusters[patId.FirstToken.Value] = make(map[LogClusterId]*LogClusterRow)
+		}
+		if _, ok := c.clusters[patId.FirstToken.Value][patId]; !ok {
+			c.clusters[patId.FirstToken.Value][patId] = &LogClusterRow{}
+		}
+		c.clusters[patId.FirstToken.Value][patId].clusters = append(c.clusters[patId.FirstToken.Value][patId].clusters,
+			loadLogCluster(p))
+	}
+	logger.Info("Cluster sync completed in ", time.Since(start), ": ", clusterSynced, " clusters synced, ", clusterAdded, " clusters added")
+	return nil
 }

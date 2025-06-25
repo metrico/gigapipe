@@ -226,6 +226,8 @@ type PatternsData struct {
 	MOverallCost     []uint32
 	MGeneralizedCost []uint32
 	MSamplesCount    []uint32
+	MPatternId       []uint64
+	MIterationId     []uint64
 }
 
 func (t *PatternsData) GetSize() int64 {
@@ -240,9 +242,14 @@ func (t *PatternsData) GetSize() int64 {
 		}
 		arraysSize += int64(len(t.MClasses[i]) * 4)
 	}
-	return arraysSize +
-		int64(
-			len(t.MTimestamp10m)*4+len(t.MFingerprint)*8+len(t.MTimestampS)*4+len(t.MOverallCost)*4+
-				len(t.MGeneralizedCost)*4+len(t.MSamplesCount)*4)
+	return arraysSize + int64(
+		len(t.MTimestamp10m)*4+
+			len(t.MFingerprint)*8+
+			len(t.MPatternId)*8+
+			len(t.MIterationId)*4+
+			len(t.MTimestampS)*4+
+			len(t.MOverallCost)*4+
+			len(t.MGeneralizedCost)*4+
+			len(t.MSamplesCount)*4)
 	//+len(t.MWriterID)*writerIdSize) TODO
 }

@@ -16,10 +16,11 @@ func (p *PatternsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 		return nil, err
 	}
 	withFp := sql.NewWith(fp, "fp")
-	req := sql.NewSelect().With(withFp).
+	_req := sql.NewSelect().With(withFp).
 		Select(
-			sql.NewSimpleCol("cityHash64(tokens)", "fingerprint"),
-			sql.NewSimpleCol("tokens", "tokens"),
+			sql.NewSimpleCol("pattern_id", "pattern_id"),
+			sql.NewSimpleCol("max(iteration_id)", "_iteration_id"),
+			sql.NewSimpleCol("argMax(tokens, iteration_id)", "tokens"),
 			sql.NewSimpleCol(
 				fmt.Sprintf("intDiv(timestamp_s, %d) * %[1]d", int(ctx.Step.Seconds())),
 				"timestamp_s"),
@@ -31,7 +32,17 @@ func (p *PatternsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 			sql.Ge(sql.NewRawObject("p.timestamp_s"), sql.NewIntVal(ctx.From.Unix())),
 			sql.Le(sql.NewRawObject("p.timestamp_s"), sql.NewIntVal(ctx.To.Unix())),
 			sql.NewIn(sql.NewRawObject("p.fingerprint"), sql.NewWithRef(withFp))).
-		GroupBy(sql.NewRawObject("tokens"), sql.NewRawObject("timestamp_s")).
-		OrderBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_s"))
+		GroupBy(sql.NewRawObject("pattern_id"), sql.NewRawObject("timestamp_s"))
+	withReq := sql.NewWith(_req, "pregroup")
+	req := sql.NewSelect().With(withReq).
+		Select(
+			sql.NewSimpleCol("argMax(tokens, _iteration_id)", "tokens"),
+			sql.NewSimpleCol("arraySort(groupArray((timestamp_s, count)))", "samples")).
+		From(sql.NewWithRef(withReq)).
+		GroupBy(sql.NewRawObject("pattern_id")).
+		AndHaving(sql.Gt(sql.NewRawObject(`arraySum(arrayMap(x -> x.2, samples))`), sql.NewIntVal(1))).
+		OrderBy(sql.NewOrderBy(sql.NewRawObject(`arraySum(arrayMap(x -> x.2, samples))`),
+			sql.ORDER_BY_DIRECTION_DESC)).
+		Limit(sql.NewIntVal(ctx.Limit))
 	return req, nil
 }

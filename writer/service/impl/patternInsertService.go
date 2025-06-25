@@ -16,6 +16,8 @@ type patternAcquirer struct {
 	overallCost     *service.PooledColumn[proto.ColUInt32]
 	generalizedCost *service.PooledColumn[proto.ColUInt32]
 	samplesCount    *service.PooledColumn[proto.ColUInt32]
+	patternId       *service.PooledColumn[proto.ColUInt64]
+	iterationId     *service.PooledColumn[proto.ColUInt64]
 }
 
 func (t *patternAcquirer) acq() *patternAcquirer {
@@ -29,6 +31,8 @@ func (t *patternAcquirer) acq() *patternAcquirer {
 	t.overallCost = service.UInt32Pool.Acquire("overall_cost")
 	t.generalizedCost = service.UInt32Pool.Acquire("generalized_cost")
 	t.samplesCount = service.UInt32Pool.Acquire("samples_count")
+	t.patternId = service.UInt64Pool.Acquire("pattern_id")
+	t.iterationId = service.UInt64Pool.Acquire("iteration_id")
 	return t
 }
 
@@ -42,6 +46,8 @@ func (t *patternAcquirer) toIFace() []service.IColPoolRes {
 		t.overallCost,
 		t.generalizedCost,
 		t.samplesCount,
+		t.patternId,
+		t.iterationId,
 	}
 }
 
@@ -54,6 +60,8 @@ func (t *patternAcquirer) fromIFace(iface []service.IColPoolRes) *patternAcquire
 	t.overallCost = iface[5].(*service.PooledColumn[proto.ColUInt32])
 	t.generalizedCost = iface[6].(*service.PooledColumn[proto.ColUInt32])
 	t.samplesCount = iface[7].(*service.PooledColumn[proto.ColUInt32])
+	t.patternId = iface[8].(*service.PooledColumn[proto.ColUInt64])
+	t.iterationId = iface[9].(*service.PooledColumn[proto.ColUInt64])
 	return t
 }
 
@@ -65,7 +73,7 @@ func NewPatternInsertService(opts model.InsertServiceOpts) service.IInsertServic
 	if opts.Node.ClusterName != "" {
 		tableName += "_dist"
 	}
-	insertReq := fmt.Sprintf("INSERT INTO %s (timestamp_10m, fingerprint, timestamp_s, tokens, classes, overall_cost, generalized_cost, samples_count)",
+	insertReq := fmt.Sprintf("INSERT INTO %s (timestamp_10m, fingerprint, timestamp_s, tokens, classes, overall_cost, generalized_cost, samples_count, pattern_id, iteration_id)",
 		tableName)
 	return &service.InsertServiceV2Multimodal{
 		ServiceData:   service.ServiceData{},
@@ -96,6 +104,8 @@ func NewPatternInsertService(opts model.InsertServiceOpts) service.IInsertServic
 			acquirer.overallCost.Data.AppendArr(patternData.MOverallCost)
 			acquirer.generalizedCost.Data.AppendArr(patternData.MGeneralizedCost)
 			acquirer.samplesCount.Data.AppendArr(patternData.MSamplesCount)
+			acquirer.patternId.Data.AppendArr(patternData.MPatternId)
+			acquirer.iterationId.Data.AppendArr(patternData.MIterationId)
 			return res[0].Size() - s1, acquirer.toIFace(), nil
 		},
 	}

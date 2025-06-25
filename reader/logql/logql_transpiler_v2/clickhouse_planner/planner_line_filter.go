@@ -88,35 +88,23 @@ func (l *LineFilterPlanner) doLike(likeOp string) (sql.SQLCondition, error) {
 }
 
 func (l *LineFilterPlanner) patternMatch(match string) string {
-	var placeholdes []int
-	start := 0
-	for true {
-		i := strings.Index(match[start:], "<_>")
-		if i < 0 {
-			break
+	match = strings.Replace(match, "%", "%%", -1)
+	parts := strings.Split(match, "<_>")
+	for i := len(parts) - 2; i >= 0; i-- {
+		slashCnt := 0
+		for j := len(parts[i]) - 1; j >= 0; j-- {
+			if parts[i][j] != '\\' {
+				break
+			}
+			slashCnt++
 		}
-		if i == 0 {
-			placeholdes = append(placeholdes, i+start)
-			start += i + 3
-			continue
+		if slashCnt%2 == 1 {
+			parts[i] = parts[i] + "<_>" + parts[i+1]
+			copy(parts[i+1:], parts[i+2:])
+			parts = parts[:len(parts)-1]
 		}
-		j := i - 1
-		for ; j >= 0 && match[start+j] == '\\'; j-- {
-		}
-		if (i-j-1)%2 != 0 {
-			start += i + 3
-			continue
-		}
-		placeholdes = append(placeholdes, i+start)
-		start += i + 3
 	}
-	likeOp := ""
-	start = 0
-	for _, i := range placeholdes {
-		likeOp += fmt.Sprintf("%s%%", match[start:i])
-		start = i + 3
-	}
-	return likeOp
+	return strings.Join(parts, "%")
 }
 
 func (l *LineFilterPlanner) enquoteStr(str string) (string, error) {

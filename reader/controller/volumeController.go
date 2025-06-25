@@ -145,6 +145,7 @@ func (q *VolumeController) Patterns(w http.ResponseWriter, r *http.Request) {
 	if req.Step == 0 {
 		req.Step = 15000000000
 	}
+	req.Step = max(req.Step, 1000000000)
 	res, err := q.QueryRangeService.QueryPatterns(internalCtx, query, req.Start.UnixNano(), req.End.UnixNano(),
 		int64(req.Step/1000000))
 	if err != nil {

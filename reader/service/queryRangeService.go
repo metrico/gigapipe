@@ -338,6 +338,7 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 			Result: map[string]sql.SQLObject{},
 		},
 		VersionInfo: versionInfo,
+		Limit:       300,
 	}, conn)
 
 	sqlReq, err := logql_transpiler_v2.PlanPatterns(script)
@@ -356,47 +357,36 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println(strReq)
 	rows, err := conn.Session.QueryCtx(_ctx, strReq)
 	if err != nil {
 		return nil, err
 	}
 	var res []PatternsResult
-	var lastPattern PatternsResult
-	var lastFp uint64
-	putPattern := func() {
-		if lastPattern.Pattern != "" {
-			res = append(res, lastPattern)
-		}
-		lastPattern = PatternsResult{}
-	}
 	for rows.Next() {
-		var fp uint64
 		var pattern []string
-		var timestampS uint32
-		var samples uint32
-		err = rows.Scan(&fp, &pattern, &timestampS, &samples)
+		var samples []map[string]any
+		var _pattern PatternsResult
+		err = rows.Scan(&pattern, &samples)
 		if err != nil {
 			return nil, err
 		}
-		if fp != lastFp {
-			if lastFp != 0 {
-				putPattern()
+
+		patternBld := strings.Builder{}
+		for i, p := range pattern {
+			if p == "<_>" && i > 0 && pattern[i-1] == "<_>" {
+				continue
 			}
-			lastFp = fp
-			patternBld := strings.Builder{}
-			for i, p := range pattern {
-				if p == "<_>" && i > 0 && pattern[i-1] == "<_>" {
-					continue
-				}
-				patternBld.WriteString(p)
-			}
-			lastPattern.Pattern = patternBld.String()
-			lastPattern.Samples = nil
+			patternBld.WriteString(p)
 		}
-		lastPattern.Samples = append(lastPattern.Samples, [2]int32{int32(timestampS), int32(samples)})
-	}
-	if lastFp != 0 {
-		putPattern()
+		_pattern.Pattern = patternBld.String()
+
+		for _, s := range samples {
+			_pattern.Samples = append(_pattern.Samples, [2]int32{
+				int32(s["timestamp_s"].(uint64)),
+				int32(s["count"].(uint64))})
+		}
+		res = append(res, _pattern)
 	}
 	return res, nil
 }

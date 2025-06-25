@@ -11,11 +11,10 @@ package clustering
   re2c:flags:utf-8 = 1;
 */
 
-func Lex(input string) []Token {
+func Lex(input string, tokens []Token) []Token {
 	cursor := 0
 	marker := 0
 	limit := len(input)
-	var tokens []Token // This will hold our Tokens
 
 	// Convert string to byte slice for re2c compatibility
 	inputBytes := []byte(input)
@@ -27,21 +26,21 @@ func Lex(input string) []Token {
 		// Whitespace (mapped to Special type)
 		[ \t\r\n]+ {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Special})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Special})
 		   }
 		   continue
 		}
 		// UUID
 		[0-9a-fA-F]{8}"-"[0-9a-fA-F]{4}"-"[0-9a-fA-F]{4}"-"[0-9a-fA-F]{4}"-"[0-9a-fA-F]{12} {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: UUID})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: UUID})
 		   }
 		   continue
 		}
 		// RFC 5424 Priority field (e.g., <34>)
 		"<" [0-9]+ ">" {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Priority})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Priority})
 		   }
 		   continue
 		}
@@ -49,28 +48,28 @@ func Lex(input string) []Token {
 		// ISO8601 timestamps (RFC 5424)
 		[0-9]{4} "-" [0-9]{2} "-" [0-9]{2} "T" [0-9]{2} ":" [0-9]{2} ":" [0-9]{2} ("." [0-9]+)? ("Z"|[+-][0-9]{2}":"[0-9]{2})? {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Timestamp})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Timestamp})
 		   }
 		   continue
 		}
 		// Common log format timestamp [day/month/year:hour:minute:second zone]
 		"[" [0-9]{2} "/" [a-zA-Z]{3} "/" [0-9]{4} ":" [0-9]{2} ":" [0-9]{2} ":" [0-9]{2} [ +-][0-9]{4} "]" {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Timestamp})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Timestamp})
 		   }
 		   continue
 		}
 		// BSD syslog timestamp format (e.g., Jan 23 14:59:01)
 		[A-Za-z]{3} [ ][0-9]{1,2} [ ][0-9]{2}":"[0-9]{2}":"[0-9]{2} {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Timestamp})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Timestamp})
 		   }
 		   continue
 		}
 		// Log levels
 		"INFO"|"DEBUG"|"WARN"|"WARNING"|"ERROR"|"CRITICAL"|"FATAL"|"NOTICE"|"EMERGENCY"|"ALERT" {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: LogLevel})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: LogLevel})
 		   }
 		   continue
 		}
@@ -89,11 +88,11 @@ func Lex(input string) []Token {
 		           }
 		       }
 		       if pidStart > -1 && pidEnd > -1 {
-		           Tokens = append(Tokens, Token{Value: input[tokenStart:pidStart-1], Type: ProgramName})
-		           Tokens = append(Tokens, Token{Value: input[pidStart:pidEnd], Type: PID})
-		           Tokens = append(Tokens, Token{Value: input[pidEnd:cursor], Type: Special})
+		           tokens = append(tokens, Token{Value: input[tokenStart:pidStart-1], Type: ProgramName})
+		           tokens = append(tokens, Token{Value: input[pidStart:pidEnd], Type: PID})
+		           tokens = append(tokens, Token{Value: input[pidEnd:cursor], Type: Special})
 		       } else {
-		           Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: ProgramName})
+		           tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: ProgramName})
 		       }
 		   }
 		   continue
@@ -104,28 +103,28 @@ func Lex(input string) []Token {
 		             cursor--
 		          }
 		    if cursor <= limit {
-		                 Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: HTTPPathPart})
+		                 tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: HTTPPathPart})
 		             }
 		       continue
 		}
 		// HTTP version
 		"HTTP"("/"[12]"."[01])? {
 		    if cursor <= limit {
-		                Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: HTTPVersion})
+		                tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: HTTPVersion})
 		            }
 		      continue
 		}
 		// IP Address pattern (IPv4)
 		[0-9]+ "." [0-9]+ "." [0-9]+ "." [0-9]+ {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: IPAddress})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: IPAddress})
 		   }
 		   continue
 		}
 		// HTTP Methods
 		"GET"|"POST"|"PUT"|"DELETE"|"PATCH"|"HEAD"|"OPTIONS"|"CONNECT"|"TRACE" {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: HTTPMethod})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: HTTPMethod})
 		   }
 		   continue
 		}
@@ -134,28 +133,28 @@ func Lex(input string) []Token {
 		   if cursor <= limit {
 				tp := Number
 				if isHTTPCode(input[tokenStart:cursor]) { tp = HTTPCode }
-					Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: tp})
+					tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: tp})
 		   		}
 		   continue
 		}
 		// Words (letters only)
 		[a-zA-Z]+ {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Word})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Word})
 		   }
 		   continue
 		}
 		// Special characters
 		[.,!?;:'"()\[\]{}] {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: input[tokenStart:cursor], Type: Special})
+		       tokens = append(tokens, Token{Value: input[tokenStart:cursor], Type: Special})
 		   }
 		   continue
 		}
 		// Anything else (fall back to Special type)
 		[^] {
 		   if cursor <= limit {
-		       Tokens = append(Tokens, Token{Value: string(inputBytes[cursor-1]), Type: Special})
+		       tokens = append(tokens, Token{Value: string(inputBytes[cursor-1]), Type: Special})
 		   }
 		   continue
 		}

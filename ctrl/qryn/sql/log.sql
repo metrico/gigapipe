@@ -179,7 +179,9 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.patterns {{.OnCluster}}(
     classes Array(UInt32),
     overall_cost UInt32,
     generalized_cost UInt32,
-    samples_count UInt32
+    samples_count UInt32,
+    pattern_id UInt64,
+    iteration_id UInt64
 ) ENGINE = {{.MergeTree}}
 PARTITION BY toDate(fromUnixTimestamp(timestamp_10m*600))
 ORDER BY (timestamp_10m, fingerprint) {{.CREATE_SETTINGS}};

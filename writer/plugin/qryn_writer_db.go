@@ -296,7 +296,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		ProfileInsertSvcs,
 	})
 
-	controller.Init(ServiceRegistry)
+	controller.Init(ServiceRegistry, p.ServicesObject.Dbv3Map[0])
 
 	//Run Prometheus Scaper
 	//go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)
