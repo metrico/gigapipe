@@ -170,3 +170,18 @@ ALTER TABLE samples_v3
 
 ALTER TABLE metrics_15s
     (ADD COLUMN `type_v2` UInt8 ALIAS type);
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.patterns {{.OnCluster}}(
+    timestamp_10m UInt32,
+    fingerprint UInt64,
+    timestamp_s UInt32,
+    tokens Array(String),
+    classes Array(UInt32),
+    overall_cost UInt32,
+    generalized_cost UInt32,
+    samples_count UInt32,
+    pattern_id UInt64,
+    iteration_id UInt64
+) ENGINE = {{.MergeTree}}
+PARTITION BY toDate(fromUnixTimestamp(timestamp_10m*600))
+ORDER BY (timestamp_10m, fingerprint) {{.CREATE_SETTINGS}};

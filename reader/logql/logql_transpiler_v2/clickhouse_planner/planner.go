@@ -1,6 +1,7 @@
 package clickhouse_planner
 
 import (
+	"fmt"
 	"github.com/metrico/qryn/reader/logql/logql_parser"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
@@ -16,6 +17,14 @@ func Plan(script *logql_parser.LogQLScript, finalize bool) (shared.SQLRequestPla
 
 func PlanFingerprints(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
 	return (&planner{script: script}).planFingerprints()
+}
+
+func PlanDetectLabels(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
+	return (&planner{script: script}).planDetectLabels()
+}
+
+func PlanPatterns(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
+	return (&planner{script: script}).planPatterns()
 }
 
 type planner struct {
@@ -164,6 +173,34 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 		return p.planComparison(script.Comparison)
 	}
 	return nil
+}
+
+func (p *planner) planDetectLabels() (shared.SQLRequestPlanner, error) {
+	if p.script == nil {
+		return &DetectLabelsPlanner{}, nil
+	}
+	if p.script.StrSelector == nil {
+		return nil, fmt.Errorf("Unsupported query")
+	}
+	err := p.planTS()
+	if err != nil {
+		return nil, err
+	}
+	return &DetectLabelsPlanner{fpPlanner: p.fpPlanner}, nil
+}
+
+func (p *planner) planPatterns() (shared.SQLRequestPlanner, error) {
+	if p.script == nil {
+		return nil, fmt.Errorf("Unsupported query")
+	}
+	if p.script.StrSelector == nil {
+		return nil, fmt.Errorf("Unsupported query")
+	}
+	err := p.planTS()
+	if err != nil {
+		return nil, err
+	}
+	return &PatternsPlanner{fpPlanner: p.fpPlanner}, nil
 }
 
 func (p *planner) planTS() error {

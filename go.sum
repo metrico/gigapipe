@@ -693,8 +693,8 @@ github.com/mdlayher/socket v0.5.1 h1:VZaqt6RkGkt2OE9l3GcC6nZkqD3xKeQLyfleW/uBcos
 github.com/mdlayher/socket v0.5.1/go.mod h1:TjPLHI1UgwEv5J1B5q0zTZq12A/6H7nKmtTanQE37IQ=
 github.com/mdlayher/vsock v1.2.1 h1:pC1mTJTvjo1r9n9fbm7S1j04rCgCzhCOS5DY0zqHlnQ=
 github.com/mdlayher/vsock v1.2.1/go.mod h1:NRfCibel++DgeMD8z/hP+PPTjlNJsdPOmxcnENvE+SE=
-github.com/metrico/cloki-config v0.0.82 h1:eSRD1qQiKyBR5bQT1hMWKGFnp2TX6bkfkUPU14TzTqI=
-github.com/metrico/cloki-config v0.0.82/go.mod h1:zjxnDFtbyI08jMKjy12sleeQZjbJM2Vpngf+8gwm/4I=
+github.com/metrico/cloki-config v0.0.86 h1:QCxYuk/303mRXSYAFsFSc55t8FM7+Ejk/pow2EwHvG4=
+github.com/metrico/cloki-config v0.0.86/go.mod h1:zjxnDFtbyI08jMKjy12sleeQZjbJM2Vpngf+8gwm/4I=
 github.com/miekg/dns v1.0.14/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/miekg/dns v1.1.15/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/miekg/dns v1.1.62 h1:cN8OuEF1/x5Rq6Np+h1epln8OiyPWV+lROx9LxcGgIQ=

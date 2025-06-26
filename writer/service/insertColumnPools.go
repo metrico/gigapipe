@@ -152,6 +152,28 @@ func CreateColPools(size int32) {
 	}).OnGetSize(func(col *PooledColumn[*proto.ColArr[model.StrStr]]) int {
 		return col.Data.Rows()
 	})
+
+	UInt32ArrayPool = newColPool[*proto.ColArr[uint32]](func() *proto.ColArr[uint32] {
+		return proto.NewArray[uint32](&proto.ColUInt32{})
+	}, size).OnRelease(func(col *PooledColumn[*proto.ColArr[uint32]]) {
+		col.Data.Reset()
+	}).OnGetSize(func(col *PooledColumn[*proto.ColArr[uint32]]) int {
+		return col.Data.Rows()
+	})
+	UInt32Pool = newColPool[proto.ColUInt32](func() proto.ColUInt32 {
+		return proto.ColUInt32{}
+	}, size).OnRelease(func(column *PooledColumn[proto.ColUInt32]) {
+		column.Data.Reset()
+	}).OnGetSize(func(col *PooledColumn[proto.ColUInt32]) int {
+		return col.Data.Rows()
+	})
+	StrArrayPool = newColPool[*proto.ColArr[string]](func() *proto.ColArr[string] {
+		return proto.NewArray[string](&proto.ColStr{})
+	}, size).OnRelease(func(col *PooledColumn[*proto.ColArr[string]]) {
+		col.Data.Reset()
+	}).OnGetSize(func(col *PooledColumn[*proto.ColArr[string]]) int {
+		return col.Data.Rows()
+	})
 }
 
 var DatePool *colPool[proto.ColDate]
@@ -166,6 +188,9 @@ var Int8ColPool *colPool[proto.ColInt8]
 var BoolColPool *colPool[proto.ColBool]
 var Uint16ColPool *colPool[proto.ColUInt16]
 var TupleStrStrPool *colPool[*proto.ColArr[model.StrStr]]
+var UInt32ArrayPool *colPool[*proto.ColArr[uint32]]
+var UInt32Pool *colPool[proto.ColUInt32]
+var StrArrayPool *colPool[*proto.ColArr[string]]
 
 var TupleStrInt64Int32Pool *colPool[*proto.ColArr[model.ValuesAgg]]
 var TupleUInt64UInt64UInt64ArrPool *colPool[*proto.ColArr[model.TreeRootStructure]]

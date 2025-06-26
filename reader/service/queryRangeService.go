@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/metrico/qryn/reader/logql/logql_parser"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	"github.com/metrico/qryn/reader/model"
@@ -68,56 +69,6 @@ func onErr(err error, res chan model.QueryRangeOutput) {
 	}
 }
 
-// func (q *QueryRangeService) exportStreamsValue(out chan []shared.LogEntry,
-//
-//		res chan model.QueryRangeOutput) {
-//		defer close(res)
-//
-//		res <- model.QueryRangeOutput{Str: `{"status": "success","data": {"resultType": "streams", "result": [`}
-//
-//		var lastFp uint64
-//		i := 0
-//		j := 0
-//
-//		for entries := range out {
-//			for _, e := range entries {
-//				if e.Err == io.EOF {
-//					continue
-//				}
-//				if e.Err != nil {
-//					onErr(e.Err, res)
-//					return
-//				}
-//				if lastFp != e.Fingerprint {
-//					if i > 0 {
-//						res <- model.QueryRangeOutput{Str: "]},"}
-//					}
-//					lastFp = e.Fingerprint
-//					i = 1
-//					j = 0
-//					stream, _ := json.Marshal(e.Labels)
-//					res <- model.QueryRangeOutput{Str: fmt.Sprintf(`{%s:%s, %s: [`,
-//						strconv.Quote("stream"), string(stream), strconv.Quote("values"))}
-//				}
-//				if j > 0 {
-//					res <- model.QueryRangeOutput{Str: ","}
-//				}
-//				j = 1
-//				msg, err := json.Marshal(e.Message)
-//				if err != nil {
-//					msg = []byte("error string")
-//				}
-//				res <- model.QueryRangeOutput{
-//					Str: fmt.Sprintf(`["%d", %s]`, e.TimestampNS, msg),
-//				}
-//			}
-//		}
-//
-//		if i > 0 {
-//			res <- model.QueryRangeOutput{Str: "]}"}
-//		}
-//		res <- model.QueryRangeOutput{Str: "]}}"}
-//	}
 func (q *QueryRangeService) exportStreamsValue(out chan []shared.LogEntry,
 	res chan model.QueryRangeOutput) {
 	defer close(res)
@@ -205,6 +156,239 @@ func (q *QueryRangeService) exportStreamsValue(out chan []shared.LogEntry,
 	stream.WriteObjectEnd()
 
 	res <- model.QueryRangeOutput{Str: string(stream.Buffer())}
+}
+
+func (q *QueryRangeService) getLabelsForVolume(query string) ([]string, error) {
+	script, err := logql_parser.Parse(query)
+	if err != nil {
+		return nil, err
+	}
+	if script.StrSelector == nil {
+		return nil, fmt.Errorf("invalid query: %s", query)
+	}
+	labels := make([]string, len(script.StrSelector.StrSelCmds))
+	for i, cmd := range script.StrSelector.StrSelCmds {
+		labels[i] = cmd.Label.Name
+	}
+	return labels, nil
+}
+
+type QueryVolumeResult struct {
+	Metric map[string]string `json:"metric"`
+	Value  []any             `json:"value"`
+}
+
+func (q *QueryRangeService) QueryVolume(ctx context.Context, query string, fromNs int64, toNs int64,
+	stepMs int64, aggregateByLabels []string) ([]QueryVolumeResult, error) {
+	var err error
+	if len(aggregateByLabels) == 0 {
+		aggregateByLabels, err = q.getLabelsForVolume(query)
+		if err != nil {
+			return nil, err
+		}
+	}
+	req := fmt.Sprintf("sum(bytes_over_time(%s [%dms])) by (%s)", query, stepMs,
+		strings.Join(aggregateByLabels, ","))
+	c, _, err := q.prepareOutput(ctx, req, fromNs, toNs, stepMs, 1000, true)
+	res := []QueryVolumeResult{}
+
+	lastFp := uint64(0)
+	lastMetric := make(map[string]string)
+	value := float64(0)
+	putData := func() {
+		metric := make(map[string]string)
+		for k, v := range lastMetric {
+			metric[k] = v
+		}
+		res = append(res, QueryVolumeResult{
+			Metric: metric,
+			Value:  []any{float64(toNs / 1000000000), strconv.FormatFloat(value, 'f', -1, 32)},
+		})
+	}
+	for p := range c {
+		for _, e := range p {
+			if e.Fingerprint != lastFp {
+				if lastFp != 0 {
+					putData()
+				}
+				lastMetric = e.Labels
+				value = 0
+				lastFp = e.Fingerprint
+			}
+			value += e.Value
+		}
+	}
+	if lastFp != 0 {
+		putData()
+	}
+
+	return res, nil
+}
+
+type QueryDetectedLabelsResult struct {
+	Label       string `json:"label"`
+	Cardinality int64  `json:"cardinality"`
+}
+
+func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query string, fromNs int64,
+	toNs int64) ([]QueryDetectedLabelsResult, error) {
+	conn, err := q.Session.GetDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	if err != nil {
+		return nil, err
+	}
+
+	var script *logql_parser.LogQLScript
+	if query != "" {
+		script, err = logql_parser.Parse(query)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_ctx, cancel := context.WithCancel(ctx)
+	plannerCtx := tables.PopulateTableNames(&shared.PlannerContext{
+		IsCluster:  conn.Config.ClusterName != "",
+		From:       time.Unix(fromNs/1000000000, 0),
+		To:         time.Unix(toNs/1000000000, 0),
+		Ctx:        _ctx,
+		CancelCtx:  cancel,
+		CHDb:       conn.Session,
+		CHFinalize: true,
+		CHSqlCtx: &sql.Ctx{
+			Params: map[string]sql.SQLObject{},
+			Result: map[string]sql.SQLObject{},
+		},
+		VersionInfo: versionInfo,
+	}, conn)
+
+	sqlReq, err := logql_transpiler_v2.PlanDetectLabels(script)
+	if err != nil {
+		return nil, err
+	}
+	objReq, err := sqlReq.Process(plannerCtx)
+	if err != nil {
+		return nil, err
+	}
+	var opts []int
+	if plannerCtx.IsCluster {
+		opts = append(opts, sql.STRING_OPT_INLINE_WITH)
+	}
+	strReq, err := objReq.String(plannerCtx.CHSqlCtx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := conn.Session.QueryCtx(_ctx, strReq)
+	if err != nil {
+		return nil, err
+	}
+	var res []QueryDetectedLabelsResult
+	for rows.Next() {
+		var label string
+		var cardinality int64
+		err = rows.Scan(&label, &cardinality)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, QueryDetectedLabelsResult{
+			Label:       label,
+			Cardinality: cardinality,
+		})
+	}
+	return res, nil
+}
+
+type PatternsResult struct {
+	Pattern string     `json:"pattern"`
+	Samples [][2]int32 `json:"samples"`
+}
+
+func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fromNs int64, toNs int64,
+	stepMs int64, limit int64) ([]PatternsResult, error) {
+	conn, err := q.Session.GetDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	if err != nil {
+		return nil, err
+	}
+
+	var script *logql_parser.LogQLScript
+	script, err = logql_parser.Parse(query)
+	if err != nil {
+		return nil, err
+	}
+
+	_ctx, cancel := context.WithCancel(ctx)
+	plannerCtx := tables.PopulateTableNames(&shared.PlannerContext{
+		IsCluster:  conn.Config.ClusterName != "",
+		From:       time.Unix(fromNs/1000000000, 0),
+		To:         time.Unix(toNs/1000000000, 0),
+		Step:       time.Millisecond * time.Duration(stepMs),
+		Ctx:        _ctx,
+		CancelCtx:  cancel,
+		CHDb:       conn.Session,
+		CHFinalize: true,
+		CHSqlCtx: &sql.Ctx{
+			Params: map[string]sql.SQLObject{},
+			Result: map[string]sql.SQLObject{},
+		},
+		VersionInfo: versionInfo,
+		Limit:       limit,
+	}, conn)
+
+	sqlReq, err := logql_transpiler_v2.PlanPatterns(script)
+	if err != nil {
+		return nil, err
+	}
+	objReq, err := sqlReq.Process(plannerCtx)
+	if err != nil {
+		return nil, err
+	}
+	var opts []int
+	if plannerCtx.IsCluster {
+		opts = append(opts, sql.STRING_OPT_INLINE_WITH)
+	}
+	strReq, err := objReq.String(plannerCtx.CHSqlCtx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(strReq)
+	rows, err := conn.Session.QueryCtx(_ctx, strReq)
+	if err != nil {
+		return nil, err
+	}
+	var res []PatternsResult
+	for rows.Next() {
+		var pattern []string
+		var samples []map[string]any
+		var _pattern PatternsResult
+		err = rows.Scan(&pattern, &samples)
+		if err != nil {
+			return nil, err
+		}
+
+		patternBld := strings.Builder{}
+		for i, p := range pattern {
+			if p == "<_>" && i > 0 && pattern[i-1] == "<_>" {
+				continue
+			}
+			patternBld.WriteString(p)
+		}
+		_pattern.Pattern = patternBld.String()
+
+		for _, s := range samples {
+			_pattern.Samples = append(_pattern.Samples, [2]int32{
+				int32(s["timestamp_s"].(uint64)),
+				int32(s["count"].(uint64))})
+		}
+		res = append(res, _pattern)
+	}
+	return res, nil
 }
 
 func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
@@ -320,73 +504,6 @@ func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs
 	}()
 	return res, nil
 }
-
-//func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
-//	limit int64, forward bool) (chan model.QueryRangeOutput, error) {
-//	out, isMatrix, err := q.prepareOutput(ctx, query, fromNs, toNs, stepMs, limit, forward)
-//	if err != nil {
-//		return nil, err
-//	}
-//	res := make(chan model.QueryRangeOutput)
-//
-//	if !isMatrix {
-//		go func() {
-//			q.exportStreamsValue(out, res)
-//		}()
-//		return res, nil
-//	}
-//	go func() {
-//		defer close(res)
-//
-//		res <- model.QueryRangeOutput{Str: `{"status": "success","data": {"resultType": "matrix", "result": [`}
-//
-//		var lastFp uint64
-//		i := 0
-//		j := 0
-//
-//		for entries := range out {
-//			for _, e := range entries {
-//				if e.Err != nil && e.Err != io.EOF {
-//					onErr(e.Err, res)
-//					return
-//				}
-//				if e.Err == io.EOF {
-//					break
-//				}
-//				if i == 0 || lastFp != e.Fingerprint {
-//					if i > 0 {
-//						res <- model.QueryRangeOutput{Str: "]},"}
-//					}
-//					lastFp = e.Fingerprint
-//					i = 1
-//					j = 0
-//					stream, _ := json.Marshal(e.Labels)
-//					res <- model.QueryRangeOutput{Str: fmt.Sprintf(`{%s:%s, %s: [`,
-//						strconv.Quote("metric"), string(stream), strconv.Quote("values"))}
-//				}
-//				if j > 0 {
-//					res <- model.QueryRangeOutput{Str: ","}
-//				}
-//				j = 1
-//				val := strconv.FormatFloat(e.Value, 'f', -1, 64)
-//				if strings.Contains(val, ".") {
-//					val := strings.TrimSuffix(val, "0")
-//					val = strings.TrimSuffix(val, ".")
-//				}
-//
-//				res <- model.QueryRangeOutput{
-//					Str: fmt.Sprintf(`[%f, "%s"]`, float64(e.TimestampNS)/1e9, val),
-//				}
-//			}
-//		}
-//
-//		if i > 0 {
-//			res <- model.QueryRangeOutput{Str: "]}"}
-//		}
-//		res <- model.QueryRangeOutput{Str: "]}}"}
-//	}()
-//	return res, nil
-//}
 
 func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
 	limit int64, forward bool) (chan []shared.LogEntry, bool, error) {

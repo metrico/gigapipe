@@ -38,6 +38,7 @@ require (
 	github.com/go-logfmt/logfmt v0.6.0
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/gofiber/websocket/v2 v2.2.1
+	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20241029153458-d1b30febd7db
 	github.com/gorilla/mux v1.8.1
@@ -52,7 +53,7 @@ require (
 	github.com/labstack/gommon v0.4.2
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/m3db/prometheus_remote_client_golang v0.4.4
-	github.com/metrico/cloki-config v0.0.82
+	github.com/metrico/cloki-config v0.0.86
 	github.com/mochi-co/mqtt v1.3.2
 	github.com/openzipkin/zipkin-go v0.4.3
 	github.com/pkg/errors v0.9.1
@@ -104,7 +105,6 @@ require (
 	github.com/go-playground/locales v0.14.0 // indirect
 	github.com/go-playground/universal-translator v0.18.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/cel-go v0.23.0 // indirect

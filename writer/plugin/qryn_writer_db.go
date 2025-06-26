@@ -5,10 +5,13 @@ import (
 	"fmt"
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	config2 "github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/ch_wrapper"
+	config2 "github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/model"
+	patternCtrl "github.com/metrico/qryn/writer/pattern/controller"
+
 	"github.com/metrico/qryn/writer/service"
+	"github.com/metrico/qryn/writer/service/impl"
 	"github.com/metrico/qryn/writer/service/registry"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/numbercache"
@@ -172,7 +175,7 @@ func checkAll(base []config.ClokiBaseDataBase) error {
 	return nil
 }
 
-func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseSettingServer, factory InsertServiceFactory) {
+func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSettingServer) {
 	databasesNodeHashMap := make(map[string]*model.DataDatabasesMap)
 	for _, node := range p.ServicesObject.DatabaseNodeMap {
 		databasesNodeHashMap[node.Node] = &node
@@ -185,7 +188,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 
 		_node := node.Node
 
-		TsSvcs[node.Node] = factory.NewTimeSeriesInsertService(model.InsertServiceOpts{
+		TsSvcs[node.Node] = impl.NewTimeSeriesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -196,7 +199,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 
 		go TsSvcs[node.Node].Run()
 
-		SplSvcs[node.Node] = factory.NewSamplesInsertService(model.InsertServiceOpts{
+		SplSvcs[node.Node] = impl.NewSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -208,7 +211,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		SplSvcs[node.Node].Init()
 		go SplSvcs[node.Node].Run()
 
-		MtrSvcs[node.Node] = factory.NewMetricsInsertService(model.InsertServiceOpts{
+		MtrSvcs[node.Node] = impl.NewMetricsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -220,7 +223,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		MtrSvcs[node.Node].Init()
 		go MtrSvcs[node.Node].Run()
 
-		TempoSamplesSvcs[node.Node] = factory.NewTempoSamplesInsertService(model.InsertServiceOpts{
+		TempoSamplesSvcs[node.Node] = impl.NewTempoSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -232,7 +235,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		TempoSamplesSvcs[node.Node].Init()
 		go TempoSamplesSvcs[node.Node].Run()
 
-		TempoTagsSvcs[node.Node] = factory.NewTempoTagInsertService(model.InsertServiceOpts{
+		TempoTagsSvcs[node.Node] = impl.NewTempoTagsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -243,7 +246,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		})
 		TempoTagsSvcs[node.Node].Init()
 		go TempoTagsSvcs[node.Node].Run()
-		ProfileInsertSvcs[node.Node] = factory.NewProfileSamplesInsertService(model.InsertServiceOpts{
+		ProfileInsertSvcs[node.Node] = impl.NewProfileSamplesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -253,13 +256,33 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		ProfileInsertSvcs[node.Node].Init()
 		go ProfileInsertSvcs[node.Node].Run()
 
+		PatternInsertSvcs[node.Node] = impl.NewPatternInsertService(model.InsertServiceOpts{
+			Session:        p.ServicesObject.Dbv3Map[i],
+			Node:           &node,
+			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
+			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
+			AsyncInsert:    node.AsyncInsert,
+			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
+			OnBeforeInsert: func() { TempoSamplesSvcs[_node].PlanFlush() },
+		})
+		PatternInsertSvcs[node.Node].Init()
+		go PatternInsertSvcs[node.Node].Run()
+
 		table := "qryn_fingerprints"
 		if node.ClusterName != "" {
 			table += "_dist"
 		}
 	}
 
-	ServiceRegistry = registry.NewStaticServiceRegistry(TsSvcs, SplSvcs, MtrSvcs, TempoSamplesSvcs, TempoTagsSvcs, ProfileInsertSvcs)
+	ServiceRegistry = registry.NewStaticServiceRegistry(registry.StaticServiceRegistryOpts{
+		TimeSeriesSvcs:    TsSvcs,
+		SamplesSvcs:       SplSvcs,
+		MetricSvcs:        MtrSvcs,
+		TempoSamplesSvcs:  TempoSamplesSvcs,
+		TempoTagsSvcs:     TempoTagsSvcs,
+		ProfileInsertSvcs: ProfileInsertSvcs,
+		PatternInsertSvcs: PatternInsertSvcs,
+	})
 
 	GoCache = numbercache.NewCache[uint64](time.Minute*30, func(val uint64) []byte {
 		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
@@ -273,6 +296,14 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		TempoTagsSvcs,
 		ProfileInsertSvcs,
 	})
+
+	if config2.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {
+		patternCtrl.Init(patternCtrl.InitOpts{
+			Service:   ServiceRegistry,
+			Conns:     p.ServicesObject.Dbv3Map[0],
+			IsCluster: p.ServicesObject.DatabaseNodeMap[0].ClusterName != "",
+		})
+	}
 
 	//Run Prometheus Scaper
 	//go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)

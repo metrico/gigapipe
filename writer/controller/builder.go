@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	retry "github.com/avast/retry-go"
 	"github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/writer/pattern/controller"
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/helpers"
 	"github.com/metrico/qryn/writer/utils/logger"
@@ -193,6 +194,10 @@ func getBodyStream(r *http.Request) io.Reader {
 	return r.Body
 }
 
+func doLogsPattern(s *model.TimeSamplesData) {
+	controller.ClusterLines(s.MMessage, s.MFingerprint, s.MTimestampNS)
+}
+
 func doParse(r *http.Request, parser Parser) error {
 	reader := getBodyStream(r)
 	tsService := getService(r, "tsService")
@@ -221,6 +226,9 @@ func doParse(r *http.Request, parser Parser) error {
 			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, spansService),
 			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, profileService),
 		)
+		if response.SamplesRequest != nil {
+			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
+		}
 
 	}
 	for _, p := range promises {

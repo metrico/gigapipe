@@ -63,3 +63,16 @@ ALTER TABLE samples_v3_dist
 
 ALTER TABLE metrics_15s_dist
     (ADD COLUMN `type_v2` UInt8 ALIAS type);
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.patterns_dist {{.OnCluster}}(
+    timestamp_10m UInt32,
+    fingerprint UInt64,
+    timestamp_s UInt32,
+    tokens Array(String),
+    classes Array(UInt32),
+    overall_cost UInt32,
+    generalized_cost UInt32,
+    samples_count UInt32,
+    pattern_id UInt64,
+    iteration_id UInt64
+) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'patterns', fingerprint) {{.DIST_CREATE_SETTINGS}};

@@ -35,6 +35,7 @@ func init() {
 	tableNames["profiles"] = "profiles"
 	tableNames["tempo_traces_attrs_gin"] = "tempo_traces_attrs_gin"
 	tableNames["tempo_traces_attrs_gin_dist"] = "tempo_traces_attrs_gin_dist"
+	tableNames["patterns"] = "patterns"
 }
 
 func GetTableName(name string) string {
@@ -57,6 +58,7 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	timeSeriesTableName := GetTableName("time_series")
 	timeSeriesDistTableName := GetTableName("time_series")
 	metrics15sTableName := GetTableName("metrics_15s")
+	patternsTableName := GetTableName("patterns")
 
 	ctx.ProfilesSeriesGinTable = GetTableName("profiles_series_gin")
 	ctx.ProfilesSeriesGinDistTable = GetTableName("profiles_series_gin")
@@ -64,6 +66,8 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.ProfilesDistTable = GetTableName("profiles")
 	ctx.ProfilesSeriesTable = GetTableName("profiles_series")
 	ctx.ProfilesSeriesDistTable = GetTableName("profiles_series")
+	ctx.PatternsTable = patternsTableName
+	ctx.PatternsDistTable = patternsTableName
 
 	ctx.TracesAttrsTable = GetTableName("tempo_traces_attrs_gin")
 	ctx.TracesAttrsDistTable = GetTableName("tempo_traces_attrs_gin")
@@ -84,6 +88,7 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 		ctx.TracesAttrsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesAttrsTable)
 		ctx.TracesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesTable)
 		ctx.TracesKVDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesKVTable)
+		ctx.PatternsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.PatternsTable)
 	}
 	ctx.TimeSeriesGinTableName = tsGinTable
 	ctx.SamplesTableName = samplesTableName
