@@ -298,7 +298,11 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 	})
 
 	if config2.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {
-		patternCtrl.Init(ServiceRegistry, p.ServicesObject.Dbv3Map[0])
+		patternCtrl.Init(patternCtrl.InitOpts{
+			Service:   ServiceRegistry,
+			Conns:     p.ServicesObject.Dbv3Map[0],
+			IsCluster: p.ServicesObject.DatabaseNodeMap[0].ClusterName != "",
+		})
 	}
 
 	//Run Prometheus Scaper

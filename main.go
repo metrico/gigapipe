@@ -217,6 +217,14 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		return fmt.Errorf("invalid max age value `%d`: %w", maxAge, err)
 	}
 	cfg.Setting.SYSTEM_SETTINGS.DBTimer = float64(maxAge) / 1000
+
+	if os.Getenv("LOG_DRILLDOWN") != "" {
+		cfg.Setting.DRILLDOWN_SETTINGS.LogDrilldown, err = boolEnv("LOG_DRILLDOWN")
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

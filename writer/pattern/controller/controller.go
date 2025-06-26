@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"github.com/metrico/qryn/writer/ch_wrapper"
 	config "github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/model"
@@ -18,6 +19,8 @@ import (
 var InsertServiceRegistry registry.IServiceRegistry
 var ClusteringService *clustering.LogClusterer
 var connFactory ch_wrapper.IChClientFactory
+var isCluster bool
+var patternsTable string
 
 var tokPool = sync.Pool{}
 var tokPoolSize int32
@@ -72,10 +75,21 @@ func ClusterLines(lines []string, fingerprints []uint64, timestamps []int64) {
 	}()
 }
 
-func Init(service registry.IServiceRegistry, conns ch_wrapper.IChClientFactory) {
-	InsertServiceRegistry = service
+type InitOpts struct {
+	Service   registry.IServiceRegistry
+	Conns     ch_wrapper.IChClientFactory
+	IsCluster bool
+}
+
+func Init(opts InitOpts) {
+	InsertServiceRegistry = opts.Service
 	ClusteringService = clustering.NewLogClusterer()
-	connFactory = conns
+	connFactory = opts.Conns
+	isCluster = opts.IsCluster
+	patternsTable = "patterns"
+	if isCluster {
+		patternsTable = "patterns_dist"
+	}
 	err := syncPatterns(time.Minute * 5)
 	if err != nil {
 		logger.Error("Failed to load patterns: " + err.Error())
@@ -158,9 +172,9 @@ func (p *PatternsSynchronizer) GetPatternIDs() ([][2]uint64, error) {
 		return nil, err
 	}
 	rows, err := conn.Query(context.Background(),
-		`SELECT pattern_id, max(iteration_id) 
-FROM patterns 
-WHERE timestamp_10m >= ? AND timestamp_s >= ? GROUP BY pattern_id`,
+		fmt.Sprintf(`SELECT pattern_id, max(iteration_id) 
+FROM %s 
+WHERE timestamp_10m >= ? AND timestamp_s >= ? GROUP BY pattern_id`, patternsTable),
 		p.since.Unix()/600, p.since.Unix())
 	if err != nil {
 		return nil, err
@@ -182,7 +196,7 @@ WHERE timestamp_10m >= ? AND timestamp_s >= ? GROUP BY pattern_id`,
 func (p *PatternsSynchronizer) getPatterns(patternIds []uint64,
 	conn ch_wrapper.IChClient) ([]clustering.PatternInfo, error) {
 	rows, err := conn.Query(context.Background(),
-		`SELECT pattern_id, 
+		fmt.Sprintf(`SELECT pattern_id, 
        max(iteration_id) as iter, 
        argMax(overall_cost, iteration_id) as over_cost, 
        argMax(generalized_cost, iteration_id) as gen_cost, 
@@ -190,7 +204,7 @@ func (p *PatternsSynchronizer) getPatterns(patternIds []uint64,
        argMax(classes, iteration_id) as clss
 FROM patterns 
 WHERE timestamp_10m >= ? AND timestamp_s >= ? AND pattern_id IN (?)
-GROUP BY pattern_id`,
+GROUP BY pattern_id`, patternsTable),
 		p.since.Unix()/600, p.since.Unix(), patternIds)
 	if err != nil {
 		return nil, err
