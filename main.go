@@ -218,8 +218,30 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 	}
 	cfg.Setting.SYSTEM_SETTINGS.DBTimer = float64(maxAge) / 1000
 
+	// Enable pattern the logs drilldown feature (pattern detection, etc.). Default is "false"
 	if os.Getenv("LOG_DRILLDOWN") != "" {
 		cfg.Setting.DRILLDOWN_SETTINGS.LogDrilldown, err = boolEnv("LOG_DRILLDOWN")
+		if err != nil {
+			return err
+		}
+	}
+
+	// How similar log strings should be to form a pattern (0-1) where:
+	//   0 - completely different
+	//   1 - same string
+	// Default is 0.7
+	if os.Getenv("LOG_PATTERN_SIMILARITY") != "" {
+		cfg.Setting.DRILLDOWN_SETTINGS.LogPatternsSimilarity, err = strconv.ParseFloat(
+			os.Getenv("LOG_PATTERN_SIMILARITY"), 64)
+		if err != nil {
+			return err
+		}
+	}
+
+	// How many log patterns should be read upon a read request (default is 300)
+	if os.Getenv("LOG_PATTERN_READ_LIMIT") != "" {
+		cfg.Setting.DRILLDOWN_SETTINGS.LogPatternsReadLimit, err = strconv.Atoi(
+			os.Getenv("LOG_PATTERN_READ_LIMIT"))
 		if err != nil {
 			return err
 		}
