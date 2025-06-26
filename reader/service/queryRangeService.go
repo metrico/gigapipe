@@ -307,7 +307,7 @@ type PatternsResult struct {
 }
 
 func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fromNs int64, toNs int64,
-	stepMs int64) ([]PatternsResult, error) {
+	stepMs int64, limit int64) ([]PatternsResult, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -338,7 +338,7 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 			Result: map[string]sql.SQLObject{},
 		},
 		VersionInfo: versionInfo,
-		Limit:       300,
+		Limit:       limit,
 	}, conn)
 
 	sqlReq, err := logql_transpiler_v2.PlanPatterns(script)

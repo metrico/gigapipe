@@ -3,6 +3,7 @@ package controllerv1
 import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/service"
+	"github.com/metrico/qryn/writer/config"
 	"net/http"
 	"strings"
 )
@@ -146,8 +147,9 @@ func (q *VolumeController) Patterns(w http.ResponseWriter, r *http.Request) {
 		req.Step = 15000000000
 	}
 	req.Step = max(req.Step, 1000000000)
+	limit := int64(config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsReadLimit)
 	res, err := q.QueryRangeService.QueryPatterns(internalCtx, query, req.Start.UnixNano(), req.End.UnixNano(),
-		int64(req.Step/1000000))
+		int64(req.Step/1000000), limit)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return

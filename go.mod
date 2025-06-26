@@ -40,7 +40,6 @@ require (
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v1.0.0
-	github.com/google/codesearch v1.2.0
 	github.com/google/pprof v0.0.0-20241029153458-d1b30febd7db
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/schema v1.4.1
@@ -54,7 +53,7 @@ require (
 	github.com/labstack/gommon v0.4.2
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/m3db/prometheus_remote_client_golang v0.4.4
-	github.com/metrico/cloki-config v0.0.82
+	github.com/metrico/cloki-config v0.0.86
 	github.com/mochi-co/mqtt v1.3.2
 	github.com/openzipkin/zipkin-go v0.4.3
 	github.com/pkg/errors v0.9.1

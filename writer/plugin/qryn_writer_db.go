@@ -5,10 +5,11 @@ import (
 	"fmt"
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	config2 "github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/ch_wrapper"
+	config2 "github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/pattern/controller"
+	patternCtrl "github.com/metrico/qryn/writer/pattern/controller"
+
 	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/service/impl"
 	"github.com/metrico/qryn/writer/service/registry"
@@ -174,7 +175,7 @@ func checkAll(base []config.ClokiBaseDataBase) error {
 	return nil
 }
 
-func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseSettingServer) {
+func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSettingServer) {
 	databasesNodeHashMap := make(map[string]*model.DataDatabasesMap)
 	for _, node := range p.ServicesObject.DatabaseNodeMap {
 		databasesNodeHashMap[node.Node] = &node
@@ -296,7 +297,9 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config2.ClokiBaseS
 		ProfileInsertSvcs,
 	})
 
-	controller.Init(ServiceRegistry, p.ServicesObject.Dbv3Map[0])
+	if config2.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {
+		patternCtrl.Init(ServiceRegistry, p.ServicesObject.Dbv3Map[0])
+	}
 
 	//Run Prometheus Scaper
 	//go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)

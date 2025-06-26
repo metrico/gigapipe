@@ -2,6 +2,7 @@ package clustering
 
 import (
 	"github.com/go-faster/city"
+	"github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"strings"
 	"sync"
@@ -65,10 +66,6 @@ const Placeholder = "<_>"
 type TokenType int
 
 // ------------------------ Drain Clustering Section ------------------------
-
-const (
-	DefaultSimilarity = 0.7 // Similarity threshold for clustering.
-)
 
 type LogClusterSample struct {
 	Tokens          []Token
@@ -180,6 +177,7 @@ func (c *LogCluster) generalize(line *LogLine) bool {
 		i++
 		j++
 	}
+	var DefaultSimilarity = config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsSimilarity
 	if (float64(differenceCost+c.GeneralizedCost) / float64(c.OverallCost)) > (1 - DefaultSimilarity) {
 		return false
 	}

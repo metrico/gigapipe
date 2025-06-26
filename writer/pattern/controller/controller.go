@@ -3,11 +3,13 @@ package controller
 import (
 	"context"
 	"github.com/metrico/qryn/writer/ch_wrapper"
+	config "github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/pattern/clustering"
 	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/service/registry"
 	"github.com/metrico/qryn/writer/utils/logger"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +21,17 @@ var connFactory ch_wrapper.IChClientFactory
 
 var tokPool = sync.Pool{}
 var tokPoolSize int32
+var random *rand.Rand
+var mtx sync.Mutex
+
+func skipLine() bool {
+	if config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling == 1 {
+		return false
+	}
+	mtx.Lock()
+	defer mtx.Unlock()
+	return random.Float64() < (1 - config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling)
+}
 
 func getToks() []clustering.Token {
 	toks := tokPool.Get()
@@ -46,6 +59,9 @@ func ClusterLines(lines []string, fingerprints []uint64, timestamps []int64) {
 		defer putToks(toks)
 		var logLine clustering.LogLine
 		for i, line := range lines {
+			if skipLine() {
+				continue
+			}
 			logLine.Line = line
 			logLine.Fingerprint = fingerprints[i]
 			logLine.TimestampNs = timestamps[i]
