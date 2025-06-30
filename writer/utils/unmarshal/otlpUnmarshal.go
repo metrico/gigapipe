@@ -6,7 +6,6 @@ import (
 	v11 "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
-	"strconv"
 )
 
 type OTLPDecoder struct {
@@ -78,25 +77,30 @@ func (d *OTLPDecoder) Decode() error {
 		for _, scope := range res.ScopeSpans {
 			for _, span := range scope.Spans {
 				span.Attributes = append(span.Attributes, res.Resource.Attributes...)
-				attrsMap := map[string]string{}
+				attrsMap := map[string][]string{}
 				populateServiceNames(span)
 				d.initAttributesMap(span.Attributes, "", &attrsMap)
 				payload, err := proto.Marshal(span)
 				if err != nil {
 					return customErrors.NewUnmarshalError(err)
 				}
-				attrsMap["name"] = span.Name
-				keys := make([]string, len(attrsMap))
-				vals := make([]string, len(attrsMap))
-				i := 0
-				for k, v := range attrsMap {
-					keys[i] = k
-					vals[i] = v
-					i++
+				attrsMap["name"] = []string{span.Name}
+				keys := make([]string, 0, len(attrsMap))
+				vals := make([]string, 0, len(attrsMap))
+				for k, _v := range attrsMap {
+					for _, v := range _v {
+						keys = append(keys, k)
+						vals = append(vals, v)
+					}
+
+				}
+				serviceName := ""
+				if len(attrsMap["service.name"]) > 0 {
+					serviceName = attrsMap["service.name"][0]
 				}
 				err = d.onSpan(span.TraceId, span.SpanId, int64(span.StartTimeUnixNano),
 					int64(span.EndTimeUnixNano-span.StartTimeUnixNano),
-					string(span.ParentSpanId), span.Name, attrsMap["service.name"], payload,
+					string(span.ParentSpanId), span.Name, serviceName, payload,
 					keys, vals)
 				if err != nil {
 					return err
@@ -111,26 +115,38 @@ func (d *OTLPDecoder) SetOnEntry(h onSpanHandler) {
 	d.onSpan = h
 }
 
-func (d *OTLPDecoder) writeAttrValue(key string, val any, prefix string, res *map[string]string) {
+func (d *OTLPDecoder) getAttrValue(val any) string {
 	switch val.(type) {
 	case *v11.AnyValue_StringValue:
-		(*res)[prefix+key] = val.(*v11.AnyValue_StringValue).StringValue
+		return val.(*v11.AnyValue_StringValue).StringValue
 	case *v11.AnyValue_BoolValue:
-		(*res)[prefix+key] = fmt.Sprintf("%v", val.(*v11.AnyValue_BoolValue).BoolValue)
+		return fmt.Sprintf("%v", val.(*v11.AnyValue_BoolValue).BoolValue)
 	case *v11.AnyValue_DoubleValue:
-		(*res)[prefix+key] = fmt.Sprintf("%f", val.(*v11.AnyValue_DoubleValue).DoubleValue)
+		return fmt.Sprintf("%f", val.(*v11.AnyValue_DoubleValue).DoubleValue)
 	case *v11.AnyValue_IntValue:
-		(*res)[prefix+key] = fmt.Sprintf("%d", val.(*v11.AnyValue_IntValue).IntValue)
+		return fmt.Sprintf("%d", val.(*v11.AnyValue_IntValue).IntValue)
+	}
+	return ""
+}
+
+func (d *OTLPDecoder) writeAttrValue(key string, val any, prefix string, res *map[string][]string) {
+	switch val.(type) {
+	case *v11.AnyValue_StringValue:
+	case *v11.AnyValue_BoolValue:
+	case *v11.AnyValue_DoubleValue:
+	case *v11.AnyValue_IntValue:
+		(*res)[prefix+key] = append((*res)[prefix+key], d.getAttrValue(val))
 	case *v11.AnyValue_ArrayValue:
-		for i, _val := range val.(*v11.AnyValue_ArrayValue).ArrayValue.Values {
-			d.writeAttrValue(strconv.FormatInt(int64(i), 10), _val, prefix+key+".", res)
+
+		for _, _val := range val.(*v11.AnyValue_ArrayValue).ArrayValue.Values {
+			d.writeAttrValue(key, _val, prefix, res)
 		}
 	case *v11.AnyValue_KvlistValue:
 		d.initAttributesMap(val.(*v11.AnyValue_KvlistValue).KvlistValue.Values, prefix+key+".", res)
 	}
 }
 
-func (d *OTLPDecoder) initAttributesMap(attrs any, prefix string, res *map[string]string) {
+func (d *OTLPDecoder) initAttributesMap(attrs any, prefix string, res *map[string][]string) {
 	if _attrs, ok := attrs.([]*v11.KeyValue); ok {
 		for _, kv := range _attrs {
 			d.writeAttrValue(kv.Key, kv.Value.Value, prefix, res)
