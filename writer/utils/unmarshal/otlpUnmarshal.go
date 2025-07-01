@@ -131,15 +131,13 @@ func (d *OTLPDecoder) getAttrValue(val any) string {
 
 func (d *OTLPDecoder) writeAttrValue(key string, val any, prefix string, res *map[string][]string) {
 	switch val.(type) {
-	case *v11.AnyValue_StringValue:
-	case *v11.AnyValue_BoolValue:
-	case *v11.AnyValue_DoubleValue:
-	case *v11.AnyValue_IntValue:
+	case *v11.AnyValue:
+		d.writeAttrValue(key, val.(*v11.AnyValue).Value, prefix, res)
+	case *v11.AnyValue_StringValue, *v11.AnyValue_BoolValue, *v11.AnyValue_DoubleValue, *v11.AnyValue_IntValue:
 		(*res)[prefix+key] = append((*res)[prefix+key], d.getAttrValue(val))
 	case *v11.AnyValue_ArrayValue:
-
 		for _, _val := range val.(*v11.AnyValue_ArrayValue).ArrayValue.Values {
-			d.writeAttrValue(key, _val, prefix, res)
+			d.writeAttrValue(key, _val.Value, prefix, res)
 		}
 	case *v11.AnyValue_KvlistValue:
 		d.initAttributesMap(val.(*v11.AnyValue_KvlistValue).KvlistValue.Values, prefix+key+".", res)

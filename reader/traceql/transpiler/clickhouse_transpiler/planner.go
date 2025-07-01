@@ -33,12 +33,20 @@ type planner struct {
 	aggAttr string
 	cmpVal  string
 
+	selectAttrs []string
+
 	terms map[string]int
 }
 
 func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 	var res shared.SQLRequestPlanner
 	var err error
+
+	err = p.analyzeSelectors()
+	if err != nil {
+		return nil, err
+	}
+
 	if p.script.Tail == nil {
 		res, err = (&simpleExpressionPlanner{script: p.script}).planner()
 		if err != nil {
@@ -54,7 +62,7 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 	}
 	res = &IndexLimitPlanner{res}
 
-	res = NewTracesDataPlanner(res)
+	res = NewTracesDataPlanner(res, p.selectAttrs)
 
 	res = &IndexLimitPlanner{res}
 
@@ -67,6 +75,25 @@ func (p *planner) planTagsV2() (shared.SQLRequestPlanner, error) {
 
 func (p *planner) planValuesV2(key string) (shared.SQLRequestPlanner, error) {
 	return (&simpleExpressionPlanner{script: p.script}).valuesV2Planner(key)
+}
+
+func (p *planner) analyzeSelectors() error {
+	err := traceql_parser.Visit(p.script, func(node any) error {
+		if _selector, ok := node.(*traceql_parser.Selector); ok {
+			for i := len(_selector.Pipeline) - 1; i >= 0; i-- {
+				if _selector.Pipeline[i].Selector != nil {
+					p.selectAttrs = append(p.selectAttrs, _selector.Pipeline[i].Selector.Attributes...)
+				}
+				copy(_selector.Pipeline[i:], _selector.Pipeline[i+1:])
+				_selector.Pipeline = _selector.Pipeline[:len(_selector.Pipeline)-1]
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *planner) getPrefix() string {

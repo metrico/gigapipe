@@ -28,6 +28,8 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 		Result: map[string]sql.SQLObject{},
 	})
 
+	fmt.Println(strReq)
+
 	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, strReq)
 	if err != nil {
 		return nil, err
@@ -49,9 +51,10 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 				traceDurationMs   float64
 				rootServiceName   string
 				rootTraceName     string
+				attrs             [][][]any
 			)
 			err = rows.Scan(&traceId, &spanIds, &durationsNs, &timestampsNs,
-				&startTimeUnixNano, &traceDurationMs, &rootServiceName, &rootTraceName)
+				&startTimeUnixNano, &traceDurationMs, &rootServiceName, &rootTraceName, &attrs)
 			if err != nil {
 				logger.Error("ERROR[TRP#1]: ", err)
 				return
@@ -79,6 +82,12 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 				}
 				trace.SpanSet.Spans[i].StartTimeUnixNano = fmt.Sprintf("%d", timestampsNs[i])
 				trace.SpanSet.Spans[i].Attributes = make([]model.SpanAttr, 0)
+				for j, attr := range attrs[i] {
+					trace.SpanSet.Spans[i].Attributes = append(trace.SpanSet.Spans[i].Attributes, model.SpanAttr{
+						Key: fmt.Sprintf("%s", attr[0]),
+					})
+					trace.SpanSet.Spans[i].Attributes[j].Value.StringValue = fmt.Sprintf("%s", attr[1])
+				}
 			}
 			trace.SpanSet.Matched = len(trace.SpanSet.Spans)
 			trace.SpanSets = []model.SpanSet{trace.SpanSet}

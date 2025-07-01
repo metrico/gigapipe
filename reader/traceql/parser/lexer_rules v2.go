@@ -22,6 +22,7 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Eq", `=`},
 
 	{"Label_name", `(\.[a-zA-Z_][.a-zA-Z0-9_-]*|[a-zA-Z_][.a-zA-Z0-9_-]*)`},
+	{"Coma", `,`},
 	{"Dot", `\.`},
 
 	{"And", `&&`},

@@ -13,6 +13,8 @@ type simpleExpressionPlanner struct {
 	//Analyze results
 	termIdx []*traceql_parser.AttrSelector
 	cond    *condition
+
+	agg     *traceql_parser.Aggregator
 	aggFn   string
 	aggAttr string
 	cmpVal  string
@@ -109,8 +111,8 @@ func (p *simpleExpressionPlanner) planner() (shared.SQLRequestPlanner, error) {
 			Main:       res,
 			Fn:         p.aggFn,
 			Attr:       p.aggAttr,
-			CompareFn:  p.script.Head.Aggregator.Cmp,
-			CompareVal: p.script.Head.Aggregator.Num + p.script.Head.Aggregator.Measurement,
+			CompareFn:  p.agg.Cmp,
+			CompareVal: p.cmpVal,
 			Prefix:     p.prefix,
 		}
 	}
@@ -146,8 +148,14 @@ func (p *simpleExpressionPlanner) planEval() (shared.SQLRequestPlanner, error) {
 
 func (p *simpleExpressionPlanner) check() error {
 	if p.script.Head.AttrSelector == nil {
-		if p.script.Head.Aggregator != nil {
-			return fmt.Errorf("requests like `{} | ....` are not supported")
+		err := traceql_parser.Visit(&p.script.Head, func(node any) error {
+			if _, ok := node.(*traceql_parser.Aggregator); ok {
+				return fmt.Errorf("requests like `{} | ....` are not supported")
+			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 		if p.script.Tail != nil {
 			return fmt.Errorf("requests like `{} || .....` are not supported")
@@ -197,13 +205,13 @@ func (p *simpleExpressionPlanner) analyzeCond(exp *traceql_parser.AttrSelectorEx
 }
 
 func (p *simpleExpressionPlanner) analyzeAgg() {
-	if p.script.Head.Aggregator == nil {
-		return
-	}
-
-	p.aggFn = p.script.Head.Aggregator.Fn
-	p.aggAttr = p.script.Head.Aggregator.Attr
-
-	p.cmpVal = p.script.Head.Aggregator.Num + p.script.Head.Aggregator.Measurement
-	return
+	traceql_parser.Visit(&p.script.Head, func(node any) error {
+		if agg, ok := node.(*traceql_parser.Aggregator); ok {
+			p.agg = agg
+			p.aggFn = agg.Fn
+			p.aggAttr = agg.Attr
+			p.cmpVal = agg.Num + agg.Measurement
+		}
+		return nil
+	})
 }
