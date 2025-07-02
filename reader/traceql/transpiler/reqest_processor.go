@@ -82,6 +82,9 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 				}
 				trace.SpanSet.Spans[i].StartTimeUnixNano = fmt.Sprintf("%d", timestampsNs[i])
 				trace.SpanSet.Spans[i].Attributes = make([]model.SpanAttr, 0)
+				if len(attrs) == 0 {
+					continue
+				}
 				for j, attr := range attrs[i] {
 					trace.SpanSet.Spans[i].Attributes = append(trace.SpanSet.Spans[i].Attributes, model.SpanAttr{
 						Key: fmt.Sprintf("%s", attr[0]),

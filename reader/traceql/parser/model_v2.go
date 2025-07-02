@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -71,25 +72,25 @@ func (p Pipeline) String() string {
 }
 
 type Aggregator struct {
-	Fn          string `@("count"|"sum"|"min"|"max"|"avg")`
-	Attr        string `"(" @Label_name? ")"`
-	Cmp         string `@("="|"!="|"<"|"<="|">"|">=")`
-	Num         string `@Minus? @Integer @Dot? @Integer?`
-	Measurement string `@("ns"|"us"|"ms"|"s"|"m"|"h"|"d")?`
+	Fn          string    `@("count"|"sum"|"min"|"max"|"avg")`
+	Attr        LabelName `"(" @@? ")"`
+	Cmp         string    `@("="|"!="|"<"|"<="|">"|">=")`
+	Num         string    `@Minus? @Integer @Dot? @Integer?`
+	Measurement string    `@("ns"|"us"|"ms"|"s"|"m"|"h"|"d")?`
 }
 
 func (a Aggregator) String() string {
-	return a.Fn + "(" + a.Attr + ") " + a.Cmp + " " + a.Num + a.Measurement
+	return a.Fn + "(" + a.Attr.String() + ") " + a.Cmp + " " + a.Num + a.Measurement
 }
 
 type AttrSelector struct {
-	Label string `@Label_name`
-	Op    string `@("="|"!="|"<"|"<="|">"|">="|"=~"|"!~")`
-	Val   Value  `@@`
+	Label LabelName `@@`
+	Op    string    `@("="|"!="|"<"|"<="|">"|">="|"=~"|"!~")`
+	Val   Value     `@@`
 }
 
 func (a AttrSelector) String() string {
-	return a.Label + " " + a.Op + " " + a.Val.String()
+	return a.Label.String() + " " + a.Op + " " + a.Val.String()
 }
 
 type Value struct {
@@ -134,11 +135,38 @@ func (q *QuotedString) Unquote() (string, error) {
 }
 
 type ResultSelector struct {
-	Attributes []string `"select" "(" @Label_name ( "," @Label_name )* ")"`
+	Attributes []LabelName `"select" "(" @@ ( "," @@ )* ")"`
 }
 
 func (r ResultSelector) String() string {
-	return fmt.Sprintf("select(%s)", strings.Join(r.Attributes, ", "))
+	var attributes []string
+	for _, attr := range r.Attributes {
+		attributes = append(attributes, attr.String())
+	}
+	return fmt.Sprintf("select(%s)", strings.Join(attributes, ", "))
+}
+
+type LabelName struct {
+	Parts []string `(@Label_name | @Dot @Quoted_string)+`
+}
+
+func (l LabelName) Path() []string {
+	var path []string
+	for _, part := range l.Parts {
+		part = strings.Trim(part, `.`)
+		if part == "" {
+			continue
+		}
+		if part[0] == '"' {
+			part, _ = strconv.Unquote(part)
+		}
+		path = append(path, part)
+	}
+	return path
+}
+
+func (l LabelName) String() string {
+	return strings.Join(l.Parts, "")
 }
 
 func Visit(node any, f func(node any) error) error {

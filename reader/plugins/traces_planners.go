@@ -16,7 +16,7 @@ const (
 	initIndexPlannerPluginName         = "init-index-planner"
 )
 
-type TracesDataPlugin func(main shared.SQLRequestPlanner, returnAttrs []string) shared.SQLRequestPlanner
+type TracesDataPlugin func(main shared.SQLRequestPlanner, returnAttrs [][]string) shared.SQLRequestPlanner
 
 var traceDataPlugin *TracesDataPlugin
 

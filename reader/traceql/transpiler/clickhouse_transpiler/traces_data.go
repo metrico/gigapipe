@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	"github.com/metrico/qryn/reader/plugins"
+	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"strings"
 )
@@ -11,15 +12,20 @@ import (
 type TracesDataPlanner struct {
 	Main shared.SQLRequestPlanner
 
-	returnAttrs []string
+	returnAttrs [][]string
 }
 
-func NewTracesDataPlanner(main shared.SQLRequestPlanner, returnAttrs []string) shared.SQLRequestPlanner {
+func NewTracesDataPlanner(main shared.SQLRequestPlanner,
+	returnAttrs []traceql_parser.LabelName) shared.SQLRequestPlanner {
+	var _returnAttrs = make([][]string, len(returnAttrs))
+	for i, attr := range returnAttrs {
+		_returnAttrs[i] = attr.Path()
+	}
 	p := plugins.GetTracesDataPlugin()
 	if p != nil {
-		return (*p)(main, returnAttrs)
+		return (*p)(main, _returnAttrs)
 	}
-	return &TracesDataPlanner{Main: main, returnAttrs: returnAttrs}
+	return &TracesDataPlanner{Main: main, returnAttrs: _returnAttrs}
 }
 
 func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -106,7 +112,7 @@ func (t *TracesDataPlanner) returnAttributes(req sql.ISelect, withTraceIDsSpanID
 
 	returnAttrs := make([]string, len(t.returnAttrs))
 	for i, attr := range t.returnAttrs {
-		returnAttrs[i] = t.processSelector(attr)
+		returnAttrs[i] = t.processSelector(strings.Join(attr, "."))
 	}
 
 	attrsReq := sql.NewSelect().Select(

@@ -33,7 +33,7 @@ type planner struct {
 	aggAttr string
 	cmpVal  string
 
-	selectAttrs []string
+	selectAttrs []traceql_parser.LabelName
 
 	terms map[string]int
 }

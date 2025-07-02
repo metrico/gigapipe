@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
+	"strings"
 )
 
 type simpleExpressionPlanner struct {
@@ -168,7 +169,18 @@ func (p *simpleExpressionPlanner) check() error {
 		}
 		tail = tail.Tail
 	}
-	return nil
+	err := traceql_parser.Visit(p.script, func(node any) error {
+		_node, ok := node.(*traceql_parser.LabelName)
+		if !ok {
+			return nil
+		}
+		err := checkLabelSupport(_node)
+		if err != nil {
+			return fmt.Errorf("unsupported label: %s", _node.String())
+		}
+		return nil
+	})
+	return err
 }
 
 func (p *simpleExpressionPlanner) analyze() {
@@ -209,7 +221,7 @@ func (p *simpleExpressionPlanner) analyzeAgg() {
 		if agg, ok := node.(*traceql_parser.Aggregator); ok {
 			p.agg = agg
 			p.aggFn = agg.Fn
-			p.aggAttr = agg.Attr
+			p.aggAttr = strings.Join(agg.Attr.Parts, "")
 			p.cmpVal = agg.Num + agg.Measurement
 		}
 		return nil

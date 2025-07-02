@@ -81,10 +81,10 @@ func (a *AttrConditionPlanner) maybeCreateWhere() error {
 		}
 		a.sqlConds = append(a.sqlConds, sqlTerm)
 
-		if !strings.HasPrefix(t.Label, "span.") &&
-			!strings.HasPrefix(t.Label, "resource.") &&
-			!strings.HasPrefix(t.Label, ".") &&
-			t.Label != "name" {
+		if t.Label.Path()[0] != "span" &&
+			t.Label.Path()[0] != "resource" &&
+			!strings.HasPrefix(t.Label.Parts[0], ".") &&
+			t.Label.Path()[0] != "name" {
 			continue
 		}
 		a.where = append(a.where, sqlTerm)
@@ -148,28 +148,21 @@ func (a *AttrConditionPlanner) getCond(c *condition) (sql.SQLCondition, error) {
 }
 
 func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLCondition, error) {
-	key := t.Label
-	if strings.HasPrefix(key, "span.") {
-		key = key[5:]
-	} else if strings.HasPrefix(key, "resource.") {
-		key = key[9:]
-	} else if strings.HasPrefix(key, ".") {
-		key = key[1:]
-	} else {
-		switch key {
-		case "duration":
-			return a.getTermDuration(t)
-		case "name":
-			key = "name"
-		default:
-			return nil, fmt.Errorf("unsupported attribute %s", key)
-		}
+	err := checkLabelSupport(&t.Label)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported attribute %s", t.Label.String())
 	}
-
+	key := t.Label.Path()
+	switch t.Label.Parts[0] {
+	case "span", "resource":
+		key = key[1:]
+	case "duration":
+		return a.getTermDuration(t)
+	}
 	if t.Val.StrVal != nil {
-		return a.getTermStr(t, key)
+		return a.getTermStr(t, strings.Join(key, "."))
 	} else if t.Val.FVal != "" {
-		return a.getTermNum(t, key)
+		return a.getTermNum(t, strings.Join(key, "."))
 	}
 	return nil, fmt.Errorf("unsupported statement `%s`", t.String())
 }
