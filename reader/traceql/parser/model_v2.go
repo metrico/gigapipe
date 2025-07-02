@@ -12,6 +12,7 @@ type TraceQLScript struct {
 	Head  Selector       `@@`
 	AndOr string         `@(And|Or)?`
 	Tail  *TraceQLScript `@@?`
+	With  *With          `@@?`
 }
 
 func (l TraceQLScript) String() string {
@@ -19,7 +20,11 @@ func (l TraceQLScript) String() string {
 	if l.AndOr != "" {
 		tail = " " + l.AndOr + " " + l.Tail.String()
 	}
-	return l.Head.String() + tail
+	with := ""
+	if l.With != nil {
+		with = " " + l.With.String()
+	}
+	return l.Head.String() + tail + with
 }
 
 type Selector struct {
@@ -28,7 +33,11 @@ type Selector struct {
 }
 
 func (s Selector) String() string {
-	res := "{" + s.AttrSelector.String() + "}"
+	attrSel := ""
+	if s.AttrSelector != nil {
+		attrSel = s.AttrSelector.String()
+	}
+	res := "{" + attrSel + "}"
 	for _, pipeline := range s.Pipeline {
 		res += pipeline.String()
 	}
@@ -180,6 +189,14 @@ func (l LabelName) Path() []string {
 
 func (l LabelName) String() string {
 	return strings.Join(l.Parts, "")
+}
+
+type With struct {
+	Param string `"with" "(" @(Label_name "=" Label_name) ")"`
+}
+
+func (w With) String() string {
+	return fmt.Sprintf("with(%s)", w.Param)
 }
 
 func Visit(node any, f func(node any) error) error {
