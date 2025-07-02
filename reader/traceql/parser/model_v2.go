@@ -57,8 +57,9 @@ func (a AttrSelectorExp) String() string {
 }
 
 type Pipeline struct {
-	Agg      *Aggregator     `"|" (@@|`
-	Selector *ResultSelector `@@)`
+	Agg      *Aggregator     `"|" (@@`
+	Selector *ResultSelector `| @@`
+	By       *GroupBy        `| @@)`
 }
 
 func (p Pipeline) String() string {
@@ -144,6 +145,18 @@ func (r ResultSelector) String() string {
 		attributes = append(attributes, attr.String())
 	}
 	return fmt.Sprintf("select(%s)", strings.Join(attributes, ", "))
+}
+
+type GroupBy struct {
+	Attributes []LabelName `"by" "(" @@ ( "," @@ )* ")"`
+}
+
+func (g GroupBy) String() string {
+	labels := make([]string, len(g.Attributes))
+	for i, label := range g.Attributes {
+		labels[i] = label.String()
+	}
+	return fmt.Sprintf("by(%s)", strings.Join(labels, ", "))
 }
 
 type LabelName struct {

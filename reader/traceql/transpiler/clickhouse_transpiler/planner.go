@@ -33,7 +33,8 @@ type planner struct {
 	aggAttr string
 	cmpVal  string
 
-	selectAttrs []traceql_parser.LabelName
+	selectAttrs  []traceql_parser.LabelName
+	groupByAttrs []traceql_parser.LabelName
 
 	terms map[string]int
 }
@@ -83,9 +84,17 @@ func (p *planner) analyzeSelectors() error {
 			for i := len(_selector.Pipeline) - 1; i >= 0; i-- {
 				if _selector.Pipeline[i].Selector != nil {
 					p.selectAttrs = append(p.selectAttrs, _selector.Pipeline[i].Selector.Attributes...)
+					copy(_selector.Pipeline[i:], _selector.Pipeline[i+1:])
+					_selector.Pipeline = _selector.Pipeline[:len(_selector.Pipeline)-1]
+					continue
 				}
-				copy(_selector.Pipeline[i:], _selector.Pipeline[i+1:])
-				_selector.Pipeline = _selector.Pipeline[:len(_selector.Pipeline)-1]
+				if _selector.Pipeline[i].By != nil {
+					p.selectAttrs = append(p.selectAttrs, _selector.Pipeline[i].By.Attributes...)
+					p.groupByAttrs = append(p.groupByAttrs, _selector.Pipeline[i].By.Attributes...)
+					copy(_selector.Pipeline[i:], _selector.Pipeline[i+1:])
+					_selector.Pipeline = _selector.Pipeline[:len(_selector.Pipeline)-1]
+					continue
+				}
 			}
 		}
 		return nil
@@ -94,6 +103,21 @@ func (p *planner) analyzeSelectors() error {
 		return err
 	}
 	return nil
+}
+
+func GetGroupByAttributes(script *traceql_parser.TraceQLScript) []traceql_parser.LabelName {
+	var res []traceql_parser.LabelName
+	traceql_parser.Visit(script, func(node any) error {
+		if _selector, ok := node.(*traceql_parser.Selector); ok {
+			for _, pipeline := range _selector.Pipeline {
+				if pipeline.By != nil {
+					res = append(res, pipeline.By.Attributes...)
+				}
+			}
+		}
+		return nil
+	})
+	return res
 }
 
 func (p *planner) getPrefix() string {

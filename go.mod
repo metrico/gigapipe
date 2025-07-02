@@ -73,6 +73,7 @@ require (
 	google.golang.org/protobuf v1.36.5
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/yaml.v2 v2.4.0
+	k8s.io/utils v0.0.0-20241210054802-24370beab758
 )
 
 require (

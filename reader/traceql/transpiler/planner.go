@@ -8,6 +8,8 @@ import (
 )
 
 func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, error) {
+	groupBy := clickhouse_transpiler.GetGroupByAttributes(script)
+
 	sqlPlanner, err := clickhouse_transpiler.Plan(script)
 	if err != nil {
 		return nil, err
@@ -18,12 +20,21 @@ func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, e
 		return nil, err
 	}
 
-	return &TraceQLComplexityEvaluator[model.TraceInfo]{
+	var res shared.TraceRequestProcessor = &TraceQLComplexityEvaluator[model.TraceInfo]{
 		initSqlPlanner:            sqlPlanner,
 		simpleRequestProcessor:    &SimpleRequestProcessor{},
 		complexRequestProcessor:   &ComplexRequestProcessor{},
 		evaluateComplexityPlanner: complexityPlanner,
-	}, nil
+	}
+
+	if len(groupBy) > 0 {
+		res = &GroupByProcessor{
+			main:        res,
+			groupFields: groupBy,
+		}
+	}
+
+	return res, nil
 }
 
 func PlanTagsV2(script *traceql_parser.TraceQLScript) (shared.GenericTraceRequestProcessor[string], error) {
