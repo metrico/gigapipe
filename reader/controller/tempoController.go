@@ -336,6 +336,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 		t.searchV2(internalCtx, w, r, params)
+		return
 	}
 
 	resChan, err := t.Service.Search(
