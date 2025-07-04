@@ -20,6 +20,8 @@ type simpleExpressionPlanner struct {
 	aggAttr string
 	cmpVal  string
 
+	isRootSpansShortcut bool
+
 	terms map[string]int
 }
 
@@ -94,7 +96,9 @@ func (p *simpleExpressionPlanner) planner() (shared.SQLRequestPlanner, error) {
 
 	p.analyze()
 	var res shared.SQLRequestPlanner
-	if p.script.Head.AttrSelector != nil {
+	if p.isRootSpansShortcut {
+		res = NewAttrlessConditionPlanner(true)
+	} else if p.script.Head.AttrSelector != nil {
 		res = &AttrConditionPlanner{
 			Main:           NewInitIndexPlanner(false),
 			Terms:          p.termIdx,
@@ -102,7 +106,7 @@ func (p *simpleExpressionPlanner) planner() (shared.SQLRequestPlanner, error) {
 			AggregatedAttr: p.aggAttr,
 		}
 	} else {
-		res = NewAttrlessConditionPlanner()
+		res = NewAttrlessConditionPlanner(false)
 	}
 
 	res = &IndexGroupByPlanner{Main: res, Prefix: p.prefix}
@@ -128,7 +132,11 @@ func (p *simpleExpressionPlanner) planEval() (shared.SQLRequestPlanner, error) {
 
 	p.analyze()
 	var res shared.SQLRequestPlanner
-	if p.script.Head.AttrSelector != nil {
+	if p.isRootSpansShortcut {
+		res = &AttrlessEvaluatorPlanner{
+			Prefix: p.prefix,
+		}
+	} else if p.script.Head.AttrSelector != nil {
 		res = &AttrConditionEvaluatorPlanner{
 			Main: &AttrConditionPlanner{
 				Main:           NewInitIndexPlanner(true),
@@ -185,8 +193,19 @@ func (p *simpleExpressionPlanner) check() error {
 
 func (p *simpleExpressionPlanner) analyze() {
 	p.terms = make(map[string]int)
+	p.analyzeRootSpansShortcut(p.script.Head.AttrSelector)
 	p.cond = p.analyzeCond(p.script.Head.AttrSelector)
 	p.analyzeAgg()
+}
+
+func (p *simpleExpressionPlanner) analyzeRootSpansShortcut(exp *traceql_parser.AttrSelectorExp) {
+	if exp != nil && exp.Head != nil &&
+		exp.Head.Label.String() == "nestedSetParent" &&
+		exp.Head.Op == "<" &&
+		exp.Head.Val.FVal == "0" &&
+		exp.Tail == nil {
+		p.isRootSpansShortcut = true
+	}
 }
 
 func (p *simpleExpressionPlanner) analyzeCond(exp *traceql_parser.AttrSelectorExp) *condition {

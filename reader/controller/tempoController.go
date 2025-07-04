@@ -1,6 +1,7 @@
 package controllerv1
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -327,31 +328,14 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if params.Q != "" {
-		if params.Limit == 0 {
-			params.Limit = 20
-		}
-		ch, err := t.Service.SearchTraceQL(internalCtx,
-			params.Q, params.Limit, params.Start, params.End)
-		if err != nil {
-			PromError(500, err.Error(), w)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		w.Write([]byte(`{"traces": [`))
-		i := 0
-		for traces := range ch {
-			for _, trace := range traces {
-				if i != 0 {
-					w.Write([]byte(","))
-				}
-				strTrace, _ := json.Marshal(trace)
-				w.Write(strTrace)
-				i++
+		defer func() {
+			if err := recover(); err != nil {
+				println("!!!!!!!! Q:" + params.Q)
+				fmt.Printf("Recovered from panic: %v\n", err)
+
 			}
-		}
-		w.Write([]byte("]}"))
-		return
+		}()
+		t.searchV2(internalCtx, w, r, params)
 	}
 
 	resChan, err := t.Service.Search(
@@ -385,6 +369,55 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func (t *TempoController) searchV2(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	params *traceSearchParams) {
+	if params.Limit == 0 {
+		params.Limit = 20
+	}
+	println(params.Q)
+	ch, err := t.Service.SearchTraceQL(ctx,
+		params.Q, params.Limit, params.Start, params.End, params.Step)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	if ch.Metrics != nil {
+		t.printMetrics(w, ch)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write([]byte(`{"traces": [`))
+	i := 0
+	for traces := range ch.TraceInfo {
+		for _, trace := range traces {
+			if i != 0 {
+				w.Write([]byte(","))
+			}
+			strTrace, _ := json.Marshal(trace)
+			w.Write(strTrace)
+			i++
+		}
+	}
+	w.Write([]byte("]}"))
+}
+
+func (t *TempoController) printMetrics(w http.ResponseWriter, ch *model.TraceQLResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write([]byte(`{"series": [`))
+	i := 0
+	for serie := range ch.Metrics {
+		strSerie, _ := json.Marshal(serie)
+		if i != 0 {
+			w.Write([]byte(","))
+		}
+		w.Write(strSerie)
+		i++
+	}
+	w.Write([]byte("]}"))
+}
+
 type traceSearchParams struct {
 	Q           string
 	Tags        string
@@ -393,6 +426,7 @@ type traceSearchParams struct {
 	Limit       int
 	Start       time.Time
 	End         time.Time
+	Step        time.Duration
 }
 
 func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
@@ -427,6 +461,10 @@ func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	res.End = time.Unix(int64(endS), 0)
 	if endS == 0 {
 		res.End = time.Now()
+	}
+	res.Step, err = time.ParseDuration(orDefault(r.URL.Query().Get("step"), "15s"))
+	if err != nil {
+		return nil, fmt.Errorf("step: %v", err)
 	}
 	return &res, nil
 }

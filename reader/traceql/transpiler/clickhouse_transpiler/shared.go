@@ -39,7 +39,7 @@ func checkLabelSupport(label *traceql_parser.LabelName) error {
 	}
 	if len(label.Path()) == 1 {
 		switch label.Path()[0] {
-		case "name", "duration":
+		case "name", "duration", "nestedSetParent":
 			return nil
 		}
 	}

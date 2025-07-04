@@ -52,15 +52,15 @@ func (g *GroupByProcessor) hash(s *model.SpanInfo) uint64 {
 	return city.CH64([]byte(strings.Join(pairs, ",")))
 }
 
-func (g *GroupByProcessor) Process(context *shared.PlannerContext) (chan []model.TraceInfo, error) {
+func (g *GroupByProcessor) Process(context *shared.PlannerContext) (model.TraceQLResponse, error) {
 	c, err := g.main.Process(context)
 	if err != nil {
-		return nil, err
+		return model.TraceQLResponse{}, err
 	}
 	res := make(chan []model.TraceInfo)
 	go func() {
 		defer close(res)
-		for traces := range c {
+		for traces := range c.TraceInfo {
 			for i := range traces {
 				trace := &traces[i]
 				spanSetsMap := make(map[uint64][]model.SpanInfo)
@@ -81,5 +81,5 @@ func (g *GroupByProcessor) Process(context *shared.PlannerContext) (chan []model
 			res <- traces
 		}
 	}()
-	return res, nil
+	return model.TraceQLResponse{TraceInfo: res}, nil
 }

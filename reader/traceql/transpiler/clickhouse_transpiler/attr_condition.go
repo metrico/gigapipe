@@ -148,7 +148,7 @@ func (a *AttrConditionPlanner) getCond(c *condition) (sql.SQLCondition, error) {
 }
 
 func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLCondition, error) {
-	err := checkLabelSupport(&t.Label)
+	err := checkLabelSupport(t.Label)
 	if err != nil {
 		return nil, fmt.Errorf("unsupported attribute %s", t.Label.String())
 	}

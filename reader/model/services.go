@@ -13,7 +13,8 @@ type ITempoService interface {
 	ValuesV2(ctx context.Context, key string, query string, from time.Time, to time.Time, limit int) (chan string, error)
 	Search(ctx context.Context, tags string, minDurationNS int64, maxDurationNS int64,
 		limit int, fromNS int64, toNS int64) (chan *TraceResponse, error)
-	SearchTraceQL(ctx context.Context, q string, limit int, from time.Time, to time.Time) (chan []TraceInfo, error)
+	SearchTraceQL(ctx context.Context, q string, limit int, from time.Time, to time.Time,
+		step time.Duration) (*TraceQLResponse, error)
 	TagsV2(ctx context.Context, query string, from time.Time, to time.Time, limit int) (chan string, error)
 }
 

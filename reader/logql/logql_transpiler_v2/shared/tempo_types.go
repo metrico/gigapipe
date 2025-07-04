@@ -7,5 +7,5 @@ type GenericTraceRequestProcessor[T any] interface {
 }
 
 type TraceRequestProcessor interface {
-	Process(*PlannerContext) (chan []model.TraceInfo, error)
+	Process(*PlannerContext) (model.TraceQLResponse, error)
 }

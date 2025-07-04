@@ -33,6 +33,21 @@ type TSDBStatusMetric struct {
 	Value int32  `json:"value"`
 }
 
+type TraceQLResponse struct {
+	TraceInfo chan []TraceInfo
+	Metrics   chan TraceMetricStream
+}
+
+type TraceMetricStream struct {
+	Labels  []SpanAttr          `json:"labels"`
+	Samples []TraceMetricSample `json:"samples"`
+}
+
+type TraceMetricSample struct {
+	TimestampMs string  `json:"timestampMs"`
+	Value       float64 `json:"value"`
+}
+
 type TraceInfo struct {
 	TraceID           string    `json:"traceID"`
 	RootServiceName   string    `json:"rootServiceName"`
@@ -56,8 +71,10 @@ type SpanSet struct {
 }
 
 type SpanAttr struct {
-	Key   string `json:"key"`
-	Value struct {
-		StringValue string `json:"stringValue"`
-	} `json:"value"`
+	Key   string        `json:"key"`
+	Value SpanAttrValue `json:"value"`
+}
+
+type SpanAttrValue struct {
+	StringValue string `json:"stringValue"`
 }

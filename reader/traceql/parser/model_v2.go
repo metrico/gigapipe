@@ -68,7 +68,8 @@ func (a AttrSelectorExp) String() string {
 type Pipeline struct {
 	Agg      *Aggregator     `"|" (@@`
 	Selector *ResultSelector `| @@`
-	By       *GroupBy        `| @@)`
+	By       *GroupBy        `| @@`
+	Metric   *MetricFunction `| @@)`
 }
 
 func (p Pipeline) String() string {
@@ -94,12 +95,16 @@ func (a Aggregator) String() string {
 }
 
 type AttrSelector struct {
-	Label LabelName `@@`
-	Op    string    `@("="|"!="|"<"|"<="|">"|">="|"=~"|"!~")`
-	Val   Value     `@@`
+	True  string     `@("true")`
+	Label *LabelName `|(@@`
+	Op    string     `@("="|"!="|"<"|"<="|">"|">="|"=~"|"!~")`
+	Val   *Value     `@@)`
 }
 
 func (a AttrSelector) String() string {
+	if a.True == "true" {
+		return "true"
+	}
 	return a.Label.String() + " " + a.Op + " " + a.Val.String()
 }
 
@@ -199,6 +204,19 @@ func (w With) String() string {
 	return fmt.Sprintf("with(%s)", w.Param)
 }
 
+type MetricFunction struct {
+	Fn string   `@("rate"|"count_over_time"|"sum_over_time"|"min_over_time"|"max_over_time"|"avg_over_time") "(" ")"`
+	By *GroupBy `@@?`
+}
+
+func (m MetricFunction) String() string {
+	by := ""
+	if m.By != nil {
+		by = m.By.String()
+	}
+	return m.Fn + "()" + by
+}
+
 func Visit(node any, f func(node any) error) error {
 	if node == nil {
 		return nil
@@ -214,10 +232,15 @@ func Visit(node any, f func(node any) error) error {
 		return nil
 	}
 
+	err := f(nodePtr.Interface())
+	if err != nil {
+		return err
+	}
+
 	var children []any
 	switch v := nodePtr.Interface().(type) {
 	case *TraceQLScript:
-		children = append(children, &v.Head, v.Tail)
+		children = append(children, &v.Head, v.Tail, v.With)
 	case *Selector:
 		children = append(children, v.AttrSelector)
 		for _, pipeline := range v.Pipeline {
@@ -226,19 +249,29 @@ func Visit(node any, f func(node any) error) error {
 	case *AttrSelectorExp:
 		children = append(children, v.Head, v.ComplexHead, v.Tail)
 	case *Pipeline:
-		children = append(children, v.Agg, v.Selector)
+		children = append(children, v.Agg, v.Selector, v.Metric)
 	case *AttrSelector:
-		children = append(children, &v.Val)
+		children = append(children, v.Label, &v.Val)
 	case *Value:
 		children = append(children, &v.StrVal)
-	case *ResultSelector, *QuotedString, *Aggregator:
-		break
+	case *ResultSelector:
+		for i := range v.Attributes {
+			children = append(children, &v.Attributes[i])
+		}
+	case *GroupBy:
+		for i := range v.Attributes {
+			children = append(children, &v.Attributes[i])
+		}
+	case *LabelName:
+		// LabelName doesn't have any child nodes to visit
+	case *With:
+		// With doesn't have any child nodes to visit
+	case *MetricFunction:
+		children = append(children, v.By)
+	case *QuotedString, *Aggregator:
+		// These types don't have any child nodes to visit
 	default:
 		return nil
-	}
-	err := f(nodePtr.Interface())
-	if err != nil {
-		return err
 	}
 	for _, child := range children {
 		err = Visit(child, f)

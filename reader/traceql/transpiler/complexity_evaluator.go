@@ -83,3 +83,17 @@ func sortSpans(spans []model.SpanInfo) {
 		return s1 > s2
 	})
 }
+
+type TraceQLSamplesComplexityEvaluator struct {
+	TraceQLComplexityEvaluator[model.TraceInfo]
+}
+
+func (t *TraceQLSamplesComplexityEvaluator) Process(context *shared.PlannerContext) (model.TraceQLResponse, error) {
+	c, err := t.TraceQLComplexityEvaluator.Process(context)
+	if err != nil {
+		return model.TraceQLResponse{}, err
+	}
+	return model.TraceQLResponse{
+		TraceInfo: c,
+	}, nil
+}

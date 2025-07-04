@@ -12,7 +12,7 @@ import (
 )
 
 func (t *TempoService) SearchTraceQL(ctx context.Context,
-	q string, limit int, from time.Time, to time.Time) (chan []model.TraceInfo, error) {
+	q string, limit int, from time.Time, to time.Time, step time.Duration) (*model.TraceQLResponse, error) {
 	conn, err := t.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -41,21 +41,10 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 		CHDb:        conn.Session,
 		CancelCtx:   cancel,
 		VersionInfo: versionInfo,
+		Step:        step,
 	}
 	tables.PopulateTableNames(sqlCtx, conn)
 
 	ch, err := planner.Process(sqlCtx)
-
-	if err != nil {
-		return nil, err
-	}
-	res := make(chan []model.TraceInfo)
-	go func() {
-		defer close(res)
-		defer cancel()
-		for ch := range ch {
-			res <- ch
-		}
-	}()
-	return res, nil
+	return &ch, err
 }

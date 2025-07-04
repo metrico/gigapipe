@@ -33,21 +33,32 @@ type planner struct {
 	aggAttr string
 	cmpVal  string
 
-	selectAttrs  []traceql_parser.LabelName
-	groupByAttrs []traceql_parser.LabelName
+	selectAttrs    []traceql_parser.LabelName
+	groupByAttrs   []traceql_parser.LabelName
+	metricFunction *traceql_parser.MetricFunction
 
 	terms map[string]int
 }
 
 func (p *planner) plan() (shared.SQLRequestPlanner, error) {
-	var res shared.SQLRequestPlanner
 	var err error
-
 	err = p.analyzeSelectors()
 	if err != nil {
 		return nil, err
 	}
 
+	err = p.analyzeMetricFunction()
+	if err != nil {
+		return nil, err
+	}
+	if p.metricFunction == nil {
+		return p.planSamplesReq()
+	}
+	return p.planMerticsReq()
+}
+func (p *planner) planSamplesReq() (shared.SQLRequestPlanner, error) {
+	var res shared.SQLRequestPlanner
+	var err error
 	if p.script.Tail == nil {
 		res, err = (&simpleExpressionPlanner{script: p.script}).planner()
 		if err != nil {
@@ -67,6 +78,20 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 
 	res = &IndexLimitPlanner{res}
 
+	return res, nil
+}
+
+func (p *planner) planMerticsReq() (shared.SQLRequestPlanner, error) {
+	var res shared.SQLRequestPlanner
+	var err error
+	res, err = (&simpleExpressionPlanner{script: p.script}).planner()
+	if err != nil {
+		return nil, err
+	}
+	res = &MetricPlanner{
+		Main: res,
+		Fn:   p.metricFunction.Fn,
+	}
 	return res, nil
 }
 
@@ -171,6 +196,30 @@ func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	}
 	res = &EvalFinalizerPlanner{Main: res}
 	return res, nil
+}
+
+func (p *planner) analyzeMetricFunction() error {
+	metricFunc := 0
+	err := traceql_parser.Visit(p.script, func(node any) error {
+		if f, ok := node.(*traceql_parser.MetricFunction); ok {
+			metricFunc++
+			if metricFunc > 1 {
+				return fmt.Errorf("multiple metric functions are not supported")
+			}
+			p.metricFunction = f
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if metricFunc == 0 {
+		return nil
+	}
+	if p.script.Tail != nil {
+		return fmt.Errorf("complex expression with metric functions is not supported")
+	}
+	return nil
 }
 
 type condition struct {

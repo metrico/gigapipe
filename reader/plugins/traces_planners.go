@@ -28,7 +28,7 @@ func GetTracesDataPlugin() *TracesDataPlugin {
 	return traceDataPlugin
 }
 
-type AttrlessConditionPlannerPlugin func() shared.SQLRequestPlanner
+type AttrlessConditionPlannerPlugin func(onlyRootSpans bool) shared.SQLRequestPlanner
 
 var attrlessConditionPlannerPlugin *AttrlessConditionPlannerPlugin
 
