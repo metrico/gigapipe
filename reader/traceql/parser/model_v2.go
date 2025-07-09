@@ -109,14 +109,14 @@ func (a AttrSelector) String() string {
 }
 
 type Value struct {
-	TimeVal string        `@Integer @Dot? @Integer? @("ns"|"us"|"ms"|"s"|"m"|"h"|"d")`
-	FVal    string        `| @Minus? @Integer @Dot? @Integer?`
-	StrVal  *QuotedString `| @@`
+	TimeVal string     `@Integer @Dot? @Integer? @("ns"|"us"|"ms"|"s"|"m"|"h"|"d")`
+	FVal    string     `| @Minus? @Integer @Dot? @Integer?`
+	StrVal  *StringVal `| @@`
 }
 
 func (v Value) String() string {
 	if v.StrVal != nil {
-		return v.StrVal.Str
+		return v.StrVal.String()
 	}
 	if v.FVal != "" {
 		return v.FVal
@@ -125,6 +125,25 @@ func (v Value) String() string {
 		return v.TimeVal
 	}
 	return ""
+}
+
+type StringVal struct {
+	Quoted   *QuotedString `@@`
+	Unquoted string        `| @Label_name`
+}
+
+func (s StringVal) Unquote() (string, error) {
+	if s.Quoted != nil {
+		return s.Unquote()
+	}
+	return s.Unquoted, nil
+}
+
+func (s StringVal) String() string {
+	if s.Unquoted != "" {
+		return s.Unquoted
+	}
+	return s.Quoted.String()
 }
 
 type QuotedString struct {

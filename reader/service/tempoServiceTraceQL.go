@@ -32,6 +32,17 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 
 	ctx, cancel := context.WithCancel(ctx)
 
+	isMetrics := false
+	traceql_parser.Visit(script, func(node any) error {
+		_, ok := node.(*traceql_parser.MetricFunction)
+		isMetrics = isMetrics || ok
+		return nil
+	})
+
+	if isMetrics {
+		limit = 0
+	}
+
 	sqlCtx := &shared.PlannerContext{
 		IsCluster:   conn.Config.ClusterName != "",
 		From:        from,

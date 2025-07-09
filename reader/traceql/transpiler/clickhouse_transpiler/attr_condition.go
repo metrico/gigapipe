@@ -84,7 +84,8 @@ func (a *AttrConditionPlanner) maybeCreateWhere() error {
 		if t.Label.Path()[0] != "span" &&
 			t.Label.Path()[0] != "resource" &&
 			!strings.HasPrefix(t.Label.Parts[0], ".") &&
-			t.Label.Path()[0] != "name" {
+			t.Label.Path()[0] != "name" &&
+			t.Label.Path()[0] != "status" {
 			continue
 		}
 		a.where = append(a.where, sqlTerm)
@@ -158,6 +159,7 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLC
 		key = key[1:]
 	case "duration":
 		return a.getTermDuration(t)
+	case "status":
 	}
 	if t.Val.StrVal != nil {
 		return a.getTermStr(t, strings.Join(key, "."))

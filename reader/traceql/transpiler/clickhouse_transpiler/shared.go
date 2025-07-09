@@ -5,6 +5,7 @@ import (
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"k8s.io/utils/strings/slices"
 )
 
 func getComparisonFn(op string) (func(left sql.SQLObject, right sql.SQLObject) *sql.LogicalOp, error) {
@@ -27,21 +28,21 @@ func getComparisonFn(op string) (func(left sql.SQLObject, right sql.SQLObject) *
 
 var labelNotSupportedError = fmt.Errorf("attribute not supported")
 
+func isScoped(label *traceql_parser.LabelName) bool {
+	return len(label.Path()) > 1 && slices.Contains([]string{"span", "resource"}, label.Path()[0])
+}
+
+func isUnscoped(label *traceql_parser.LabelName) bool {
+	return len(label.Parts) >= 1 && label.Parts[0][0] == '.'
+}
+
+func isSupportedIntrinsic(label *traceql_parser.LabelName) bool {
+	return len(label.Parts) == 1 && slices.Contains([]string{"name", "duration", "status"}, label.Parts[0])
+}
+
 func checkLabelSupport(label *traceql_parser.LabelName) error {
-	if label.Path()[0] == "span" {
+	if isScoped(label) || isUnscoped(label) || isSupportedIntrinsic(label) {
 		return nil
-	}
-	if label.Path()[0] == "resource" {
-		return nil
-	}
-	if label.Parts[0][0] == '.' {
-		return nil
-	}
-	if len(label.Path()) == 1 {
-		switch label.Path()[0] {
-		case "name", "duration", "nestedSetParent":
-			return nil
-		}
 	}
 	return labelNotSupportedError
 }
