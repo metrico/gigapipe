@@ -5,13 +5,18 @@ import (
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 )
 
+type parserHelper interface {
+	parse(line string) error
+	setLabels(*map[string]string)
+}
+
 type ParserPlanner struct {
 	GenericPlanner
 	Op              string
 	ParameterNames  []string
 	ParameterValues []string
 
-	parameterTypedValues [][]any
+	parameterTypedValues [][]string
 	logfmtFields         map[string]string
 }
 
@@ -20,7 +25,7 @@ func (p *ParserPlanner) IsMatrix() bool { return false }
 func (p *ParserPlanner) Process(ctx *shared.PlannerContext,
 	in chan []shared.LogEntry) (chan []shared.LogEntry, error) {
 
-	p.parameterTypedValues = make([][]any, len(p.ParameterValues))
+	p.parameterTypedValues = make([][]string, len(p.ParameterValues))
 	for i, v := range p.ParameterValues {
 		var err error
 		p.parameterTypedValues[i], err = shared.JsonPathParamToTypedArray(v)
@@ -29,28 +34,27 @@ func (p *ParserPlanner) Process(ctx *shared.PlannerContext,
 		}
 	}
 
-	if len(p.ParameterNames) > 0 {
-		p.logfmtFields = make(map[string]string, len(p.ParameterNames))
-		for i, name := range p.ParameterNames {
-			if len(p.parameterTypedValues[i]) == 0 {
-				continue
-			}
-			switch p.parameterTypedValues[i][0].(type) {
-			case string:
-				p.logfmtFields[p.parameterTypedValues[i][0].(string)] = name
-			}
-		}
-	}
-
-	parser := p.json
+	var parser parserHelper
 	switch p.Op {
 	case "json":
 		if len(p.ParameterNames) > 0 {
-			parser = p.jsonWithParams
+			parser = &parameterJsonHelper{
+				paths: p.parameterTypedValues,
+				keys:  p.ParameterNames,
+			}
+		} else {
+			parser = &plainJsonParserHelper{}
 		}
 		break
 	case "logfmt":
-		parser = p.logfmt
+		if len(p.ParameterNames) > 0 {
+			parser = &parameterLogfmtHelper{
+				keys:  p.ParameterNames,
+				paths: p.ParameterValues,
+			}
+		} else {
+			parser = &plainLogfmtHelper{}
+		}
 	default:
 		return nil, &shared.NotSupportedError{Msg: fmt.Sprintf("%s not supported", p.Op)}
 	}
@@ -61,9 +65,13 @@ func (p *ParserPlanner) Process(ctx *shared.PlannerContext,
 				return nil
 			}
 			var err error
-			entry.Labels, err = parser(entry.Message, &entry.Labels)
+			parser.setLabels(&entry.Labels)
+			err = parser.parse(entry.Message)
+			if err != nil {
+				return err
+			}
 			entry.Fingerprint = fingerprint(entry.Labels)
-			return err
+			return nil
 		},
 		OnAfterEntriesSlice: func(entries []shared.LogEntry, c chan []shared.LogEntry) error {
 			c <- entries
