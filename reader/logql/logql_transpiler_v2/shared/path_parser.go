@@ -10,20 +10,20 @@ import (
 	"text/scanner"
 )
 
-func JsonPathParamToTypedArray(param string) ([]any, error) {
+func JsonPathParamToTypedArray(param string) ([]string, error) {
 	parser, err := participle.Build[jsonPath](participle.Lexer(&jsonDefinitionImpl{}))
 	if err != nil {
-		return []any{}, err
+		return nil, err
 	}
 	oPath, err := parser.ParseString("", param)
 	if err != nil {
-		return []any{}, err
+		return nil, err
 	}
-	parts := make([]any, len(oPath.Path))
+	parts := make([]string, len(oPath.Path))
 	for i, part := range oPath.Path {
 		parts[i], err = part.ToPathPart()
 		if err != nil {
-			return []any{}, err
+			return nil, err
 		}
 	}
 	return parts, nil
@@ -69,7 +69,7 @@ func (j *jsonPathPart) String() (string, error) {
 	return (&logql_parser.QuotedString{Str: j.Field}).Unquote()
 }
 
-func (j *jsonPathPart) ToPathPart() (any, error) {
+func (j *jsonPathPart) ToPathPart() (string, error) {
 	if j.Ident != "" {
 		return j.Ident, nil
 	}
@@ -79,7 +79,7 @@ func (j *jsonPathPart) ToPathPart() (any, error) {
 		}
 		return j.Field[1 : len(j.Field)-1], nil
 	}
-	return strconv.Atoi(j.Idx)
+	return j.Idx, nil
 }
 
 func (j *jsonPathPart) Value() (any, error) {
