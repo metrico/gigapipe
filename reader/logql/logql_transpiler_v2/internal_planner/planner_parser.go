@@ -17,7 +17,6 @@ type ParserPlanner struct {
 	ParameterValues []string
 
 	parameterTypedValues [][]string
-	logfmtFields         map[string]string
 }
 
 func (p *ParserPlanner) IsMatrix() bool { return false }

@@ -82,7 +82,7 @@ func (p *parameterJsonHelper) parse(line string) error {
 func (p *parameterJsonHelper) dec(path []string, d *jx.Decoder) error {
 	idxs := p.pathIdxs(path, false)
 	if len(idxs) == 0 {
-		return nil
+		return d.Skip()
 	}
 	switch d.Next() {
 	case jx.Object:
