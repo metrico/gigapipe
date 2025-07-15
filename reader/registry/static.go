@@ -1,11 +1,12 @@
-package dbRegistry
+package registry
 
 import (
 	"context"
-	"github.com/metrico/qryn/reader/model"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/metrico/qryn/reader/model"
 )
 
 type staticDBRegistry struct {
@@ -52,7 +53,8 @@ func (s *staticDBRegistry) Ping() error {
 				return err
 			}
 			defer conn.Close()
-			to, _ := context.WithTimeout(context.Background(), time.Second*30)
+			to, cancel := context.WithTimeout(context.Background(), time.Second*30)
+			defer cancel()
 			return conn.PingContext(to)
 		}(v.Session)
 		if err != nil {

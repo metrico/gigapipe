@@ -10,8 +10,8 @@ import (
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/reader/config"
-	"github.com/metrico/qryn/reader/dbRegistry"
 	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/reader/registry"
 	"github.com/metrico/qryn/reader/router"
 	"github.com/metrico/qryn/reader/utils/logger"
 	"github.com/metrico/qryn/reader/utils/middleware"
@@ -87,15 +87,15 @@ func httpStart(server *mux.Router, httpURL string) {
 }
 
 func performV1APIRouting(acc *mux.Router) {
-	dbRegistry.Init()
-	watchdog.Init(&model.ServiceData{Session: dbRegistry.Registry})
+	registry.Init()
+	watchdog.Init(&model.ServiceData{Session: registry.Registry})
 
-	router.RouteQueryRangeApis(acc, dbRegistry.Registry)
-	router.RouteSelectLabels(acc, dbRegistry.Registry)
-	router.RouteSelectPrometheusLabels(acc, dbRegistry.Registry)
-	router.RoutePrometheusQueryRange(acc, dbRegistry.Registry, config.Cloki.Setting.SYSTEM_SETTINGS.QueryStats)
-	router.RouteTempo(acc, dbRegistry.Registry)
+	router.RouteQueryRangeApis(acc, registry.Registry)
+	router.RouteSelectLabels(acc, registry.Registry)
+	router.RouteSelectPrometheusLabels(acc, registry.Registry)
+	router.RoutePrometheusQueryRange(acc, registry.Registry, config.Cloki.Setting.SYSTEM_SETTINGS.QueryStats)
+	router.RouteTempo(acc, registry.Registry)
 	router.RouteMiscApis(acc)
-	router.RouteProf(acc, dbRegistry.Registry)
-	router.PluggableRoutes(acc, dbRegistry.Registry)
+	router.RouteProf(acc, registry.Registry)
+	router.PluggableRoutes(acc, registry.Registry)
 }

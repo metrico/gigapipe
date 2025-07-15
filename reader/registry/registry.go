@@ -1,8 +1,11 @@
-package dbRegistry
+package registry
 
 import (
 	"crypto/tls"
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/metrico/qryn/reader/config"
@@ -10,8 +13,6 @@ import (
 	"github.com/metrico/qryn/reader/plugins"
 	"github.com/metrico/qryn/reader/utils/dsn"
 	"github.com/metrico/qryn/reader/utils/logger"
-	"strconv"
-	"time"
 )
 
 var Registry model.IDBRegistry
