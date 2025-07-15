@@ -3,9 +3,9 @@ COPY . /src
 WORKDIR /src
 ARG VIEW
 RUN if [ "$VIEW" = "1" ]; then \
-        go build -tags view -o gigapipe . ; \
+        go build -tags view -o gigapipe cmd/gigapipe/main.go ; \
     else \
-        go build -o gigapipe . ; \
+        go build -o gigapipe cmd/gigapipe/main.go ; \
     fi
 
 FROM alpine:3.21
