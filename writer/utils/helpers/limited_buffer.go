@@ -5,15 +5,16 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"strconv"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang/snappy"
 	custom_errors "github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/valyala/bytebufferpool"
 	"golang.org/x/sync/semaphore"
-	"io"
-	"strconv"
-	"time"
 )
 
 var RateLimitingEnable = false
@@ -75,7 +76,8 @@ func (r *RateLimitedPool) acquirePooledBuffer(limit int) (RateLimitedBuffer, err
 		return nil, fmt.Errorf("limit too big")
 	}
 	if RateLimitingEnable {
-		to, _ := context.WithTimeout(context.Background(), time.Second)
+		to, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 		err := r.rateLimiter.Acquire(to, int64(limit))
 		if err != nil {
 			return nil, err
@@ -100,7 +102,8 @@ func (r *RateLimitedPool) acquireSlice(size int) (RateLimitedBuffer, error) {
 		return nil, custom_errors.New400Error("size too big")
 	}
 	if RateLimitingEnable {
-		to, _ := context.WithTimeout(context.Background(), time.Second)
+		to, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 		err := r.rateLimiter.Acquire(to, int64(size))
 		if err != nil {
 			return nil, err
