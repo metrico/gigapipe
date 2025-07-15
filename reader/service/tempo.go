@@ -5,6 +5,9 @@ import (
 	sql2 "database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
@@ -18,8 +21,6 @@ import (
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
-	"strings"
-	"time"
 )
 
 type zipkinPayload struct {
@@ -129,7 +130,7 @@ func (t *TempoService) OutputQuery(binIds bool, rows *sql2.Rows) (chan *model.Sp
 				return
 			}
 			res <- &model.SpanResponse{
-				span, serviceName,
+				Span: span, ServiceName: serviceName,
 			}
 		}
 	}()
@@ -147,6 +148,9 @@ func (t *TempoService) Query(ctx context.Context, startNS int64, endNS int64, tr
 		Params: map[string]sql.SQLObject{},
 		Result: map[string]sql.SQLObject{},
 	})
+	if err != nil {
+		return nil, err
+	}
 	rows, err := conn.Session.QueryCtx(ctx, request)
 	if err != nil {
 		return nil, err
@@ -177,6 +181,9 @@ func (t *TempoService) Tags(ctx context.Context) (chan string, error) {
 		Params: map[string]sql.SQLObject{},
 		Result: map[string]sql.SQLObject{},
 	})
+	if err != nil {
+		return nil, err
+	}
 	rows, err := conn.Session.QueryCtx(ctx, query)
 	if err != nil {
 		return nil, err
@@ -311,15 +318,9 @@ func (t *TempoService) Values(ctx context.Context, tag string) (chan string, err
 	if err != nil {
 		return nil, err
 	}
-	if strings.HasPrefix(tag, "span.") {
-		tag = tag[5:]
-	}
-	if strings.HasPrefix(tag, ".") {
-		tag = tag[1:]
-	}
-	if len(tag) >= 10 && strings.HasPrefix(tag, "resource.") {
-		tag = tag[9:]
-	}
+	tag = strings.TrimPrefix(tag, "span.")
+	tag = strings.TrimPrefix(tag, ".")
+	tag = strings.TrimPrefix(tag, "resource.")
 	oRequest := t.GetValuesRequest(ctx, tag, conn)
 	query, err := oRequest.String(&sql.Ctx{
 		Params: map[string]sql.SQLObject{},
@@ -378,6 +379,9 @@ func (t *TempoService) Search(ctx context.Context,
 		return nil, err
 	}
 	strRequest, err := request.String(&sql.Ctx{})
+	if err != nil {
+		return nil, err
+	}
 	rows, err := conn.Session.QueryCtx(ctx, strRequest)
 	if err != nil {
 		return nil, err

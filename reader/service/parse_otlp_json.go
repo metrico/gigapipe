@@ -4,9 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
+
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
-	"strconv"
 )
 
 func setTyped[T any](val any) T {
@@ -183,6 +184,9 @@ func parseOTLPJson(payload *zipkinPayload) (*v1.Span, error) {
 		return nil, err
 	}
 	err = json.Unmarshal([]byte(payload.payload), span)
+	if err != nil {
+		return nil, err
+	}
 	err = setOTLPIds(rawSpan, span)
 	if err != nil {
 		return nil, err

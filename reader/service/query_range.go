@@ -4,6 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/logql/logql_parser"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2"
@@ -11,16 +17,9 @@ import (
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
 	"github.com/metrico/qryn/reader/utils/dbVersion"
-	"github.com/metrico/qryn/reader/utils/tables"
-	"io"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-
-	_ "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/utils/logger"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/reader/utils/tables"
 )
 
 type QueryRangeService struct {
@@ -190,6 +189,9 @@ func (q *QueryRangeService) QueryVolume(ctx context.Context, query string, fromN
 	req := fmt.Sprintf("sum(bytes_over_time(%s [%dms])) by (%s)", query, stepMs,
 		strings.Join(aggregateByLabels, ","))
 	c, _, err := q.prepareOutput(ctx, req, fromNs, toNs, stepMs, 1000, true)
+	if err != nil {
+		return nil, err
+	}
 	res := []QueryVolumeResult{}
 
 	lastFp := uint64(0)
@@ -618,7 +620,7 @@ func (q *QueryRangeService) QueryInstant(ctx context.Context, query string, time
 
 			val := strconv.FormatFloat(e.Value, 'f', -1, 64)
 			if strings.Contains(val, ".") {
-				val := strings.TrimSuffix(val, "0")
+				val = strings.TrimSuffix(val, "0")
 				val = strings.TrimSuffix(val, ".")
 			}
 

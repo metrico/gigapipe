@@ -3,6 +3,7 @@ package service
 import (
 	"github.com/metrico/qryn/reader/prof"
 	"github.com/metrico/qryn/writer/utils/heputils/cityhash102"
+	"google.golang.org/protobuf/proto"
 )
 
 type ProfileMergeV2 struct {
@@ -17,27 +18,27 @@ type ProfileMergeV2 struct {
 func NewProfileMergeV2() *ProfileMergeV2 {
 	return &ProfileMergeV2{
 		prof: nil,
-		stringTable: NewRewriteTableV2[string](func(s string, i int64) string {
+		stringTable: NewRewriteTableV2(func(s string, i int64) string {
 			return s
 		}, hashString),
-		functionTable: NewRewriteTableV2[*prof.Function](func(function *prof.Function, i int64) *prof.Function {
+		functionTable: NewRewriteTableV2(func(function *prof.Function, i int64) *prof.Function {
 			res := clone(function)
 			res.Id = uint64(i)
 			return res
 		}, GetFunctionKey),
-		mappingTable: NewRewriteTableV2[*prof.Mapping](
+		mappingTable: NewRewriteTableV2(
 			func(mapping *prof.Mapping, i int64) *prof.Mapping {
 				res := clone(mapping)
 				res.Id = uint64(i)
 				return res
 			}, GetMappingKey),
-		locationTable: NewRewriteTableV2[*prof.Location](func(location *prof.Location, i int64) *prof.Location {
+		locationTable: NewRewriteTableV2(func(location *prof.Location, i int64) *prof.Location {
 			res := clone(location)
 			res.Line = cloneArr(location.Line)
 			res.Id = uint64(i)
 			return res
 		}, GetLocationKey),
-		sampleTable: NewRewriteTableV2[*prof.Sample](func(sample *prof.Sample, i int64) *prof.Sample {
+		sampleTable: NewRewriteTableV2(func(sample *prof.Sample, i int64) *prof.Sample {
 			res := clone(sample)
 			res.Value = make([]int64, len(sample.Value))
 			res.LocationId = append([]uint64{}, sample.LocationId...)
@@ -136,7 +137,7 @@ func (pm *ProfileMergeV2) Profile() *prof.Profile {
 	if pm.prof == nil {
 		return &prof.Profile{}
 	}
-	p := *pm.prof
+	p := proto.Clone(pm.prof).(*prof.Profile)
 	p.Sample = append([]*prof.Sample{}, pm.sampleTable.Values()...)
 	p.Location = append([]*prof.Location{}, pm.locationTable.Values()...)
 	p.Function = append([]*prof.Function{}, pm.functionTable.Values()...)
@@ -153,7 +154,7 @@ func (pm *ProfileMergeV2) Profile() *prof.Profile {
 		p.Mapping[i].Id = uint64(i + 1)
 	}
 
-	return &p
+	return p
 }
 
 func hashString(s string) uint64 {

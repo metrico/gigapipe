@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/metrico/qryn/reader/logql/logql_parser"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/clickhouse_planner"
@@ -17,8 +20,6 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
-	"strings"
-	"time"
 )
 
 type QueryLabelsService struct {
@@ -103,27 +104,6 @@ func (q *QueryLabelsService) GetEstimateKVComplexityRequest(ctx context.Context,
 	return fpRequest
 }
 
-func (q *QueryLabelsService) estimateKVComplexity(ctx context.Context) (int64, error) {
-	conn, err := q.Session.GetDB(ctx)
-	fpRequest := q.GetEstimateKVComplexityRequest(ctx, conn)
-	request, err := fpRequest.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
-	})
-	if err != nil {
-		return 0, err
-	}
-	rows, err := conn.Session.QueryCtx(ctx, request)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-	rows.Next()
-	var cpl int64 = 0
-	err = rows.Scan(&cpl)
-	return cpl, err
-}
-
 func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16) (chan string, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
@@ -147,6 +127,9 @@ func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs in
 		Params: map[string]sql.SQLObject{},
 		Result: map[string]sql.SQLObject{},
 	})
+	if err != nil {
+		return nil, err
+	}
 	return q.GenericLabelReq(ctx, query)
 }
 
@@ -200,9 +183,6 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 		defer close(res)
 		res <- "{\"status\": \"success\",\"data\": []}"
 		return res, nil
-	}
-	if err != nil {
-		return nil, err
 	}
 
 	var planner shared.SQLRequestPlanner
@@ -269,7 +249,7 @@ func (q *QueryLabelsService) getMultiMatchValuesPlanner(match []string, key stri
 			return nil, err
 		}
 	}
-	var planner shared.SQLRequestPlanner = &clickhouse_planner.MultiStreamSelectPlanner{selects}
+	var planner shared.SQLRequestPlanner = &clickhouse_planner.MultiStreamSelectPlanner{Mains: selects}
 	planner = clickhouse_planner.NewValuesPlanner(planner, key, nil)
 	return planner, nil
 }

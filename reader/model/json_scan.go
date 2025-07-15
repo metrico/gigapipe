@@ -9,13 +9,12 @@ import (
 type JSONText json.RawMessage
 
 var emptyJSON = JSONText("{}")
-var emptyArrayJSON = JSONText("[]")
 
 func (js JSONText) Value() (driver.Value, error) {
 	return js.String(), nil
 }
 
-func (js *JSONText) Scan(value interface{}) error {
+func (js *JSONText) Scan(value any) error {
 	// if value is nil, false
 	if value == nil {
 		// set the value of the pointer yne to JSONText(false)
@@ -33,10 +32,8 @@ func (js *JSONText) Scan(value interface{}) error {
 		} else {
 			source = t
 		}
-	case nil:
-		*js = emptyJSON
 	default:
-		return errors.New("Incompatible type for JSONText")
+		return errors.New("incompatible type for JSONText")
 	}
 
 	*js = JSONText(append((*js)[0:0], source...))

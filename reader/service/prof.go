@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/prof"
 	"github.com/metrico/qryn/reader/prof/parser"
@@ -11,12 +14,10 @@ import (
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"
 	"google.golang.org/protobuf/proto"
-	"strings"
-	"time"
 )
 
 var (
-	TypeIDsMismatch = fmt.Errorf("left and right queries must have the same type ID")
+	ErrTypeIDsMismatch = fmt.Errorf("left and right queries must have the same type ID")
 )
 
 type ProfService struct {
@@ -95,6 +96,9 @@ func (ps *ProfService) LabelNames(ctx context.Context, strScripts []string, star
 		result.Names = append(result.Names, col)
 		return nil
 	}, []any{&col})
+	if err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -437,7 +441,7 @@ func (ps *ProfService) RenderDiff(ctx context.Context,
 	}
 
 	if strLeftTypeId != strRightTypeId {
-		return nil, TypeIDsMismatch
+		return nil, ErrTypeIDsMismatch
 	}
 
 	scripts, err := ps.parseScripts([]string{strLeftScript, strRightScript})
@@ -676,9 +680,7 @@ func (ps *ProfService) flameGraphToFlameBearer(flameGraph *prof.FlameGraph, type
 	}
 	for _, l := range flameGraph.Levels {
 		level := make([]int64, len(l.Values))
-		for i, v := range l.Values {
-			level[i] = v
-		}
+		copy(level, l.Values)
 		flameBearer.Levels = append(flameBearer.Levels, level)
 	}
 

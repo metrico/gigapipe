@@ -4,14 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/VictoriaMetrics/fastcache"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/plugins"
-	"github.com/metrico/qryn/reader/utils/cityhash102"
-	"github.com/metrico/qryn/reader/utils/dbVersion"
-	"github.com/metrico/qryn/reader/utils/logger"
-	"github.com/metrico/qryn/reader/utils/tables"
 	"math/rand"
 	"slices"
 	"sort"
@@ -21,13 +13,19 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/reader/plugins"
+	"github.com/metrico/qryn/reader/utils/cityhash102"
+	"github.com/metrico/qryn/reader/utils/dbVersion"
+	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/reader/utils/tables"
+
 	"github.com/metrico/qryn/reader/promql/transpiler"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 )
-
-var cache = fastcache.New(100 * 1024 * 1024)
 
 type StatsStore struct {
 	Starts  map[string]time.Time
@@ -254,7 +252,7 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 			cntSeries++
 		}
 		res.Series[len(res.Series)-1].Samples = append(res.Series[len(res.Series)-1].Samples,
-			model.Sample{ts, val})
+			model.Sample{TimestampMs: ts, Value: val})
 		cntRows++
 	}
 	if len(res.Series) > 0 && q.MapResult != nil {

@@ -1,8 +1,9 @@
 package service
 
 import (
-	"github.com/metrico/qryn/reader/prof"
 	"sort"
+
+	"github.com/metrico/qryn/reader/prof"
 )
 
 type Tree struct {
@@ -372,7 +373,7 @@ func computeFlameGraphDiff(t1, t2 *Tree) *prof.FlameGraphDiff {
 			nameIdx)
 
 		if childrenLeft, ok := t1.Nodes[left.NodeID]; ok {
-			childrenRight, _ := t2.Nodes[right.NodeID]
+			childrenRight := t2.Nodes[right.NodeID]
 			for i := len(childrenLeft) - 1; i >= 0; i-- {
 				childLeft := childrenLeft[i]
 				var childRight *TreeNodeV2
