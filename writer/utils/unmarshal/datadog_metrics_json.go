@@ -2,17 +2,13 @@ package unmarshal
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/writer/model"
 	custom_errors "github.com/metrico/qryn/writer/utils/errors"
-	"strings"
-	"time"
 )
-
-type point struct {
-	tsNs  int64
-	value float64
-}
 
 type datadogMetricsRequestDec struct {
 	ctx *ParserCtx
@@ -150,11 +146,11 @@ func (d *datadogMetricsRequestDec) WrapError(err error) error {
 	}
 	path := ""
 	for _, i := range d.path {
-		switch i.(type) {
+		switch i := i.(type) {
 		case string:
-			path += "." + i.(string)
+			path += "." + i
 		case *int:
-			path += "." + fmt.Sprintf("%d", *(i.(*int)))
+			path += "." + fmt.Sprintf("%d", *(i))
 		}
 	}
 

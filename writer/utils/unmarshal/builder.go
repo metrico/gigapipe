@@ -3,18 +3,17 @@ package unmarshal
 import (
 	"context"
 	"fmt"
-	"github.com/go-faster/city"
-	"unsafe"
-	//"github.com/metrico/qryn/writer/fingerprints_limiter"
-	"github.com/metrico/qryn/writer/model"
-	//customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/numbercache"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"runtime/debug"
 	"strconv"
 	"time"
+	"unsafe"
+
+	"github.com/go-faster/city"
+	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/writer/utils/numbercache"
+	"google.golang.org/protobuf/proto"
 )
 
 // OrgChecker defines the interface for checking fingerprints.
@@ -46,13 +45,12 @@ type ParsingFunction func(ctx context.Context, body io.Reader,
 	fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
 
 type ParserCtx struct {
-	bodyReader  io.Reader
-	bodyBuffer  []byte
-	bodyObject  interface{}
-	fpCache     numbercache.ICache[uint64]
-	ctx         context.Context
-	ctxMap      map[string]string
-	queryParams map[string]string
+	bodyReader io.Reader
+	bodyBuffer []byte
+	bodyObject interface{}
+	fpCache    numbercache.ICache[uint64]
+	ctx        context.Context
+	ctxMap     map[string]string
 }
 
 type parserFn func(ctx *ParserCtx) error
@@ -77,28 +75,6 @@ type parserBuilder struct {
 	ProfileParser func(ctx *ParserCtx) iProfilesParser
 	SpansParser   func(ctx *ParserCtx) iSpansParser
 	payloadType   int8
-}
-
-type fpsCache map[int64]map[uint64]bool
-
-func newFpsCache() fpsCache {
-	return make(fpsCache)
-}
-
-func (c fpsCache) CheckAndSet(date time.Time, fp uint64) bool {
-	res := false
-	day, ok := c[date.Unix()]
-	if !ok {
-		day = make(map[uint64]bool)
-		c[date.Unix()] = day
-		res = true
-	}
-	_, ok = c[date.Unix()][fp]
-	if !ok {
-		res = true
-		c[date.Unix()][fp] = true
-	}
-	return res
 }
 
 type parserDoer struct {

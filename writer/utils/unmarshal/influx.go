@@ -2,12 +2,13 @@ package unmarshal
 
 import (
 	"bytes"
+	"regexp"
+	"time"
+
 	"github.com/go-logfmt/logfmt"
 	"github.com/influxdata/telegraf/plugins/parsers/influx"
 	"github.com/metrico/qryn/writer/model"
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"regexp"
-	"time"
 )
 
 func getMessage(fields map[string]any) (string, error) {
@@ -75,11 +76,11 @@ func (e *influxDec) Decode() error {
 
 		for k, v := range fields {
 			var fVal float64
-			switch v.(type) {
+			switch v := v.(type) {
 			case int64:
-				fVal = float64(v.(int64))
+				fVal = float64(v)
 			case float64:
-				fVal = v.(float64)
+				fVal = v
 			default:
 				continue
 			}

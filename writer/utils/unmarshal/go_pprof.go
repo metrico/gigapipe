@@ -5,9 +5,6 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
-	"github.com/go-faster/city"
-	pprof_proto "github.com/google/pprof/profile"
-	"github.com/metrico/qryn/writer/model"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -16,14 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-)
 
-const (
-	ingestPath = "/ingest"
-
-	formatJfr   = "jfr"
-	formatPprof = "profile"
-	filePprof   = "profile.pprof"
+	"github.com/go-faster/city"
+	pprof_proto "github.com/google/pprof/profile"
+	"github.com/metrico/qryn/writer/model"
 )
 
 type SampleType struct {
@@ -100,7 +93,7 @@ func (p *pProfProtoDec) Decode() error {
 	endValue := p.ctx.ctxMap["until"]
 	end, err := strconv.ParseUint(endValue, 10, 64)
 	if err != nil {
-		fmt.Errorf("failed to parse end time: %w", err)
+		return fmt.Errorf("failed to parse end time: %w", err)
 	}
 	name := p.ctx.ctxMap["name"]
 	i := strings.Index(name, "{")
@@ -399,8 +392,6 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 			parentId = nodeId
 		}
 	}
-	var bFnMap []byte
-	bFnMap = binary.AppendVarint(bFnMap, int64(len(funcs)))
 	indices := make([]uint64, 0, len(funcs))
 	for fnId := range funcs {
 		indices = append(indices, fnId)
@@ -412,12 +403,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 			ValueInt64: fnId,
 			ValueStr:   funcs[fnId],
 		})
-		//bFnMap = binary.AppendUvarint(bFnMap, fnId)
-		//bFnMap = binary.AppendVarint(bFnMap, int64(len(funcs[fnId])))
-		//bFnMap = append(bFnMap, funcs[fnId]...)
 	}
-	var bNodeMap []byte
-	bNodeMap = binary.AppendVarint(bNodeMap, int64(len(tree)))
 	indices = indices[:0]
 	for tId := range tree {
 		indices = append(indices, tId)

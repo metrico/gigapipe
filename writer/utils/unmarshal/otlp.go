@@ -2,11 +2,12 @@ package unmarshal
 
 import (
 	"fmt"
+	"strconv"
+
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	v11 "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
-	"strconv"
 )
 
 type OTLPDecoder struct {
@@ -112,21 +113,21 @@ func (d *OTLPDecoder) SetOnEntry(h onSpanHandler) {
 }
 
 func (d *OTLPDecoder) writeAttrValue(key string, val any, prefix string, res *map[string]string) {
-	switch val.(type) {
+	switch val := val.(type) {
 	case *v11.AnyValue_StringValue:
-		(*res)[prefix+key] = val.(*v11.AnyValue_StringValue).StringValue
+		(*res)[prefix+key] = val.StringValue
 	case *v11.AnyValue_BoolValue:
-		(*res)[prefix+key] = fmt.Sprintf("%v", val.(*v11.AnyValue_BoolValue).BoolValue)
+		(*res)[prefix+key] = fmt.Sprintf("%v", val.BoolValue)
 	case *v11.AnyValue_DoubleValue:
-		(*res)[prefix+key] = fmt.Sprintf("%f", val.(*v11.AnyValue_DoubleValue).DoubleValue)
+		(*res)[prefix+key] = fmt.Sprintf("%f", val.DoubleValue)
 	case *v11.AnyValue_IntValue:
-		(*res)[prefix+key] = fmt.Sprintf("%d", val.(*v11.AnyValue_IntValue).IntValue)
+		(*res)[prefix+key] = fmt.Sprintf("%d", val.IntValue)
 	case *v11.AnyValue_ArrayValue:
-		for i, _val := range val.(*v11.AnyValue_ArrayValue).ArrayValue.Values {
+		for i, _val := range val.ArrayValue.Values {
 			d.writeAttrValue(strconv.FormatInt(int64(i), 10), _val, prefix+key+".", res)
 		}
 	case *v11.AnyValue_KvlistValue:
-		d.initAttributesMap(val.(*v11.AnyValue_KvlistValue).KvlistValue.Values, prefix+key+".", res)
+		d.initAttributesMap(val.KvlistValue.Values, prefix+key+".", res)
 	}
 }
 
