@@ -1,9 +1,10 @@
-package controllerv1
+package controller
 
 import (
 	"context"
-	"github.com/metrico/qryn/writer/utils/unmarshal"
 	"net/http"
+
+	"github.com/metrico/qryn/writer/utils/unmarshal"
 )
 
 func PushDatadogV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +17,7 @@ func PushDatadogV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Req
 				if ddsource == "" {
 					ddsource = "unknown"
 				}
-				return context.WithValue(parserCtx, "ddsource", ddsource), nil
+				return context.WithValue(parserCtx, ContextKeyDDSource, ddsource), nil
 			}),
 			withSimpleParser("application/json", Parser(unmarshal.UnmarshallDatadogV2JSONV2)),
 			withOkStatusAndBody(202, []byte("{}")))...)
@@ -39,7 +40,7 @@ func PushCfDatadogV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.R
 				if ddsource == "" {
 					ddsource = "unknown"
 				}
-				return context.WithValue(parserCtx, "ddsource", ddsource), nil
+				return context.WithValue(parserCtx, ContextKeyDDSource, ddsource), nil
 			}),
 			withSimpleParser("*", Parser(unmarshal.UnmarshallDatadogCFJSONV2)),
 			withOkStatusAndBody(202, []byte("{}")))...)

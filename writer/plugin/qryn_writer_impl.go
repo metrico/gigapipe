@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+
 	"github.com/gorilla/mux"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/ch_wrapper"
@@ -10,13 +11,15 @@ import (
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/plugins"
 	"github.com/metrico/qryn/writer/service"
+
 	//config3 "github.com/metrico/qryn/writer/usagecounter/config"
-	"github.com/metrico/qryn/writer/utils/helpers"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"gopkg.in/go-playground/validator.v9"
 	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/metrico/qryn/writer/utils/helpers"
+	"github.com/metrico/qryn/writer/utils/logger"
+	"gopkg.in/go-playground/validator.v9"
 	//	"os"
 )
 

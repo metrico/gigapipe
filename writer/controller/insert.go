@@ -1,12 +1,13 @@
-package controllerv1
+package controller
 
 import (
 	"context"
 	"fmt"
-	custom_errors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/unmarshal"
 	"net/http"
 	"time"
+
+	custom_errors "github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils/unmarshal"
 )
 
 // swagger:route GET /push Data PushData
@@ -90,7 +91,7 @@ func PushInfluxV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 					return nil, custom_errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
 				}
 				ctx := req.Context()
-				ctx = context.WithValue(ctx, "precision", precision)
+				ctx = context.WithValue(ctx, ContextKeyPrecision, precision)
 				return ctx, nil
 			}),
 			withSimpleParser("*", Parser(unmarshal.UnmarshalInfluxDBLogsV2)),

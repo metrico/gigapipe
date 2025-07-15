@@ -2,11 +2,12 @@ package apihttp
 
 import (
 	"context"
-	controllerv1 "github.com/metrico/qryn/writer/controller"
-	"github.com/metrico/qryn/writer/utils/logger"
 	"net/http"
 	"strings"
 	"time"
+
+	controllerv1 "github.com/metrico/qryn/writer/controller"
+	"github.com/metrico/qryn/writer/utils/logger"
 )
 
 type MiddlewareFunc func(w http.ResponseWriter, r *http.Request) error
@@ -25,7 +26,7 @@ func NewRouter() *Router {
 // Define RouterHandleFunc to wrap router.HandleFunc with logging middleware
 func (router *Router) RouterHandleFunc(method string, path string, controller controllerv1.Requester) {
 	router.HandleFunc(method, path, LogStatusMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		err := controller(r, w)
+		err := controller(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -1,12 +1,13 @@
-package controllerv1
+package controller
 
 import (
 	"bytes"
 	"context"
-	"github.com/metrico/qryn/writer/utils/unmarshal"
-	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 	"io"
 	"net/http"
+
+	"github.com/metrico/qryn/writer/utils/unmarshal"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 type TempoController struct {
@@ -45,7 +46,7 @@ func OTLPPushV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Reques
 				defer r.Body.Close()
 
 				// Create a new request context with the modified body
-				ctx := context.WithValue(r.Context(), "bodyStream", bytes.NewReader(body))
+				ctx := context.WithValue(r.Context(), ContextKeyBodyStream, bytes.NewReader(body))
 				*r = *r.WithContext(ctx)
 				return nil
 

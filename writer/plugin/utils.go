@@ -3,6 +3,11 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gorilla/mux"
 	config2 "github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/ch_wrapper"
@@ -15,10 +20,6 @@ import (
 	"github.com/metrico/qryn/writer/utils/stat"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"runtime"
-	"strconv"
-	"strings"
-	"time"
 )
 
 var ServiceRegistry registry.IServiceRegistry

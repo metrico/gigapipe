@@ -1,4 +1,4 @@
-package controllerv1
+package controller
 
 var Ready = Build(withOkStatusAndBody(200, []byte("ok")))
 

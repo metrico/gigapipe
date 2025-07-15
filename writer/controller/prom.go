@@ -1,8 +1,9 @@
-package controllerv1
+package controller
 
 import (
-	"github.com/metrico/qryn/writer/utils/unmarshal"
 	"net/http"
+
+	"github.com/metrico/qryn/writer/utils/unmarshal"
 )
 
 // swagger:route GET /api/v1/prom/remote/write Data WriteData

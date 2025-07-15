@@ -1,4 +1,4 @@
-package controllerv1
+package controller
 
 import (
 	"github.com/metrico/qryn/writer/service/registry"
