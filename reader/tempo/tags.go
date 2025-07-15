@@ -1,22 +1,23 @@
 package tempo
 
 import (
+	"strconv"
+
 	"github.com/alecthomas/participle/v2"
 	"github.com/alecthomas/participle/v2/lexer"
-	"strconv"
 )
 
 var tagsLexer = lexer.MustStateful(lexer.Rules{
 	"Root": {
-		{`OQuot`, `"`, lexer.Push("QString")},
-		{`Literal`, `[^ !=~"]+`, nil},
-		{`Cond`, `(!=|=~|!~|=)`, nil},
-		{"space", `\s+`, nil},
+		{Name: "OQuot", Pattern: `"`, Action: lexer.Push("QString")},
+		{Name: "Literal", Pattern: `[^ !=~"]+`, Action: nil},
+		{Name: "Cond", Pattern: `(!=|=~|!~|=)`, Action: nil},
+		{Name: "space", Pattern: `\s+`, Action: nil},
 	},
 	"QString": {
-		{"Escaped", `\\.`, nil},
-		{"Char", `[^"]`, nil},
-		{"CQuot", `"`, lexer.Pop()},
+		{Name: "Escaped", Pattern: `\\.`, Action: nil},
+		{Name: "Char", Pattern: `[^"]`, Action: nil},
+		{Name: "CQuot", Pattern: `"`, Action: lexer.Pop()},
 	},
 })
 

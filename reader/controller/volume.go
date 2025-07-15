@@ -1,11 +1,12 @@
-package controllerv1
+package controller
 
 import (
+	"net/http"
+	"strings"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/service"
 	"github.com/metrico/qryn/writer/config"
-	"net/http"
-	"strings"
 )
 
 type VolumeController struct {

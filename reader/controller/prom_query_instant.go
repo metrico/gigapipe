@@ -1,10 +1,11 @@
-package controllerv1
+package controller
 
 import (
 	"fmt"
-	"github.com/gorilla/schema"
 	"net/http"
 	"time"
+
+	"github.com/gorilla/schema"
 )
 
 type queryInstantProps struct {

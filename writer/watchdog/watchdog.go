@@ -2,11 +2,12 @@ package watchdog
 
 import (
 	"fmt"
+	"os"
+	"time"
+
 	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/stat"
-	"os"
-	"time"
 )
 
 var servicesToCheck []service.InsertSvcMap = nil
@@ -16,7 +17,7 @@ func Init(services []service.InsertSvcMap) {
 	servicesToCheck = services
 	timer := time.NewTicker(time.Second * 5)
 	go func() {
-		for _ = range timer.C {
+		for range timer.C {
 			err := Check()
 			if err != nil {
 				logger.Error(fmt.Sprintf("[WD001] FATAL ERROR: %v", err))

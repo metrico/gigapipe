@@ -1,12 +1,13 @@
-package controllerv1
+package controller
 
 import (
-	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
-	"github.com/metrico/qryn/reader/service"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/gorilla/schema"
+	"github.com/metrico/qryn/reader/service"
 )
 
 type QueryLabelsController struct {
@@ -121,13 +122,10 @@ func ParseLogSeriesParamsV2(r *http.Request, unit time.Duration) (SeriesParams, 
 		if err != nil {
 			return res, err
 		}
-		for _, v := range r.Form["match[]"] {
-			res.Raw.Match = append(res.Raw.Match, v)
-		}
+		res.Raw.Match = append(res.Raw.Match, r.Form["match[]"]...)
+
 	}
-	for _, v := range r.URL.Query()["match[]"] {
-		res.Raw.Match = append(res.Raw.Match, v)
-	}
+	res.Raw.Match = append(res.Raw.Match, r.URL.Query()["match[]"]...)
 	if len(r.URL.Query()["query"]) > 0 {
 		res.Raw.Query = r.URL.Query().Get("query")
 	}

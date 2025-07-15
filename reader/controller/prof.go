@@ -1,19 +1,21 @@
-package controllerv1
-
-import "html"
+package controller
 
 import (
 	"encoding/json"
 	"fmt"
+	"html"
+
 	"github.com/metrico/qryn/reader/prof"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
-	"github.com/metrico/qryn/reader/service"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
+
 	"io"
 	"net/http"
 	"strconv"
 	"time"
+
+	v1 "github.com/metrico/qryn/reader/prof/types/v1"
+	"github.com/metrico/qryn/reader/service"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 type ProfController struct {

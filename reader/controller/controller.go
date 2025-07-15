@@ -1,4 +1,4 @@
-package controllerv1
+package controller
 
 type Controller struct {
 }

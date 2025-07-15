@@ -1,17 +1,16 @@
-package controllerv1
+package controller
 
 import (
 	"context"
-	"github.com/gorilla/websocket"
-	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/service"
 	"net/http"
 	"strconv"
 	"time"
 
 	ws "github.com/gofiber/websocket/v2"
-	_ "github.com/gorilla/websocket"
+	"github.com/gorilla/websocket"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/reader/service"
 	"github.com/metrico/qryn/reader/utils/logger"
 )
 

@@ -1,11 +1,12 @@
-package apirouterv1
+package router
 
 import (
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/reader/config"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/service"
-	"time"
 
 	kitlog "github.com/go-kit/kit/log/logrus"
 	grafana_re "github.com/grafana/regexp"

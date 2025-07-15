@@ -288,8 +288,7 @@ var serviceNameCandidates = map[string]bool{
 	"k8s_job_name":           true,
 }
 
-func (p *parserDoer) discoverServiceName(labels *[][]string, timestampsNS *[]int64,
-	message *[]string, value *[]float64, types *[]uint8) {
+func (p *parserDoer) discoverServiceName(labels *[][]string) {
 	serviceNameExists := false
 	serviceName := ""
 	for _, l := range *labels {
@@ -326,7 +325,7 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 		labels = _labels
 	}
 
-	p.discoverServiceName(&labels, &timestampsNS, &message, &value, &types)
+	p.discoverServiceName(&labels)
 
 	dates := map[time.Time]bool{}
 	fp := fingerprintLabels(labels)
@@ -351,7 +350,7 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	for d := range dates {
 		if maybeAddFp(d, fp, p.ctx.fpCache) {
 			_labels := encodeLabels(labels)
-			for t, _ := range tps {
+			for t := range tps {
 				if !tps[t] {
 					continue
 				}

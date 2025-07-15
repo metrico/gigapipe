@@ -1,8 +1,12 @@
-package controllerv1
+package controller
 
 import (
 	"fmt"
-	"github.com/gofiber/fiber/v2"
+	"math"
+	"net/http"
+	"strconv"
+	"time"
+
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/service"
@@ -11,10 +15,6 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"
 	api_v1 "github.com/prometheus/prometheus/web/api/v1"
-	"math"
-	"net/http"
-	"strconv"
-	"time"
 )
 
 type PromQueryRangeController struct {
@@ -110,6 +110,9 @@ func parseQueryRangePropsV3(r *http.Request) (QueryRangeProps, error) {
 		}
 		dec := schema.NewDecoder()
 		err = dec.Decode(&res.Raw, r.Form)
+		if err != nil {
+			return res, err
+		}
 	}
 	if res.Raw.Start == "" {
 		res.Raw.Start = r.URL.Query().Get("start")
@@ -138,50 +141,6 @@ func parseQueryRangePropsV3(r *http.Request) (QueryRangeProps, error) {
 	return res, err
 }
 
-func parseQueryRangeProps(ctx *fiber.Ctx) (QueryRangeProps, error) {
-	res := QueryRangeProps{}
-	var err error
-	if ctx.Method() == "POST" && ctx.Get(fiber.HeaderContentType) == fiber.MIMEApplicationForm {
-		err = ctx.BodyParser(&res.Raw)
-		if err != nil {
-			return res, err
-		}
-	}
-	if res.Raw.Start == "" {
-		res.Raw.Start = ctx.Query("start")
-	}
-	if res.Raw.End == "" {
-		res.Raw.End = ctx.Query("end")
-	}
-	if res.Raw.Query == "" {
-		res.Raw.Query = ctx.Query("query")
-	}
-	if res.Raw.Step == "" {
-		res.Raw.Step = ctx.Query("step")
-	}
-	res.Start, err = ParseTimeSecOrRFC(res.Raw.Start, time.Now().Add(time.Hour*-6))
-	if err != nil {
-		return res, err
-	}
-	res.End, err = ParseTimeSecOrRFC(res.Raw.End, time.Now())
-	if err != nil {
-		return res, err
-	}
-	res.Query = res.Raw.Query
-	if res.Query == "" {
-		return res, fmt.Errorf("query is undefined")
-	}
-	res.Step, err = parseDuration(res.Raw.Step)
-	return res, err
-}
-
-//func PromError(code int, msg string, w http.ResponseWriter) {
-//	w.WriteHeader(code)
-//	w.Header().Set("Content-Type", "application/json")
-//	w.Write([]byte(fmt.Sprintf(`{"status": "error", "errorType":"error", "error": %s}`,
-//		strconv.Quote(msg))))
-//}
-
 func PromError(code int, msg string, w http.ResponseWriter) {
 	w.WriteHeader(code)
 	w.Header().Set("Content-Type", "application/json")
@@ -203,31 +162,6 @@ func PromError(code int, msg string, w http.ResponseWriter) {
 
 	w.Write(stream.Buffer())
 }
-
-//func writeResponse(res *promql.Result, w http.ResponseWriter) error {
-//	var err error
-//	w.Header().Set("Content-Type", "application/json")
-//	_, err = w.Write([]byte(fmt.Sprintf(`{"status" : "success", "data" : {"resultType" : "%s", "result" : [`,
-//		res.Value.Type())))
-//	if err != nil {
-//		return err
-//	}
-//	switch res.Value.(type) {
-//	case promql.Matrix:
-//		err = writeMatrix(res, w)
-//		break
-//	case promql.Vector:
-//		err = writeVector(res, w)
-//		break
-//	case promql.Scalar:
-//		err = writeScalar(res, w)
-//	}
-//	if err != nil {
-//		return err
-//	}
-//	w.Write([]byte("]}}"))
-//	return nil
-//}
 
 func writeResponse(res *promql.Result, w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")

@@ -1,10 +1,11 @@
 package numbercache
 
 import (
-	"github.com/VictoriaMetrics/fastcache"
-	"github.com/metrico/qryn/writer/model"
 	"sync"
 	"time"
+
+	"github.com/VictoriaMetrics/fastcache"
+	"github.com/metrico/qryn/writer/model"
 )
 
 type ICache[T any] interface {
@@ -64,7 +65,7 @@ func NewCache[T comparable](TTL time.Duration, serializer func(val T) []byte,
 		serializer: serializer,
 	}
 	go func() {
-		for _ = range res.cleanup.C {
+		for range res.cleanup.C {
 			res.mtx.Lock()
 			res.sets.Reset()
 			res.mtx.Unlock()

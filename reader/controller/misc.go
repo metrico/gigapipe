@@ -1,10 +1,11 @@
-package controllerv1
+package controller
 
 import (
+	"net/http"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/utils/logger"
 	watchdog "github.com/metrico/qryn/reader/watchdog"
-	"net/http"
 )
 
 type MiscController struct {

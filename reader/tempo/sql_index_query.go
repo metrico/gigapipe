@@ -3,9 +3,10 @@ package tempo
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/metrico/qryn/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
-	"time"
 )
 
 type SQLIndexQuery struct {

@@ -1,9 +1,13 @@
-package controllerv1
+package controller
 
 import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/utils/unmarshal"
@@ -11,9 +15,6 @@ import (
 	resource "go.opentelemetry.io/proto/otlp/resource/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
-	"net/http"
-	"strconv"
-	"time"
 )
 
 type TempoController struct {
@@ -76,7 +77,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 								Key: "service.name",
 								Value: &common.AnyValue{
 									Value: &common.AnyValue_StringValue{
-										span.ServiceName,
+										StringValue: span.ServiceName,
 									},
 								},
 							},
@@ -132,7 +133,6 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 
 func (t *TempoController) Echo(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("echo"))
-	return
 }
 
 func (t *TempoController) Tags(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +157,6 @@ func (t *TempoController) Tags(w http.ResponseWriter, r *http.Request) {
 		i++
 	}
 	w.Write([]byte("]}"))
-	return
 }
 
 func (t *TempoController) TagsV2(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +193,10 @@ func (t *TempoController) TagsV2(w http.ResponseWriter, r *http.Request) {
 	var cRes chan string
 	if timespan[0].Unix() == 0 {
 		cRes, err = t.Service.Tags(internalCtx)
+		if err != nil {
+			PromError(500, err.Error(), w)
+			return
+		}
 	} else {
 		cRes, err = t.Service.TagsV2(internalCtx, q, timespan[0], timespan[1], limit)
 		if err != nil {
@@ -261,6 +264,10 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 
 	if timespan[0].Unix() == 0 {
 		cRes, err = t.Service.Values(internalCtx, tag)
+		if err != nil {
+			PromError(500, err.Error(), w)
+			return
+		}
 	} else {
 		cRes, err = t.Service.ValuesV2(internalCtx, tag, q, timespan[0], timespan[1], limit)
 		if err != nil {
@@ -382,7 +389,6 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 		i++
 	}
 	w.Write([]byte("]}"))
-	return
 }
 
 type traceSearchParams struct {
@@ -436,13 +442,4 @@ func orDefault(str string, def string) string {
 		return def
 	}
 	return str
-}
-
-func parseDurationNS(duration string) (int64, error) {
-	if duration == "" {
-		return 0, nil
-	}
-	durationNS, err := time.ParseDuration(duration)
-	return int64(durationNS), err
-
 }

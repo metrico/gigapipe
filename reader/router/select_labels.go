@@ -1,4 +1,4 @@
-package apirouterv1
+package router
 
 import (
 	"github.com/gorilla/mux"

@@ -3,11 +3,11 @@ package unmarshal
 import (
 	"bytes"
 	"fmt"
-	"github.com/metrico/qryn/writer/model"
 	"io"
-	"io/ioutil"
 	"strconv"
 	"strings"
+
+	"github.com/metrico/qryn/writer/model"
 )
 
 // binaryStreamPProfProtoDec extends pProfProtoDec to handle binary/octet-stream content type
@@ -78,7 +78,7 @@ func (b *binaryStreamPProfProtoDec) Decode() error {
 	}()
 
 	// For binary/octet-stream, we directly read the data without MIME processing
-	data, err := ioutil.ReadAll(b.ctx.bodyReader)
+	data, err := io.ReadAll(b.ctx.bodyReader)
 	if err != nil {
 		fmt.Println("Error reading from reader:", err)
 		return err

@@ -1,12 +1,13 @@
-package controllerv1
+package controller
 
 import (
-	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
-	"github.com/metrico/qryn/reader/service"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/gorilla/schema"
+	"github.com/metrico/qryn/reader/service"
 )
 
 type PromQueryLabelsController struct {
@@ -60,6 +61,10 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 		return
 	}
 	params, err := ParseLogSeriesParamsV2(r, time.Second)
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
 	name := mux.Vars(r)["name"]
 	if name == "" {
 		PromError(400, "label name is required", w)
@@ -134,9 +139,7 @@ func getPromSeriesParamsV2(r *http.Request) (promSeriesParams, error) {
 			}
 		}
 	}
-	for _, v := range r.URL.Query()["match[]"] {
-		res.Match = append(res.Match, v)
-	}
+	res.Match = append(res.Match, r.URL.Query()["match[]"]...)
 	return res, nil
 }
 
