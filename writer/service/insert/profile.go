@@ -1,29 +1,14 @@
-package impl
+package insert
 
 import (
 	"fmt"
+
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/plugins"
 	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/utils/logger"
 )
-
-type profileSamplesSnapshot struct {
-	timestampNs      proto.ColUInt64
-	ptype            proto.ColStr
-	serviceName      proto.ColStr
-	sampleTypesUnits proto.ColArr[model.StrStr]
-	periodType       proto.ColStr
-	periodUnit       proto.ColStr
-	tags             proto.ColArr[model.StrStr]
-	durationNs       proto.ColUInt64
-	payloadType      proto.ColStr
-	payload          proto.ColStr
-	valuesAgg        proto.ColArr[model.ValuesAgg]
-	tree             proto.ColArr[model.TreeRootStructure]
-	functions        proto.ColArr[model.Function]
-}
 
 type profileSamplesAcquirer struct {
 	timestampNs      *service.PooledColumn[proto.ColUInt64]
@@ -97,58 +82,6 @@ func (t *profileSamplesAcquirer) fromIFace(iface []service.IColPoolRes) *profile
 	return t
 }
 
-func (t *profileSamplesAcquirer) snapshot() *profileSamplesSnapshot {
-	return &profileSamplesSnapshot{
-		timestampNs:      t.timestampNs.Data,
-		ptype:            *t.ptype.Data,
-		serviceName:      *t.serviceName.Data,
-		sampleTypesUnits: *t.sampleTypesUnits.Data,
-		periodType:       *t.periodType.Data,
-		periodUnit:       *t.periodUnit.Data,
-		tags:             *t.tags.Data,
-		durationNs:       t.durationNs.Data,
-		payloadType:      *t.payloadType.Data,
-		payload:          *t.payload.Data,
-		valuesAgg:        *t.valuesAgg.Data,
-		tree:             *t.tree.Data,
-		functions:        *t.functions.Data,
-	}
-}
-
-func (t *profileSamplesAcquirer) revert(snap *profileSamplesSnapshot) {
-	t.timestampNs.Data = snap.timestampNs
-	*t.ptype.Data = snap.ptype
-	*t.serviceName.Data = snap.serviceName
-	t.sampleTypesUnits.Data = &snap.sampleTypesUnits
-	*t.periodType.Data = snap.periodType
-	*t.periodUnit.Data = snap.periodUnit
-	t.tags.Data = &snap.tags
-	t.durationNs.Data = snap.durationNs
-	*t.payloadType.Data = snap.payloadType
-	*t.payload.Data = snap.payload
-	t.valuesAgg.Data = &snap.valuesAgg
-	t.tree.Data = &snap.tree
-	t.functions.Data = &snap.functions
-}
-
-func (t *profileSamplesAcquirer) toRequest() model.ProfileSamplesRequest {
-	return model.ProfileSamplesRequest{
-		TimestampNs:       service.Uint64Adaptor{ColUInt64: &t.timestampNs.Data},
-		Ptype:             t.ptype.Data,
-		ServiceName:       t.serviceName.Data,
-		SamplesTypesUnits: t.sampleTypesUnits.Data,
-		PeriodType:        t.periodType.Data,
-		PeriodUnit:        t.periodUnit.Data,
-		Tags:              t.tags.Data,
-		DurationNs:        service.Uint64Adaptor{ColUInt64: &t.durationNs.Data},
-		PayloadType:       t.payloadType.Data,
-		Payload:           t.payload.Data,
-		ValuesAgg:         t.valuesAgg.Data,
-		Tree:              t.tree.Data,
-		Functions:         t.functions.Data,
-	}
-}
-
 func NewProfileSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
 	plugin := plugins.GetProfileInsertServicePlugin()
 	if plugin != nil {
@@ -216,11 +149,6 @@ func NewProfileSamplesInsertService(opts model.InsertServiceOpts) service.IInser
 			acquirer.functions.Data.Append(profileSeriesData.Function)
 			acquirer.tree.Data.Append(profileSeriesData.Tree)
 
-			//err := ts.ProfileSamples(acquirer.toRequest())
-			//if err != nil {
-			//	acquirer.revert(snap)
-			//	return 0, acquirer.toIFace(), err
-			//}
 			return res[0].Size() - s1, acquirer.toIFace(), nil
 		},
 	}

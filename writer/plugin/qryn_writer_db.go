@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/ch_wrapper"
@@ -10,14 +11,15 @@ import (
 	"github.com/metrico/qryn/writer/model"
 	patternCtrl "github.com/metrico/qryn/writer/pattern/controller"
 
+	"time"
+	"unsafe"
+
 	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/service/impl"
+	"github.com/metrico/qryn/writer/service/insert"
 	"github.com/metrico/qryn/writer/service/registry"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/numbercache"
 	"github.com/metrico/qryn/writer/watchdog"
-	"time"
-	"unsafe"
 )
 
 var MainNode string
@@ -28,38 +30,6 @@ const (
 	ClustModeDistributed = 4
 	ClustModeStats       = 8
 )
-
-func initDB(dbObject *config.ClokiBaseDataBase) error {
-	ctx := context.Background()
-	//client, err := adapter.NewClient(ctx, dbObject, false)
-	client, err := ch_wrapper.NewSmartDatabaseAdapter(dbObject, true)
-	if err != nil {
-		return err
-	}
-	if dbObject.Name != "" && dbObject.Name != "default" {
-		engine := ""
-		if dbObject.Cloud {
-			engine = "ENGINE = Atomic"
-		}
-		onCluster := ""
-		if dbObject.ClusterName != "" {
-			onCluster = fmt.Sprintf("ON CLUSTER `%s`", dbObject.ClusterName)
-		}
-		err = client.Exec(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` %s "+engine, dbObject.Name, onCluster))
-		if err != nil {
-			err1 := err
-			logger.Info("Database creation error. Retrying without the engine", err1)
-			err = client.Exec(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` %s", dbObject.Name, onCluster))
-			if err != nil {
-				return fmt.Errorf("database creation errors: %s; %s", err1.Error(), err.Error())
-			}
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer) ([]model.DataDatabasesMap, []ch_wrapper.IChClient, []ch_wrapper.IChClientFactory) {
 
@@ -114,7 +84,8 @@ func healthCheck(conn ch_wrapper.IChClient, isDistributed bool) {
 	}
 	checkTable := func(table string) error {
 		query := fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", table)
-		to, _ := context.WithTimeout(context.Background(), time.Second*30)
+		to, cancel := context.WithTimeout(context.Background(), time.Second*30)
+		defer cancel()
 		rows, err := conn.Query(to, query)
 		if err != nil {
 			return err
@@ -144,37 +115,6 @@ func healthCheck(conn ch_wrapper.IChClient, isDistributed bool) {
 	}
 }
 
-func checkAll(base []config.ClokiBaseDataBase) error {
-	for _, dbObject := range base {
-		logger.Info(fmt.Sprintf("Checking %s:%d/%s", dbObject.Host, dbObject.Port, dbObject.Name))
-		mode := ClustModeSingle
-		if dbObject.Cloud {
-			mode = ClustModeCloud
-		}
-		if dbObject.ClusterName != "" {
-			mode = mode | ClustModeDistributed
-		}
-		err := func() error {
-			//client, err := adapter.NewClient(context.Background(), &dbObject, true)
-			client, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
-			if err != nil {
-				return err
-			}
-			defer func(client ch_wrapper.IChClient) {
-				err := client.Close()
-				if err != nil {
-					logger.Error("Error closing client", err)
-				}
-			}(client)
-			return nil
-		}()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSettingServer) {
 	databasesNodeHashMap := make(map[string]*model.DataDatabasesMap)
 	for _, node := range p.ServicesObject.DatabaseNodeMap {
@@ -188,7 +128,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 
 		_node := node.Node
 
-		TsSvcs[node.Node] = impl.NewTimeSeriesInsertService(model.InsertServiceOpts{
+		TsSvcs[node.Node] = insert.NewTimeSeriesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -199,7 +139,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 
 		go TsSvcs[node.Node].Run()
 
-		SplSvcs[node.Node] = impl.NewSamplesInsertService(model.InsertServiceOpts{
+		SplSvcs[node.Node] = insert.NewSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -211,7 +151,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		SplSvcs[node.Node].Init()
 		go SplSvcs[node.Node].Run()
 
-		MtrSvcs[node.Node] = impl.NewMetricsInsertService(model.InsertServiceOpts{
+		MtrSvcs[node.Node] = insert.NewMetricsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -223,7 +163,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		MtrSvcs[node.Node].Init()
 		go MtrSvcs[node.Node].Run()
 
-		TempoSamplesSvcs[node.Node] = impl.NewTempoSamplesInsertService(model.InsertServiceOpts{
+		TempoSamplesSvcs[node.Node] = insert.NewTempoSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -235,7 +175,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		TempoSamplesSvcs[node.Node].Init()
 		go TempoSamplesSvcs[node.Node].Run()
 
-		TempoTagsSvcs[node.Node] = impl.NewTempoTagsInsertService(model.InsertServiceOpts{
+		TempoTagsSvcs[node.Node] = insert.NewTempoTagsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -246,7 +186,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		})
 		TempoTagsSvcs[node.Node].Init()
 		go TempoTagsSvcs[node.Node].Run()
-		ProfileInsertSvcs[node.Node] = impl.NewProfileSamplesInsertService(model.InsertServiceOpts{
+		ProfileInsertSvcs[node.Node] = insert.NewProfileSamplesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -256,7 +196,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		ProfileInsertSvcs[node.Node].Init()
 		go ProfileInsertSvcs[node.Node].Run()
 
-		PatternInsertSvcs[node.Node] = impl.NewPatternInsertService(model.InsertServiceOpts{
+		PatternInsertSvcs[node.Node] = insert.NewPatternInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
@@ -284,7 +224,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		PatternInsertSvcs: PatternInsertSvcs,
 	})
 
-	GoCache = numbercache.NewCache[uint64](time.Minute*30, func(val uint64) []byte {
+	GoCache = numbercache.NewCache(time.Minute*30, func(val uint64) []byte {
 		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
 	}, databasesNodeHashMap)
 

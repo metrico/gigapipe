@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+
 	"github.com/ClickHouse/ch-go"
 )
 

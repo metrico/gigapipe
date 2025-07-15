@@ -1,10 +1,11 @@
 package registry
 
 import (
-	"github.com/metrico/qryn/writer/service"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/metrico/qryn/writer/service"
 )
 
 type staticServiceRegistry struct {
@@ -37,7 +38,7 @@ func mapToSlice(m map[string]service.IInsertServiceV2) []service.IInsertServiceV
 	return ss
 }
 
-func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) IServiceRegistry {
+func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) ServiceRegistry {
 	res := staticServiceRegistry{
 		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}

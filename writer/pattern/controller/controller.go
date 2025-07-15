@@ -3,6 +3,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/metrico/qryn/writer/ch_wrapper"
 	config "github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/model"
@@ -10,13 +15,9 @@ import (
 	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/service/registry"
 	"github.com/metrico/qryn/writer/utils/logger"
-	"math/rand"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
-var InsertServiceRegistry registry.IServiceRegistry
+var InsertServiceRegistry registry.ServiceRegistry
 var ClusteringService *clustering.LogClusterer
 var connFactory ch_wrapper.IChClientFactory
 var isCluster bool
@@ -76,7 +77,7 @@ func ClusterLines(lines []string, fingerprints []uint64, timestamps []int64) {
 }
 
 type InitOpts struct {
-	Service   registry.IServiceRegistry
+	Service   registry.ServiceRegistry
 	Conns     ch_wrapper.IChClientFactory
 	IsCluster bool
 }

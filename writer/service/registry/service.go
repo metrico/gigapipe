@@ -2,7 +2,7 @@ package registry
 
 import "github.com/metrico/qryn/writer/service"
 
-type IServiceRegistry interface {
+type ServiceRegistry interface {
 	GetTimeSeriesService(id string) (service.IInsertServiceV2, error)
 	GetSamplesService(id string) (service.IInsertServiceV2, error)
 	GetMetricsService(id string) (service.IInsertServiceV2, error)

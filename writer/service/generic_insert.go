@@ -3,6 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	fch "github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/metrico/qryn/writer/ch_wrapper"
@@ -11,10 +16,6 @@ import (
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/promise"
 	"github.com/metrico/qryn/writer/utils/stat"
-	"math/rand"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 const (
@@ -69,9 +70,6 @@ type requestPortion struct {
 type InsertServiceV2 struct {
 	ServiceData
 	ID string
-	//	V3Session    func() (IChClient, error)
-
-	onInsert func()
 
 	V3Session      ch_wrapper.IChClientFactory
 	DatabaseNode   *model.DataDatabasesMap
@@ -201,8 +199,7 @@ func (svc *InsertServiceV2) Request(req helpers.SizeGetter, insertMode int) *pro
 		p.Done(0, fmt.Errorf("service stopped"))
 		return p
 	}
-	var size int64
-	size = req.GetSize()
+	size := req.GetSize()
 	func() {
 		var (
 			inserted int
@@ -258,7 +255,7 @@ func (svc *InsertServiceV2) fetchLoopIteration() {
 		}
 	}
 
-	portion, err := svc.swapBuffers()
+	portion, _ := svc.swapBuffers()
 	if portion == nil {
 		return
 	}
@@ -291,13 +288,13 @@ func (svc *InsertServiceV2) fetchLoopIteration() {
 	to, cancel2 := context.WithTimeout(svc.ctx, time.Duration(int64(svc.DatabaseNode.WriteTimeout)*int64(time.Second)))
 	defer cancel2()
 
-	err = svc.client.Do(to, fch.Query{
+	err := svc.client.Do(to, fch.Query{
 		Body:  svc.insertRequest + " VALUES ",
 		Input: input,
 	})
 
-	stat.AddCompoundMetric("tx_close_time_ms", time.Now().Sub(lastFlush).Milliseconds())
-	stat.AddCompoundMetric("send_time_ms", time.Now().Sub(startSending).Milliseconds())
+	stat.AddCompoundMetric("tx_close_time_ms", time.Since(lastFlush).Milliseconds())
+	stat.AddCompoundMetric("send_time_ms", time.Since(startSending).Milliseconds())
 	stat.AddSentMetrics(svc.serviceType+"_sent_rows", rows)
 	stat.AddSentMetrics(svc.serviceType+"_sent_bytes", size)
 

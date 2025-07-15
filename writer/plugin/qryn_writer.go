@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/gorilla/mux"
 	"github.com/metrico/cloki-config/config"
@@ -118,12 +117,9 @@ func (p *QrynWriterPlugin) RegisterRoutes(config config.ClokiBaseSettingServer,
 	router *mux.Router) {
 	helpers.SetGlobalLimit(config.HTTP_SETTINGS.InputBufferMB * 1024 * 1024)
 
-	httpURL := fmt.Sprintf("%s:%d", config.HTTP_SETTINGS.Host, config.HTTP_SETTINGS.Port)
-	//
-
 	config.Validate = validator.New()
 
-	p.performV1APIRouting(httpURL, config, middlewareFactory, middlewareTempoFactory, router)
+	p.performV1APIRouting(middlewareFactory, middlewareTempoFactory, router)
 }
 
 // Stop performs cleanup when the plugin is stopped.

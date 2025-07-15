@@ -1,7 +1,8 @@
-package impl
+package insert
 
 import (
 	"fmt"
+
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/plugins"
@@ -72,20 +73,6 @@ type BoolWrap struct {
 
 func (b *BoolWrap) Append(v bool) {
 	*b.bc = append(*b.bc, v)
-}
-
-func (t *tempoSamplesAcquirer) toRequest() model.TempoSamplesRequest {
-	return model.TempoSamplesRequest{
-		TraceId:     service.FixedStrAdaptor{ColFixedStr: t.traceId.Data},
-		SpanId:      service.FixedStrAdaptor{ColFixedStr: t.spanId.Data},
-		ParentId:    t.parentId.Data,
-		Name:        t.name.Data,
-		TimestampNs: service.Int64Adaptor{ColInt64: &t.timestampNs.Data},
-		DurationNs:  service.Int64Adaptor{ColInt64: &t.durationNs.Data},
-		ServiceName: t.serviceName.Data,
-		PayloadType: service.I8Adaptor{ColInt8: &t.payloadType.Data},
-		Payload:     t.payload.Data,
-	}
 }
 
 func NewTempoSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
@@ -191,18 +178,6 @@ func (t *tempoTagsAcquirer) fromIFace(iface []service.IColPoolRes) *tempoTagsAcq
 	return t
 }
 
-func (t *tempoTagsAcquirer) toRequest() model.TempoTagsRequest {
-	return model.TempoTagsRequest{
-		Date:        &service.DateAppender{D: &t.date.Data},
-		Key:         t.key.Data,
-		Val:         t.val.Data,
-		TraceId:     service.FixedStrAdaptor{ColFixedStr: t.traceId.Data},
-		SpanId:      service.FixedStrAdaptor{ColFixedStr: t.spanId.Data},
-		TimestampNS: service.Int64Adaptor{ColInt64: &t.timestampNS.Data},
-		DurationNS:  service.Int64Adaptor{ColInt64: &t.durationNS.Data},
-	}
-}
-
 func NewTempoTagsInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
 	if opts.ParallelNum <= 0 {
 		opts.ParallelNum = 1
@@ -246,13 +221,4 @@ func NewTempoTagsInsertService(opts model.InsertServiceOpts) service.IInsertServ
 			return res[0].Size() - s1, acquirer.toIFace(), nil
 		},
 	}
-}
-
-func fastFill[T uint64 | string](val T, len int) []T {
-	res := make([]T, len)
-	res[0] = val
-	for c := 1; c < len; c >>= 1 {
-		copy(res[c:], res[:c])
-	}
-	return res
 }

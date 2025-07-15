@@ -1,7 +1,8 @@
-package impl
+package insert
 
 import (
 	"fmt"
+
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/plugins"

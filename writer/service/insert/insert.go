@@ -1,4 +1,4 @@
-package impl
+package insert
 
 import (
 	"github.com/metrico/qryn/writer/model"
