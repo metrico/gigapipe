@@ -1,11 +1,12 @@
 package view
 
 import (
-	"github.com/gorilla/mux"
-	clconfig "github.com/metrico/cloki-config"
 	"io/fs"
 	"net/http"
 	"strings"
+
+	"github.com/gorilla/mux"
+	clconfig "github.com/metrico/cloki-config"
 )
 
 var config *clconfig.ClokiConfig
