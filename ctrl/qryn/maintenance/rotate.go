@@ -3,18 +3,19 @@ package maintenance
 import (
 	"context"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/metrico/qryn/ctrl/logger"
-	"github.com/metrico/qryn/ctrl/qryn/heputils"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/metrico/qryn/ctrl/logger"
+	"github.com/metrico/qryn/ctrl/qryn/heputils"
 )
 
 func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, error) {
-	fp := heputils.FingerprintLabelsDJBHashPrometheus([]byte(
-		fmt.Sprintf(`{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name)),
-	))
+	fp := heputils.FingerprintLabelsDJBHashPrometheus(
+		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name)),
+	)
 	settings := "settings"
 	if dist {
 		settings += "_dist"
@@ -56,7 +57,7 @@ func rotateTables(db clickhouse.Conn, clusterName string, distributed bool, days
 			insertTimeExpression,
 			intsevalSec)
 		if rp.MoveTo != "" {
-			rotateTTL += fmt.Sprintf(" TO DISK '" + rp.MoveTo + "'")
+			rotateTTL += fmt.Sprintf(" TO DISK '%s'", rp.MoveTo)
 		}
 		rotateTTLArr = append(rotateTTLArr, rotateTTL)
 	}
@@ -184,9 +185,6 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 		"date",
 		tracesDefaultTTLString("date"), "tempo_attrs_v1",
 		logger, "tempo_traces_attrs_gin", "tempo_traces_kv")
-	if err != nil {
-		return err
-	}
 	if err != nil {
 		return err
 	}

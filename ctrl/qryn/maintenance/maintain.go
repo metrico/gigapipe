@@ -1,12 +1,14 @@
 package maintenance
 
 import (
+	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/ctrl/logger"
 	"github.com/metrico/qryn/ctrl/maintenance"
-	"strings"
-	"time"
 )
 
 func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
@@ -38,7 +40,12 @@ func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
 	}
 	defer conn.Close()
 	err = maintenance.InitDBTry(conn, dbObject.ClusterName, dbObject.Name, dbObject.Cloud, logger)
-	rows, err := conn.Query(maintenance.MakeTimeout(), fmt.Sprintf("SHOW CREATE DATABASE `%s`", dbObject.Name))
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	rows, err := conn.Query(ctx, fmt.Sprintf("SHOW CREATE DATABASE `%s`", dbObject.Name))
 	if err != nil {
 		return err
 	}
@@ -66,15 +73,21 @@ func TestDistributed(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) 
 	logger.Info("TESTING Distributed table support")
 	q := fmt.Sprintf("CREATE TABLE IF NOT EXISTS dtest %s (a UInt64) Engine = Null", onCluster)
 	logger.Info(q)
-	err = conn.Exec(maintenance.MakeTimeout(), q)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	err = conn.Exec(ctx, q)
 	if err != nil {
 		return false, err
 	}
-	defer conn.Exec(maintenance.MakeTimeout(), fmt.Sprintf("DROP TABLE dtest %s", onCluster))
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	defer conn.Exec(ctx, fmt.Sprintf("DROP TABLE dtest %s", onCluster))
 	q = fmt.Sprintf("CREATE TABLE IF NOT EXISTS dtest_dist %s (a UInt64) Engine = Distributed('%s', '%s', 'dtest', a)",
 		onCluster, dbObject.ClusterName, dbObject.Name)
 	logger.Info(q)
-	err = conn.Exec(maintenance.MakeTimeout(), q)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	err = conn.Exec(ctx, q)
 	if err != nil {
 		logger.Error("Distributed creation error: ", err.Error())
 		if strings.Contains(err.Error(), "Only tables with a Replicated engine or tables which do not store data on disk are allowed in a Replicated database") {
@@ -83,7 +96,9 @@ func TestDistributed(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) 
 		}
 		return false, err
 	}
-	defer conn.Exec(maintenance.MakeTimeout(), fmt.Sprintf("DROP TABLE dtest_dist %s", onCluster))
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	defer conn.Exec(ctx, fmt.Sprintf("DROP TABLE dtest_dist %s", onCluster))
 	logger.Info("Distributed support ok")
 	return true, nil
 }
@@ -149,15 +164,5 @@ func RotateAll(base []config.ClokiBaseDataBase, logger logger.ILogger) error {
 		logger.Info(fmt.Sprintf("Rotating %s:%d/%s: OK", dbObject.Host, dbObject.Port, dbObject.Name))
 	}
 
-	/*for _, dbObject := range base {
-		err := RecodecDB(&dbObject)
-		if err != nil {
-			return err
-		}
-		err = ReindexDB(&dbObject)
-		if err != nil {
-			return err
-		}
-	}*/
 	return nil
 }
