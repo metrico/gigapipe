@@ -1,8 +1,13 @@
-package controllerv1
+package controller
 
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	retry "github.com/avast/retry-go"
 	"github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/pattern/controller"
@@ -11,10 +16,6 @@ import (
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/promise"
 	"github.com/metrico/qryn/writer/utils/stat"
-	"io"
-	"net/http"
-	"strings"
-	"time"
 
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/service"
@@ -92,7 +93,7 @@ func ErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 func writeErrorResponse(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"success": false,
 		"message": message,
 	})
@@ -137,7 +138,6 @@ func Build(options ...BuildOption) func(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			ErrorHandler(w, r, err) // Call ErrorHandler if pusherCtx.Do returns an error
 		}
-		return
 	}
 
 }

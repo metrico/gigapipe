@@ -2,8 +2,9 @@ package model
 
 import (
 	"context"
-	"github.com/jmoiron/sqlx"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type ITempoService interface {
@@ -37,8 +38,7 @@ type IQueryRangeService interface {
 
 // Service : here you tell us what Salutation is
 type ServiceData struct {
-	Session      IDBRegistry
-	lastPingTime time.Time
+	Session IDBRegistry
 }
 
 func (s *ServiceData) Ping() error {

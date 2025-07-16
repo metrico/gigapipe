@@ -3,15 +3,6 @@ package unmarshal
 import (
 	"bytes"
 	"fmt"
-	"github.com/go-faster/city"
-	"github.com/go-faster/jx"
-	jsoniter "github.com/json-iterator/go"
-	clc_writer "github.com/metrico/cloki-config/config/writer"
-	"github.com/metrico/qryn/writer/config"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/heputils"
-	"github.com/metrico/qryn/writer/utils/heputils/cityhash102"
-	"github.com/metrico/qryn/writer/utils/logger"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,10 +10,17 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/go-faster/city"
+	"github.com/go-faster/jx"
+	clc_writer "github.com/metrico/cloki-config/config/writer"
+	"github.com/metrico/qryn/writer/config"
+	customErrors "github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils/heputils"
+	"github.com/metrico/qryn/writer/utils/heputils/cityhash102"
+	"github.com/metrico/qryn/writer/utils/logger"
+
 	"github.com/metrico/qryn/writer/model"
 )
-
-var jsonApi = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type pushRequestDec struct {
 	ctx       *ParserCtx
@@ -220,7 +218,6 @@ func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
 		default:
 			return d.Skip()
 		}
-		return nil
 	})
 	if err != nil {
 		return customErrors.NewUnmarshalError(err)
@@ -276,23 +273,13 @@ func fingerprintLabels(lbls [][]string) uint64 {
 var sanitizeRe = regexp.MustCompile("(^[^a-zA-Z_]|[^a-zA-Z0-9_])")
 
 func sanitizeLabels(lbls [][]string) [][]string {
-	for i, _ := range lbls {
+	for i := range lbls {
 		lbls[i][0] = sanitizeRe.ReplaceAllString(lbls[i][0], "_")
 		if len(lbls[i][1]) > 100 {
 			lbls[i][1] = lbls[i][1][:100] + "..."
 		}
 	}
 	return lbls
-}
-
-func getFingerIndexbyName(lbls [][]string, label string) (int, error) {
-
-	for index, val := range lbls {
-		if val[0] == label {
-			return index, nil
-		}
-	}
-	return 0, customErrors.ErrNotFound
 }
 
 func parseTime(b []byte) (int64, error) {
@@ -366,60 +353,3 @@ func parseLabelsLokiFormat(labels []byte, buf [][]string) ([][]string, error) {
 	}
 	return buf, nil
 }
-
-/*
-// NewPushRequest constructs a logproto.PushRequest from a PushRequest
-func NewPushRequest(r loghttp.PushRequest) logproto.PushRequest {
-	ret := logproto.PushRequest{
-		Streams: make([]logproto.Stream, len(r.Streams)),
-	}
-
-	for i, s := range r.Streams {
-		ret.Streams[i] = NewStream(s)
-	}
-
-	return ret
-}
-
-// NewPushRequest constructs a logproto.PushRequest from a PushRequest
-func NewPushRequestLog(r model.PushRequest) logproto.PushRequest {
-	ret := logproto.PushRequest{
-		Streams: make([]logproto.Stream, len(r.Streams)),
-	}
-	for i, s := range r.Streams {
-		ret.Streams[i] = NewStreamLog(&s)
-	}
-
-	return ret
-}
-
-// NewStream constructs a logproto.Stream from a Stream
-func NewStream(s *loghttp.Stream) logproto.Stream {
-	return logproto.Stream{
-		Entries: *(*[]logproto.Entry)(unsafe.Pointer(&s.Entries)),
-		Labels:  s.Labels.String(),
-	}
-}
-
-// NewStream constructs a logproto.Stream from a Stream
-func NewStreamLog(s *model.Stream) logproto.Stream {
-	return logproto.Stream{
-		Entries: *(*[]logproto.Entry)(unsafe.Pointer(&s.Entries)),
-		Labels:  s.Labels,
-	}
-}
-
-// WebsocketReader knows how to read message to a websocket connection.
-type WebsocketReader interface {
-	ReadMessage() (int, []byte, error)
-}
-
-// ReadTailResponseJSON unmarshals the loghttp.TailResponse from a websocket reader.
-func ReadTailResponseJSON(r *loghttp.TailResponse, reader WebsocketReader) error {
-	_, data, err := reader.ReadMessage()
-	if err != nil {
-		return err
-	}
-	return jsoniter.Unmarshal(data, r)
-}
-*/

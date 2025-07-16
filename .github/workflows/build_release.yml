@@ -41,7 +41,7 @@ jobs:
       - name: build static
         run: |
           go mod tidy
-          VIEW=1 CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe_arm64 .
+          VIEW=1 CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe_arm64 cmd/gigapipe/main.go
 
       - name: get NFPM
         if:  github.event_name == 'release' || ${{ inputs.release }}
@@ -103,7 +103,7 @@ jobs:
       - name: build static
         run: |
           go mod tidy
-          VIEW=1 CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe .
+          VIEW=1 CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
           
       - name: glibc polyfill
         if: ${{ matrix.goarch == 'amd64' }}

@@ -4,10 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"time"
+
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/ctrl/logger"
-	"time"
 )
 
 func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2.Conn, error) {
@@ -47,14 +48,11 @@ func InitDBTry(conn clickhouse_v2.Conn, clusterName string, dbName string, cloud
 	}
 	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` %s %s", dbName, onCluster, engine)
 	logger.Info("Creating database: ", query)
-	err := conn.Exec(MakeTimeout(), query)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+	err := conn.Exec(ctx, query)
 	if err == nil {
 		return nil
 	}
 	return err
-}
-
-func MakeTimeout() context.Context {
-	res, _ := context.WithTimeout(context.Background(), time.Second*30)
-	return res
 }

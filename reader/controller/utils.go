@@ -1,16 +1,17 @@
-package controllerv1
+package controller
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/metrico/qryn/reader/plugins"
-	"github.com/metrico/qryn/reader/utils/logger"
 	"net/http"
 	"regexp"
 	"runtime/debug"
 	"strconv"
 	"time"
+
+	"github.com/metrico/qryn/reader/plugins"
+	"github.com/metrico/qryn/reader/utils/logger"
 )
 
 func getRequiredFloat(ctx *http.Request, name string, def string, err error) (float64, error) {

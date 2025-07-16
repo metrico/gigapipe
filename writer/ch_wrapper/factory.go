@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/utils/logger"
-	"strings"
-	"time"
 )
 
 func NewGeneralPurposeClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, database bool) (IChClient, error) {
@@ -104,7 +105,8 @@ func NewGeneralPurposeClientWithDSN(ctx context.Context, dsn string, database bo
 }
 
 func NewWriterClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, database bool) (IChClient, error) {
-	to, _ := context.WithTimeout(context.Background(), time.Second*30)
+	to, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
 	db := ""
 	if database {
 		db = dbObject.Name

@@ -2,10 +2,11 @@ package unmarshal
 
 import (
 	"fmt"
-	"github.com/go-faster/jx"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/go-faster/jx"
 )
 
 const LEN = 64
@@ -26,27 +27,30 @@ func TestAppend(t *testing.T) {
 }
 
 func BenchmarkFastAppend(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var res []byte
 		res = append(res, fastFillArray(LEN, byte(1))...)
+		_ = res
 	}
 }
 
 func BenchmarkAppend(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var res []byte
-		for c := 0; c < LEN; c++ {
+		for range LEN {
 			res = append(res, 1)
 		}
+		_ = res
 	}
 }
 
 func BenchmarkAppendFill(b *testing.B) {
 	a := make([]byte, 0, LEN)
-	for i := 0; i < b.N; i++ {
-		for c := 0; c < LEN; c++ {
+	for b.Loop() {
+		for range LEN {
 			a = append(a, 5)
 		}
+		_ = a
 	}
 }
 

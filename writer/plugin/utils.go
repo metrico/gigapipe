@@ -3,8 +3,12 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gorilla/mux"
-	config2 "github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/writer/ch_wrapper"
 	"github.com/metrico/qryn/writer/config"
 	controllerv1 "github.com/metrico/qryn/writer/controller"
@@ -15,13 +19,9 @@ import (
 	"github.com/metrico/qryn/writer/utils/stat"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"runtime"
-	"strconv"
-	"strings"
-	"time"
 )
 
-var ServiceRegistry registry.IServiceRegistry
+var ServiceRegistry registry.ServiceRegistry
 var GoCache numbercache.ICache[uint64]
 
 type SetupState struct {
@@ -60,7 +60,7 @@ func (p *QrynWriterPlugin) logCHSetup() {
 		for _, l := range s.ToLogLines() {
 			logger.Info(l)
 		}
-		for _ = range t.C {
+		for range t.C {
 			s = checkSetup(p.ServicesObject.Dbv2Map[0])
 			for _, l := range s.ToLogLines() {
 				logger.Info(l)
@@ -115,7 +115,8 @@ func checkSetup(conn ch_wrapper.IChClient) SetupState {
 }
 
 func getShardsNum(conn ch_wrapper.IChClient, clusterName string) int {
-	to, _ := context.WithTimeout(context.Background(), time.Second*30)
+	to, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
 	rows, err := conn.Query(to, "select count(distinct shard_num) from system.clusters where cluster=$1", clusterName)
 	if err != nil {
 		logger.Error("[GSN001] Get shards error: ", err)
@@ -133,8 +134,6 @@ func getShardsNum(conn ch_wrapper.IChClient, clusterName string) int {
 }
 
 func (p *QrynWriterPlugin) performV1APIRouting(
-	httpURL string,
-	config config2.ClokiBaseSettingServer,
 	middlewareFactory controllerv1.MiddlewareConfig,
 	middlewareTempoFactory controllerv1.MiddlewareConfig,
 	router *mux.Router) {
