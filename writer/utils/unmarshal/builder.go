@@ -3,6 +3,7 @@ package unmarshal
 import (
 	"context"
 	"fmt"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"runtime/debug"
 	"strconv"
@@ -50,7 +51,7 @@ type ParserCtx struct {
 	bodyObject interface{}
 	fpCache    numbercache.ICache[uint64]
 	ctx        context.Context
-	ctxMap     map[string]string
+	ctxMap     map[heputils.ContextKey]string
 }
 
 type parserFn func(ctx *ParserCtx) error
@@ -144,13 +145,13 @@ func (p *parserDoer) resetProfile() {
 func (p *parserDoer) doParseLogs() {
 	parser := p.LogsParser
 	meta := ""
-	_meta := p.ctx.ctx.Value("META")
+	_meta := p.ctx.ctx.Value(heputils.ContextKeyMeta)
 	if _meta != nil {
 		meta = _meta.(string)
 	}
 
 	p.ttlDays = 0
-	ttlDays := p.ctx.ctx.Value("TTL_DAYS")
+	ttlDays := p.ctx.ctx.Value(heputils.ContextKeyTTLDays)
 	if ttlDays != nil {
 		p.ttlDays = ttlDays.(uint16)
 	}
@@ -422,7 +423,7 @@ func Build(options ...buildOption) ParsingFunction {
 				bodyReader: body,
 				fpCache:    fpCache,
 				ctx:        ctx,
-				ctxMap:     map[string]string{},
+				ctxMap:     map[heputils.ContextKey]string{},
 			},
 			PreParse:    builder.PreParse,
 			payloadType: builder.payloadType,
@@ -457,7 +458,7 @@ func withSpansParser(fn func(ctx *ParserCtx) iSpansParser) buildOption {
 	}
 }
 
-func withStringValueFromCtx(key string) buildOption {
+func withStringValueFromCtx(key heputils.ContextKey) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.PreParse = append(builder.PreParse, func(ctx *ParserCtx) error {
 			res := ctx.ctx.Value(key)

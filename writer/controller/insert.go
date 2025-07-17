@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"net/http"
 	"time"
 
@@ -91,7 +92,7 @@ func PushInfluxV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 					return nil, custom_errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
 				}
 				ctx := req.Context()
-				ctx = context.WithValue(ctx, ContextKeyPrecision, precision)
+				ctx = context.WithValue(ctx, heputils.ContextKeyPrecision, precision)
 				return ctx, nil
 			}),
 			withSimpleParser("*", Parser(unmarshal.UnmarshalInfluxDBLogsV2)),

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/writer/model"
+	heputils "github.com/metrico/qryn/writer/utils"
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	"time"
 )
@@ -29,7 +30,7 @@ func (d *datadogCFRequestDec) Decode() error {
 	scanner := bufio.NewScanner(d.ctx.bodyReader)
 	scanner.Split(bufio.ScanLines)
 
-	d.DDSource = d.ctx.ctxMap["ddsource"]
+	d.DDSource = d.ctx.ctxMap[heputils.ContextKeyDDSource]
 	for scanner.Scan() {
 		bytes := scanner.Bytes()
 		err := d.DecodeLine(bytes)
@@ -140,7 +141,7 @@ func (d *datadogCFRequestDec) GetLabels() [][]string {
 }
 
 var UnmarshallDatadogCFJSONV2 = Build(
-	withStringValueFromCtx("ddsource"),
+	withStringValueFromCtx(heputils.ContextKeyDDSource),
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &datadogCFRequestDec{ctx: ctx}
 	}))

@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"bytes"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"regexp"
 	"time"
 
@@ -40,7 +41,7 @@ type influxDec struct {
 
 func (e *influxDec) Decode() error {
 	parser := influx.NewStreamParser(e.ctx.bodyReader)
-	precision := e.ctx.ctx.Value("precision").(time.Duration)
+	precision := e.ctx.ctx.Value(heputils.ContextKeyPrecision).(time.Duration)
 	parser.SetTimePrecision(precision)
 
 	for mtr, err := parser.Next(); true; mtr, err = parser.Next() {

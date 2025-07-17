@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -83,19 +84,19 @@ func (p *pProfProtoDec) Decode() error {
 	var timestampNs uint64
 	var durationNs uint64
 	var tags []model.StrStr
-	fromValue := p.ctx.ctxMap["from"]
+	fromValue := p.ctx.ctxMap[heputils.ContextKeyFrom]
 	start, err := strconv.ParseUint(fromValue, 10, 64)
 	if err != nil {
 		fmt.Println("st error", err.Error())
 		return fmt.Errorf("failed to parse start time: %w", err)
 	}
 
-	endValue := p.ctx.ctxMap["until"]
+	endValue := p.ctx.ctxMap[heputils.ContextKeyUntil]
 	end, err := strconv.ParseUint(endValue, 10, 64)
 	if err != nil {
 		return fmt.Errorf("failed to parse end time: %w", err)
 	}
-	name := p.ctx.ctxMap["name"]
+	name := p.ctx.ctxMap[heputils.ContextKeyName]
 	i := strings.Index(name, "{")
 	length := len(name)
 	if i < 0 {
@@ -226,9 +227,9 @@ func (p *pProfProtoDec) SetOnProfile(h onProfileHandler) {
 }
 
 var UnmarshalProfileProtoV2 = Build(
-	withStringValueFromCtx("from"),
-	withStringValueFromCtx("name"),
-	withStringValueFromCtx("until"),
+	withStringValueFromCtx(heputils.ContextKeyFrom),
+	withStringValueFromCtx(heputils.ContextKeyName),
+	withStringValueFromCtx(heputils.ContextKeyUntil),
 	withProfileParser(func(ctx *ParserCtx) iProfilesParser {
 		return &pProfProtoDec{ctx: ctx}
 	}))

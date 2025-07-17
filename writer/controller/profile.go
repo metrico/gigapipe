@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"net/http"
 
 	"github.com/metrico/qryn/writer/utils/unmarshal"
@@ -30,9 +31,9 @@ func PushProfileV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Req
 					return nil, errors.New("please provide until value")
 				}
 
-				_ctx := context.WithValue(parserCtx, ContextKeyFrom, fromValue)
-				_ctx = context.WithValue(_ctx, ContextKeyName, nameValue)
-				_ctx = context.WithValue(_ctx, ContextKeyUntil, untilValue)
+				_ctx := context.WithValue(parserCtx, heputils.ContextKeyFrom, fromValue)
+				_ctx = context.WithValue(_ctx, heputils.ContextKeyName, nameValue)
+				_ctx = context.WithValue(_ctx, heputils.ContextKeyUntil, untilValue)
 				return _ctx, nil
 			}),
 			// Register parser for multipart/form-data content type

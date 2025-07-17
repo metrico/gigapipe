@@ -3,6 +3,7 @@ package unmarshal
 import (
 	"bytes"
 	"fmt"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"strconv"
 	"strings"
@@ -29,21 +30,21 @@ func (b *binaryStreamPProfProtoDec) Decode() error {
 	var tags []model.StrStr
 
 	// Parse timestamp and duration from context
-	fromValue := b.ctx.ctxMap["from"]
+	fromValue := b.ctx.ctxMap[heputils.ContextKeyFrom]
 	start, err := strconv.ParseUint(fromValue, 10, 64)
 	if err != nil {
 		fmt.Println("start time error:", err.Error())
 		return fmt.Errorf("failed to parse start time: %w", err)
 	}
 
-	endValue := b.ctx.ctxMap["until"]
+	endValue := b.ctx.ctxMap[heputils.ContextKeyUntil]
 	end, err := strconv.ParseUint(endValue, 10, 64)
 	if err != nil {
 		return fmt.Errorf("failed to parse end time: %w", err)
 	}
 
 	// Parse name and extract tags if available
-	name := b.ctx.ctxMap["name"]
+	name := b.ctx.ctxMap[heputils.ContextKeyName]
 	i := strings.Index(name, "{")
 	length := len(name)
 	if i < 0 {
@@ -167,9 +168,9 @@ func (b *binaryStreamPProfProtoDec) Decode() error {
 
 // Create the new unmarshaller for binary/octet-stream content type
 var UnmarshalBinaryStreamProfileProtoV2 = Build(
-	withStringValueFromCtx("from"),
-	withStringValueFromCtx("name"),
-	withStringValueFromCtx("until"),
+	withStringValueFromCtx(heputils.ContextKeyFrom),
+	withStringValueFromCtx(heputils.ContextKeyName),
+	withStringValueFromCtx(heputils.ContextKeyUntil),
 	withProfileParser(func(ctx *ParserCtx) iProfilesParser {
 		dec := &binaryStreamPProfProtoDec{pProfProtoDec{ctx: ctx}}
 		return dec

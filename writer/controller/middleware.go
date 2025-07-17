@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"net/http"
 	"strconv"
@@ -130,12 +131,12 @@ var withUnsnappyRequest = WithPreRequest(func(w http.ResponseWriter, r *http.Req
 		return uncompressed, nil
 	}()
 	if err != nil {
-		ctx = context.WithValue(ctx, ContextKeyBodyStream, bytes.NewBuffer(compressed))
+		ctx = context.WithValue(ctx, heputils.ContextKeyBodyStream, bytes.NewBuffer(compressed))
 		*r = *r.WithContext(ctx)
 		// Sending the compressed body back
 	} else {
 		// Reset the request body with the uncompressed data
-		ctx = context.WithValue(ctx, ContextKeyBodyStream, bytes.NewBuffer(uncompressed))
+		ctx = context.WithValue(ctx, heputils.ContextKeyBodyStream, bytes.NewBuffer(uncompressed))
 		*r = *r.WithContext(ctx)
 	}
 
@@ -200,11 +201,11 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 	}
 	ctx := r.Context()
 	// Modify context as needed
-	ctx = context.WithValue(ctx, ContextKeyDSN, dsn)
+	ctx = context.WithValue(ctx, heputils.ContextKeyDSN, dsn)
 	//ctx = context.WithValue(ctx, "oid", oid)
-	ctx = context.WithValue(ctx, ContextKeyMeta, meta)
-	ctx = context.WithValue(ctx, ContextKeyTTLDays, TTLDays)
-	ctx = context.WithValue(ctx, ContextKeyAsync, async)
+	ctx = context.WithValue(ctx, heputils.ContextKeyMeta, meta)
+	ctx = context.WithValue(ctx, heputils.ContextKeyTTLDays, TTLDays)
+	ctx = context.WithValue(ctx, heputils.ContextKeyAsync, async)
 	//ctx = context.WithValue(ctx, "shard", shard)
 	*r = *r.WithContext(ctx)
 	return nil
@@ -213,48 +214,48 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
 
 	ctx := r.Context()
-	dsn := ctx.Value("DSN")
+	dsn := ctx.Value(heputils.ContextKeyDSN)
 	//// Assuming Registry functions are available and compatible with net/http
 	svc, err := Registry.GetSamplesService(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(r.Context(), ContextKeySplService, svc)
+	ctx = context.WithValue(r.Context(), heputils.ContextKeySplService, svc)
 
 	svc, err = Registry.GetTimeSeriesService(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(ctx, ContextKeyTsService, svc)
+	ctx = context.WithValue(ctx, heputils.ContextKeyTsService, svc)
 
 	svc, err = Registry.GetProfileInsertService(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(ctx, ContextKeyProfileService, svc)
+	ctx = context.WithValue(ctx, heputils.ContextKeyProfileService, svc)
 
 	nodeName := svc.GetNodeName()
-	ctx = context.WithValue(ctx, ContextKeyNode, nodeName)
+	ctx = context.WithValue(ctx, heputils.ContextKeyNode, nodeName)
 	*r = *r.WithContext(ctx)
 	return nil
 })
 
 var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
-	dsn := r.Context().Value("DSN")
+	dsn := r.Context().Value(heputils.ContextKeyDSN)
 	svc, err := Registry.GetSpansSeriesService(dsn.(string))
 	if err != nil {
 		return err
 	}
 
-	ctx := context.WithValue(r.Context(), ContextKeySpanAttrsService, svc)
+	ctx := context.WithValue(r.Context(), heputils.ContextKeySpanAttrsService, svc)
 
 	svc, err = Registry.GetSpansService(dsn.(string))
 	if err != nil {
 		return err
 	}
 
-	ctx = context.WithValue(ctx, ContextKeySpansService, svc)
-	ctx = context.WithValue(ctx, ContextKeyNode, svc.GetNodeName())
+	ctx = context.WithValue(ctx, heputils.ContextKeySpansService, svc)
+	ctx = context.WithValue(ctx, heputils.ContextKeyNode, svc.GetNodeName())
 	*r = *r.WithContext(ctx)
 	return nil
 })

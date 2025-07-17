@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"net/http"
 	"strings"
@@ -142,7 +143,7 @@ func Build(options ...BuildOption) func(w http.ResponseWriter, r *http.Request) 
 
 }
 
-func getService(r *http.Request, name string) service.IInsertServiceV2 {
+func getService(r *http.Request, name heputils.ContextKey) service.IInsertServiceV2 {
 	ctx := r.Context()
 	svc := ctx.Value(name)
 	if svc == nil {
@@ -188,7 +189,7 @@ func doPush(req helpers.SizeGetter, insertMode int, svc service.IInsertServiceV2
 	return p
 }
 func getBodyStream(r *http.Request) io.Reader {
-	if bodyStream, ok := r.Context().Value("bodyStream").(io.Reader); ok {
+	if bodyStream, ok := r.Context().Value(heputils.ContextKeyBodyStream).(io.Reader); ok {
 		return bodyStream
 	}
 	return r.Body
@@ -200,12 +201,12 @@ func doLogsPattern(s *model.TimeSamplesData) {
 
 func doParse(r *http.Request, parser Parser) error {
 	reader := getBodyStream(r)
-	tsService := getService(r, "tsService")
-	splService := getService(r, "splService")
-	spanAttrsService := getService(r, "spanAttrsService")
-	spansService := getService(r, "spansService")
-	profileService := getService(r, "profileService")
-	node := r.Context().Value("node").(string)
+	tsService := getService(r, heputils.ContextKeyTsService)
+	splService := getService(r, heputils.ContextKeySplService)
+	spanAttrsService := getService(r, heputils.ContextKeySpansService)
+	spansService := getService(r, heputils.ContextKeySpansService)
+	profileService := getService(r, heputils.ContextKeyProfileService)
+	node := r.Context().Value(heputils.ContextKeyNode).(string)
 
 	//var promises []chan error
 	var promises []*promise.Promise[uint32]
