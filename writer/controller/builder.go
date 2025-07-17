@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	retry "github.com/avast/retry-go"
 	"github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/pattern/controller"
+	helputils "github.com/metrico/qryn/writer/utils"
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/helpers"
 	"github.com/metrico/qryn/writer/utils/logger"
@@ -143,7 +143,7 @@ func Build(options ...BuildOption) func(w http.ResponseWriter, r *http.Request) 
 
 }
 
-func getService(r *http.Request, name heputils.ContextKey) service.IInsertServiceV2 {
+func getService(r *http.Request, name helputils.ContextKey) service.IInsertServiceV2 {
 	ctx := r.Context()
 	svc := ctx.Value(name)
 	if svc == nil {
@@ -189,7 +189,7 @@ func doPush(req helpers.SizeGetter, insertMode int, svc service.IInsertServiceV2
 	return p
 }
 func getBodyStream(r *http.Request) io.Reader {
-	if bodyStream, ok := r.Context().Value(heputils.ContextKeyBodyStream).(io.Reader); ok {
+	if bodyStream, ok := r.Context().Value(helputils.ContextKeyBodyStream).(io.Reader); ok {
 		return bodyStream
 	}
 	return r.Body
@@ -201,12 +201,12 @@ func doLogsPattern(s *model.TimeSamplesData) {
 
 func doParse(r *http.Request, parser Parser) error {
 	reader := getBodyStream(r)
-	tsService := getService(r, heputils.ContextKeyTsService)
-	splService := getService(r, heputils.ContextKeySplService)
-	spanAttrsService := getService(r, heputils.ContextKeySpansService)
-	spansService := getService(r, heputils.ContextKeySpansService)
-	profileService := getService(r, heputils.ContextKeyProfileService)
-	node := r.Context().Value(heputils.ContextKeyNode).(string)
+	tsService := getService(r, helputils.ContextKeyTsService)
+	splService := getService(r, helputils.ContextKeySplService)
+	spanAttrsService := getService(r, helputils.ContextKeySpanAttrsService)
+	spansService := getService(r, helputils.ContextKeySpansService)
+	profileService := getService(r, helputils.ContextKeyProfileService)
+	node := r.Context().Value(helputils.ContextKeyNode).(string)
 
 	//var promises []chan error
 	var promises []*promise.Promise[uint32]
@@ -220,6 +220,7 @@ func doParse(r *http.Request, parser Parser) error {
 			}()
 			return response.Error
 		}
+
 		promises = append(promises,
 			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, tsService),
 			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, splService),
@@ -230,7 +231,6 @@ func doParse(r *http.Request, parser Parser) error {
 		if response.SamplesRequest != nil {
 			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
 		}
-
 	}
 	for _, p := range promises {
 		_, err = p.Get()

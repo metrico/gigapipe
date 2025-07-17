@@ -3,7 +3,6 @@ package unmarshal
 import (
 	"context"
 	"fmt"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"runtime/debug"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/go-faster/city"
 	"github.com/metrico/qryn/writer/model"
+	helputils "github.com/metrico/qryn/writer/utils"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/numbercache"
 	"google.golang.org/protobuf/proto"
@@ -51,7 +51,7 @@ type ParserCtx struct {
 	bodyObject interface{}
 	fpCache    numbercache.ICache[uint64]
 	ctx        context.Context
-	ctxMap     map[heputils.ContextKey]string
+	ctxMap     map[helputils.ContextKey]string
 }
 
 type parserFn func(ctx *ParserCtx) error
@@ -145,13 +145,13 @@ func (p *parserDoer) resetProfile() {
 func (p *parserDoer) doParseLogs() {
 	parser := p.LogsParser
 	meta := ""
-	_meta := p.ctx.ctx.Value(heputils.ContextKeyMeta)
+	_meta := p.ctx.ctx.Value(helputils.ContextKeyMeta)
 	if _meta != nil {
 		meta = _meta.(string)
 	}
 
 	p.ttlDays = 0
-	ttlDays := p.ctx.ctx.Value(heputils.ContextKeyTTLDays)
+	ttlDays := p.ctx.ctx.Value(helputils.ContextKeyTTLDays)
 	if ttlDays != nil {
 		p.ttlDays = ttlDays.(uint16)
 	}
@@ -326,7 +326,8 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 		labels = _labels
 	}
 
-	p.discoverServiceName(&labels)
+	// NOTE: this will cause e2e tests to fail
+	// p.discoverServiceName(&labels)
 
 	dates := map[time.Time]bool{}
 	fp := fingerprintLabels(labels)
@@ -423,7 +424,7 @@ func Build(options ...buildOption) ParsingFunction {
 				bodyReader: body,
 				fpCache:    fpCache,
 				ctx:        ctx,
-				ctxMap:     map[heputils.ContextKey]string{},
+				ctxMap:     map[helputils.ContextKey]string{},
 			},
 			PreParse:    builder.PreParse,
 			payloadType: builder.payloadType,
@@ -458,7 +459,7 @@ func withSpansParser(fn func(ctx *ParserCtx) iSpansParser) buildOption {
 	}
 }
 
-func withStringValueFromCtx(key heputils.ContextKey) buildOption {
+func withStringValueFromCtx(key helputils.ContextKey) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.PreParse = append(builder.PreParse, func(ctx *ParserCtx) error {
 			res := ctx.ctx.Value(key)

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/golang/snappy"
 	"github.com/metrico/qryn/writer/ch_wrapper"
 	"github.com/metrico/qryn/writer/service"
+	helputils "github.com/metrico/qryn/writer/utils"
 	custom_errors "github.com/metrico/qryn/writer/utils/errors"
 )
 
@@ -131,12 +131,12 @@ var withUnsnappyRequest = WithPreRequest(func(w http.ResponseWriter, r *http.Req
 		return uncompressed, nil
 	}()
 	if err != nil {
-		ctx = context.WithValue(ctx, heputils.ContextKeyBodyStream, bytes.NewBuffer(compressed))
+		ctx = context.WithValue(ctx, helputils.ContextKeyBodyStream, bytes.NewBuffer(compressed))
 		*r = *r.WithContext(ctx)
 		// Sending the compressed body back
 	} else {
 		// Reset the request body with the uncompressed data
-		ctx = context.WithValue(ctx, heputils.ContextKeyBodyStream, bytes.NewBuffer(uncompressed))
+		ctx = context.WithValue(ctx, helputils.ContextKeyBodyStream, bytes.NewBuffer(uncompressed))
 		*r = *r.WithContext(ctx)
 	}
 
@@ -201,11 +201,11 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 	}
 	ctx := r.Context()
 	// Modify context as needed
-	ctx = context.WithValue(ctx, heputils.ContextKeyDSN, dsn)
+	ctx = context.WithValue(ctx, helputils.ContextKeyDSN, dsn)
 	//ctx = context.WithValue(ctx, "oid", oid)
-	ctx = context.WithValue(ctx, heputils.ContextKeyMeta, meta)
-	ctx = context.WithValue(ctx, heputils.ContextKeyTTLDays, TTLDays)
-	ctx = context.WithValue(ctx, heputils.ContextKeyAsync, async)
+	ctx = context.WithValue(ctx, helputils.ContextKeyMeta, meta)
+	ctx = context.WithValue(ctx, helputils.ContextKeyTTLDays, TTLDays)
+	ctx = context.WithValue(ctx, helputils.ContextKeyAsync, async)
 	//ctx = context.WithValue(ctx, "shard", shard)
 	*r = *r.WithContext(ctx)
 	return nil
@@ -214,48 +214,54 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
 
 	ctx := r.Context()
-	dsn := ctx.Value(heputils.ContextKeyDSN)
+	dsn := ctx.Value(helputils.ContextKeyDSN)
 	//// Assuming Registry functions are available and compatible with net/http
 	svc, err := Registry.GetSamplesService(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(r.Context(), heputils.ContextKeySplService, svc)
+	ctx = context.WithValue(r.Context(), helputils.ContextKeySplService, svc)
 
 	svc, err = Registry.GetTimeSeriesService(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(ctx, heputils.ContextKeyTsService, svc)
+	ctx = context.WithValue(ctx, helputils.ContextKeyTsService, svc)
 
 	svc, err = Registry.GetProfileInsertService(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(ctx, heputils.ContextKeyProfileService, svc)
+	ctx = context.WithValue(ctx, helputils.ContextKeyProfileService, svc)
 
 	nodeName := svc.GetNodeName()
-	ctx = context.WithValue(ctx, heputils.ContextKeyNode, nodeName)
+	ctx = context.WithValue(ctx, helputils.ContextKeyNode, nodeName)
 	*r = *r.WithContext(ctx)
 	return nil
 })
 
 var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
-	dsn := r.Context().Value(heputils.ContextKeyDSN)
-	svc, err := Registry.GetSpansSeriesService(dsn.(string))
+	dsn := r.Context().Value(helputils.ContextKeyDSN)
+
+	// Get spans attributes service
+	spanAttrsSvc, err := Registry.GetSpansSeriesService(dsn.(string))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get spans attributes service: %v", err)
 	}
 
-	ctx := context.WithValue(r.Context(), heputils.ContextKeySpanAttrsService, svc)
-
-	svc, err = Registry.GetSpansService(dsn.(string))
+	// Get spans service
+	spansSvc, err := Registry.GetSpansService(dsn.(string))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get spans service: %v", err)
 	}
 
-	ctx = context.WithValue(ctx, heputils.ContextKeySpansService, svc)
-	ctx = context.WithValue(ctx, heputils.ContextKeyNode, svc.GetNodeName())
+	// Update context with both services
+	ctx := r.Context()
+	ctx = context.WithValue(ctx, helputils.ContextKeySpanAttrsService, spanAttrsSvc)
+	ctx = context.WithValue(ctx, helputils.ContextKeySpansService, spansSvc)
+	ctx = context.WithValue(ctx, helputils.ContextKeyNode, spansSvc.GetNodeName())
+
+	// Update request context
 	*r = *r.WithContext(ctx)
 	return nil
 })
