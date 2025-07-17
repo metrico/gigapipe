@@ -146,7 +146,8 @@ func cancelJsonAndLogFmt(script *logql_parser.LogQLScript) {
 	strSel := shared.GetStrSelector(script)
 	for i := len(strSel.Pipelines) - 2; i >= 0; i-- {
 		ppl := &strSel.Pipelines[i]
-		if ppl.Parser != nil && strSel.Pipelines[i+1].Parser != nil {
+		if ppl.Parser != nil && strSel.Pipelines[i+1].Parser != nil &&
+			ppl.Parser.Fn == "json" && strSel.Pipelines[i+1].Parser.Fn == "logfmt" {
 			copy(strSel.Pipelines[i:], strSel.Pipelines[i+2:])
 			strSel.Pipelines = strSel.Pipelines[:len(strSel.Pipelines)-2]
 		}

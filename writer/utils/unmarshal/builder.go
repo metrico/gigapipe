@@ -291,7 +291,7 @@ var serviceNameCandidates = map[string]bool{
 
 func (p *parserDoer) discoverServiceName(labels *[][]string) {
 	serviceNameExists := false
-	serviceName := ""
+	serviceName := "unknown"
 	for _, l := range *labels {
 		if l[0] == "service_name" {
 			serviceNameExists = true
@@ -302,7 +302,7 @@ func (p *parserDoer) discoverServiceName(labels *[][]string) {
 			serviceName = l[1]
 		}
 	}
-	if !serviceNameExists {
+	if !serviceNameExists && serviceName != "" {
 		*labels = append(*labels, []string{"service_name", serviceName})
 	}
 }
@@ -326,8 +326,7 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 		labels = _labels
 	}
 
-	// NOTE: this will cause e2e tests to fail
-	// p.discoverServiceName(&labels)
+	p.discoverServiceName(&labels)
 
 	dates := map[time.Time]bool{}
 	fp := fingerprintLabels(labels)
