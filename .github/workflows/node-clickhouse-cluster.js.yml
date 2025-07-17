@@ -26,6 +26,7 @@ jobs:
       with:
         repository: metrico/qryn-test
         path: ./deps/qryn-test
+        ref: chore/cleanup
     - name: Install Compose
       uses: ndeloof/install-compose-action@v0.0.1
       with:
