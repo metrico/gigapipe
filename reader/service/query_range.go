@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,27 +35,6 @@ func NewQueryRangeService(data *model.ServiceData) *QueryRangeService {
 		res.plugin = *p
 	}
 	return res
-}
-
-func hashLabels(labels [][]interface{}) string {
-	_labels := make([]string, len(labels))
-	for i, l := range labels {
-		val, _ := json.Marshal(l[1].(string))
-		_labels[i] = fmt.Sprintf("\"%s\":%s", l[0].(string), val)
-	}
-	return fmt.Sprintf("{%s}", strings.Join(_labels, ","))
-}
-
-func hashLabelsMap(labels map[string]string) string {
-	_labels := make([]string, len(labels))
-	i := 0
-	for k, v := range labels {
-		val, _ := json.Marshal(v)
-		_labels[i] = fmt.Sprintf("\"%s\":%s", k, val)
-		i++
-	}
-	sort.Strings(_labels)
-	return fmt.Sprintf("{%s}", strings.Join(_labels, ","))
 }
 
 func onErr(err error, res chan model.QueryRangeOutput) {
@@ -673,7 +650,7 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 
 		stream := json.BorrowStream(nil)
 		defer json.ReturnStream(stream)
-		for _ = range ticker.C {
+		for range ticker.C {
 			versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 			if err != nil {
 				logger.Error(err)

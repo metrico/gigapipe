@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
 	"github.com/metrico/qryn/reader/model"
 	v12 "go.opentelemetry.io/proto/otlp/common/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -34,23 +35,17 @@ func SpanToJSONSpan(span *v1.Span) *model.JSONSpan {
 		switch attr.Value.Value.(type) {
 		case *v12.AnyValue_StringValue:
 			_attr.Value.StringValue = attr.Value.GetStringValue()
-			break
 		case *v12.AnyValue_BoolValue:
 			_attr.Value.StringValue = fmt.Sprintf("%v", attr.Value.GetBoolValue())
-			break
 		case *v12.AnyValue_IntValue:
 			_attr.Value.StringValue = fmt.Sprintf("%v", attr.Value.GetIntValue())
-			break
 		case *v12.AnyValue_DoubleValue:
 			_attr.Value.StringValue = fmt.Sprintf("%v", attr.Value.GetDoubleValue())
-			break
 		case *v12.AnyValue_BytesValue:
 			_attr.Value.StringValue = base64.StdEncoding.EncodeToString(attr.Value.GetBytesValue())
-			break
 		default:
 			bVal, _ := json.Marshal(attr.Value.Value)
 			_attr.Value.StringValue = string(bVal)
-			break
 		}
 		res.Attributes[i] = _attr
 	}

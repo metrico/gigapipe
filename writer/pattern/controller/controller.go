@@ -203,7 +203,7 @@ func (p *PatternsSynchronizer) getPatterns(patternIds []uint64,
        argMax(generalized_cost, iteration_id) as gen_cost, 
        argMax(tokens, iteration_id) as toks,
        argMax(classes, iteration_id) as clss
-FROM patterns 
+FROM %s 
 WHERE timestamp_10m >= ? AND timestamp_s >= ? AND pattern_id IN (?)
 GROUP BY pattern_id`, patternsTable),
 		p.since.Unix()/600, p.since.Unix(), patternIds)
