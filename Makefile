@@ -5,7 +5,7 @@ docker:
 
 e2e-deps:
 	if [ ! -d ./deps/qryn-test ]; then git clone https://github.com/metrico/qryn-test.git ./deps/qryn-test; fi
-	cd deps/qryn-test && git pull
+	cd deps/qryn-test && git pull && git checkout chore/cleanup;
 
 e2e-build:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
