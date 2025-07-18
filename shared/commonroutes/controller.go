@@ -2,9 +2,10 @@ package commonroutes
 
 import (
 	"encoding/json"
+	"net/http"
+
 	"github.com/metrico/qryn/reader/watchdog"
 	"github.com/metrico/qryn/writer/utils/logger"
-	"net/http"
 )
 
 func Ready(w http.ResponseWriter, r *http.Request) {

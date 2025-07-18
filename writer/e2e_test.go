@@ -5,17 +5,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/gorilla/mux"
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/reader/utils/middleware"
-	"github.com/metrico/qryn/writer/ch_wrapper"
-	"github.com/metrico/qryn/writer/plugin"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/mochi-co/mqtt/server/listeners"
-	"github.com/openzipkin/zipkin-go/model"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	"math"
 	"math/rand"
@@ -27,6 +16,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/mux"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/qryn/reader/utils/middleware"
+	"github.com/metrico/qryn/writer/chwrapper"
+	"github.com/metrico/qryn/writer/plugin"
+	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/mochi-co/mqtt/server/listeners"
+	"github.com/openzipkin/zipkin-go/model"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/golang/snappy"
 	json "github.com/json-iterator/go"
@@ -215,7 +216,7 @@ func getTSTable() string {
 func getTestIDData(testID string) []string {
 	var fp uint64
 	//client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
-	client, err := ch_wrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
 	}
@@ -448,23 +449,6 @@ func runMQTT() {
 	}
 }
 
-func testMQTT(t *testing.T) {
-	now := time.Now().UnixNano()
-	mqttID := fmt.Sprintf("MQTT_%d", rand.Uint64())
-	msg := fmt.Sprintf(`{"ts":%d, "test_id": "%s"}`, now, mqttID)
-	err := mqttServer.Publish("test/test1", []byte(msg), false)
-	if err != nil {
-		panic(err)
-	}
-	time.Sleep(time.Second)
-	values := getTestIDData(mqttID)
-	assert.Equal(t, []string{
-		fmt.Sprintf(
-			"%d\t[('f1','v1'),('test_id','%s'),('topic','test/test1')]\t%s\t0\n",
-			now, mqttID, msg),
-	}, values)
-}
-
 var promTestGauge prometheus.Gauge = nil
 var promTestCounter prometheus.Counter = nil
 var promTestHist prometheus.Histogram = nil
@@ -532,7 +516,10 @@ func testPrometheusScrape(t *testing.T, testID int64) {
 	code, bytes, _ := fasthttp.Get(bytes, "http://localhost:2112/metrics")
 	fmt.Printf("[%d]: %s\n", code, bytes)
 	//client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
-	client, err := ch_wrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	labels, err := client.GetList(fmt.Sprintf("SELECT DISTINCT labels "+
 		"FROM "+getTSTable()+" WHERE JSONExtractString(labels, 'test') == 'promtest_%d' and org_id=='1' "+
 		"ORDER BY labels", testID))
@@ -698,7 +685,7 @@ func ingestTestZipkinSpan(traceId uint64, url string) error {
 			Port:        8080,
 		},
 		Annotations: []model.Annotation{
-			{start, "annotation1"},
+			{Timestamp: start, Value: "annotation1"},
 		},
 		Tags: map[string]string{
 			"test_id": strconv.FormatUint(traceId, 10),
@@ -715,7 +702,7 @@ func checkZipkinSpan(traceIDs ...uint64) []string {
 		strSpanIDs[i] = fmt.Sprintf("%016x", traceID)
 	}
 	//client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
-	client, err := ch_wrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
 	}
@@ -727,6 +714,9 @@ func checkZipkinSpan(traceIDs ...uint64) []string {
 		fmt.Sprintf("'%s'", strings.Join(strSpanIDs[:], "','")),
 	)
 	res, err := client.GetList(q)
+	if err != nil {
+		panic(err)
+	}
 	if len(res) != len(traceIDs) {
 		panic(fmt.Sprintf("COUNT mismatch: %d != %d", len(res), len(traceIDs)))
 	}
@@ -792,7 +782,7 @@ func ingestInfluxTest(t *testing.T, testId uint64) {
 	fmt.Println("CHECKING 10 mb influx")
 
 	//CHClient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
-	CHClient, err := ch_wrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	CHClient, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
 	}
@@ -808,6 +798,9 @@ func ingestInfluxTest(t *testing.T, testId uint64) {
 	rows, err := CHClient.GetList(fmt.Sprintf(`SELECT formatRow('TSV', string, value) FROM samples_v4
 WHERE fingerprint = %d AND org_id = '1' AND timestamp_ns >= %d AND timestamp_ns <= %d ORDER BY timestamp_ns ASC`,
 		fp, startTS, endTS))
+	if err != nil {
+		panic(err)
+	}
 
 	j := 0
 	for _, row := range rows {
@@ -834,6 +827,9 @@ WHERE fingerprint = %d AND org_id = '1' AND timestamp_ns >= %d AND timestamp_ns 
 		rows, err = CHClient.GetList(fmt.Sprintf(`SELECT formatRow('TSV', string, value) FROM samples_v4
 		WHERE fingerprint = %d AND org_id = '1' AND timestamp_ns >= %d AND timestamp_ns <= %d ORDER BY timestamp_ns ASC`,
 			fp, startTS, endTS))
+		if err != nil {
+			panic(err)
+		}
 		j = 0
 		for _, row := range rows {
 			row = strings.Trim(row, " \t\r\n")
@@ -850,73 +846,6 @@ WHERE fingerprint = %d AND org_id = '1' AND timestamp_ns >= %d AND timestamp_ns 
 	fmt.Println("SENDING 10 mb influx OK")
 }
 
-func ingestInfluxJSONTest(t *testing.T, testId uint64) {
-	fmt.Println("GENERATING 10 mb influx json")
-	testLine := `{"timestamp_ns":"%d", "tags":{"tag1":"val1","test_id":"%d","format":"influxjson","type":"logs"}, "fields":{"message":"this is a very very long test string #%d","value":"%d"}}`
-	lines := []string{}
-	length := 0
-	logsCnt := 0
-	startTS := time.Now().UnixNano()
-	for length < 10*1024*1024 {
-		line := fmt.Sprintf(testLine, time.Now().UnixNano(), testId, logsCnt, logsCnt)
-		lines = append(lines, line)
-		length += len(line)
-		logsCnt++
-	}
-	endTS := time.Now().UnixNano()
-	fmt.Println("SENDING 10 mb influx json")
-	req, err := http.NewRequest("POST", "http://localhost:3215/influx/api/v2/write?type=ndjson",
-		bytes.NewReader([]byte(strings.Join(lines, "\r\n"))))
-	if err != nil {
-		panic(err)
-	}
-	req.Header.Set("X-Scope-OrgID", "1")
-	req.ContentLength = 0
-	client := http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	if resp.StatusCode/100 != 2 {
-		panic(fmt.Sprintf("[%d]: %s", resp.StatusCode, string(readAllNoErr(resp.Body))))
-	}
-	fmt.Println("CHECKING 10 mb influx")
-
-	//CHCLient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
-	CHCLient, err := ch_wrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
-	if err != nil {
-		panic(err)
-	}
-	var fp uint64
-
-	err = CHCLient.GetFirst(fmt.Sprintf(`SELECT fingerprint FROM time_series_array_v2 WHERE 
-has(labels, ('format', 'influxjson')) AND has(labels, ('test_id', '%s')) AND has(labels,('type', 'logs')) AND org_id = '1' LIMIT 1`,
-		strconv.FormatUint(testId, 10)), &fp)
-	if err != nil {
-		panic(err)
-	}
-
-	rows, err := CHCLient.GetList(fmt.Sprintf(`SELECT formatRow('TSV', string, value) FROM samples_v4
-WHERE fingerprint = %d AND org_id = '1' AND timestamp_ns >= %d AND timestamp_ns <= %d ORDER BY timestamp_ns ASC`,
-		fp, startTS, endTS))
-	if err != nil {
-		panic(err)
-	}
-	j := 0
-	for _, row := range rows {
-		row = strings.Trim(row, " \t\r\n")
-		expected := fmt.Sprintf("message=\"this is a very very long test string #%d\" value=%d\t0", j, j)
-		if row != expected {
-			panic(fmt.Sprintf("influx error: `%s` != `%s`", row, expected))
-		}
-		j++
-	}
-	if j != logsCnt {
-		t.Fatalf("inclux error: ingested strings number %d != %d", j, logsCnt)
-	}
-	fmt.Println("SENDING 10 mb influx json OK")
-}
-
 func readAllNoErr(reader io.Reader) []byte {
 	res, _ := io.ReadAll(reader)
 	return res
@@ -925,15 +854,18 @@ func readAllNoErr(reader io.Reader) []byte {
 func testUsageCounting(t *testing.T) {
 	fmt.Println("TESTING USAGE COUNTING")
 	//CHClient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
-	client, err := ch_wrapper.NewSmartDatabaseAdapterWithDSN(config.Cloki.Setting.AnalyticsDatabase, true)
+	client, err := chwrapper.NewSmartDatabaseAdapterWithDSN(config.Cloki.Setting.AnalyticsDatabase, true)
 	if err != nil {
 		panic(err)
 	}
-	data_client, err := ch_wrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	data_client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
+	if err != nil {
+		panic(err)
+	}
 	var org_stats [2][4]uint64
 	var org_real_stats [2][4]uint64
 	var orgids [2]string = [2]string{"0", "1"}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		err = client.Scan(context.Background(), `
 SELECT 
     sum(logs_bytes_written), 

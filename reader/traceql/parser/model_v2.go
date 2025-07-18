@@ -1,4 +1,4 @@
-package traceql_parser
+package parser
 
 import (
 	"encoding/json"

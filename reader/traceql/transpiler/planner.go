@@ -1,13 +1,13 @@
-package traceql_transpiler
+package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
+	"github.com/metrico/qryn/reader/traceql/parser"
 	"github.com/metrico/qryn/reader/traceql/transpiler/clickhouse_transpiler"
 )
 
-func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, error) {
+func Plan(script *parser.TraceQLScript) (shared.TraceRequestProcessor, error) {
 	sqlPlanner, err := clickhouse_transpiler.Plan(script)
 	if err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, e
 	}, nil
 }
 
-func PlanTagsV2(script *traceql_parser.TraceQLScript) (shared.GenericTraceRequestProcessor[string], error) {
+func PlanTagsV2(script *parser.TraceQLScript) (shared.GenericTraceRequestProcessor[string], error) {
 	if script == nil {
 		return &allTagsV2RequestProcessor{}, nil
 	}
@@ -48,7 +48,7 @@ func PlanTagsV2(script *traceql_parser.TraceQLScript) (shared.GenericTraceReques
 	}, nil
 }
 
-func PlanValuesV2(script *traceql_parser.TraceQLScript, key string) (shared.GenericTraceRequestProcessor[string], error) {
+func PlanValuesV2(script *parser.TraceQLScript, key string) (shared.GenericTraceRequestProcessor[string], error) {
 	if script == nil {
 		return &allTagsV2RequestProcessor{}, nil
 	}

@@ -2,12 +2,12 @@ package metric
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/model"
 	"strings"
 	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
+	"github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/utils/logger"
 )
 
@@ -46,7 +46,7 @@ func (p *Prometheus) setup() (err error) {
 			p.TargetEmpty = true
 		} else {
 			for i := range p.TargetName {
-				logger.Info("prometheus tag assignment %d: %s -> %s", i+1, p.TargetIP[i], p.TargetName[i])
+				logger.Logger.Infof("prometheus tag assignment %d: %s -> %s", i+1, p.TargetIP[i], p.TargetName[i])
 			}
 			p.TargetMap = make(map[string]string)
 			for i := 0; i < len(p.TargetName); i++ {

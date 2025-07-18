@@ -2,7 +2,9 @@ package prof
 
 import (
 	"context"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"time"
+
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/prof/parser"
 	shared2 "github.com/metrico/qryn/reader/prof/shared"
@@ -10,7 +12,6 @@ import (
 	v1 "github.com/metrico/qryn/reader/prof/types/v1"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"
-	"time"
 )
 
 func PlanLabelNames(ctx context.Context, scripts []*parser.Script, from time.Time, to time.Time,

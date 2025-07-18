@@ -1,4 +1,4 @@
-package sql
+package sql_select
 
 import (
 	"fmt"
@@ -240,9 +240,8 @@ func (s *Select) AddWith(withs ...*With) ISelect {
 			continue
 		}
 
-		if _, ok := w.GetQuery().(ISelect); ok {
-			s.AddWith(w.GetQuery().(ISelect).GetWith()...)
-		}
+		s.AddWith(w.GetQuery().GetWith()...)
+
 		s.withs = append(s.withs, w)
 	}
 	return s
@@ -266,9 +265,7 @@ func (s *Select) DropWith(alias ...string) ISelect {
 
 func (s *Select) GetWith() []*With {
 	res := make([]*With, 0, len(s.withs))
-	for _, w := range s.withs {
-		res = append(res, w)
-	}
+	res = append(res, s.withs...)
 	return res
 }
 
@@ -278,9 +275,7 @@ func (s *Select) Join(joins ...*Join) ISelect {
 }
 
 func (s *Select) AddJoin(joins ...*Join) ISelect {
-	for _, lj := range joins {
-		s.joins = append(s.joins, lj)
-	}
+	s.joins = append(s.joins, joins...)
 	return s
 }
 
@@ -314,7 +309,7 @@ func (s *Select) String(ctx *Ctx, options ...int) (string, error) {
 	if s.distinct {
 		res.WriteString(" DISTINCT ")
 	}
-	if s.columns == nil || len(s.columns) == 0 {
+	if len(s.columns) == 0 {
 		return "", fmt.Errorf("no 'SELECT' part")
 	}
 	for i, col := range s.columns {
@@ -363,7 +358,7 @@ func (s *Select) String(ctx *Ctx, options ...int) (string, error) {
 		}
 		res.WriteString(str)
 	}
-	if s.groupBy != nil && len(s.groupBy) > 0 {
+	if len(s.groupBy) > 0 {
 		res.WriteString(" GROUP BY ")
 		for i, f := range s.groupBy {
 			if i != 0 {
@@ -384,7 +379,7 @@ func (s *Select) String(ctx *Ctx, options ...int) (string, error) {
 		}
 		res.WriteString(str)
 	}
-	if s.orderBy != nil && len(s.orderBy) > 0 {
+	if len(s.orderBy) > 0 {
 		res.WriteString(" ORDER BY ")
 		for i, f := range s.orderBy {
 			if i != 0 {

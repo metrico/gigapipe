@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -10,9 +11,9 @@ func Parse(query string) (Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch expr.(type) {
+	switch expr := expr.(type) {
 	case *parser.VectorSelector:
-		return &VectorSelector{node: expr.(*parser.VectorSelector)}, nil
+		return &VectorSelector{node: expr}, nil
 	}
 	return nil, fmt.Errorf("%T not supported", expr)
 }

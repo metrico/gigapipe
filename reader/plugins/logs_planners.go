@@ -1,8 +1,9 @@
 package plugins
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	"time"
+
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 )
 
 type SeriesPlannerPlugin func(main shared.SQLRequestPlanner) shared.SQLRequestPlanner

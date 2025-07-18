@@ -1,6 +1,6 @@
 package plugins
 
-import "github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+import "github.com/metrico/qryn/reader/logql/transpiler/shared"
 
 type InitClickhousePlannerPlugin func() shared.SQLRequestPlanner
 

@@ -2,18 +2,11 @@ package plugins
 
 import (
 	"context"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"time"
+
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
-	"time"
-)
-
-const (
-	tracesDataPluginName               = "traces-data-plugin"
-	attrlessConditionPlannerPluginName = "attrless-condition-planner"
-	getTracesQueryPluginName           = "get-traces-query-plugin"
-	labelsGetterPluginName             = "labels-getter-plugin"
-	initIndexPlannerPluginName         = "init-index-planner"
 )
 
 type TracesDataPlugin func(main shared.SQLRequestPlanner) shared.SQLRequestPlanner

@@ -1,15 +1,16 @@
 package middleware
-import "html"
 
 import (
 	"bufio"
 	"bytes"
 	"errors"
-	"github.com/metrico/qryn/reader/utils/logger"
+	"html"
 	"net"
 	"net/http"
 	"text/template"
 	"time"
+
+	"github.com/metrico/qryn/reader/utils/logger"
 )
 
 func LoggingMiddleware(tpl string) func(next http.Handler) http.Handler {
@@ -36,7 +37,7 @@ func LoggingMiddleware(tpl string) func(next http.Handler) http.Handler {
 				"path":       html.EscapeString(r.URL.Path),
 				"latency":    duration.String(),
 			})
-			logger.Info(string(b.Bytes()))
+			logger.Info(b.String())
 		})
 	}
 }
