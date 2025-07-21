@@ -1,12 +1,13 @@
 package clustering
 
 import (
-	"github.com/go-faster/city"
-	"github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/utils/logger"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-faster/city"
+	"github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/writer/utils/logger"
 )
 
 type LogLine struct {
@@ -291,7 +292,7 @@ func (r *LogClusterRow) flush() []LogClusterSample {
 
 func (r *LogClusterRow) match(l *LogLine) bool {
 	r.m.RLock()
-	r.m.RUnlock()
+	defer r.m.RUnlock()
 	var res bool
 	for _, c := range r.clusters {
 		if c.matcher.match(l.Line) {

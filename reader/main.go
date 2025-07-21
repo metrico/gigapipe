@@ -2,20 +2,20 @@ package reader
 
 import (
 	"fmt"
-	_ "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/gorilla/mux"
-	_ "github.com/gorilla/mux"
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/reader/config"
-	"github.com/metrico/qryn/reader/dbRegistry"
-	"github.com/metrico/qryn/reader/model"
-	apirouterv1 "github.com/metrico/qryn/reader/router"
-	"github.com/metrico/qryn/reader/utils/logger"
-	"github.com/metrico/qryn/reader/utils/middleware"
-	"github.com/metrico/qryn/reader/watchdog"
 	"net"
 	"net/http"
 	"runtime"
+
+	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/gorilla/mux"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/qryn/reader/config"
+	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/reader/registry"
+	"github.com/metrico/qryn/reader/router"
+	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/reader/utils/middleware"
+	"github.com/metrico/qryn/reader/watchdog"
 )
 
 var ownHttpServer bool = false
@@ -87,15 +87,15 @@ func httpStart(server *mux.Router, httpURL string) {
 }
 
 func performV1APIRouting(acc *mux.Router) {
-	dbRegistry.Init()
-	watchdog.Init(&model.ServiceData{Session: dbRegistry.Registry})
+	registry.Init()
+	watchdog.Init(&model.ServiceData{Session: registry.Registry})
 
-	apirouterv1.RouteQueryRangeApis(acc, dbRegistry.Registry)
-	apirouterv1.RouteSelectLabels(acc, dbRegistry.Registry)
-	apirouterv1.RouteSelectPrometheusLabels(acc, dbRegistry.Registry)
-	apirouterv1.RoutePrometheusQueryRange(acc, dbRegistry.Registry, config.Cloki.Setting.SYSTEM_SETTINGS.QueryStats)
-	apirouterv1.RouteTempo(acc, dbRegistry.Registry)
-	apirouterv1.RouteMiscApis(acc)
-	apirouterv1.RouteProf(acc, dbRegistry.Registry)
-	apirouterv1.PluggableRoutes(acc, dbRegistry.Registry)
+	router.RouteQueryRangeApis(acc, registry.Registry)
+	router.RouteSelectLabels(acc, registry.Registry)
+	router.RouteSelectPrometheusLabels(acc, registry.Registry)
+	router.RoutePrometheusQueryRange(acc, registry.Registry, config.Cloki.Setting.SYSTEM_SETTINGS.QueryStats)
+	router.RouteTempo(acc, registry.Registry)
+	router.RouteMiscApis(acc)
+	router.RouteProf(acc, registry.Registry)
+	router.PluggableRoutes(acc, registry.Registry)
 }

@@ -26,6 +26,7 @@ jobs:
       with:
         repository: metrico/qryn-test
         path: ./deps/qryn-test
+        ref: chore/cleanup
     - name: Install Compose
       uses: ndeloof/install-compose-action@v0.0.1
       with:
@@ -35,7 +36,6 @@ jobs:
       uses: runforesight/workflow-telemetry-action@v1.8.7 
       if: github.event_name != 'pull_request'
     - id: execution
-      continue-on-error: true
       run: "make e2e-ci"
     - name: Rollback Deployment
       if: failure() && steps.execution.outcome == 'failure'

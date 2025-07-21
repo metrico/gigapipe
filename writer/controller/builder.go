@@ -1,20 +1,22 @@
-package controllerv1
+package controller
 
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	retry "github.com/avast/retry-go"
 	"github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/pattern/controller"
+	helputils "github.com/metrico/qryn/writer/utils"
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/helpers"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/metrico/qryn/writer/utils/promise"
 	"github.com/metrico/qryn/writer/utils/stat"
-	"io"
-	"net/http"
-	"strings"
-	"time"
 
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/service"
@@ -92,7 +94,7 @@ func ErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 func writeErrorResponse(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"success": false,
 		"message": message,
 	})
@@ -137,12 +139,11 @@ func Build(options ...BuildOption) func(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			ErrorHandler(w, r, err) // Call ErrorHandler if pusherCtx.Do returns an error
 		}
-		return
 	}
 
 }
 
-func getService(r *http.Request, name string) service.IInsertServiceV2 {
+func getService(r *http.Request, name helputils.ContextKey) service.IInsertServiceV2 {
 	ctx := r.Context()
 	svc := ctx.Value(name)
 	if svc == nil {
@@ -188,7 +189,7 @@ func doPush(req helpers.SizeGetter, insertMode int, svc service.IInsertServiceV2
 	return p
 }
 func getBodyStream(r *http.Request) io.Reader {
-	if bodyStream, ok := r.Context().Value("bodyStream").(io.Reader); ok {
+	if bodyStream, ok := r.Context().Value(helputils.ContextKeyBodyStream).(io.Reader); ok {
 		return bodyStream
 	}
 	return r.Body
@@ -200,12 +201,12 @@ func doLogsPattern(s *model.TimeSamplesData) {
 
 func doParse(r *http.Request, parser Parser) error {
 	reader := getBodyStream(r)
-	tsService := getService(r, "tsService")
-	splService := getService(r, "splService")
-	spanAttrsService := getService(r, "spanAttrsService")
-	spansService := getService(r, "spansService")
-	profileService := getService(r, "profileService")
-	node := r.Context().Value("node").(string)
+	tsService := getService(r, helputils.ContextKeyTsService)
+	splService := getService(r, helputils.ContextKeySplService)
+	spanAttrsService := getService(r, helputils.ContextKeySpanAttrsService)
+	spansService := getService(r, helputils.ContextKeySpansService)
+	profileService := getService(r, helputils.ContextKeyProfileService)
+	node := r.Context().Value(helputils.ContextKeyNode).(string)
 
 	//var promises []chan error
 	var promises []*promise.Promise[uint32]
@@ -219,6 +220,7 @@ func doParse(r *http.Request, parser Parser) error {
 			}()
 			return response.Error
 		}
+
 		promises = append(promises,
 			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, tsService),
 			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, splService),
@@ -229,7 +231,6 @@ func doParse(r *http.Request, parser Parser) error {
 		if response.SamplesRequest != nil {
 			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
 		}
-
 	}
 	for _, p := range promises {
 		_, err = p.Get()

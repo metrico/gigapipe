@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/metrico/qryn/ctrl/logger"
-	"github.com/metrico/qryn/ctrl/qryn/sql"
 	rand2 "math/rand"
 	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/metrico/qryn/ctrl/logger"
+	"github.com/metrico/qryn/ctrl/qryn/sql"
 )
 
 const (
@@ -26,9 +27,6 @@ func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
 	logger logger.ILogger) error {
 	checkMode := func(m int) bool { return mode&m == m }
 	var err error
-	if err != nil {
-		return err
-	}
 	err = updateScripts(db, dbname, clusterName, 1, sql.LogScript, checkMode(CLUST_MODE_CLOUD),
 		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
 	if err != nil {
@@ -74,10 +72,10 @@ func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
 
 func getSQLFile(strContents string) ([]string, error) {
 	var res []string
-	strContents = regexp.MustCompile("(?m)^\\s+$").ReplaceAllString(strContents, "")
-	strContents = regexp.MustCompile("(?m)^##.*$").ReplaceAllString(strContents, "")
-	_res := strings.Split(strContents, ";\n\n")
-	for _, req := range _res {
+	strContents = regexp.MustCompile(`(?m)^\s+$`).ReplaceAllString(strContents, "")
+	strContents = regexp.MustCompile(`(?m)^##.*$`).ReplaceAllString(strContents, "")
+	_res := strings.SplitSeq(strContents, ";\n\n")
+	for req := range _res {
 		_req := strings.Trim(req, "\n ")
 		if _req == "" {
 			continue
@@ -115,6 +113,9 @@ func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger)
 func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int64, file string, replicated bool,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool, logger logger.ILogger) error {
 	scripts, err := getSQLFile(file)
+	if err != nil {
+		return err
+	}
 	verTable := "ver"
 	env := map[string]string{
 		"DB":                   dbname,
@@ -134,7 +135,7 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 	}
 	//TODO: move to the config package
 	if skipUnavailableShards {
-		env["DIST_CREATE_SETTINGS"] += fmt.Sprintf(" SETTINGS skip_unavailable_shards = 1")
+		env["DIST_CREATE_SETTINGS"] += " SETTINGS skip_unavailable_shards = 1"
 	}
 	if ttlDays != 0 {
 		env["DefaultTtlDays"] = strconv.FormatInt(int64(ttlDays), 10)

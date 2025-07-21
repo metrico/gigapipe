@@ -3,18 +3,18 @@ package unmarshal
 import (
 	"context"
 	"fmt"
-	"github.com/go-faster/city"
-	"unsafe"
-	//"github.com/metrico/qryn/writer/fingerprints_limiter"
-	"github.com/metrico/qryn/writer/model"
-	//customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/numbercache"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"runtime/debug"
 	"strconv"
 	"time"
+	"unsafe"
+
+	"github.com/go-faster/city"
+	"github.com/metrico/qryn/writer/model"
+	helputils "github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/writer/utils/numbercache"
+	"google.golang.org/protobuf/proto"
 )
 
 // OrgChecker defines the interface for checking fingerprints.
@@ -46,13 +46,12 @@ type ParsingFunction func(ctx context.Context, body io.Reader,
 	fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
 
 type ParserCtx struct {
-	bodyReader  io.Reader
-	bodyBuffer  []byte
-	bodyObject  interface{}
-	fpCache     numbercache.ICache[uint64]
-	ctx         context.Context
-	ctxMap      map[string]string
-	queryParams map[string]string
+	bodyReader io.Reader
+	bodyBuffer []byte
+	bodyObject interface{}
+	fpCache    numbercache.ICache[uint64]
+	ctx        context.Context
+	ctxMap     map[helputils.ContextKey]string
 }
 
 type parserFn func(ctx *ParserCtx) error
@@ -77,28 +76,6 @@ type parserBuilder struct {
 	ProfileParser func(ctx *ParserCtx) iProfilesParser
 	SpansParser   func(ctx *ParserCtx) iSpansParser
 	payloadType   int8
-}
-
-type fpsCache map[int64]map[uint64]bool
-
-func newFpsCache() fpsCache {
-	return make(fpsCache)
-}
-
-func (c fpsCache) CheckAndSet(date time.Time, fp uint64) bool {
-	res := false
-	day, ok := c[date.Unix()]
-	if !ok {
-		day = make(map[uint64]bool)
-		c[date.Unix()] = day
-		res = true
-	}
-	_, ok = c[date.Unix()][fp]
-	if !ok {
-		res = true
-		c[date.Unix()][fp] = true
-	}
-	return res
 }
 
 type parserDoer struct {
@@ -168,13 +145,13 @@ func (p *parserDoer) resetProfile() {
 func (p *parserDoer) doParseLogs() {
 	parser := p.LogsParser
 	meta := ""
-	_meta := p.ctx.ctx.Value("META")
+	_meta := p.ctx.ctx.Value(helputils.ContextKeyMeta)
 	if _meta != nil {
 		meta = _meta.(string)
 	}
 
 	p.ttlDays = 0
-	ttlDays := p.ctx.ctx.Value("TTL_DAYS")
+	ttlDays := p.ctx.ctx.Value(helputils.ContextKeyTTLDays)
 	if ttlDays != nil {
 		p.ttlDays = ttlDays.(uint16)
 	}
@@ -312,10 +289,9 @@ var serviceNameCandidates = map[string]bool{
 	"k8s_job_name":           true,
 }
 
-func (p *parserDoer) discoverServiceName(labels *[][]string, timestampsNS *[]int64,
-	message *[]string, value *[]float64, types *[]uint8) {
+func (p *parserDoer) discoverServiceName(labels *[][]string) {
 	serviceNameExists := false
-	serviceName := ""
+	serviceName := "unknown"
 	for _, l := range *labels {
 		if l[0] == "service_name" {
 			serviceNameExists = true
@@ -326,7 +302,7 @@ func (p *parserDoer) discoverServiceName(labels *[][]string, timestampsNS *[]int
 			serviceName = l[1]
 		}
 	}
-	if !serviceNameExists {
+	if !serviceNameExists && serviceName != "" {
 		*labels = append(*labels, []string{"service_name", serviceName})
 	}
 }
@@ -350,7 +326,7 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 		labels = _labels
 	}
 
-	p.discoverServiceName(&labels, &timestampsNS, &message, &value, &types)
+	p.discoverServiceName(&labels)
 
 	dates := map[time.Time]bool{}
 	fp := fingerprintLabels(labels)
@@ -375,7 +351,7 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	for d := range dates {
 		if maybeAddFp(d, fp, p.ctx.fpCache) {
 			_labels := encodeLabels(labels)
-			for t, _ := range tps {
+			for t := range tps {
 				if !tps[t] {
 					continue
 				}
@@ -447,7 +423,7 @@ func Build(options ...buildOption) ParsingFunction {
 				bodyReader: body,
 				fpCache:    fpCache,
 				ctx:        ctx,
-				ctxMap:     map[string]string{},
+				ctxMap:     map[helputils.ContextKey]string{},
 			},
 			PreParse:    builder.PreParse,
 			payloadType: builder.payloadType,
@@ -482,7 +458,7 @@ func withSpansParser(fn func(ctx *ParserCtx) iSpansParser) buildOption {
 	}
 }
 
-func withStringValueFromCtx(key string) buildOption {
+func withStringValueFromCtx(key helputils.ContextKey) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.PreParse = append(builder.PreParse, func(ctx *ParserCtx) error {
 			res := ctx.ctx.Value(key)

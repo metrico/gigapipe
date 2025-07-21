@@ -19,5 +19,5 @@ jobs:
     - name: Build Gigapipe
       run: |
         go mod tidy
-        CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe .
+        CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
 
