@@ -20,7 +20,6 @@ replace (
 	k8s.io/api v0.32.3 => k8s.io/api v0.24.17
 	k8s.io/apimachinery v0.32.3 => k8s.io/apimachinery v0.24.17
 	k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.22.1
-
 )
 
 require (
@@ -36,7 +35,7 @@ require (
 	github.com/go-faster/jx v1.1.0
 	github.com/go-kit/kit v0.13.0
 	github.com/go-logfmt/logfmt v0.6.0
-	github.com/gofiber/fiber/v2 v2.52.5
+	github.com/gofiber/fiber/v2 v2.52.9
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20241029153458-d1b30febd7db
