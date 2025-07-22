@@ -144,10 +144,7 @@ func (t *TempoService) Query(ctx context.Context, startNS int64, endNS int64, tr
 		return nil, err
 	}
 	oRequest := t.GetQueryRequest(ctx, startNS, endNS, traceId, conn)
-	request, err := oRequest.String(&sqlselect.Ctx{
-		Params: map[string]sqlselect.SQLObject{},
-		Result: map[string]sqlselect.SQLObject{},
-	})
+	request, err := oRequest.String(sqlselect.DefaultCtx())
 	if err != nil {
 		return nil, err
 	}
@@ -177,10 +174,7 @@ func (t *TempoService) Tags(ctx context.Context) (chan string, error) {
 		return nil, err
 	}
 	oQuery := t.GetTagsRequest(ctx, conn)
-	query, err := oQuery.String(&sqlselect.Ctx{
-		Params: map[string]sqlselect.SQLObject{},
-		Result: map[string]sqlselect.SQLObject{},
-	})
+	query, err := oQuery.String(sqlselect.DefaultCtx())
 	if err != nil {
 		return nil, err
 	}
@@ -322,10 +316,7 @@ func (t *TempoService) Values(ctx context.Context, tag string) (chan string, err
 	tag = strings.TrimPrefix(tag, ".")
 	tag = strings.TrimPrefix(tag, "resource.")
 	oRequest := t.GetValuesRequest(ctx, tag, conn)
-	query, err := oRequest.String(&sqlselect.Ctx{
-		Params: map[string]sqlselect.SQLObject{},
-		Result: map[string]sqlselect.SQLObject{},
-	})
+	query, err := oRequest.String(sqlselect.DefaultCtx())
 	if err != nil {
 		return nil, err
 	}
