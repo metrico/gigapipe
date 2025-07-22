@@ -105,15 +105,10 @@ func (a *AttrConditionPlanner) aggregator(main sql.ISelect) error {
 		return nil
 	}
 
-	if strings.TrimPrefix(a.AggregatedAttr, "span.") != a.AggregatedAttr {
-		a.AggregatedAttr = a.AggregatedAttr[5:]
-	}
-	if strings.TrimPrefix(a.AggregatedAttr, "resource.") != a.AggregatedAttr {
-		a.AggregatedAttr = a.AggregatedAttr[9:]
-	}
-	if strings.TrimPrefix(a.AggregatedAttr, ".") != a.AggregatedAttr {
-		a.AggregatedAttr = a.AggregatedAttr[1:]
-	}
+	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, "span.")
+	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, "resource.")
+	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, ".")
+
 	s = append(s, sql.NewCol(&sqlAttrValue{a.AggregatedAttr}, "agg_val"))
 	main.Select(s...)
 	a.where = append(a.where, sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(a.AggregatedAttr)))
