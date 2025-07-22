@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-
-	"github.com/metrico/qryn/reader/prof"
-
 	"io"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/metrico/qryn/reader/prof"
 	v1 "github.com/metrico/qryn/reader/prof/types/v1"
 	"github.com/metrico/qryn/reader/service"
 	"google.golang.org/protobuf/encoding/protojson"

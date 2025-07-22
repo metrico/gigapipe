@@ -3,11 +3,11 @@ package controller
 import (
 	"context"
 	"fmt"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"net/http"
 	"time"
 
-	custom_errors "github.com/metrico/qryn/writer/utils/errors"
+	helputils "github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/unmarshal"
 )
 
@@ -89,10 +89,10 @@ func PushInfluxV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 				case "s":
 					precision = time.Second
 				default:
-					return nil, custom_errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
+					return nil, errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
 				}
 				ctx := req.Context()
-				ctx = context.WithValue(ctx, heputils.ContextKeyPrecision, precision)
+				ctx = context.WithValue(ctx, helputils.ContextKeyPrecision, precision)
 				return ctx, nil
 			}),
 			withSimpleParser("*", Parser(unmarshal.UnmarshalInfluxDBLogsV2)),
@@ -124,7 +124,7 @@ func PushInfluxV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 //			case "s":
 //				precision = time.Second
 //			default:
-//				return nil, custom_errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
+//				return nil, errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
 //			}
 //			ctx := req.Context()
 //			ctx = context.WithValue(ctx, "precision", precision)

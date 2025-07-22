@@ -2,20 +2,20 @@ package service
 
 import (
 	"context"
-	sql2 "database/sql"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
 	"github.com/metrico/qryn/reader/tempo"
 	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
 	traceql_transpiler "github.com/metrico/qryn/reader/traceql/transpiler"
-	"github.com/metrico/qryn/reader/utils/dbVersion"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/reader/utils/dbversion"
+	sqlselect "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"
 	"github.com/valyala/fastjson"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
@@ -51,7 +51,7 @@ func NewTempoService(data model.ServiceData) model.ITempoService {
 }
 
 func (t *TempoService) GetQueryRequest(ctx context.Context, startNS int64, endNS int64, traceId []byte,
-	conn *model.DataDatabasesMap) sql.ISelect {
+	conn *model.DataDatabasesMap) sqlselect.ISelect {
 	if t.plugin != nil {
 		return t.plugin.GetQueryRequest(ctx, startNS, endNS, traceId, conn)
 	}
@@ -59,50 +59,50 @@ func (t *TempoService) GetQueryRequest(ctx context.Context, startNS int64, endNS
 	if conn.Config.ClusterName != "" {
 		tableName = tables.GetTableName("tempo_traces_dist")
 	}
-	oRequest := sql.NewSelect().
+	oRequest := sqlselect.NewSelect().
 		Select(
-			sql.NewRawObject("trace_id"),
-			sql.NewRawObject("span_id"),
-			sql.NewRawObject("parent_id"),
-			sql.NewRawObject("timestamp_ns"),
-			sql.NewRawObject("duration_ns"),
-			sql.NewRawObject("payload_type"),
-			sql.NewRawObject("payload")).
-		From(sql.NewRawObject(tableName)).
+			sqlselect.NewRawObject("trace_id"),
+			sqlselect.NewRawObject("span_id"),
+			sqlselect.NewRawObject("parent_id"),
+			sqlselect.NewRawObject("timestamp_ns"),
+			sqlselect.NewRawObject("duration_ns"),
+			sqlselect.NewRawObject("payload_type"),
+			sqlselect.NewRawObject("payload")).
+		From(sqlselect.NewRawObject(tableName)).
 		AndWhere(
-			sql.Eq(sql.NewRawObject("trace_id"), sql.NewCustomCol(
-				func(ctx *sql.Ctx, options ...int) (string, error) {
-					strTraceId, err := sql.NewStringVal(string(traceId)).String(ctx, options...)
+			sqlselect.Eq(sqlselect.NewRawObject("trace_id"), sqlselect.NewCustomCol(
+				func(ctx *sqlselect.Ctx, options ...int) (string, error) {
+					strTraceId, err := sqlselect.NewStringVal(string(traceId)).String(ctx, options...)
 					if err != nil {
 						return "", err
 					}
 					return fmt.Sprintf("unhex(%s)", strTraceId), nil
 				}),
 			)).
-		OrderBy(sql.NewRawObject("timestamp_ns")).
-		Limit(sql.NewIntVal(2000))
+		OrderBy(sqlselect.NewRawObject("timestamp_ns")).
+		Limit(sqlselect.NewIntVal(2000))
 	if startNS != 0 {
-		oRequest = oRequest.AndWhere(sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(startNS)))
+		oRequest = oRequest.AndWhere(sqlselect.Ge(sqlselect.NewRawObject("timestamp_ns"), sqlselect.NewIntVal(startNS)))
 	}
 	if endNS != 0 {
-		oRequest = oRequest.AndWhere(sql.Lt(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(endNS)))
+		oRequest = oRequest.AndWhere(sqlselect.Lt(sqlselect.NewRawObject("timestamp_ns"), sqlselect.NewIntVal(endNS)))
 	}
-	witORequest := sql.NewWith(oRequest, "raw")
-	oRequest = sql.NewSelect().With(witORequest).
+	witORequest := sqlselect.NewWith(oRequest, "raw")
+	oRequest = sqlselect.NewSelect().With(witORequest).
 		Select(
-			sql.NewRawObject("trace_id"),
-			sql.NewRawObject("span_id"),
-			sql.NewRawObject("parent_id"),
-			sql.NewRawObject("timestamp_ns"),
-			sql.NewRawObject("duration_ns"),
-			sql.NewRawObject("payload_type"),
-			sql.NewRawObject("payload")).
-		From(sql.NewWithRef(witORequest)).
-		OrderBy(sql.NewOrderBy(sql.NewRawObject("timestamp_ns"), sql.ORDER_BY_DIRECTION_ASC))
+			sqlselect.NewRawObject("trace_id"),
+			sqlselect.NewRawObject("span_id"),
+			sqlselect.NewRawObject("parent_id"),
+			sqlselect.NewRawObject("timestamp_ns"),
+			sqlselect.NewRawObject("duration_ns"),
+			sqlselect.NewRawObject("payload_type"),
+			sqlselect.NewRawObject("payload")).
+		From(sqlselect.NewWithRef(witORequest)).
+		OrderBy(sqlselect.NewOrderBy(sqlselect.NewRawObject("timestamp_ns"), sqlselect.ORDER_BY_DIRECTION_ASC))
 	return oRequest
 }
 
-func (t *TempoService) OutputQuery(binIds bool, rows *sql2.Rows) (chan *model.SpanResponse, error) {
+func (t *TempoService) OutputQuery(binIds bool, rows *sql.Rows) (chan *model.SpanResponse, error) {
 	res := make(chan *model.SpanResponse)
 	go func() {
 		defer close(res)
@@ -144,9 +144,9 @@ func (t *TempoService) Query(ctx context.Context, startNS int64, endNS int64, tr
 		return nil, err
 	}
 	oRequest := t.GetQueryRequest(ctx, startNS, endNS, traceId, conn)
-	request, err := oRequest.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
+	request, err := oRequest.String(&sqlselect.Ctx{
+		Params: map[string]sqlselect.SQLObject{},
+		Result: map[string]sqlselect.SQLObject{},
 	})
 	if err != nil {
 		return nil, err
@@ -158,16 +158,16 @@ func (t *TempoService) Query(ctx context.Context, startNS int64, endNS int64, tr
 	return t.OutputQuery(binIds, rows)
 }
 
-func (t *TempoService) GetTagsRequest(ctx context.Context, conn *model.DataDatabasesMap) sql.ISelect {
+func (t *TempoService) GetTagsRequest(ctx context.Context, conn *model.DataDatabasesMap) sqlselect.ISelect {
 	tableName := tables.GetTableName("tempo_traces_kv")
 	if conn.Config.ClusterName != "" {
 		tableName = tables.GetTableName("tempo_traces_kv_dist")
 	}
-	oQuery := sql.NewSelect().
+	oQuery := sqlselect.NewSelect().
 		Distinct(true).
-		Select(sql.NewRawObject("key")).
-		From(sql.NewRawObject(tableName)).
-		OrderBy(sql.NewRawObject("key"))
+		Select(sqlselect.NewRawObject("key")).
+		From(sqlselect.NewRawObject(tableName)).
+		OrderBy(sqlselect.NewRawObject("key"))
 	return oQuery
 }
 
@@ -177,9 +177,9 @@ func (t *TempoService) Tags(ctx context.Context) (chan string, error) {
 		return nil, err
 	}
 	oQuery := t.GetTagsRequest(ctx, conn)
-	query, err := oQuery.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
+	query, err := oQuery.String(&sqlselect.Ctx{
+		Params: map[string]sqlselect.SQLObject{},
+		Result: map[string]sqlselect.SQLObject{},
 	})
 	if err != nil {
 		return nil, err
@@ -299,17 +299,17 @@ func (t *TempoService) ValuesV2(ctx context.Context, key string, query string, f
 	return res, nil
 }
 
-func (t *TempoService) GetValuesRequest(ctx context.Context, tag string, conn *model.DataDatabasesMap) sql.ISelect {
+func (t *TempoService) GetValuesRequest(ctx context.Context, tag string, conn *model.DataDatabasesMap) sqlselect.ISelect {
 	tableName := tables.GetTableName("tempo_traces_kv")
 	if conn.Config.ClusterName != "" {
 		tableName = tables.GetTableName("tempo_traces_kv_dist")
 	}
-	oRequest := sql.NewSelect().
+	oRequest := sqlselect.NewSelect().
 		Distinct(true).
-		Select(sql.NewRawObject("val")).
-		From(sql.NewRawObject(tableName)).
-		AndWhere(sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(tag))).
-		OrderBy(sql.NewRawObject("val"))
+		Select(sqlselect.NewRawObject("val")).
+		From(sqlselect.NewRawObject(tableName)).
+		AndWhere(sqlselect.Eq(sqlselect.NewRawObject("key"), sqlselect.NewStringVal(tag))).
+		OrderBy(sqlselect.NewRawObject("val"))
 	return oRequest
 }
 
@@ -322,9 +322,9 @@ func (t *TempoService) Values(ctx context.Context, tag string) (chan string, err
 	tag = strings.TrimPrefix(tag, ".")
 	tag = strings.TrimPrefix(tag, "resource.")
 	oRequest := t.GetValuesRequest(ctx, tag, conn)
-	query, err := oRequest.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
+	query, err := oRequest.String(&sqlselect.Ctx{
+		Params: map[string]sqlselect.SQLObject{},
+		Result: map[string]sqlselect.SQLObject{},
 	})
 	if err != nil {
 		return nil, err
@@ -357,7 +357,7 @@ func (t *TempoService) Search(ctx context.Context,
 	var idxQuery *tempo.SQLIndexQuery = nil
 	distributed := conn.Config.ClusterName != ""
 	if tags != "" {
-		ver, err := dbVersion.GetVersionInfo(ctx, distributed, conn.Session)
+		ver, err := dbversion.GetVersionInfo(ctx, distributed, conn.Session)
 		if err != nil {
 			return nil, err
 		}
@@ -378,7 +378,7 @@ func (t *TempoService) Search(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	strRequest, err := request.String(&sql.Ctx{})
+	strRequest, err := request.String(&sqlselect.Ctx{})
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +418,7 @@ func decodeParentId(parentId []byte) ([]byte, error) {
 	return res, err
 }
 
-func parseZipkinJSON(payload *zipkinPayload, parser *fastjson.Parser, binIds bool) (*v1.Span, string, error) {
+func parseZipkinJSON(payload *zipkinPayload, parser *fastjson.Parser, _ bool) (*v1.Span, string, error) {
 	root, err := parser.Parse(payload.payload)
 	if err != nil {
 		return nil, "", err

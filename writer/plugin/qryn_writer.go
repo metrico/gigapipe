@@ -2,38 +2,34 @@ package plugin
 
 import (
 	"context"
-
-	"github.com/gorilla/mux"
-	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/writer/ch_wrapper"
-	controllerv1 "github.com/metrico/qryn/writer/controller"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/plugins"
-	"github.com/metrico/qryn/writer/service"
-
-	//config3 "github.com/metrico/qryn/writer/usagecounter/config"
 	"net/http"
 	"runtime"
 	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/writer/chwrapper"
+	controllerv1 "github.com/metrico/qryn/writer/controller"
+	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/writer/plugins"
+	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/utils/helpers"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"gopkg.in/go-playground/validator.v9"
-	//	"os"
 )
 
 type ServicesObject struct {
 	DatabaseNodeMap []model.DataDatabasesMap
-	Dbv2Map         []ch_wrapper.IChClient
-	Dbv3Map         []ch_wrapper.IChClientFactory
+	Dbv2Map         []chwrapper.IChClient
+	Dbv3Map         []chwrapper.IChClientFactory
 	MainNode        string
 }
 type QrynWriterPlugin struct {
-	Conn           ch_wrapper.IChClient
+	Conn           chwrapper.IChClient
 	ServicesObject ServicesObject
 	Svc            service.IInsertServiceV2
-	DBConnWithDSN  ch_wrapper.IChClient
-	DBConnWithXDSN ch_wrapper.IChClient
+	DBConnWithDSN  chwrapper.IChClient
+	DBConnWithXDSN chwrapper.IChClient
 	HTTPServer     *http.Server
 }
 
@@ -69,7 +65,7 @@ func (p *QrynWriterPlugin) Initialize(config config.ClokiBaseSettingServer) erro
 		}
 	}
 
-	p.Conn, err = ch_wrapper.NewSmartDatabaseAdapter(&config.DATABASE_DATA[0], true)
+	p.Conn, err = chwrapper.NewSmartDatabaseAdapter(&config.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
 	}

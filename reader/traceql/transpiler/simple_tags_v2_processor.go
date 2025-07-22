@@ -1,8 +1,8 @@
-package traceql_transpiler
+package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type SimpleTagsV2RequestProcessor struct {
@@ -15,7 +15,7 @@ func (s *SimpleTagsV2RequestProcessor) Process(ctx *shared.PlannerContext) (chan
 		return nil, err
 	}
 
-	strReq, err := req.String(sql.DefaultCtx())
+	strReq, err := req.String(sql_select.DefaultCtx())
 	if err != nil {
 		return nil, err
 	}

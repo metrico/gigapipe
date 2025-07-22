@@ -1,11 +1,12 @@
 package unmarshal
 
 import (
-	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/writer/model"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	"regexp"
 	"time"
+
+	"github.com/go-faster/jx"
+	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/writer/utils/errors"
 )
 
 type datadogRequestDec struct {
@@ -50,7 +51,7 @@ func (d *datadogRequestDec) DecodeEntry(dec *jx.Decoder) error {
 		case "ddtags":
 			val, err := dec.Str()
 			if err != nil {
-				return customErrors.NewUnmarshalError(err)
+				return errors.NewUnmarshalError(err)
 			}
 			for _, match := range tagPattern.FindAllStringSubmatch(val, -1) {
 				d.Tags = append(d.Tags, []string{match[1], match[2]})
@@ -71,7 +72,7 @@ func (d *datadogRequestDec) DecodeEntry(dec *jx.Decoder) error {
 		return err
 	})
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 
 	for _, l := range [][]string{

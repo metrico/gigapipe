@@ -1,13 +1,14 @@
 package model
 
 import (
-	"github.com/metrico/qryn/writer/ch_wrapper"
 	"time"
+
+	"github.com/metrico/qryn/writer/chwrapper"
 )
 
 type InsertServiceOpts struct {
 	//Session     IChClientFactory
-	Session        ch_wrapper.IChClientFactory
+	Session        chwrapper.IChClientFactory
 	Node           *DataDatabasesMap
 	Interval       time.Duration
 	MaxQueueSize   int64

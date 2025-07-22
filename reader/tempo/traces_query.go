@@ -2,6 +2,7 @@ package tempo
 
 import (
 	"context"
+
 	"github.com/metrico/qryn/reader/plugins"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"

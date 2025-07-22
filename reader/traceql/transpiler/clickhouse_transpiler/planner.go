@@ -2,7 +2,8 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
 )
 
@@ -27,13 +28,6 @@ type planner struct {
 	prefix int
 
 	//Analyze results
-	termIdx []*traceql_parser.AttrSelector
-	cond    *condition
-	aggFn   string
-	aggAttr string
-	cmpVal  string
-
-	terms map[string]int
 }
 
 func (p *planner) plan() (shared.SQLRequestPlanner, error) {

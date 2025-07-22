@@ -3,14 +3,13 @@ package router
 import (
 	"time"
 
+	kitlog "github.com/go-kit/kit/log/logrus"
 	"github.com/gorilla/mux"
+	grafana_re "github.com/grafana/regexp"
 	"github.com/metrico/qryn/reader/config"
+	controllerv1 "github.com/metrico/qryn/reader/controller"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/service"
-
-	kitlog "github.com/go-kit/kit/log/logrus"
-	grafana_re "github.com/grafana/regexp"
-	controllerv1 "github.com/metrico/qryn/reader/controller"
 	"github.com/metrico/qryn/reader/utils/logger"
 	"github.com/prometheus/prometheus/promql"
 	api_v1 "github.com/prometheus/prometheus/web/api/v1"

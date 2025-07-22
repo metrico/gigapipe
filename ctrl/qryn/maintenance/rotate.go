@@ -9,11 +9,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/ctrl/logger"
-	"github.com/metrico/qryn/ctrl/qryn/heputils"
+	"github.com/metrico/qryn/ctrl/qryn/helputils"
 )
 
 func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, error) {
-	fp := heputils.FingerprintLabelsDJBHashPrometheus(
+	fp := helputils.FingerprintLabelsDJBHashPrometheus(
 		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name)),
 	)
 	settings := "settings"
@@ -38,7 +38,7 @@ GROUP BY fingerprint HAVING argMax(name, inserted_at) != ''`, settings), fp)
 
 func putSetting(db clickhouse.Conn, tp string, name string, value string) error {
 	_name := fmt.Sprintf(`{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name))
-	fp := heputils.FingerprintLabelsDJBHashPrometheus([]byte(_name))
+	fp := helputils.FingerprintLabelsDJBHashPrometheus([]byte(_name))
 	err := db.Exec(context.Background(), `INSERT INTO settings (fingerprint, type, name, value, inserted_at)
 VALUES ($1, $2, $3, $4, NOW())`, fp, tp, name, value)
 	return err

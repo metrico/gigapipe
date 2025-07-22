@@ -42,25 +42,8 @@ func rotate64(val uint64, shift uint32) uint64 {
 	return val
 }
 
-func rotate32(val uint32, shift uint32) uint32 {
-	if shift != 0 {
-		return ((val >> shift) | (val << (32 - shift)))
-	}
-
-	return val
-}
-
 func swap64(a, b *uint64) {
 	*a, *b = *b, *a
-}
-
-func swap32(a, b *uint32) {
-	*a, *b = *b, *a
-}
-
-func permute3(a, b, c *uint32) {
-	swap32(a, b)
-	swap32(a, c)
 }
 
 func rotate64ByAtLeast1(val uint64, shift uint32) uint64 {
@@ -73,26 +56,26 @@ func shiftMix(val uint64) uint64 {
 
 type Uint128 [2]uint64
 
-func (this *Uint128) setLower64(l uint64) {
-	this[0] = l
+func (u *Uint128) setLower64(l uint64) {
+	u[0] = l
 }
 
-func (this *Uint128) setHigher64(h uint64) {
-	this[1] = h
+func (u *Uint128) setHigher64(h uint64) {
+	u[1] = h
 }
 
-func (this Uint128) Lower64() uint64 {
-	return this[0]
+func (u Uint128) Lower64() uint64 {
+	return u[0]
 }
 
-func (this Uint128) Higher64() uint64 {
-	return this[1]
+func (u Uint128) Higher64() uint64 {
+	return u[1]
 }
 
-func (this Uint128) Bytes() []byte {
+func (u Uint128) Bytes() []byte {
 	b := make([]byte, 16)
-	binary.LittleEndian.PutUint64(b, this[0])
-	binary.LittleEndian.PutUint64(b[8:], this[1])
+	binary.LittleEndian.PutUint64(b, u[0])
+	binary.LittleEndian.PutUint64(b[8:], u[1])
 	return b
 }
 
@@ -108,16 +91,6 @@ func hash128to64(x Uint128) uint64 {
 
 func hashLen16(u, v uint64) uint64 {
 	return hash128to64(Uint128{u, v})
-}
-
-func hashLen16_3(u, v, mul uint64) uint64 {
-	// Murmur-inspired hashing.
-	var a = (u ^ v) * mul
-	a ^= (a >> 47)
-	var b = (v ^ a) * mul
-	b ^= (b >> 47)
-	b *= mul
-	return b
 }
 
 func hashLen0to16(s []byte, length uint32) uint64 {

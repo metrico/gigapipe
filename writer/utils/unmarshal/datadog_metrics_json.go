@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/writer/model"
-	custom_errors "github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils/errors"
 )
 
 type datadogMetricsRequestDec struct {
@@ -141,7 +141,7 @@ func (d *datadogMetricsRequestDec) WrapError(err error) error {
 		return nil
 	}
 	if strings.HasPrefix(err.Error(), "json error") {
-		return custom_errors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 		//return err
 	}
 	path := ""
@@ -154,7 +154,7 @@ func (d *datadogMetricsRequestDec) WrapError(err error) error {
 		}
 	}
 
-	return custom_errors.NewUnmarshalError(fmt.Errorf("json error path: %s; error: %s", path, err.Error()))
+	return errors.NewUnmarshalError(fmt.Errorf("json error path: %s; error: %s", path, err.Error()))
 }
 
 var UnmarshallDatadogMetricsV2JSONV2 = Build(

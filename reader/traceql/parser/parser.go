@@ -1,4 +1,4 @@
-package traceql_parser
+package parser
 
 import (
 	"github.com/alecthomas/participle/v2"

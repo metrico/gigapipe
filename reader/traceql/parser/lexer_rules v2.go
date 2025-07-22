@@ -1,41 +1,41 @@
-package traceql_parser
+package parser
 
 import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
 var TraceQLLexerRulesV2 = []lexer.SimpleRule{
-	{"Ocb", `\{`},
-	{"Ccb", `\}`},
+	{Name: "Ocb", Pattern: `\{`},
+	{Name: "Ccb", Pattern: `\}`},
 
-	{"Ob", `\(`},
-	{"Cb", `\)`},
+	{Name: "Ob", Pattern: `\(`},
+	{Name: "Cb", Pattern: `\)`},
 
-	{"Ge", `>=`},
-	{"Le", `<=`},
-	{"Gt", `>`},
-	{"Lt", `<`},
+	{Name: "Ge", Pattern: `>=`},
+	{Name: "Le", Pattern: `<=`},
+	{Name: "Gt", Pattern: `>`},
+	{Name: "Lt", Pattern: `<`},
 
-	{"Neq", `!=`},
-	{"Re", `=~`},
-	{"Nre", `!~`},
-	{"Eq", `=`},
+	{Name: "Neq", Pattern: `!=`},
+	{Name: "Re", Pattern: `=~`},
+	{Name: "Nre", Pattern: `!~`},
+	{Name: "Eq", Pattern: `=`},
 
-	{"Label_name", `(\.[a-zA-Z_][.a-zA-Z0-9_-]*|[a-zA-Z_][.a-zA-Z0-9_-]*)`},
-	{"Dot", `\.`},
+	{Name: "Label_name", Pattern: `(\.[a-zA-Z_][.a-zA-Z0-9_-]*|[a-zA-Z_][.a-zA-Z0-9_-]*)`},
+	{Name: "Dot", Pattern: `\.`},
 
-	{"And", `&&`},
-	{"Or", `\|\|`},
+	{Name: "And", Pattern: `&&`},
+	{Name: "Or", Pattern: `\|\|`},
 
-	{"Pipe", `\|`},
+	{Name: "Pipe", Pattern: `\|`},
 
-	{"Quoted_string", `"([^"\\]|\\.)*"`},
-	{"Ticked_string", "`([^`\\\\]|\\\\.)*`"},
+	{Name: "Quoted_string", Pattern: `"([^"\\]|\\.)*"`},
+	{Name: "Ticked_string", Pattern: "`([^`\\\\]|\\\\.)*`"},
 
-	{"Minus", "-"},
-	{"Integer", "[0-9]+"},
+	{Name: "Minus", Pattern: "-"},
+	{Name: "Integer", Pattern: "[0-9]+"},
 
-	{"space", `\s+`},
+	{Name: "space", Pattern: `\s+`},
 }
 
 var TraceQLLexerDefinition = lexer.MustSimple(TraceQLLexerRulesV2)

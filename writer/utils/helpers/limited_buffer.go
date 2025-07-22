@@ -11,7 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang/snappy"
-	custom_errors "github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/logger"
 	"github.com/valyala/bytebufferpool"
 	"golang.org/x/sync/semaphore"
@@ -34,7 +34,7 @@ type RateLimitedPooledBuffer struct {
 
 func (l *RateLimitedPooledBuffer) Write(msg []byte) (int, error) {
 	if len(msg)+l.buffer.Len() > l.limit {
-		return 0, custom_errors.New400Error("buffer size overflow")
+		return 0, errors.New400Error("buffer size overflow")
 	}
 	return l.buffer.Write(msg)
 }
@@ -99,7 +99,7 @@ func (r *RateLimitedPool) releasePooledBuffer(buffer *RateLimitedPooledBuffer) {
 
 func (r *RateLimitedPool) acquireSlice(size int) (RateLimitedBuffer, error) {
 	if size > r.limit {
-		return nil, custom_errors.New400Error("size too big")
+		return nil, errors.New400Error("size too big")
 	}
 	if RateLimitingEnable {
 		to, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -131,7 +131,7 @@ var pbPool = RateLimitedPool{
 func getPayloadBuffer(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
 	var ctxLen int
 	if ctx.Get("content-length", "") == "" {
-		return nil, custom_errors.New400Error("content-length is required")
+		return nil, errors.New400Error("content-length is required")
 		//return nil, util.NewCLokiWriterError(400, "content-length is required")
 	} else {
 		ctxLen, _ = strconv.Atoi(ctx.Get("content-length", ""))
@@ -154,7 +154,7 @@ func decompressPayload(buf RateLimitedBuffer) (RateLimitedBuffer, error) {
 		return nil, err
 	}
 	if decompSize > pbPool.limit {
-		return nil, custom_errors.New400Error("decompressed request too long")
+		return nil, errors.New400Error("decompressed request too long")
 		//return nil, util.NewCLokiWriterError(400, "decompressed request too long")
 	}
 	slice, err := pbPool.acquireSlice(decompSize)
@@ -165,7 +165,7 @@ func decompressPayload(buf RateLimitedBuffer) (RateLimitedBuffer, error) {
 	if err != nil {
 		slice.Release()
 		logger.Error(err)
-		return nil, custom_errors.New400Error("request decompress error")
+		return nil, errors.New400Error("request decompress error")
 		//return nil, util.NewCLokiWriterError(400, "request decompress error")
 	}
 	return slice, nil

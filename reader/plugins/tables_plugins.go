@@ -1,9 +1,5 @@
 package plugins
 
-const (
-	tableNamesPluginsPefix = "table-names-plugin-"
-)
-
 type TableNamesPlugin func() map[string]string
 
 var tableNamesPlugin *TableNamesPlugin

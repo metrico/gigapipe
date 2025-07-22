@@ -2,10 +2,11 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"strconv"
 	"time"
+
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type AggregatorPlanner struct {
@@ -71,5 +72,5 @@ func (a *AggregatorPlanner) getAggregator() (sql.SQLObject, error) {
 	case "sum":
 		return sql.NewRawObject("sumIf(agg_val, isNotNull(agg_val))"), nil
 	}
-	return nil, &shared.NotSupportedError{"aggregator not supported: " + a.Fn}
+	return nil, &shared.NotSupportedError{Msg: "aggregator not supported: " + a.Fn}
 }

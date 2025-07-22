@@ -4,17 +4,17 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
-	"github.com/go-faster/jx"
-	custom_errors "github.com/metrico/qryn/writer/utils/errors"
-
 	"strconv"
+
+	"github.com/go-faster/jx"
+	"github.com/metrico/qryn/writer/utils/errors"
 )
 
 func jsonParseError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return custom_errors.NewUnmarshalError(err)
+	return errors.NewUnmarshalError(err)
 	//return fmt.Errorf("json parse error: %v", err)
 }
 
@@ -55,7 +55,7 @@ func (z *zipkinDecoderV2) Decode() error {
 		z.val = z.val[:0]
 		rawSpan, err := dec.Raw()
 		if err != nil {
-			return custom_errors.NewUnmarshalError(err)
+			return errors.NewUnmarshalError(err)
 		}
 		z.payload = append([]byte{}, rawSpan...)
 		return z.decodeSpan(rawSpan)
@@ -66,7 +66,7 @@ func (z *zipkinDecoderV2) Decode() error {
 func (z *zipkinDecoderV2) decodeSpan(rawSpan jx.Raw) error {
 	dec := jx.DecodeBytes(rawSpan)
 	if rawSpan.Type() != jx.Object {
-		return custom_errors.New400Error(fmt.Sprintf("span %s is not an object", rawSpan.String()))
+		return errors.New400Error(fmt.Sprintf("span %s is not an object", rawSpan.String()))
 	}
 
 	err := dec.Obj(func(d *jx.Decoder, key string) error {
@@ -133,7 +133,7 @@ func (z *zipkinDecoderV2) decodeSpan(rawSpan jx.Raw) error {
 		return nil
 	})
 	if err != nil {
-		return custom_errors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 	z.key = append(z.key, "service.name")
 	z.val = append(z.val, z.serviceName)
@@ -149,11 +149,11 @@ func (z *zipkinDecoderV2) stringOrInt64(d *jx.Decoder) (int64, error) {
 	case jx.String:
 		str, err := d.Str()
 		if err != nil {
-			return 0, custom_errors.NewUnmarshalError(err)
+			return 0, errors.NewUnmarshalError(err)
 		}
 		return strconv.ParseInt(str, 10, 64)
 	}
-	return 0, custom_errors.NewUnmarshalError(fmt.Errorf("format not supported"))
+	return 0, errors.NewUnmarshalError(fmt.Errorf("format not supported"))
 }
 
 func (z *zipkinDecoderV2) parseEndpoint(d *jx.Decoder, prefix string) (string, error) {
@@ -163,7 +163,7 @@ func (z *zipkinDecoderV2) parseEndpoint(d *jx.Decoder, prefix string) (string, e
 		case "serviceName":
 			val, err := d.Str()
 			if err != nil {
-				return custom_errors.NewUnmarshalError(err)
+				return errors.NewUnmarshalError(err)
 			}
 			z.key = append(z.key, prefix+"service_name")
 			z.val = append(z.val, val)
@@ -185,7 +185,7 @@ func (z *zipkinDecoderV2) parseTags(d *jx.Decoder) error {
 		z.key = append(z.key, key)
 		val, err := d.Str()
 		if err != nil {
-			return custom_errors.NewUnmarshalError(err)
+			return errors.NewUnmarshalError(err)
 		}
 		z.val = append(z.val, val)
 		return nil
@@ -194,7 +194,7 @@ func (z *zipkinDecoderV2) parseTags(d *jx.Decoder) error {
 
 func (z *zipkinDecoderV2) decodeHexStr(hexStr []byte, leng int) ([]byte, error) {
 	if len(hexStr) == 0 {
-		return nil, custom_errors.New400Error("hex string is zero")
+		return nil, errors.New400Error("hex string is zero")
 
 	}
 	if len(hexStr) < leng {
@@ -209,7 +209,7 @@ func (z *zipkinDecoderV2) decodeHexStr(hexStr []byte, leng int) ([]byte, error) 
 	res := make([]byte, leng/2)
 	_, err := hex.Decode(res, hexStr)
 	if err != nil {
-		return nil, custom_errors.NewUnmarshalError(err)
+		return nil, errors.NewUnmarshalError(err)
 	}
 	return res, err
 }
@@ -224,7 +224,7 @@ func (z *zipkinNDDecoderV2) Decode() error {
 	for scanner.Scan() {
 		err := z.decodeSpan(scanner.Bytes())
 		if err != nil {
-			return custom_errors.NewUnmarshalError(err)
+			return errors.NewUnmarshalError(err)
 		}
 	}
 	return nil

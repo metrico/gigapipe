@@ -3,10 +3,10 @@ package controller
 import (
 	"bytes"
 	"context"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"net/http"
 
+	"github.com/metrico/qryn/writer/utils"
 	"github.com/metrico/qryn/writer/utils/unmarshal"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
@@ -47,7 +47,7 @@ func OTLPPushV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Reques
 				defer r.Body.Close()
 
 				// Create a new request context with the modified body
-				ctx := context.WithValue(r.Context(), heputils.ContextKeyBodyStream, bytes.NewReader(body))
+				ctx := context.WithValue(r.Context(), utils.ContextKeyBodyStream, bytes.NewReader(body))
 				*r = *r.WithContext(ctx)
 				return nil
 

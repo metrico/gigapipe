@@ -10,7 +10,7 @@ import (
 
 	fch "github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/writer/ch_wrapper"
+	"github.com/metrico/qryn/writer/chwrapper"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/utils/helpers"
 	"github.com/metrico/qryn/writer/utils/logger"
@@ -71,7 +71,7 @@ type InsertServiceV2 struct {
 	ServiceData
 	ID string
 
-	V3Session      ch_wrapper.IChClientFactory
+	V3Session      chwrapper.IChClientFactory
 	DatabaseNode   *model.DataDatabasesMap
 	AsyncInsert    bool
 	OnBeforeInsert func()
@@ -100,7 +100,7 @@ type InsertServiceV2 struct {
 
 	mtx sync.Mutex
 
-	client ch_wrapper.IChClient
+	client chwrapper.IChClient
 
 	state int32
 }
@@ -334,7 +334,7 @@ type InsertServiceV2RoundRobin struct {
 	ServiceData
 	//V3Session    func() (IChClient, error)
 
-	V3Session      ch_wrapper.IChClientFactory
+	V3Session      chwrapper.IChClientFactory
 	DatabaseNode   *model.DataDatabasesMap
 	AsyncInsert    bool
 	OnBeforeInsert func()
@@ -483,7 +483,7 @@ func (svc *InsertServiceV2RoundRobin) Request(req helpers.SizeGetter, insertMode
 type InsertServiceV2Multimodal struct {
 	ServiceData
 	//V3Session    func() (IChClient, error)
-	V3Session      ch_wrapper.IChClientFactory
+	V3Session      chwrapper.IChClientFactory
 	DatabaseNode   *model.DataDatabasesMap
 	AsyncInsert    bool
 	PushInterval   time.Duration

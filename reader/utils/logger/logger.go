@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/metrico/qryn/reader/config"
-	"github.com/metrico/qryn/reader/system"
 	"log"
 	"log/syslog"
 	"net/http"
@@ -17,6 +15,8 @@ import (
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
+	"github.com/metrico/qryn/reader/config"
+	"github.com/metrico/qryn/reader/system"
 	"github.com/sirupsen/logrus"
 )
 

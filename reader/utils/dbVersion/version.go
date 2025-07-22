@@ -1,13 +1,14 @@
-package dbVersion
+package dbversion
 
 import (
 	"context"
 	"fmt"
-	"github.com/metrico/qryn/reader/model"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/metrico/qryn/reader/model"
 )
 
 type VersionInfo map[string]int64
@@ -66,7 +67,7 @@ FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, tableName))
 		}
 	}
 
-	tables, err := db.QueryCtx(ctx, fmt.Sprintf(`SHOW TABLES`))
+	tables, err := db.QueryCtx(ctx, `SHOW TABLES`)
 	if err != nil {
 		return nil, err
 	}

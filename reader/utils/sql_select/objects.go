@@ -1,4 +1,4 @@
-package sql
+package sql_select
 
 import (
 	"fmt"
@@ -254,7 +254,7 @@ func (c *Col) String(ctx *Ctx, options ...int) (string, error) {
 	_opts := append(options, WITH_REF_NO_ALIAS)
 	expr, err := c.expr.String(ctx, _opts...)
 	if c.alias == "" {
-		return fmt.Sprintf("%s", expr), err
+		return expr, err
 	}
 	return fmt.Sprintf("%s as %s", expr, c.alias), err
 }

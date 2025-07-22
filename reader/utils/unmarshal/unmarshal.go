@@ -1,11 +1,11 @@
 package unmarshal
 
 import (
-	"github.com/metrico/qryn/reader/model"
 	"io"
 	"strings"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/metrico/qryn/reader/model"
 )
 
 var jsonApi = jsoniter.ConfigCompatibleWithStandardLibrary

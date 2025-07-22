@@ -2,14 +2,14 @@ package unmarshal
 
 import (
 	"bytes"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"regexp"
 	"time"
 
 	"github.com/go-logfmt/logfmt"
 	"github.com/influxdata/telegraf/plugins/parsers/influx"
 	"github.com/metrico/qryn/writer/model"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/writer/utils/errors"
 )
 
 func getMessage(fields map[string]any) (string, error) {
@@ -20,7 +20,7 @@ func getMessage(fields map[string]any) (string, error) {
 	encoder := logfmt.NewEncoder(buf)
 	err := encoder.EncodeKeyvals("message", fields["message"])
 	if err != nil {
-		return "", customErrors.NewUnmarshalError(err)
+		return "", errors.NewUnmarshalError(err)
 	}
 	for k, v := range fields {
 		if k == "message" {
@@ -28,7 +28,7 @@ func getMessage(fields map[string]any) (string, error) {
 		}
 		err := encoder.EncodeKeyvals(k, v)
 		if err != nil {
-			return "", customErrors.NewUnmarshalError(err)
+			return "", errors.NewUnmarshalError(err)
 		}
 	}
 	return buf.String(), nil
@@ -41,7 +41,7 @@ type influxDec struct {
 
 func (e *influxDec) Decode() error {
 	parser := influx.NewStreamParser(e.ctx.bodyReader)
-	precision := e.ctx.ctx.Value(heputils.ContextKeyPrecision).(time.Duration)
+	precision := e.ctx.ctx.Value(utils.ContextKeyPrecision).(time.Duration)
 	parser.SetTimePrecision(precision)
 
 	for mtr, err := parser.Next(); true; mtr, err = parser.Next() {
@@ -49,7 +49,7 @@ func (e *influxDec) Decode() error {
 			return nil
 		}
 		if err != nil {
-			return customErrors.NewUnmarshalError(err)
+			return errors.NewUnmarshalError(err)
 		}
 		labels := [][]string{{"measurement", mtr.Name()}}
 		for k, v := range mtr.Tags() {

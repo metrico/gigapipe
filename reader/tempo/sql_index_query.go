@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metrico/qryn/reader/utils/dbVersion"
+	"github.com/metrico/qryn/reader/utils/dbversion"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 
@@ -18,7 +18,7 @@ type SQLIndexQuery struct {
 	Limit         int64
 	Distributed   bool
 	Database      string
-	Ver           dbVersion.VersionInfo
+	Ver           dbversion.VersionInfo
 	Ctx           context.Context
 }
 

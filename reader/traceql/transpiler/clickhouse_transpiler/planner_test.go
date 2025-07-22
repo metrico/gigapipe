@@ -2,12 +2,12 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
-	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
+	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 func TestPlanner(t *testing.T) {
@@ -76,8 +76,4 @@ func TestComplexPlanner(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println(res)
-}
-
-func TestRandom(t *testing.T) {
-	fmt.Sprintf("%f", 50+(rand.Float64()*100-50))
 }

@@ -3,11 +3,12 @@ package unmarshal
 import (
 	"bufio"
 	"fmt"
+	"time"
+
 	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/writer/model"
-	heputils "github.com/metrico/qryn/writer/utils"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"time"
+	"github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/writer/utils/errors"
 )
 
 type datadogCFRequestDec struct {
@@ -30,12 +31,12 @@ func (d *datadogCFRequestDec) Decode() error {
 	scanner := bufio.NewScanner(d.ctx.bodyReader)
 	scanner.Split(bufio.ScanLines)
 
-	d.DDSource = d.ctx.ctxMap[heputils.ContextKeyDDSource]
+	d.DDSource = d.ctx.ctxMap[utils.ContextKeyDDSource]
 	for scanner.Scan() {
 		bytes := scanner.Bytes()
 		err := d.DecodeLine(bytes)
 		if err != nil {
-			return customErrors.NewUnmarshalError(err)
+			return errors.NewUnmarshalError(err)
 		}
 		t := time.Now()
 		if d.TsNs != 0 {
@@ -141,7 +142,7 @@ func (d *datadogCFRequestDec) GetLabels() [][]string {
 }
 
 var UnmarshallDatadogCFJSONV2 = Build(
-	withStringValueFromCtx(heputils.ContextKeyDDSource),
+	withStringValueFromCtx(utils.ContextKeyDDSource),
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &datadogCFRequestDec{ctx: ctx}
 	}))

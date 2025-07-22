@@ -10,17 +10,16 @@ import (
 
 	retry "github.com/avast/retry-go"
 	"github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/pattern/controller"
-	helputils "github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/writer/service"
+	"github.com/metrico/qryn/writer/utils"
 	customErrors "github.com/metrico/qryn/writer/utils/errors"
 	"github.com/metrico/qryn/writer/utils/helpers"
 	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/writer/utils/numbercache"
 	"github.com/metrico/qryn/writer/utils/promise"
 	"github.com/metrico/qryn/writer/utils/stat"
-
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/utils/numbercache"
 )
 
 const MaxRetries = 10
@@ -143,7 +142,7 @@ func Build(options ...BuildOption) func(w http.ResponseWriter, r *http.Request) 
 
 }
 
-func getService(r *http.Request, name helputils.ContextKey) service.IInsertServiceV2 {
+func getService(r *http.Request, name utils.ContextKey) service.IInsertServiceV2 {
 	ctx := r.Context()
 	svc := ctx.Value(name)
 	if svc == nil {
@@ -189,7 +188,7 @@ func doPush(req helpers.SizeGetter, insertMode int, svc service.IInsertServiceV2
 	return p
 }
 func getBodyStream(r *http.Request) io.Reader {
-	if bodyStream, ok := r.Context().Value(helputils.ContextKeyBodyStream).(io.Reader); ok {
+	if bodyStream, ok := r.Context().Value(utils.ContextKeyBodyStream).(io.Reader); ok {
 		return bodyStream
 	}
 	return r.Body
@@ -201,12 +200,12 @@ func doLogsPattern(s *model.TimeSamplesData) {
 
 func doParse(r *http.Request, parser Parser) error {
 	reader := getBodyStream(r)
-	tsService := getService(r, helputils.ContextKeyTsService)
-	splService := getService(r, helputils.ContextKeySplService)
-	spanAttrsService := getService(r, helputils.ContextKeySpanAttrsService)
-	spansService := getService(r, helputils.ContextKeySpansService)
-	profileService := getService(r, helputils.ContextKeyProfileService)
-	node := r.Context().Value(helputils.ContextKeyNode).(string)
+	tsService := getService(r, utils.ContextKeyTsService)
+	splService := getService(r, utils.ContextKeySplService)
+	spanAttrsService := getService(r, utils.ContextKeySpanAttrsService)
+	spansService := getService(r, utils.ContextKeySpansService)
+	profileService := getService(r, utils.ContextKeyProfileService)
+	node := r.Context().Value(utils.ContextKeyNode).(string)
 
 	//var promises []chan error
 	var promises []*promise.Promise[uint32]

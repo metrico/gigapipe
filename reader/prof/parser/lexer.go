@@ -6,24 +6,24 @@ import (
 )
 
 var LogQLLexerRulesV2 = []lexer.SimpleRule{
-	{"Ocb", `\{`},
-	{"Ccb", `\}`},
-	{"Comma", `,`},
+	{Name: "Ocb", Pattern: `\{`},
+	{Name: "Ccb", Pattern: `\}`},
+	{Name: "Comma", Pattern: `,`},
 
-	{"Neq", `!=`},
-	{"Re", `=~`},
-	{"Nre", `!~`},
-	{"Eq", `=`},
+	{Name: "Neq", Pattern: `!=`},
+	{Name: "Re", Pattern: `=~`},
+	{Name: "Nre", Pattern: `!~`},
+	{Name: "Eq", Pattern: `=`},
 
-	{"Dot", `\.`},
+	{Name: "Dot", Pattern: `\.`},
 
-	{"Label_name", `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{"Quoted_string", `"([^"\\]|\\.)*"`},
-	{"Ticked_string", "`[^`]*`"},
+	{Name: "Label_name", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
+	{Name: "Quoted_string", Pattern: `"([^"\\]|\\.)*"`},
+	{Name: "Ticked_string", Pattern: "`[^`]*`"},
 
-	{"Integer", "[0-9]+"},
+	{Name: "Integer", Pattern: "[0-9]+"},
 
-	{"space", `\s+`},
+	{Name: "space", Pattern: `\s+`},
 }
 
 var ProfLexerDefinition = lexer.MustSimple(LogQLLexerRulesV2)

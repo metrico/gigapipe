@@ -3,12 +3,13 @@ package unmarshal
 import (
 	"encoding/base64"
 	"encoding/json"
-	"github.com/metrico/qryn/writer/model"
-	otlpCommon "go.opentelemetry.io/proto/otlp/common/v1"
-	otlpLogs "go.opentelemetry.io/proto/otlp/logs/v1"
-	"google.golang.org/protobuf/proto"
 	"regexp"
 	"strconv"
+
+	"github.com/metrico/qryn/writer/model"
+	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
+	otlplogs "go.opentelemetry.io/proto/otlp/logs/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type otlpLogDec struct {
@@ -17,7 +18,7 @@ type otlpLogDec struct {
 }
 
 func (e *otlpLogDec) Decode() error {
-	logs := e.ctx.bodyObject.(*otlpLogs.LogsData)
+	logs := e.ctx.bodyObject.(*otlplogs.LogsData)
 
 	for _, resLog := range logs.ResourceLogs {
 		resourceAttrs := map[string]string{}
@@ -66,13 +67,13 @@ func (e *otlpLogDec) Decode() error {
 	return nil
 }
 
-func (e *otlpLogDec) initAttributesMap(attrs []*otlpCommon.KeyValue, prefix string, res *map[string]string) {
+func (e *otlpLogDec) initAttributesMap(attrs []*otlpcommon.KeyValue, prefix string, res *map[string]string) {
 	for _, kv := range attrs {
 		e.writeAttrValue(kv.Key, kv.Value, prefix, res)
 	}
 }
 
-func (e *otlpLogDec) writeAttrValue(key string, value *otlpCommon.AnyValue, prefix string, res *map[string]string) {
+func (e *otlpLogDec) writeAttrValue(key string, value *otlpcommon.AnyValue, prefix string, res *map[string]string) {
 	(*res)[prefix+SanitizeKey(key)] = SanitizeValue(value)
 }
 
@@ -89,26 +90,26 @@ func SanitizeKey(key string) string {
 	return sanitized
 }
 
-func SanitizeValue(value *otlpCommon.AnyValue) string {
+func SanitizeValue(value *otlpcommon.AnyValue) string {
 	switch v := value.Value.(type) {
-	case *otlpCommon.AnyValue_StringValue:
+	case *otlpcommon.AnyValue_StringValue:
 		return v.StringValue
-	case *otlpCommon.AnyValue_BoolValue:
+	case *otlpcommon.AnyValue_BoolValue:
 		return strconv.FormatBool(v.BoolValue)
-	case *otlpCommon.AnyValue_IntValue:
+	case *otlpcommon.AnyValue_IntValue:
 		return strconv.FormatInt(v.IntValue, 10)
-	case *otlpCommon.AnyValue_DoubleValue:
+	case *otlpcommon.AnyValue_DoubleValue:
 		return strconv.FormatFloat(v.DoubleValue, 'f', -1, 64)
-	case *otlpCommon.AnyValue_BytesValue:
+	case *otlpcommon.AnyValue_BytesValue:
 		return base64.StdEncoding.EncodeToString(v.BytesValue)
-	case *otlpCommon.AnyValue_ArrayValue:
+	case *otlpcommon.AnyValue_ArrayValue:
 		items := make([]string, len(v.ArrayValue.Values))
 		for i, item := range v.ArrayValue.Values {
 			items[i] = SanitizeValue(item)
 		}
 		jsonItems, _ := json.Marshal(items)
 		return string(jsonItems)
-	case *otlpCommon.AnyValue_KvlistValue:
+	case *otlpcommon.AnyValue_KvlistValue:
 		kvMap := make(map[string]string)
 		for _, kv := range v.KvlistValue.Values {
 			kvMap[SanitizeKey(kv.Key)] = SanitizeValue(kv.Value)
@@ -126,7 +127,7 @@ func (e *otlpLogDec) SetOnEntries(h onEntriesHandler) {
 
 var UnmarshalOTLPLogsV2 = Build(
 	withBufferedBody,
-	withParsedBody(func() proto.Message { return &otlpLogs.LogsData{} }),
+	withParsedBody(func() proto.Message { return &otlplogs.LogsData{} }),
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &otlpLogDec{ctx: ctx}
 	}))

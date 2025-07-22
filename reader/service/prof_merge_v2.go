@@ -2,7 +2,7 @@ package service
 
 import (
 	"github.com/metrico/qryn/reader/prof"
-	"github.com/metrico/qryn/writer/utils/heputils/cityhash102"
+	"github.com/metrico/qryn/writer/utils/helputils/cityhash102"
 	"google.golang.org/protobuf/proto"
 )
 

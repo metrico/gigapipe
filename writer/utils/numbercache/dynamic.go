@@ -1,9 +1,10 @@
 package numbercache
 
 import (
-	"github.com/VictoriaMetrics/fastcache"
 	"sync"
 	"time"
+
+	"github.com/VictoriaMetrics/fastcache"
 )
 
 type DynamicCache[K any] struct {

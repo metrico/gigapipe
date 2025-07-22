@@ -2,9 +2,10 @@ package watchdog
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/utils/logger"
-	"time"
 )
 
 var svc *model.ServiceData
@@ -15,7 +16,7 @@ func Init(_svc *model.ServiceData) {
 	svc = _svc
 	ticker := time.NewTicker(time.Second * 5)
 	go func() {
-		for _ = range ticker.C {
+		for range ticker.C {
 			err := svc.Ping()
 			if err == nil {
 				retries = 0

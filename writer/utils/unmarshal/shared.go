@@ -1,8 +1,9 @@
 package unmarshal
 
 import (
-	"github.com/metrico/qryn/writer/model"
 	"time"
+
+	"github.com/metrico/qryn/writer/model"
 )
 
 type timeSeriesAndSamples struct {
