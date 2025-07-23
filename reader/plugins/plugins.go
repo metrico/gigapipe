@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/metrico/qryn/reader/logql/parser"
+	logql_parser "github.com/metrico/qryn/reader/logql/parser"
 	"github.com/metrico/qryn/reader/logql/transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 )
@@ -13,7 +13,7 @@ import (
 var ErrPluginNotApplicable = errors.New("plugin not applicable")
 
 type LogQLTranspilerPlugin interface {
-	Plan(script *parser.LogQLScript) (shared.RequestProcessorChain, error)
+	Plan(script *logql_parser.LogQLScript) (shared.RequestProcessorChain, error)
 }
 
 var logQLTranspilerPlugins []LogQLTranspilerPlugin
