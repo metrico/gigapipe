@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/metrico/qryn/reader/service"
+	"github.com/metrico/qryn/shared/validator"
 )
 
 type PromQueryLabelsController struct {
@@ -29,6 +30,11 @@ type promSeriesParams struct {
 	Match []string `form:"match[]"`
 }
 
+type promLabelsRequest struct {
+	Start validator.FlexibleTime `schema:"start" flexdefault:"now-6h"`
+	End   validator.FlexibleTime `schema:"end" flexdefault:"now-6h"`
+}
+
 func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
 	internalCtx, err := RunPreRequestPlugins(r)
@@ -36,12 +42,13 @@ func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Re
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := getLabelsParams(r)
+	// params, err := getLabelsParams(r)
+	params, err := validator.ValidateRequest[promLabelsRequest](r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return
 	}
-	res, err := p.QueryLabelsService.Labels(internalCtx, params.start.UnixMilli(), params.end.UnixMilli(), 2)
+	res, err := p.QueryLabelsService.Labels(internalCtx, params.Start.Time().UnixMilli(), params.End.Time().UnixMilli(), 2)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
