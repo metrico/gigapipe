@@ -122,7 +122,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 	}
 	cfg.Setting.DATABASE_DATA[0].Secure = secure
 	if os.Getenv("SELF_SIGNED_CERT") != "" {
-		insecureSkipVerify, err := boolEnv(os.Getenv("SELF_SIGNED_CERT"))
+		insecureSkipVerify, err := boolEnv("SELF_SIGNED_CERT")
 		if err != nil {
 			return fmt.Errorf("invalid self_signed_cert value: %w", err)
 		}
