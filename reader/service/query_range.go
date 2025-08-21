@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	databaseSql "database/sql"
 	"fmt"
 	"io"
 	"strconv"
@@ -343,29 +344,58 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 	}
 	var res []PatternsResult
 	for rows.Next() {
-		var pattern []string
-		var samples []map[string]any
-		var _pattern PatternsResult
-		err = rows.Scan(&pattern, &samples)
+		_pattern, err := q.scan(rows)
 		if err != nil {
 			return nil, err
 		}
+		res = append(res, _pattern)
+	}
+	return res, nil
+}
 
-		patternBld := strings.Builder{}
-		for i, p := range pattern {
-			if p == "<_>" && i > 0 && pattern[i-1] == "<_>" {
-				continue
-			}
-			patternBld.WriteString(p)
+func (q *QueryRangeService) buildPattern(pattern []string) string {
+	patternBld := strings.Builder{}
+	for i, p := range pattern {
+		if p == "<_>" && i > 0 && pattern[i-1] == "<_>" {
+			continue
 		}
-		_pattern.Pattern = patternBld.String()
+		patternBld.WriteString(p)
+	}
+	return patternBld.String()
+}
 
-		for _, s := range samples {
-			_pattern.Samples = append(_pattern.Samples, [2]int32{
+func (q *QueryRangeService) scan(rows *databaseSql.Rows) (PatternsResult, error) {
+	var pattern []string
+	var samplesV1 []map[string]any
+	var samplesV2 [][]any
+	err := rows.Scan(&pattern, &samplesV1)
+	if err == nil {
+		res := PatternsResult{
+			Pattern: q.buildPattern(pattern),
+		}
+		for _, s := range samplesV1 {
+			res.Samples = append(res.Samples, [2]int32{
 				int32(s["timestamp_s"].(uint64)),
 				int32(s["count"].(uint64))})
 		}
-		res = append(res, _pattern)
+		return res, nil
+	}
+	if !strings.Contains(
+		err.Error(),
+		"storing driver.Value type [][]interface {} into type *[]map[string]interface {}") {
+		return PatternsResult{}, err
+	}
+	err = rows.Scan(&pattern, &samplesV2)
+	if err != nil {
+		return PatternsResult{}, err
+	}
+	res := PatternsResult{
+		Pattern: q.buildPattern(pattern),
+	}
+	for _, s := range samplesV2 {
+		res.Samples = append(res.Samples, [2]int32{
+			int32(s[0].(uint64)),
+			int32(s[1].(uint64))})
 	}
 	return res, nil
 }
