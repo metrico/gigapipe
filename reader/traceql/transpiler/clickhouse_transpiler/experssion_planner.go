@@ -1,7 +1,7 @@
 package clickhouse_transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 )
 
 type iExpressionPlanner interface {

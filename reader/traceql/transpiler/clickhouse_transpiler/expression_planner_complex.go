@@ -3,7 +3,7 @@ package clickhouse_transpiler
 import (
 	"fmt"
 
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 )
 
 type complexExpressionPlanner struct {

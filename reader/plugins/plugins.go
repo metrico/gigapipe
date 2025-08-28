@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	logql_parser "github.com/metrico/qryn/reader/logql/parser"
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	logql_parser "github.com/metrico/qryn/reader/logql/logql_parser"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 )
 

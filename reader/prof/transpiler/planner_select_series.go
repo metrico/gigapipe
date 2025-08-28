@@ -3,7 +3,7 @@ package transpiler
 import (
 	"fmt"
 
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/prof/parser"
 	v1 "github.com/metrico/qryn/reader/prof/types/v1"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"

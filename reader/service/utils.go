@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/reader/model"
 )
 

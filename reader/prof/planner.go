@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/prof/parser"
 	shared2 "github.com/metrico/qryn/reader/prof/shared"

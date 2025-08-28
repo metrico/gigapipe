@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )

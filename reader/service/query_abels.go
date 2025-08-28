@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	parser1 "github.com/metrico/qryn/reader/logql/parser"
-	"github.com/metrico/qryn/reader/logql/transpiler"
-	"github.com/metrico/qryn/reader/logql/transpiler/clickhouse_planner"
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_parser"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
 	"github.com/metrico/qryn/reader/utils/dbversion"
@@ -234,17 +234,17 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 }
 
 func (q *QueryLabelsService) getMultiMatchValuesPlanner(match []string, key string) (shared.SQLRequestPlanner, error) {
-	matchScripts := make([]*parser1.LogQLScript, len(match))
+	matchScripts := make([]*logql_parser.LogQLScript, len(match))
 	var err error
 	for i, m := range match {
-		matchScripts[i], err = parser1.Parse(m)
+		matchScripts[i], err = logql_parser.Parse(m)
 		if err != nil {
 			return nil, err
 		}
 	}
 	selects := make([]shared.SQLRequestPlanner, len(matchScripts))
 	for i, m := range matchScripts {
-		selects[i], err = transpiler.PlanFingerprints(m)
+		selects[i], err = logql_transpiler.PlanFingerprints(m)
 		if err != nil {
 			return nil, err
 		}
@@ -331,11 +331,11 @@ func (q *QueryLabelsService) querySeries(requests []string) (shared.SQLRequestPl
 
 	fpPlanners := make([]shared.SQLRequestPlanner, len(requests))
 	for i, req := range requests {
-		script, err := parser1.ParseSeries(req)
+		script, err := logql_parser.ParseSeries(req)
 		if err != nil {
 			return nil, err
 		}
-		fpPlanners[i], err = transpiler.PlanFingerprints(script)
+		fpPlanners[i], err = logql_transpiler.PlanFingerprints(script)
 		if err != nil {
 			return nil, err
 		}

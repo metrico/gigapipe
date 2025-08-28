@@ -1,7 +1,7 @@
 package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/traceql/transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/reader/utils/sql_select"
 )

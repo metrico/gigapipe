@@ -9,9 +9,9 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	parser "github.com/metrico/qryn/reader/logql/parser"
-	"github.com/metrico/qryn/reader/logql/transpiler"
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_parser"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
 	"github.com/metrico/qryn/reader/utils/dbversion"
@@ -135,7 +135,7 @@ func (q *QueryRangeService) exportStreamsValue(out chan []shared.LogEntry,
 }
 
 func (q *QueryRangeService) getLabelsForVolume(query string) ([]string, error) {
-	script, err := parser.Parse(query)
+	script, err := logql_parser.Parse(query)
 	if err != nil {
 		return nil, err
 	}
@@ -220,9 +220,9 @@ func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query strin
 		return nil, err
 	}
 
-	var script *parser.LogQLScript
+	var script *logql_parser.LogQLScript
 	if query != "" {
-		script, err = parser.Parse(query)
+		script, err = logql_parser.Parse(query)
 		if err != nil {
 			return nil, err
 		}
@@ -244,7 +244,7 @@ func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query strin
 		VersionInfo: versionInfo,
 	}, conn)
 
-	sqlReq, err := transpiler.PlanDetectLabels(script)
+	sqlReq, err := logql_transpiler.PlanDetectLabels(script)
 	if err != nil {
 		return nil, err
 	}
@@ -296,8 +296,8 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 		return nil, err
 	}
 
-	var script *parser.LogQLScript
-	script, err = parser.Parse(query)
+	var script *logql_parser.LogQLScript
+	script, err = logql_parser.Parse(query)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 		Limit:       limit,
 	}, conn)
 
-	sqlReq, err := transpiler.PlanPatterns(script)
+	sqlReq, err := logql_transpiler.PlanPatterns(script)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +490,7 @@ func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fro
 	if err != nil {
 		return nil, false, err
 	}
-	chain, err := transpiler.Transpile(query)
+	chain, err := logql_transpiler.Transpile(query)
 	if err != nil {
 		return nil, false, err
 	}
@@ -630,7 +630,7 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 	if err != nil {
 		return nil, err
 	}
-	sqlQuery, err := transpiler.Transpile(query)
+	sqlQuery, err := logql_transpiler.Transpile(query)
 	if err != nil {
 		return nil, err
 	}

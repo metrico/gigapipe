@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 

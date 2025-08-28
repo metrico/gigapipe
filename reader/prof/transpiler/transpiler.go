@@ -1,7 +1,7 @@
 package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/transpiler/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/prof/parser"
 	shared2 "github.com/metrico/qryn/reader/prof/shared"
 	v1 "github.com/metrico/qryn/reader/prof/types/v1"
