@@ -322,3 +322,83 @@ func (c *CustomCol) String(ctx *Ctx, options ...int) (string, error) {
 func NewCustomCol(fn func(ctx *Ctx, options ...int) (string, error)) SQLObject {
 	return &CustomCol{stringify: fn}
 }
+
+type WindowPoint struct {
+	Unbounded   bool
+	Offset      int32
+	IsFollowing bool
+}
+
+func (w *WindowPoint) String(ctx *Ctx, options ...int) (string, error) {
+	if w.Offset == 0 {
+		return "CURRENT ROW", nil
+	}
+	suffix := "PRECEDING"
+	if w.IsFollowing {
+		suffix = "FOLLOWING"
+	}
+	offset := "UNBOUBDED"
+	if !w.Unbounded {
+		offset = fmt.Sprintf("%d", w.Offset)
+	}
+	return fmt.Sprintf("%s %s", offset, suffix), nil
+}
+
+type WindowFunction struct {
+	Alias       string
+	PartitionBy []SQLObject
+	OrderBy     []SQLObject
+	Rows        bool
+	Start       WindowPoint
+	End         WindowPoint
+}
+
+func (w *WindowFunction) String(ctx *Ctx, options ...int) (string, error) {
+	res := ""
+	if w.Alias != "" {
+		res += fmt.Sprintf("%s AS ", w.Alias)
+	}
+	partitionBy, err := w.stringify(w.PartitionBy, "PARTITION BY", ctx, options...)
+	orderBy, err := w.stringify(w.OrderBy, "ORDER BY", ctx, options...)
+
+	rows := "ROWS"
+	if !w.Rows {
+		rows = "RANGE"
+	}
+	start, err := w.Start.String(ctx, options...)
+	if err != nil {
+		return "", err
+	}
+	end, err := w.End.String(ctx, options...)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s(%s%s %s BETWEEN %s AND %s)", res, partitionBy, orderBy, rows, start, end), nil
+
+}
+
+func (w *WindowFunction) stringify(objs []SQLObject, prefix string, ctx *Ctx, options ...int) (string, error) {
+	if len(objs) == 0 {
+		return "", nil
+	}
+	partitions := make([]string, len(objs))
+	var err error
+	for i, p := range objs {
+		partitions[i], err = p.String(ctx, options...)
+		if err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("%s %s ", prefix, strings.Join(partitions, ", ")), nil
+}
+
+type WindowFunctionRef struct {
+	Fn *WindowFunction
+}
+
+func (w *WindowFunctionRef) String(ctx *Ctx, options ...int) (string, error) {
+	if w.Fn.Alias == "" {
+		return w.Fn.String(ctx, options...)
+	}
+	return fmt.Sprintf("%s", w.Fn.Alias), nil
+}

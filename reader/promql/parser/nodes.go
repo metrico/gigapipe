@@ -1,9 +1,21 @@
 package parser
 
 import (
+	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
+
+type Expr struct {
+	Expr        parser.Expr
+	Substitutes map[string]Substitute
+}
+
+type Substitute struct {
+	MetricName string
+	Node       parser.Node
+	Request    shared.SQLRequestPlanner
+}
 
 const (
 	TPVectorSelector = 0

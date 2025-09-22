@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-type sqlMatch struct {
+type SqlMatch struct {
 	col        sql.SQLObject
 	pattern    string
 	patternObj sql.SQLObject
 }
 
-func (s *sqlMatch) String(ctx *sql.Ctx, opts ...int) (string, error) {
+func (s *SqlMatch) String(ctx *sql.Ctx, opts ...int) (string, error) {
 	strCol, err := s.col.String(ctx, opts...)
 	if err != nil {
 		return "", err

@@ -38,7 +38,7 @@ func (l *LineFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			}
 			clause, err = l.doLike(like)
 		} else {
-			clause = sql.Eq(&sqlMatch{
+			clause = sql.Eq(&SqlMatch{
 				col:     sql.NewRawObject("string"),
 				pattern: l.Val,
 			}, sql.NewIntVal(1))
@@ -54,7 +54,7 @@ func (l *LineFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			}
 			clause, err = l.doLike(like)
 		} else {
-			clause = sql.Eq(&sqlMatch{
+			clause = sql.Eq(&SqlMatch{
 				col:     sql.NewRawObject("string"),
 				pattern: l.Val,
 			}, sql.NewIntVal(1))

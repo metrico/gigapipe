@@ -71,8 +71,9 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	return v1, nil
 }
 
+/*
 type UnionSelect struct {
-	MainSelect sql.ISelect
+	sql.ISelect
 	SubSelects []sql.ISelect
 }
 
@@ -237,3 +238,4 @@ func (u *UnionSelect) SetSetting(name string, value string) sql.ISelect {
 func (u *UnionSelect) GetSettings(table sql.SQLObject) map[string]string {
 	return u.MainSelect.GetSettings(table)
 }
+*/

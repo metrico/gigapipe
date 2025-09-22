@@ -33,7 +33,10 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 	from := ctx.From
 	if s.Offset != nil {
 		from = from.Add(*s.Offset)
+	} else if ctx.Offset.Nanoseconds() != 0 {
+		from = from.Add(ctx.Offset)
 	}
+
 	clauses := make([]sql.SQLCondition, len(s.LabelNames))
 	for i, name := range s.LabelNames {
 		var valClause sql.SQLCondition
@@ -45,11 +48,11 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 			valClause = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(s.Values[i]))
 			break
 		case "=~":
-			valClause = sql.Eq(&sqlMatch{
+			valClause = sql.Eq(&SqlMatch{
 				col: sql.NewRawObject("val"), pattern: s.Values[i]}, sql.NewIntVal(1))
 			break
 		case "!~":
-			valClause = sql.Eq(&sqlMatch{
+			valClause = sql.Eq(&SqlMatch{
 				col: sql.NewRawObject("val"), pattern: s.Values[i]}, sql.NewIntVal(0))
 			break
 		default:
