@@ -2,6 +2,7 @@ package clickhouse_planner
 
 import (
 	"fmt"
+	"github.com/metrico/qryn/writer/config"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 	}
 	var emptyLabels []string
 	for i := len(s.LabelNames) - 1; i >= 0; i-- {
+		if !config.Cloki.Setting.ClokiReader.OmitEmptyValues {
+			break
+		}
 		if s.Ops[i] == "=" && s.Values[i] == "" {
 			emptyLabels = append(emptyLabels, s.LabelNames[i])
 			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)

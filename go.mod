@@ -53,7 +53,7 @@ require (
 	github.com/labstack/gommon v0.4.2
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/m3db/prometheus_remote_client_golang v0.4.4
-	github.com/metrico/cloki-config v0.0.86
+	github.com/metrico/cloki-config v0.0.88
 	github.com/mochi-co/mqtt v1.3.2
 	github.com/openzipkin/zipkin-go v0.4.3
 	github.com/pkg/errors v0.9.1
