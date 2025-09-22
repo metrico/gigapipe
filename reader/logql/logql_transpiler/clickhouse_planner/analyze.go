@@ -68,9 +68,9 @@ func (p *planner) analyzeScript() {
 
 func analyzeOffset(script *logql_parser.LogQLScript) *time.Duration {
 	offset := findFirst[logql_parser.Offset](script)
-	/*if offset == nil {
+	if offset == nil {
 		return nil
-	}*/
+	}
 	d, _ := offset.Duration()
 	return &d
 }
