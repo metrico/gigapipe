@@ -1,13 +1,14 @@
 package stat
 
 import (
-	"github.com/metrico/qryn/writer/metric"
-	"github.com/metrico/qryn/writer/utils/proto/prompb"
 	"math"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/metrico/qryn/writer/metric"
+	"github.com/metrico/qryn/writer/utils/proto/prompb"
 )
 
 var metricsMtx = sync.Mutex{}
@@ -50,11 +51,7 @@ func AddSentMetrics(name string, count int64) {
 		sentMetrics[idx][name] = 0
 	}
 	sentMetrics[idx][name] = sentMetrics[idx][name] + count
-	if _, ok := counters[name+"_counter"]; ok {
-		counters[name+"_counter"] += count
-	} else {
-		counters[name+"_counter"] = count
-	}
+	counters[name+"_counter"] += count
 	// Define a map of metric handlers for different conditions
 	metricHandlers := map[string]func(int64){
 		"json_parse_errors": func(count int64) {
@@ -142,7 +139,7 @@ func getRate() map[string]int64 {
 	return res
 }
 
-var nameSanitizer = regexp.MustCompile("\\W")
+var nameSanitizer = regexp.MustCompile(`\W`)
 
 func SanitizeName(name string) string {
 	return strings.ToLower(nameSanitizer.ReplaceAllString(name, "_"))

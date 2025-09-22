@@ -3,12 +3,12 @@ package unmarshal
 import (
 	"bytes"
 	"fmt"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"io"
 	"strconv"
 	"strings"
 
 	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/writer/utils"
 )
 
 // binaryStreamPProfProtoDec extends pProfProtoDec to handle binary/octet-stream content type
@@ -30,21 +30,21 @@ func (b *binaryStreamPProfProtoDec) Decode() error {
 	var tags []model.StrStr
 
 	// Parse timestamp and duration from context
-	fromValue := b.ctx.ctxMap[heputils.ContextKeyFrom]
+	fromValue := b.ctx.ctxMap[utils.ContextKeyFrom]
 	start, err := strconv.ParseUint(fromValue, 10, 64)
 	if err != nil {
 		fmt.Println("start time error:", err.Error())
 		return fmt.Errorf("failed to parse start time: %w", err)
 	}
 
-	endValue := b.ctx.ctxMap[heputils.ContextKeyUntil]
+	endValue := b.ctx.ctxMap[utils.ContextKeyUntil]
 	end, err := strconv.ParseUint(endValue, 10, 64)
 	if err != nil {
 		return fmt.Errorf("failed to parse end time: %w", err)
 	}
 
 	// Parse name and extract tags if available
-	name := b.ctx.ctxMap[heputils.ContextKeyName]
+	name := b.ctx.ctxMap[utils.ContextKeyName]
 	i := strings.Index(name, "{")
 	length := len(name)
 	if i < 0 {
@@ -168,9 +168,9 @@ func (b *binaryStreamPProfProtoDec) Decode() error {
 
 // Create the new unmarshaller for binary/octet-stream content type
 var UnmarshalBinaryStreamProfileProtoV2 = Build(
-	withStringValueFromCtx(heputils.ContextKeyFrom),
-	withStringValueFromCtx(heputils.ContextKeyName),
-	withStringValueFromCtx(heputils.ContextKeyUntil),
+	withStringValueFromCtx(utils.ContextKeyFrom),
+	withStringValueFromCtx(utils.ContextKeyName),
+	withStringValueFromCtx(utils.ContextKeyUntil),
 	withProfileParser(func(ctx *ParserCtx) iProfilesParser {
 		dec := &binaryStreamPProfProtoDec{pProfProtoDec{ctx: ctx}}
 		return dec

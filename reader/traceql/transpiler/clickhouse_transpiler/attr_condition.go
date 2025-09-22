@@ -2,12 +2,13 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
+	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type AttrConditionPlanner struct {
@@ -104,15 +105,10 @@ func (a *AttrConditionPlanner) aggregator(main sql.ISelect) error {
 		return nil
 	}
 
-	if strings.HasPrefix(a.AggregatedAttr, "span.") {
-		a.AggregatedAttr = a.AggregatedAttr[5:]
-	}
-	if strings.HasPrefix(a.AggregatedAttr, "resource.") {
-		a.AggregatedAttr = a.AggregatedAttr[9:]
-	}
-	if strings.HasPrefix(a.AggregatedAttr, ".") {
-		a.AggregatedAttr = a.AggregatedAttr[1:]
-	}
+	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, "span.")
+	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, "resource.")
+	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, ".")
+
 	s = append(s, sql.NewCol(&sqlAttrValue{a.AggregatedAttr}, "agg_val"))
 	main.Select(s...)
 	a.where = append(a.where, sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(a.AggregatedAttr)))

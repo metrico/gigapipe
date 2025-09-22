@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/reader/logql/logql_parser"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/clickhouse_planner"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
-	"github.com/metrico/qryn/reader/utils/dbVersion"
+	"github.com/metrico/qryn/reader/utils/dbversion"
 	"github.com/metrico/qryn/reader/utils/logger"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"
@@ -200,7 +200,7 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 		tsGinTableName += "_dist"
 	}
 
-	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (q *QueryLabelsService) getMultiMatchValuesPlanner(match []string, key stri
 	}
 	selects := make([]shared.SQLRequestPlanner, len(matchScripts))
 	for i, m := range matchScripts {
-		selects[i], err = logql_transpiler_v2.PlanFingerprints(m)
+		selects[i], err = logql_transpiler.PlanFingerprints(m)
 		if err != nil {
 			return nil, err
 		}
@@ -273,7 +273,7 @@ func (q *QueryLabelsService) Series(ctx context.Context, requests []string, star
 		return nil, err
 	}
 
-	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +335,7 @@ func (q *QueryLabelsService) querySeries(requests []string) (shared.SQLRequestPl
 		if err != nil {
 			return nil, err
 		}
-		fpPlanners[i], err = logql_transpiler_v2.PlanFingerprints(script)
+		fpPlanners[i], err = logql_transpiler.PlanFingerprints(script)
 		if err != nil {
 			return nil, err
 		}

@@ -1,7 +1,7 @@
-package traceql_transpiler
+package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 )
 

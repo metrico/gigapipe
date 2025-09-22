@@ -3,10 +3,10 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	heputils "github.com/metrico/qryn/writer/utils"
 	"net/http"
 	"strings"
 
+	"github.com/metrico/qryn/writer/utils"
 	"github.com/metrico/qryn/writer/utils/unmarshal"
 )
 
@@ -23,8 +23,8 @@ func TargetDocV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Reque
 				if firstSlash != -1 {
 					target = target[:firstSlash]
 				}
-				_ctx := context.WithValue(parserCtx, heputils.ContextKeyTarget, target)
-				_ctx = context.WithValue(_ctx, heputils.ContextKeyID, id)
+				_ctx := context.WithValue(parserCtx, utils.ContextKeyTarget, target)
+				_ctx = context.WithValue(_ctx, utils.ContextKeyID, id)
 				return _ctx, nil
 			}),
 			withSimpleParser("*", Parser(unmarshal.ElasticDocUnmarshalV2)),
@@ -65,7 +65,7 @@ func TargetBulkV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 			params := getRequestParams(req)
 			// Access individual parameter values
 			target := params["target"]
-			_ctx := context.WithValue(parserCtx, heputils.ContextKeyTarget, target)
+			_ctx := context.WithValue(parserCtx, utils.ContextKeyTarget, target)
 			return _ctx, nil
 		}),
 		withSimpleParser("*", Parser(unmarshal.ElasticBulkUnmarshalV2)),
@@ -136,7 +136,7 @@ func TargetBulkV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 func getRequestParams(r *http.Request) map[string]string {
 	params := make(map[string]string)
 	ctx := r.Context()
-	if ctxParams, ok := ctx.Value(heputils.ContextKeyParams).(map[string]string); ok {
+	if ctxParams, ok := ctx.Value(utils.ContextKeyParams).(map[string]string); ok {
 		for key, value := range ctxParams {
 			params[key] = value
 		}

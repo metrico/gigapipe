@@ -2,10 +2,9 @@ package transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/model"
-	"strings"
 
-	logql_transpiler_shared "github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	logql_transpiler_shared "github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/reader/model"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -98,35 +97,5 @@ func processHints(query sql.ISelect, hints *storage.SelectHints) sql.ISelect {
 		)
 	}*/
 
-	return query
-}
-
-func trimLabels(query sql.ISelect, hints *storage.SelectHints) sql.ISelect {
-	var labelsCol sql.SQLObject = nil
-	var sel []sql.SQLObject = nil
-	for _, col := range query.GetSelect() {
-		if col.(sql.Aliased).GetAlias() == "labels" {
-			labelsCol = col.(sql.Aliased).GetExpr()
-			continue
-		}
-		sel = append(sel, col)
-	}
-	if labelsCol == nil {
-		return query
-	}
-	patchedLabels := sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-		strLabels, err := labelsCol.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		op := "IN"
-		if !hints.By {
-			op = "NOT IN"
-		}
-		return fmt.Sprintf("arrayFilter(x -> x.1 %s ('%s'), %s)",
-			op, strings.Join(hints.Grouping, `','`), strLabels), nil
-	})
-	sel = append(sel, sql.NewCol(patchedLabels, "labels"))
-	query.Select(sel...)
 	return query
 }

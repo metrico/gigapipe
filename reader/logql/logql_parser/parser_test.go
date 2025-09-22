@@ -2,8 +2,9 @@ package logql_parser
 
 import (
 	"fmt"
-	"github.com/bradleyjkemp/cupaloy"
 	"testing"
+
+	"github.com/bradleyjkemp/cupaloy"
 )
 
 func TestParser(t *testing.T) {

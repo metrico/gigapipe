@@ -3,17 +3,15 @@ package plugin
 import (
 	"context"
 	"fmt"
-
-	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/writer/ch_wrapper"
-	config2 "github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/model"
-	patternCtrl "github.com/metrico/qryn/writer/pattern/controller"
-
 	"time"
 	"unsafe"
 
+	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/writer/chwrapper"
+	config2 "github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/writer/model"
+	patternCtrl "github.com/metrico/qryn/writer/pattern/controller"
 	"github.com/metrico/qryn/writer/service"
 	"github.com/metrico/qryn/writer/service/insert"
 	"github.com/metrico/qryn/writer/service/registry"
@@ -31,13 +29,13 @@ const (
 	ClustModeStats       = 8
 )
 
-func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer) ([]model.DataDatabasesMap, []ch_wrapper.IChClient, []ch_wrapper.IChClientFactory) {
+func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer) ([]model.DataDatabasesMap, []chwrapper.IChClient, []chwrapper.IChClientFactory) {
 
 	dbNodeMap := []model.DataDatabasesMap{}
 	//dbv2Map := []clickhouse_v2.Conn{}
-	dbv2Map := []ch_wrapper.IChClient{}
+	dbv2Map := []chwrapper.IChClient{}
 	//dbv3Map := []service.IChClientFactory{}
-	dbv3Map := []ch_wrapper.IChClientFactory{}
+	dbv3Map := []chwrapper.IChClientFactory{}
 	// Rlogs
 	if logger.RLogs != nil {
 		clickhouse_v2.WithLogs(func(log *clickhouse_v2.Log) {
@@ -46,7 +44,7 @@ func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer
 	}
 
 	for _, dbObject := range config.DATABASE_DATA {
-		connv2, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
+		connv2, err := chwrapper.NewSmartDatabaseAdapter(&dbObject, true)
 		if err != nil {
 			err = p.humanReadableErrorsFromClickhouse(err)
 			logger.Error(fmt.Sprintf("couldn't make connection to [Host: %s, Node: %s, Port: %d]: \n", dbObject.Host, dbObject.Node, dbObject.Port), err)
@@ -55,8 +53,8 @@ func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer
 
 		dbv2Map = append(dbv2Map, connv2)
 
-		dbv3Map = append(dbv3Map, func() (ch_wrapper.IChClient, error) {
-			connV3, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
+		dbv3Map = append(dbv3Map, func() (chwrapper.IChClient, error) {
+			connV3, err := chwrapper.NewSmartDatabaseAdapter(&dbObject, true)
 			return connV3, err
 		})
 		//connV3, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
@@ -73,7 +71,7 @@ func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer
 	return dbNodeMap, dbv2Map, dbv3Map
 }
 
-func healthCheck(conn ch_wrapper.IChClient, isDistributed bool) {
+func healthCheck(conn chwrapper.IChClient, isDistributed bool) {
 	tablesToCheck := []string{
 		"time_series", "samples_v3", "settings",
 		"tempo_traces", "tempo_traces_attrs_gin",

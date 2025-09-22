@@ -4,7 +4,6 @@ import (
 	"io"
 
 	json "github.com/json-iterator/go"
-
 	"github.com/metrico/qryn/writer/model"
 )
 

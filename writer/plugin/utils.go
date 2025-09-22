@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/metrico/qryn/writer/ch_wrapper"
+	"github.com/metrico/qryn/writer/chwrapper"
 	"github.com/metrico/qryn/writer/config"
 	controllerv1 "github.com/metrico/qryn/writer/controller"
 	apirouterv1 "github.com/metrico/qryn/writer/router"
@@ -86,7 +86,7 @@ func (s SetupState) ToLogLines() []string {
 	}
 }
 
-func checkSetup(conn ch_wrapper.IChClient) SetupState {
+func checkSetup(conn chwrapper.IChClient) SetupState {
 	setupType := "single-server"
 	if config.Cloki.Setting.DATABASE_DATA[0].ClusterName != "" && config.Cloki.Setting.DATABASE_DATA[0].Cloud {
 		setupType = "Distributed + Replicated"
@@ -114,7 +114,7 @@ func checkSetup(conn ch_wrapper.IChClient) SetupState {
 	}
 }
 
-func getShardsNum(conn ch_wrapper.IChClient, clusterName string) int {
+func getShardsNum(conn chwrapper.IChClient, clusterName string) int {
 	to, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 	rows, err := conn.Query(to, "select count(distinct shard_num) from system.clusters where cluster=$1", clusterName)

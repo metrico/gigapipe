@@ -1,7 +1,7 @@
 package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/prof/parser"
 	shared2 "github.com/metrico/qryn/reader/prof/shared"
 	v1 "github.com/metrico/qryn/reader/prof/types/v1"
@@ -114,11 +114,11 @@ func PlanAnalyzeQuery(script *parser.Script) (shared.SQLRequestPlanner, error) {
 
 func populateTypeId(script *parser.Script, tId *shared2.TypeId) {
 	script.Selectors = append(script.Selectors, []parser.Selector{
-		{"__name__", "=", parser.Str{"`" + tId.Tp + "`"}},
-		{"__period_type__", "=", parser.Str{"`" + tId.PeriodType + "`"}},
-		{"__period_unit__", "=", parser.Str{"`" + tId.PeriodUnit + "`"}},
-		{"__sample_type__", "=", parser.Str{"`" + tId.SampleType + "`"}},
-		{"__sample_unit__", "=", parser.Str{"`" + tId.SampleUnit + "`"}},
+		{Name: "__name__", Op: "=", Val: parser.Str{Str: "`" + tId.Tp + "`"}},
+		{Name: "__period_type__", Op: "=", Val: parser.Str{Str: "`" + tId.PeriodType + "`"}},
+		{Name: "__period_unit__", Op: "=", Val: parser.Str{Str: "`" + tId.PeriodUnit + "`"}},
+		{Name: "__sample_type__", Op: "=", Val: parser.Str{Str: "`" + tId.SampleType + "`"}},
+		{Name: "__sample_unit__", Op: "=", Val: parser.Str{Str: "`" + tId.SampleUnit + "`"}},
 	}...)
 }
 

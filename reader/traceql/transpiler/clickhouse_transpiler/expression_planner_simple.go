@@ -2,7 +2,8 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
 )
 
@@ -205,5 +206,4 @@ func (p *simpleExpressionPlanner) analyzeAgg() {
 	p.aggAttr = p.script.Head.Aggregator.Attr
 
 	p.cmpVal = p.script.Head.Aggregator.Num + p.script.Head.Aggregator.Measurement
-	return
 }

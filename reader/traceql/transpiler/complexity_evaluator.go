@@ -1,11 +1,12 @@
-package traceql_transpiler
+package transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	"github.com/metrico/qryn/reader/model"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"sort"
 	"strconv"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type simpleRequestProcessor[T any] interface {
@@ -33,9 +34,9 @@ func (t *TraceQLComplexityEvaluator[T]) Process(ctx *shared.PlannerContext) (cha
 		return nil, err
 	}
 
-	sqlReq, err := evaluateComplexity.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
+	sqlReq, err := evaluateComplexity.String(&sql_select.Ctx{
+		Params: map[string]sql_select.SQLObject{},
+		Result: map[string]sql_select.SQLObject{},
 	})
 	if err != nil {
 		return nil, err

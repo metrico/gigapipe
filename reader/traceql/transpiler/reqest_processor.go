@@ -1,11 +1,12 @@
-package traceql_transpiler
+package transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/utils/logger"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type TraceQLRequestProcessor struct {
@@ -18,15 +19,13 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 		return nil, err
 	}
 
-	var opts []int
-	if ctx.IsCluster {
-		opts = append(opts, sql.STRING_OPT_INLINE_WITH)
-	}
-
-	strReq, err := sqlReq.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
+	strReq, err := sqlReq.String(&sql_select.Ctx{
+		Params: map[string]sql_select.SQLObject{},
+		Result: map[string]sql_select.SQLObject{},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, strReq)
 	if err != nil {

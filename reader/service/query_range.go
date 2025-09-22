@@ -11,11 +11,11 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/reader/logql/logql_parser"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
-	"github.com/metrico/qryn/reader/utils/dbVersion"
+	"github.com/metrico/qryn/reader/utils/dbversion"
 	"github.com/metrico/qryn/reader/utils/logger"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"
@@ -216,7 +216,7 @@ func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query strin
 	if err != nil {
 		return nil, err
 	}
-	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query strin
 		VersionInfo: versionInfo,
 	}, conn)
 
-	sqlReq, err := logql_transpiler_v2.PlanDetectLabels(script)
+	sqlReq, err := logql_transpiler.PlanDetectLabels(script)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 	if err != nil {
 		return nil, err
 	}
-	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 		Limit:       limit,
 	}, conn)
 
-	sqlReq, err := logql_transpiler_v2.PlanPatterns(script)
+	sqlReq, err := logql_transpiler.PlanPatterns(script)
 	if err != nil {
 		return nil, err
 	}
@@ -520,11 +520,11 @@ func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fro
 	if err != nil {
 		return nil, false, err
 	}
-	chain, err := logql_transpiler_v2.Transpile(query)
+	chain, err := logql_transpiler.Transpile(query)
 	if err != nil {
 		return nil, false, err
 	}
-	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, false, err
 	}
@@ -660,7 +660,7 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 	if err != nil {
 		return nil, err
 	}
-	sqlQuery, err := logql_transpiler_v2.Transpile(query)
+	sqlQuery, err := logql_transpiler.Transpile(query)
 	if err != nil {
 		return nil, err
 	}
@@ -681,7 +681,7 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 		stream := json.BorrowStream(nil)
 		defer json.ReturnStream(stream)
 		for range ticker.C {
-			versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+			versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 			if err != nil {
 				logger.Error(err)
 				return

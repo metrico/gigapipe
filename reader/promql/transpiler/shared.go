@@ -1,8 +1,8 @@
 package transpiler
 
 import (
-	logql_transpiler "github.com/metrico/qryn/reader/logql/logql_transpiler_v2/clickhouse_planner"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	logql_transpiler "github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/promql/parser"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"

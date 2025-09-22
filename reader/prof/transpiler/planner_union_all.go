@@ -2,9 +2,10 @@ package transpiler
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"strings"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type UnionAllPlanner struct {
