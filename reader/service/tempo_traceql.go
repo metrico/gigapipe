@@ -6,9 +6,9 @@ import (
 
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
-	traceql_transpiler "github.com/metrico/qryn/reader/traceql/transpiler"
-	"github.com/metrico/qryn/reader/utils/dbversion"
+	traceql_parser "github.com/metrico/qryn/reader/traceql/traceql_parser"
+	traceql_transpiler "github.com/metrico/qryn/reader/traceql/traceql_transpiler"
+	"github.com/metrico/qryn/reader/utils/dbVersion"
 	"github.com/metrico/qryn/reader/utils/tables"
 )
 

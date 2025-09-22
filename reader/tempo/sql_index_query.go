@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metrico/qryn/reader/utils/dbversion"
+	"github.com/metrico/qryn/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 

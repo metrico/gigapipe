@@ -15,7 +15,7 @@ import (
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
-	"github.com/metrico/qryn/reader/utils/dbversion"
+	"github.com/metrico/qryn/reader/utils/dbVersion"
 	"github.com/metrico/qryn/reader/utils/logger"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/metrico/qryn/reader/utils/tables"
