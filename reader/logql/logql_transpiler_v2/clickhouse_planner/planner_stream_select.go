@@ -34,6 +34,15 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 	if s.Offset != nil {
 		from = from.Add(*s.Offset)
 	}
+	var emptyLabels []string
+	for i := len(s.LabelNames) - 1; i >= 0; i-- {
+		if s.Ops[i] == "=" && s.Values[i] == "" {
+			emptyLabels = append(emptyLabels, s.LabelNames[i])
+			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
+			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
+			s.Values = append(s.Values[:i], s.Values[i+1:]...)
+		}
+	}
 	clauses := make([]sql.SQLCondition, len(s.LabelNames))
 	for i, name := range s.LabelNames {
 		var valClause sql.SQLCondition
@@ -70,7 +79,42 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 			sql.Or(clauses...)).
 		GroupBy(sql.NewRawObject("fingerprint")).
 		AndHaving(sql.Eq(&SqlBitSetAnd{clauses}, sql.NewIntVal((1<<len(clauses))-1)))
-	return fpRequest, nil
+	return s.processEmptyLabels(ctx, fpRequest, emptyLabels)
+}
+
+func (s *StreamSelectPlanner) processEmptyLabels(ctx *shared.PlannerContext,
+	req sql.ISelect, emptyLabels []string) (sql.ISelect, error) {
+	if len(emptyLabels) == 0 {
+		return req, nil
+	}
+	var withFpPreRequest *sql.With
+	if len(s.LabelNames) > 0 {
+		withFpPreRequest = sql.NewWith(req, "fp_pre_req")
+	}
+	var emptyClauses []sql.SQLCondition
+	for _, label := range emptyLabels {
+		_l := label
+		c := sql.Eq(sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+			strL, err := sql.NewStringVal(_l).String(ctx, options...)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("simpleJSONHas(labels, %s)", strL), nil
+		}), sql.NewIntVal(0))
+		emptyClauses = append(emptyClauses, c)
+	}
+	res := sql.NewSelect().
+		Select(sql.NewSimpleCol("fingerprint", "fingerprint")).
+		From(sql.NewRawObject(ctx.TimeSeriesTableName)).
+		AndWhere(
+			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(ctx.From))),
+			sql.And(emptyClauses...))
+	if len(s.LabelNames) > 0 {
+		res = res.
+			With(withFpPreRequest).
+			AndWhere(sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFpPreRequest)))
+	}
+	return res, nil
 }
 
 type SqlBitSetAnd struct {
