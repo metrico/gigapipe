@@ -2,10 +2,11 @@ package tables
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"sync"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
-	"sync"
 )
 
 var tableNames = func() map[string]string {

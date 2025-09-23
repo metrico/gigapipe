@@ -1,9 +1,10 @@
 package service
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/clickhouse_planner"
-	"github.com/metrico/qryn/reader/model"
 	"time"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/reader/model"
 )
 
 func getTableName(ctx *model.DataDatabasesMap, name string) string {

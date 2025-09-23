@@ -18,7 +18,7 @@ type SQLIndexQuery struct {
 	Limit         int64
 	Distributed   bool
 	Database      string
-	Ver           dbVersion.VersionInfo
+	Ver           dbversion.VersionInfo
 	Ctx           context.Context
 }
 

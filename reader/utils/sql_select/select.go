@@ -1,4 +1,4 @@
-package sql
+package sql_select
 
 import (
 	"fmt"
@@ -267,9 +267,7 @@ func (s *Select) DropWith(alias ...string) ISelect {
 
 func (s *Select) GetWith() []*With {
 	res := make([]*With, 0, len(s.withs))
-	for _, w := range s.withs {
-		res = append(res, w)
-	}
+	res = append(res, s.withs...)
 	return res
 }
 
@@ -279,9 +277,7 @@ func (s *Select) Join(joins ...*Join) ISelect {
 }
 
 func (s *Select) AddJoin(joins ...*Join) ISelect {
-	for _, lj := range joins {
-		s.joins = append(s.joins, lj)
-	}
+	s.joins = append(s.joins, joins...)
 	return s
 }
 
@@ -377,7 +373,7 @@ func (r *selectRenderer) sel() error {
 	if r.s.distinct {
 		r.res.WriteString(" DISTINCT ")
 	}
-	if r.s.columns == nil || len(r.s.columns) == 0 {
+	if len(r.s.columns) == 0 {
 		return fmt.Errorf("no 'SELECT' part")
 	}
 	for i, col := range r.s.columns {

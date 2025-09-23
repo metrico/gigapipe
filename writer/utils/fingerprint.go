@@ -1,4 +1,4 @@
-package heputils
+package utils
 
 var (
 	offset64      uint64 = 14695981039346656037

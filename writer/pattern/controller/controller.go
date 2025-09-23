@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/metrico/qryn/writer/ch_wrapper"
+	"github.com/metrico/qryn/writer/chwrapper"
 	config "github.com/metrico/qryn/writer/config"
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/pattern/clustering"
@@ -19,7 +19,7 @@ import (
 
 var InsertServiceRegistry registry.ServiceRegistry
 var ClusteringService *clustering.LogClusterer
-var connFactory ch_wrapper.IChClientFactory
+var connFactory chwrapper.IChClientFactory
 var isCluster bool
 var patternsTable string
 
@@ -78,7 +78,7 @@ func ClusterLines(lines []string, fingerprints []uint64, timestamps []int64) {
 
 type InitOpts struct {
 	Service   registry.ServiceRegistry
-	Conns     ch_wrapper.IChClientFactory
+	Conns     chwrapper.IChClientFactory
 	IsCluster bool
 }
 
@@ -195,7 +195,7 @@ WHERE timestamp_10m >= ? AND timestamp_s >= ? GROUP BY pattern_id`, patternsTabl
 }
 
 func (p *PatternsSynchronizer) getPatterns(patternIds []uint64,
-	conn ch_wrapper.IChClient) ([]clustering.PatternInfo, error) {
+	conn chwrapper.IChClient) ([]clustering.PatternInfo, error) {
 	rows, err := conn.Query(context.Background(),
 		fmt.Sprintf(`SELECT pattern_id, 
        max(iteration_id) as iter, 

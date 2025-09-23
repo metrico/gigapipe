@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/plugins"
 	"github.com/metrico/qryn/reader/utils/cityhash102"
@@ -21,7 +21,7 @@ import (
 	"github.com/metrico/qryn/reader/utils/logger"
 	"github.com/metrico/qryn/reader/utils/tables"
 
-	"github.com/metrico/qryn/reader/promql/transpiler"
+	"github.com/metrico/qryn/reader/promql/promql_transpiler"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -135,7 +135,7 @@ var supportedFunctions = map[string]bool{
 }
 
 func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
-	matchers []*labels.Matcher, versionInfo dbVersion.VersionInfo) (*transpiler.TranspileResponse, error) {
+	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
 	isSupported, ok := supportedFunctions[hints.Func]
 
 	c.adjustHintsForRate(hints)
@@ -160,9 +160,9 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 	}
 	tables.PopulateTableNames(&ctx, c.db)
 	if useRawData {
-		return transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
+		return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
 	}
-	return transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
+	return promql_transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
 }
 
 var rateFunctions = []string{"deriv", "rate", "delta"}
@@ -191,7 +191,7 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 	}
 	matchers = _matchers
 
-	versionInfo, err := dbVersion.GetVersionInfo(c.ctx, c.db.Config.ClusterName != "", c.db.Session)
+	versionInfo, err := dbversion.GetVersionInfo(c.ctx, c.db.Config.ClusterName != "", c.db.Session)
 	if err != nil {
 		return &model.SeriesSet{Error: err}
 	}
@@ -378,7 +378,7 @@ func (l *labelsGetter) getFetchRequest(fingerprints map[uint64]bool) sql.ISelect
 		tableName = tables.GetTableName("time_series_dist")
 	}
 	fps := make([]sql.SQLObject, 0, len(fingerprints))
-	for fp, _ := range l.fingerprintToFetch {
+	for fp := range l.fingerprintToFetch {
 		fps = append(fps, sql.NewRawObject(strconv.FormatUint(fp, 10)))
 	}
 	req := sql.NewSelect().

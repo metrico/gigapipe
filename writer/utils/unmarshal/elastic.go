@@ -2,13 +2,14 @@ package unmarshal
 
 import (
 	"bufio"
-	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/writer/model"
-	heputils "github.com/metrico/qryn/writer/utils"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/numbercache"
 	"io"
 	"time"
+
+	"github.com/go-faster/jx"
+	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/writer/utils"
+	customErrors "github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils/numbercache"
 )
 
 type ElasticUnmarshalOpts struct {
@@ -26,8 +27,8 @@ type ElasticUnmarshal struct {
 }
 
 func (e *ElasticUnmarshal) Decode() error {
-	labels := [][]string{{"type", "elastic"}, {"_index", e.ctx.ctxMap[heputils.ContextKeyTarget]}}
-	if id, ok := e.ctx.ctxMap[heputils.ContextKeyID]; ok {
+	labels := [][]string{{"type", "elastic"}, {"_index", e.ctx.ctxMap[utils.ContextKeyTarget]}}
+	if id, ok := e.ctx.ctxMap[utils.ContextKeyID]; ok {
 		labels = append(labels, []string{"_id", id})
 	}
 	return e.onEntries(labels, []int64{time.Now().UnixNano()}, []string{string(e.ctx.bodyBuffer)}, []float64{0},
@@ -38,8 +39,8 @@ func (e *ElasticUnmarshal) SetOnEntries(h onEntriesHandler) {
 }
 
 var ElasticDocUnmarshalV2 = Build(
-	withStringValueFromCtx(heputils.ContextKeyTarget),
-	withStringValueFromCtx(heputils.ContextKeyID),
+	withStringValueFromCtx(utils.ContextKeyTarget),
+	withStringValueFromCtx(utils.ContextKeyID),
 	withBufferedBody,
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &ElasticUnmarshal{ctx: ctx}
@@ -114,7 +115,7 @@ func (e *elasticBulkDec) decodeLine(line []byte) error {
 }
 
 func (e *elasticBulkDec) decodeCreateObj(dec *jx.Decoder) error {
-	target := e.ctx.ctxMap[heputils.ContextKeyTarget]
+	target := e.ctx.ctxMap[utils.ContextKeyTarget]
 	e.labels = [][]string{{"type", "elastic"}}
 	if target != "" {
 		e.labels = append(e.labels, []string{"_index", target})
@@ -137,7 +138,7 @@ func (e *elasticBulkDec) decodeCreateObj(dec *jx.Decoder) error {
 }
 
 var ElasticBulkUnmarshalV2 = Build(
-	withStringValueFromCtx(heputils.ContextKeyTarget),
+	withStringValueFromCtx(utils.ContextKeyTarget),
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &elasticBulkDec{ctx: ctx}
 	}))

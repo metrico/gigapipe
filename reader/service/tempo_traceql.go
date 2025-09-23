@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"time"
+
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/reader/model"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/parser"
-	traceql_transpiler "github.com/metrico/qryn/reader/traceql/transpiler"
+	traceql_parser "github.com/metrico/qryn/reader/traceql/traceql_parser"
+	traceql_transpiler "github.com/metrico/qryn/reader/traceql/traceql_transpiler"
 	"github.com/metrico/qryn/reader/utils/dbVersion"
 	"github.com/metrico/qryn/reader/utils/tables"
-	"time"
 )
 
 func (t *TempoService) SearchTraceQL(ctx context.Context,
@@ -25,7 +26,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	versionInfo, err := dbVersion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
 	}

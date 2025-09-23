@@ -1,4 +1,4 @@
-package sql
+package sql_select
 
 const (
 	STRING_OPT_SKIP_WITH    = 1
