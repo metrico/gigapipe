@@ -1,8 +1,8 @@
-package clickhouse_planner
+package planner
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"time"
 )
@@ -115,7 +115,7 @@ func (r *RatePlanner) values(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		sql.NewSimpleCol("fingerprint", "fingerprint"),
 		sql.NewSimpleCol(timestampCol, "timestamp_ms"),
 		sql.NewSimpleCol("argMaxMerge(last)", "val")).
-		From(sql.NewRawObject(ctx.Metrics15sTableName)). //TODO: DIST SUPPORT
+		From(sql.NewRawObject(ctx.Metrics15sDistTableName)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.Add(time.Minute*5).UnixNano())),
 			sql.Le(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),

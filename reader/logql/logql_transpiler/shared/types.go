@@ -36,6 +36,7 @@ type PlannerContext struct {
 	TimeSeriesTableName     string
 	TimeSeriesDistTableName string
 	Metrics15sTableName     string
+	Metrics15sDistTableName string
 	PatternsTable           string
 
 	TracesAttrsTable     string

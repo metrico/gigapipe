@@ -8,6 +8,6 @@ func Parse(query string) (*Expr, error) {
 	expr, err := parser.ParseExpr(query)
 	return &Expr{
 		Expr:        expr,
-		Substitutes: make(map[string]Substitute),
+		Substitutes: make(map[string]*Substitute),
 	}, err
 }

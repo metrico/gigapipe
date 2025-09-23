@@ -1,7 +1,7 @@
-package clickhouse_planner
+package planner
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/clickhouse_planner"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
 )
 
 type StreamSelectPlanner struct {

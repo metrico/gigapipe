@@ -2,16 +2,15 @@ package optimizer
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/clickhouse_planner"
-	_ "github.com/metrico/qryn/reader/prof/transpiler"
-	"github.com/metrico/qryn/reader/promql/parser"
-	planner "github.com/metrico/qryn/reader/promql/transpiler/planner"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/reader/promql/promql_parser"
+	"github.com/metrico/qryn/reader/promql/promql_transpiler/planner"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
 	"math/rand"
 )
 
 type VectorRange struct {
-	gExpr *parser.Expr
+	gExpr *promql_parser.Expr
 	expr  prom_parser.Expr
 
 	selector *prom_parser.MatrixSelector
@@ -45,7 +44,7 @@ func (v *VectorRange) Applicable(expr prom_parser.Expr) bool {
 	return false
 }
 
-func (v *VectorRange) Optimize(gExpr *parser.Expr, expr prom_parser.Expr) (prom_parser.Expr, error) {
+func (v *VectorRange) Optimize(gExpr *promql_parser.Expr, expr prom_parser.Expr) (prom_parser.Expr, error) {
 	v.gExpr = gExpr
 	v.expr = expr
 	_expr := v.expr.(*prom_parser.Call)
@@ -89,10 +88,13 @@ func (v *VectorRange) rate() prom_parser.Expr {
 
 	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int63())
 
-	v.gExpr.Substitutes[metricName] = parser.Substitute{
+	v.gExpr.Substitutes[metricName] = &promql_parser.Substitute{
 		MetricName: metricName,
 		Node:       v.expr,
 		Request:    ratePlanner,
+		Notes: promql_parser.SubstituteNotes{
+			NeedsLabelsValues: true,
+		},
 	}
 	return &prom_parser.VectorSelector{
 		Name: metricName,

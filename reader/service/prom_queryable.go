@@ -365,6 +365,10 @@ func (l *labelsGetter) Get(fingerprint uint64) labels.Labels {
 	return res
 }
 
+func (l *labelsGetter) Save(fingerprint uint64, labels [][]string) {
+	l.fingerprintsHas[fingerprint] = labels
+}
+
 func (l *labelsGetter) Plan(fingerprint uint64) {
 	l.fingerprintToFetch[fingerprint] = true
 }
@@ -379,7 +383,9 @@ func (l *labelsGetter) getFetchRequest(fingerprints map[uint64]bool) sql.ISelect
 	}
 	fps := make([]sql.SQLObject, 0, len(fingerprints))
 	for fp := range l.fingerprintToFetch {
-		fps = append(fps, sql.NewRawObject(strconv.FormatUint(fp, 10)))
+		if _, ok := l.fingerprintsHas[fp]; !ok {
+			fps = append(fps, sql.NewRawObject(strconv.FormatUint(fp, 10)))
+		}
 	}
 	req := sql.NewSelect().
 		Select(sql.NewRawObject("fingerprint"), sql.NewSimpleCol("JSONExtractKeysAndValues(labels, 'String')", "labels")).

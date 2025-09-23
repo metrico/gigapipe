@@ -1,4 +1,4 @@
-package parser
+package promql_parser
 
 import "testing"
 
