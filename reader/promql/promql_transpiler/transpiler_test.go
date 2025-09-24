@@ -12,7 +12,8 @@ import (
 )
 
 func TestTranspilerV2(t *testing.T) {
-	script, err := promql_parser.Parse("rate(http_requests_total{job=\"myjob\"}[1m])")
+	script, err := promql_parser.Parse("sum by (a) (rate(http_requests_total{job=\"myjob\"}[1m]))")
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +41,18 @@ func TestTranspilerV2(t *testing.T) {
 		}
 		fmt.Println(str)
 	}
+}
+
+func TestTranspilerV2Agg(t *testing.T) {
+	script, err := promql_parser.Parse("sum by (aaa) (http_requests_total{job=\"myjob\"})")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err = TranspileExpressionV2(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	print(script.Expr.String())
 }
 
 func TestTranspilerV1(t *testing.T) {

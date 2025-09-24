@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/metrico/qryn/reader/promql/promql_parser"
 	"math/rand"
 	"slices"
 	"sort"
@@ -77,6 +79,7 @@ type CLokiQueriable struct {
 	random *rand.Rand
 	Ctx    context.Context
 	Stats  *StatsStore
+	Expr   *promql_parser.Expr
 }
 
 func (c *CLokiQueriable) Querier(ctx context.Context, mint, maxt int64) (storage.Querier, error) {
@@ -88,22 +91,25 @@ func (c *CLokiQueriable) Querier(ctx context.Context, mint, maxt int64) (storage
 		return nil, err
 	}
 	return &CLokiQuerier{
-		db:  db,
-		ctx: c.Ctx,
+		db:   db,
+		ctx:  c.Ctx,
+		expr: c.Expr,
 	}, nil
 }
 
-func (c *CLokiQueriable) SetOidAndDB(ctx context.Context) *CLokiQueriable {
+func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Expr) *CLokiQueriable {
 	return &CLokiQueriable{
 		ServiceData: c.ServiceData,
 		random:      c.random,
 		Ctx:         ctx,
+		Expr:        expr,
 	}
 }
 
 type CLokiQuerier struct {
-	db  *model.DataDatabasesMap
-	ctx context.Context
+	db   *model.DataDatabasesMap
+	ctx  context.Context
+	expr *promql_parser.Expr
 }
 
 var supportedFunctions = map[string]bool{
@@ -140,6 +146,8 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 
 	c.adjustHintsForRate(hints)
 
+	hints.Start = hints.Start / 15000 * 15000
+
 	useRawData := hints.Start%15000 != 0 ||
 		hints.Step < 15000 ||
 		(hints.Range > 0 && hints.Range < 15000) ||
@@ -159,6 +167,20 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		VersionInfo: versionInfo,
 	}
 	tables.PopulateTableNames(&ctx, c.db)
+
+	for _, m := range matchers {
+		if m.Name != "__name__" {
+			continue
+		}
+		if _, ok := c.expr.Substitutes[m.Value]; ok {
+			q, err := c.expr.Substitutes[m.Value].Request.Process(&ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &promql_transpiler.TranspileResponse{Query: q}, nil
+		}
+	}
+
 	if useRawData {
 		return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
 	}
@@ -175,7 +197,12 @@ func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
 	hints.Step = step
 }
 
-func (c *CLokiQuerier) isProlong(hints *storage.SelectHints) bool {
+func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.Matcher) bool {
+	for _, m := range matchers {
+		if m.Name == "__name__" && m.Type == labels.MatchEqual && c.expr.Substitutes[m.Value] != nil {
+			return false
+		}
+	}
 	return (slices.Contains(rateFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
 }
 
@@ -211,6 +238,7 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 	if err != nil {
 		return &model.SeriesSet{Error: err}
 	}
+	fmt.Println(str)
 	rows, err := c.db.Session.QueryCtx(c.ctx, str)
 	if err != nil {
 		fmt.Println(str)
@@ -221,6 +249,8 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 		val        float64 = 0
 		ts         int64   = 0
 		lastLabels uint64  = 0
+		tp         int8    = 0
+		lbls       string
 	)
 	res := model.SeriesSet{
 		Error:  nil,
@@ -230,12 +260,26 @@ func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
 	cntRows := 0
 	cntSeries := 0
 	lblsGetter := newLabelsGetter(time.UnixMilli(hints.Start), time.UnixMilli(hints.End), c.db, c.ctx)
-	isProlong := c.isProlong(hints)
+	isProlong := c.isProlong(hints, matchers)
 	for rows.Next() {
-		err = rows.Scan(&fp, &val, &ts)
+		err = rows.Scan(&tp, &fp, &ts, &val, &lbls)
 		if err != nil {
 			return &model.SeriesSet{Error: err}
 		}
+		if tp == 2 {
+			var mLables map[string]string
+			err = json.Unmarshal([]byte(lbls), &mLables)
+			if err != nil {
+				return &model.SeriesSet{Error: err}
+			}
+			var arrLbls [][]string
+			for k, v := range mLables {
+				arrLbls = append(arrLbls, []string{k, v})
+			}
+			lblsGetter.Save(fp, arrLbls)
+			continue
+		}
+
 		if len(res.Series) == 0 || fp != lastLabels {
 			lblsGetter.Plan(fp)
 			lastLabels = fp
@@ -387,6 +431,9 @@ func (l *labelsGetter) getFetchRequest(fingerprints map[uint64]bool) sql.ISelect
 			fps = append(fps, sql.NewRawObject(strconv.FormatUint(fp, 10)))
 		}
 	}
+	if len(fps) == 0 {
+		return nil
+	}
 	req := sql.NewSelect().
 		Select(sql.NewRawObject("fingerprint"), sql.NewSimpleCol("JSONExtractKeysAndValues(labels, 'String')", "labels")).
 		From(sql.NewRawObject(tableName)).
@@ -402,6 +449,9 @@ func (l *labelsGetter) Fetch() error {
 		return nil
 	}
 	req := l.getFetchRequest(l.fingerprintToFetch)
+	if req == nil {
+		return nil
+	}
 	strReq, err := req.String(&sql.Ctx{})
 	if err != nil {
 		return err

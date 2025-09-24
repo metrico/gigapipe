@@ -26,6 +26,11 @@ func FmtRawObject(tmpl string, arg ...interface{}) *RawObject {
 type OrderBy struct {
 	col       SQLObject
 	direction int
+
+	withFill     bool
+	withFillFrom int64
+	withFillTo   int64
+	withFillStep int64
 }
 
 func (o *OrderBy) String(ctx *Ctx, options ...int) (string, error) {
@@ -34,7 +39,21 @@ func (o *OrderBy) String(ctx *Ctx, options ...int) (string, error) {
 		order = "asc"
 	}
 	str, err := o.col.String(ctx, options...)
-	return fmt.Sprintf("%s %s", str, order), err
+
+	var withFillStr string
+	if o.withFill {
+		withFillStr = fmt.Sprintf(" WITH FILL FROM %d TO %d STEP %d ", o.withFillFrom, o.withFillTo, o.withFillStep)
+	}
+
+	return fmt.Sprintf("%s %s %s", str, order, withFillStr), err
+}
+
+func (o *OrderBy) WithFill(from int64, to int64, step int64) *OrderBy {
+	o.withFill = true
+	o.withFillFrom = from
+	o.withFillTo = to
+	o.withFillStep = step
+	return o
 }
 
 func NewOrderBy(col SQLObject, direction int) *OrderBy {

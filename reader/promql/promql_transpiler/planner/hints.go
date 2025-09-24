@@ -36,7 +36,7 @@ func (h *HintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) 
 		query = sql.NewSelect().With(withQuery).Select(
 			sql.NewRawObject("fingerprint"),
 			//sql.NewSimpleCol("spls.labels", "labels"),
-			sql.NewSimpleCol("argMax(spls.value, spls.timestamp_ms)", "value"),
+			sql.NewSimpleCol("argMax(spls.val, spls.timestamp_ms)", "val"),
 			sql.NewSimpleCol(fmt.Sprintf("intDiv(spls.timestamp_ms - %d + %d - 1, %d) * %d + %d",
 				hints.Start, hints.Step, hints.Step, hints.Step, hints.Start), "timestamp_ms"),
 		).From(

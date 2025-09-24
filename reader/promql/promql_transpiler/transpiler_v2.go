@@ -9,6 +9,7 @@ import (
 
 var optimizers = []func() optimizer.Optimizer{
 	func() optimizer.Optimizer { return &optimizer.VectorRange{} },
+	func() optimizer.Optimizer { return &optimizer.Aggregate{} },
 }
 
 func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error) {

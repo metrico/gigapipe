@@ -42,7 +42,7 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 			sql.Gt(msInStep, sql.NewIntVal(hints.Step*1000000-hints.Range*1000000)),
 		))
 	} else {
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d - 1",
+		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d",
 			hints.Step, hints.Step)
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))

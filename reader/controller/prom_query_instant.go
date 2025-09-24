@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"github.com/metrico/qryn/reader/promql/promql_parser"
 	"net/http"
 	"time"
 
@@ -29,7 +30,13 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 		PromError(400, err.Error(), w)
 		return
 	}
-	promQuery, err := q.Api.QueryEngine.NewInstantQuery(q.Storage.SetOidAndDB(ctx), nil, req.Query, req.Time)
+	expr, err := promql_parser.Parse(req.Query)
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	promQuery, err := q.Api.QueryEngine.NewInstantQuery(q.Storage.SetOidAndDB(ctx, expr), nil,
+		expr.Expr.String(), req.Time)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return

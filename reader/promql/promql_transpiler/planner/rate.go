@@ -23,42 +23,63 @@ func (r *RatePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		PartitionBy: []sql.SQLObject{sql.NewRawObject("fingerprint")},
 		OrderBy:     []sql.SQLObject{sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC)},
 		Start:       sql.WindowPoint{Offset: int32(r.Duration.Milliseconds() + 300000)},
-		End:         sql.WindowPoint{Offset: int32(r.Duration.Milliseconds())},
+		End:         sql.WindowPoint{Offset: int32(r.Duration.Milliseconds() - 1)},
 	}
 	closeWindow := sql.WindowFunction{
 		Alias:       "rate_close",
 		PartitionBy: []sql.SQLObject{sql.NewRawObject("fingerprint")},
 		OrderBy:     []sql.SQLObject{sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC)},
-		Start:       sql.WindowPoint{Offset: int32(r.Duration.Milliseconds())},
+		Start:       sql.WindowPoint{Offset: int32(r.Duration.Milliseconds() - 1)},
 		End:         sql.WindowPoint{},
 	}
-	valCol := sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-		strOpenWnd, err := (&sql.WindowFunctionRef{&openWindow}).String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		strCloseWnd, err := (&sql.WindowFunctionRef{&closeWindow}).String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf(
-			"(val - argMax(val, timestamp_ms) OVER %s + sum(reset) OVER %s) / %f",
-			strOpenWnd,
-			strCloseWnd,
-			r.Duration.Seconds()), nil
-	})
-	return sql.NewSelect().
+
+	overWnd := func(col sql.SQLObject, wnd *sql.WindowFunction) sql.SQLObject {
+		return sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+			strCol, err := col.String(ctx, options...)
+			if err != nil {
+				return "", err
+			}
+			strOver, err := (&sql.WindowFunctionRef{wnd}).String(ctx, options...)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("%s OVER %s", strCol, strOver), nil
+		})
+	}
+	ranges_req := sql.NewSelect().
 		With(withResets).
 		Select(
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
-			sql.NewCol(valCol, "val"),
+			sql.NewCol(overWnd(
+				sql.NewRawObject("argMaxIf(val, timestamp_ms, source = 1)"), &openWindow), "start_open"),
+			sql.NewCol(overWnd(
+				sql.NewRawObject("argMinIf(val, timestamp_ms, source = 1)"), &closeWindow), "start_close"),
+			sql.NewCol(overWnd(
+				sql.NewRawObject("argMaxIf(val, timestamp_ms, source = 1)"), &closeWindow), "end"),
+			sql.NewCol(overWnd(
+				sql.NewRawObject("sum(source)"), &closeWindow), "source_end"),
+			sql.NewCol(overWnd(
+				sql.NewRawObject("maxIf(timestamp_ms, source = 1)"), &openWindow), "end_ms"),
+			sql.NewCol(overWnd(
+				sql.NewRawObject("sum(reset)"), &closeWindow), "resets"),
 		).
 		From(sql.NewWithRef(withResets)).
-		AddWindows(&openWindow, &closeWindow).
-		OrderBy(
-			sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
-			sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC)), nil
+		AddWindows(&openWindow, &closeWindow)
+	withRangesReq := sql.NewWith(ranges_req, "rate_ranges")
+	return sql.NewSelect().
+		With(withRangesReq).
+		Select(
+			sql.NewSimpleCol("fingerprint", "fingerprint"),
+			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
+			sql.NewSimpleCol(fmt.Sprintf(
+				"if(source_end != 0, (end - if (start_open > 0, start_open, start_close) + resets) / %f, 0)",
+				r.Duration.Seconds()),
+				"val")).
+		From(sql.NewWithRef(withRangesReq)).
+		OrWhere(sql.Gt(sql.NewRawObject("val"), sql.NewIntVal(0)),
+			sql.Lt(sql.NewRawObject("timestamp_ms - end_ms"), sql.NewIntVal(r.Duration.Milliseconds()+ctx.Step.Milliseconds()))), nil
+
 }
 
 func (r *RatePlanner) resets(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -87,7 +108,7 @@ func (r *RatePlanner) resets(ctx *shared.PlannerContext) (sql.ISelect, error) {
 			return "", err
 		}
 		return fmt.Sprintf(
-			"(argMax(val,timestamp_ms) OVER %s as rate_past_max) * (rate_past_max > val)",
+			"(argMaxIf(val,timestamp_ms, source=1) OVER %s as rate_past_max) * (rate_past_max > val) * (source = 1)",
 			strWnd), nil
 	})
 
@@ -95,7 +116,8 @@ func (r *RatePlanner) resets(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		sql.NewSimpleCol("fingerprint", "fingerprint"),
 		sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 		sql.NewSimpleCol("val", "val"),
-		sql.NewCol(resetCol, "reset")).
+		sql.NewCol(resetCol, "reset"),
+		sql.NewSimpleCol("source", "source")).
 		From(sql.NewWithRef(withValReq)).
 		AddWindows(resetWindow), nil
 }
@@ -108,19 +130,24 @@ func (r *RatePlanner) values(ctx *shared.PlannerContext) (sql.ISelect, error) {
 
 	withFp := sql.NewWith(fp, "fp")
 
-	timestampCol := fmt.Sprintf("intDiv(timestamp_ns, 1000000 * %d) * %d",
-		ctx.Step.Milliseconds(), ctx.Step.Milliseconds())
+	timestampCol := fmt.Sprintf("intDiv(timestamp_ns, %d) * %d",
+		ctx.Step.Nanoseconds(), ctx.Step.Milliseconds())
 
 	valReq := sql.NewSelect().With(withFp).Select(
 		sql.NewSimpleCol("fingerprint", "fingerprint"),
 		sql.NewSimpleCol(timestampCol, "timestamp_ms"),
-		sql.NewSimpleCol("argMaxMerge(last)", "val")).
+		sql.NewSimpleCol("argMaxMerge(last)", "val"),
+		sql.NewSimpleCol("1", "source")).
 		From(sql.NewRawObject(ctx.Metrics15sDistTableName)).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.Add(time.Minute*5).UnixNano())),
+			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.Add(time.Minute*-5).UnixNano())),
 			sql.Le(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
 			sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp))).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ms"))
+		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ms")).
+		OrderBy(
+			sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
+			sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC).
+				WithFill(ctx.From.UnixMilli(), ctx.To.UnixMilli(), ctx.Step.Milliseconds()))
 	return valReq, nil
 
 }
