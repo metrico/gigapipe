@@ -68,7 +68,7 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	case "count_over_time":
 		col = sql.NewRawObject("countMerge(count)")
 	}
-	v1 := m.GetQuery(ctx, col, ctx.Metrics15sTableName)
+	v1 := m.GetQuery(ctx, col, ctx.Metrics15sDistTableName)
 	return v1, nil
 }
 
