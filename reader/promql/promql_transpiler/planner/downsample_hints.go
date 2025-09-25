@@ -1,8 +1,7 @@
-package promql_transpiler
+package planner
 
 import (
 	"fmt"
-
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/storage"
@@ -31,26 +30,42 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 	}
 
 	patchField(query, "value",
-		sql.NewSimpleCol(d.getValueMerge(hints.Func), "value").(sql.Aliased))
+		sql.NewSimpleCol(d.getValueMerge(hints.Func), "val").(sql.Aliased))
 	if rangeVectors[hints.Func] && hints.Step > hints.Range {
 		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns + %d000000, %d * 1000000) * %d - 1",
 			hints.Range, hints.Step, hints.Step)
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
-
 		msInStep := sql.NewRawObject(fmt.Sprintf("timestamp_ns %% %d000000", hints.Step))
 		query.AndWhere(sql.Or(
 			sql.Eq(msInStep, sql.NewIntVal(0)),
 			sql.Gt(msInStep, sql.NewIntVal(hints.Step*1000000-hints.Range*1000000)),
 		))
 	} else {
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d - 1",
+		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d",
 			hints.Step, hints.Step)
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
 	}
+	if d.Hints.Func == "count_over_time" {
+		query = d.countOverTime(query)
+	}
 
 	return query, nil
+}
+
+func (d *DownsampleHintsPlanner) countOverTime(query sql.ISelect) sql.ISelect {
+	query.Select(append(query.GetSelect(), sql.NewSimpleCol("range(toInt64(val))", "arr"))...)
+	withQuery := sql.NewWith(query, "pre_count_over_time")
+	res := sql.NewSelect().
+		With(withQuery).
+		Select(
+			sql.NewSimpleCol("fingerprint", "fingerprint"),
+			sql.NewSimpleCol("1", "val"),
+			sql.NewSimpleCol("timestamp_ms", "timestamp_ms")).
+		From(sql.NewWithRef(withQuery)).
+		Join(sql.NewJoin("array", sql.NewSimpleCol("arr", "arr"), nil))
+	return res
 }
 
 func (d *DownsampleHintsPlanner) getValueMerge(fn string) string {
@@ -87,16 +102,16 @@ func (d *DownsampleHintsPlanner) getValueMerge(fn string) string {
 func (d *DownsampleHintsPlanner) getValueFinalize(fn string) string {
 	supportedRangeVectors := map[string]string{
 		"absent_over_time":  "toFloat64(1)",
-		"min_over_time":     "min(value)",
-		"max_over_time":     "max(value)",
-		"sum_over_time":     "sum(value)",
-		"count_over_time":   "countMerge(value)",
-		"last_over_time":    "argMaxMerge(value)",
+		"min_over_time":     "min(val)",
+		"max_over_time":     "max(val)",
+		"sum_over_time":     "sum(val)",
+		"count_over_time":   "countMerge(val)",
+		"last_over_time":    "argMaxMerge(val)",
 		"present_over_time": "toFloat64(1)",
-		"avg_over_time":     "sum(value.1) / sum(value.2)",
+		"avg_over_time":     "sum(val.1) / sum(val.2)",
 	}
 	if col, ok := supportedRangeVectors[fn]; ok {
 		return col
 	}
-	return "argMaxMerge(value)"
+	return "argMaxMerge(val)"
 }

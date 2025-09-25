@@ -89,11 +89,11 @@ func (s *LabelFilterPlanner) makeSimpleStrSqlCond(_ *shared.PlannerContext, expr
 		sqlOp = sql.Eq
 	case "=~":
 		sqlOp = func(left sql.SQLObject, right sql.SQLObject) *sql.LogicalOp {
-			return sql.Eq(&sqlMatch{col: left, patternObj: right}, sql.NewIntVal(1))
+			return sql.Eq(&SqlMatch{col: left, patternObj: right}, sql.NewIntVal(1))
 		}
 	case "!~":
 		sqlOp = func(left sql.SQLObject, right sql.SQLObject) *sql.LogicalOp {
-			return sql.Eq(&sqlMatch{col: left, patternObj: right}, sql.NewIntVal(0))
+			return sql.Eq(&SqlMatch{col: left, patternObj: right}, sql.NewIntVal(0))
 		}
 	case "!=":
 		sqlOp = sql.Neq

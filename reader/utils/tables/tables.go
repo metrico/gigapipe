@@ -58,7 +58,6 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	samplesTableName := GetTableName("samples_v3")
 	timeSeriesTableName := GetTableName("time_series")
 	timeSeriesDistTableName := GetTableName("time_series")
-	metrics15sTableName := GetTableName("metrics_15s")
 	patternsTableName := GetTableName("patterns")
 
 	ctx.ProfilesSeriesGinTable = GetTableName("profiles_series_gin")
@@ -69,6 +68,8 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.ProfilesSeriesDistTable = GetTableName("profiles_series")
 	ctx.PatternsTable = patternsTableName
 	ctx.PatternsDistTable = patternsTableName
+	ctx.Metrics15sTableName = GetTableName("metrics_15s")
+	ctx.Metrics15sDistTableName = GetTableName("metrics_15s")
 
 	ctx.TracesAttrsTable = GetTableName("tempo_traces_attrs_gin")
 	ctx.TracesAttrsDistTable = GetTableName("tempo_traces_attrs_gin")
@@ -82,7 +83,6 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 		samplesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, samplesTableName)
 		timeSeriesTableName = fmt.Sprintf("`%s`.%s", db.Config.Name, timeSeriesTableName)
 		timeSeriesDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, timeSeriesDistTableName)
-		metrics15sTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, metrics15sTableName)
 		ctx.ProfilesSeriesGinDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesSeriesGinTable)
 		ctx.ProfilesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesTable)
 		ctx.ProfilesSeriesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesSeriesTable)
@@ -90,11 +90,11 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 		ctx.TracesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesTable)
 		ctx.TracesKVDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesKVTable)
 		ctx.PatternsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.PatternsTable)
+		ctx.Metrics15sDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.Metrics15sTableName)
 	}
 	ctx.TimeSeriesGinTableName = tsGinTable
 	ctx.SamplesTableName = samplesTableName
 	ctx.TimeSeriesTableName = timeSeriesTableName
 	ctx.TimeSeriesDistTableName = timeSeriesDistTableName
-	ctx.Metrics15sTableName = metrics15sTableName
 	return ctx
 }

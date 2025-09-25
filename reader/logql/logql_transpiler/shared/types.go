@@ -29,12 +29,14 @@ type PlannerContext struct {
 	To        time.Time
 	OrderASC  bool
 	Limit     int64
+	Offset    time.Duration
 
 	TimeSeriesGinTableName  string
 	SamplesTableName        string
 	TimeSeriesTableName     string
 	TimeSeriesDistTableName string
 	Metrics15sTableName     string
+	Metrics15sDistTableName string
 	PatternsTable           string
 
 	TracesAttrsTable     string

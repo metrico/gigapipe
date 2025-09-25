@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+	"github.com/metrico/qryn/reader/promql/promql_parser"
+	"github.com/metrico/qryn/reader/promql/promql_transpiler"
 	"math"
 	"net/http"
 	"strconv"
@@ -65,8 +67,22 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 			w)
 		return
 	}
-	rangeQuery, err := q.Api.QueryEngine.NewRangeQuery(q.Storage.SetOidAndDB(internalCtx), nil,
-		req.Query, req.Start, req.End, req.Step)
+	expr, err := promql_parser.Parse(req.Query)
+	if err != nil {
+		logger.Error("[PQRC004] " + err.Error())
+		PromError(400, err.Error(), w)
+		return
+	}
+	if r.Header.Get("X-Experimental") == "1" {
+		expr, err = promql_transpiler.TranspileExpressionV2(expr)
+		if err != nil {
+			logger.Error("[PQRC005] " + err.Error())
+			PromError(500, err.Error(), w)
+			return
+		}
+	}
+	rangeQuery, err := q.Api.QueryEngine.NewRangeQuery(q.Storage.SetOidAndDB(internalCtx, expr), nil,
+		expr.Expr.String(), req.Start, req.End, req.Step)
 	if err != nil {
 		logger.Error("[PQRC001] " + err.Error())
 		PromError(500, err.Error(), w)

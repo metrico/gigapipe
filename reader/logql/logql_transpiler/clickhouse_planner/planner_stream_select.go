@@ -35,6 +35,8 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 	from := ctx.From
 	if s.Offset != nil {
 		from = from.Add(*s.Offset)
+	} else if ctx.Offset.Nanoseconds() != 0 {
+		from = from.Add(ctx.Offset)
 	}
 	var emptyLabels []string
 	for i := len(s.LabelNames) - 1; i >= 0; i-- {
@@ -57,10 +59,10 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		case "!=":
 			valClause = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(s.Values[i]))
 		case "=~":
-			valClause = sql.Eq(&sqlMatch{
+			valClause = sql.Eq(&SqlMatch{
 				col: sql.NewRawObject("val"), pattern: s.Values[i]}, sql.NewIntVal(1))
 		case "!~":
-			valClause = sql.Eq(&sqlMatch{
+			valClause = sql.Eq(&SqlMatch{
 				col: sql.NewRawObject("val"), pattern: s.Values[i]}, sql.NewIntVal(0))
 		default:
 			return nil, &shared.NotSupportedError{
