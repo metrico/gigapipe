@@ -142,6 +142,11 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 		cfg.Setting.DATABASE_DATA[0].StoragePolicy = os.Getenv("STORAGE_POLICY")
 	}
 
+	cfg.Setting.ClokiReader.OmitEmptyValues, err = boolEnv("ADVANCED_OMIT_EMPTY_VALUES")
+	if err != nil {
+		return fmt.Errorf("invalid ADVANCED_OMIT_EMPTY_VALUES value: %w", err)
+	}
+
 	return nil
 }
 
