@@ -2,10 +2,11 @@ package service
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/prof"
-	"github.com/metrico/qryn/writer/utils/heputils/cityhash102"
 	"sort"
 	"unsafe"
+
+	"github.com/metrico/qryn/reader/prof"
+	"github.com/metrico/qryn/writer/utils/helputils/cityhash102"
 )
 
 func clone[T any](v *T) *T {

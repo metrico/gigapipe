@@ -8,7 +8,7 @@ import (
 
 	"github.com/metrico/qryn/reader/model"
 	"github.com/metrico/qryn/reader/prof"
-	"github.com/metrico/qryn/reader/prof/parser"
+	"github.com/metrico/qryn/reader/prof/prof_parser"
 	"github.com/metrico/qryn/reader/prof/shared"
 	v1 "github.com/metrico/qryn/reader/prof/types/v1"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
@@ -491,7 +491,7 @@ func (ps *ProfService) AnalyzeQuery(ctx context.Context, strQuery string,
 		return nil, err
 	}
 
-	query, err := parser.Parse(strQuery)
+	query, err := prof_parser.Parse(strQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +522,7 @@ func (ps *ProfService) AnalyzeQuery(ctx context.Context, strQuery string,
 	}, nil
 }
 
-func (ps *ProfService) getTree(ctx context.Context, script *parser.Script, typeId *shared.TypeId,
+func (ps *ProfService) getTree(ctx context.Context, script *prof_parser.Script, typeId *shared.TypeId,
 	start, end time.Time, db *model.DataDatabasesMap) (*Tree, error) {
 	sel, err := prof.PlanMergeTraces(ctx, script, typeId, start, end, db)
 	if err != nil {
@@ -546,11 +546,11 @@ func (ps *ProfService) getTree(ctx context.Context, script *parser.Script, typeI
 	return tree, nil
 }
 
-func (ps *ProfService) parseScripts(strScripts []string) ([]*parser.Script, error) {
+func (ps *ProfService) parseScripts(strScripts []string) ([]*prof_parser.Script, error) {
 	var err error
-	scripts := make([]*parser.Script, len(strScripts))
+	scripts := make([]*prof_parser.Script, len(strScripts))
 	for i, strScript := range strScripts {
-		scripts[i], err = parser.Parse(strScript)
+		scripts[i], err = prof_parser.Parse(strScript)
 		if err != nil {
 			return nil, err
 		}

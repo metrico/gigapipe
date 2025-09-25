@@ -1,4 +1,4 @@
-package sql
+package sql_select
 
 const (
 	STRING_OPT_SKIP_WITH    = 1
@@ -71,6 +71,9 @@ type ISelect interface {
 	String(ctx *Ctx, options ...int) (string, error)
 	SetSetting(name string, value string) ISelect
 	GetSettings(table SQLObject) map[string]string
+	AddWindows(windows ...*WindowFunction) ISelect
+	GetWindows() []*WindowFunction
+	SetWindows(windows ...*WindowFunction) ISelect
 }
 
 type Aliased interface {

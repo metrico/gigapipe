@@ -12,14 +12,13 @@ import (
 
 	"github.com/go-faster/city"
 	"github.com/go-faster/jx"
-	clc_writer "github.com/metrico/cloki-config/config/writer"
+	clcwriter "github.com/metrico/cloki-config/config/writer"
 	"github.com/metrico/qryn/writer/config"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/heputils"
-	"github.com/metrico/qryn/writer/utils/heputils/cityhash102"
-	"github.com/metrico/qryn/writer/utils/logger"
-
 	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/writer/utils/helputils"
+	"github.com/metrico/qryn/writer/utils/helputils/cityhash102"
+	"github.com/metrico/qryn/writer/utils/logger"
 )
 
 type pushRequestDec struct {
@@ -92,13 +91,13 @@ func (p *pushRequestDec) decodeStreamStream(d *jx.Decoder) error {
 	err := d.Obj(func(d *jx.Decoder, key string) error {
 		val, err := d.Str()
 		if err != nil {
-			return customErrors.NewUnmarshalError(err)
+			return errors.NewUnmarshalError(err)
 		}
 		p.Labels = append(p.Labels, []string{key, val})
 		return nil
 	})
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 
 	p.Labels = sanitizeLabels(p.Labels)
@@ -109,11 +108,11 @@ func (p *pushRequestDec) decodeStreamStream(d *jx.Decoder) error {
 func (p *pushRequestDec) decodeStreamLabels(d *jx.Decoder) error {
 	labelsBytes, err := d.StrBytes()
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 	p.Labels, err = parseLabelsLokiFormat(labelsBytes, p.Labels)
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 	p.Labels = sanitizeLabels(p.Labels)
 	return err
@@ -140,7 +139,7 @@ func (p *pushRequestDec) decodeStreamValue(d *jx.Decoder) error {
 		case 0:
 			strTsNs, err := d.Str()
 			if err != nil {
-				return customErrors.NewUnmarshalError(err)
+				return errors.NewUnmarshalError(err)
 			}
 			tsNs, err = strconv.ParseInt(strTsNs, 10, 64)
 			return err
@@ -166,7 +165,7 @@ func (p *pushRequestDec) decodeStreamValue(d *jx.Decoder) error {
 	}
 
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 
 	p.TsNs = append(p.TsNs, tsNs)
@@ -220,7 +219,7 @@ func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
 		}
 	})
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 
 	if tp == 3 {
@@ -232,7 +231,7 @@ func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
 	p.Value = append(p.Value, val)
 	p.Types = append(p.Types, tp)
 	if err != nil {
-		return customErrors.NewUnmarshalError(err)
+		return errors.NewUnmarshalError(err)
 	}
 	return nil
 }
@@ -262,10 +261,10 @@ func fingerprintLabels(lbls [][]string) uint64 {
 	fingerByte := unsafe.Slice((*byte)(unsafe.Pointer(&determs[0])), 24)
 	var fingerPrint uint64
 	switch config.Cloki.Setting.FingerPrintType {
-	case clc_writer.FINGERPRINT_CityHash:
+	case clcwriter.FINGERPRINT_CityHash:
 		fingerPrint = city.CH64(fingerByte)
-	case clc_writer.FINGERPRINT_Bernstein:
-		fingerPrint = uint64(heputils.FingerprintLabelsDJBHashPrometheus(fingerByte))
+	case clcwriter.FINGERPRINT_Bernstein:
+		fingerPrint = uint64(helputils.FingerprintLabelsDJBHashPrometheus(fingerByte))
 	}
 	return fingerPrint
 }
@@ -293,21 +292,21 @@ func parseTime(b []byte) (int64, error) {
 			if e != nil {
 
 				logger.Debug("ERROR unmarshaling this string: ", e.Error())
-				return 0, customErrors.NewUnmarshalError(e)
+				return 0, errors.NewUnmarshalError(e)
 			}
 			return t.UTC().UnixNano(), nil
 		} else {
 			timestamp, err = strconv.ParseInt(val, 10, 64)
 			if err != nil {
 				logger.Debug("ERROR unmarshaling this NS: ", val, err)
-				return 0, customErrors.NewUnmarshalError(err)
+				return 0, errors.NewUnmarshalError(err)
 			}
 		}
 		return timestamp, nil
 	} else {
 		err = fmt.Errorf("bad byte array for Unmarshaling")
 		logger.Debug("bad data: ", err)
-		return 0, customErrors.NewUnmarshalError(err)
+		return 0, errors.NewUnmarshalError(err)
 	}
 }
 
@@ -340,7 +339,7 @@ func parseLabelsLokiFormat(labels []byte, buf [][]string) ([][]string, error) {
 		}
 		val, err := strconv.Unquote(s.TokenText())
 		if err != nil {
-			return nil, customErrors.NewUnmarshalError(err)
+			return nil, errors.NewUnmarshalError(err)
 		}
 		tok = s.Scan()
 		buf = append(buf, []string{name, val})

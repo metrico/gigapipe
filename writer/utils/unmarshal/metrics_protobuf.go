@@ -1,10 +1,11 @@
 package unmarshal
 
 import (
+	"time"
+
 	"github.com/metrico/qryn/writer/model"
 	"github.com/metrico/qryn/writer/utils/proto/prompb"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 type promMetricsProtoDec struct {

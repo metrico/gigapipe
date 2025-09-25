@@ -1,7 +1,7 @@
 package metric
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 	"unicode"
 
@@ -23,9 +23,9 @@ func (p *Prometheus) reload() {
 	var fsTargetIP []string
 	var fsTargetName []string
 
-	fb, err := ioutil.ReadFile(config.NAME_APPLICATION)
+	fb, err := os.ReadFile(config.NAME_APPLICATION)
 	if err != nil {
-		logger.Error("%v", err)
+		logger.Logger.Errorf("%v", err)
 		return
 	}
 
@@ -56,11 +56,11 @@ func (p *Prometheus) reload() {
 			p.TargetMap[p.TargetIP[i]] = p.TargetName[i]
 		}
 		p.TargetConf.Unlock()
-		logger.Info("successfully reloaded PromTargetIP: %#v", fsTargetIP)
-		logger.Info("successfully reloaded PromTargetName: %#v", fsTargetName)
+		logger.Logger.Infof("successfully reloaded PromTargetIP: %#v", fsTargetIP)
+		logger.Logger.Infof("successfully reloaded PromTargetName: %#v", fsTargetName)
 	} else {
-		logger.Info("failed to reload PromTargetIP: %#v", fsTargetIP)
-		logger.Info("failed to reload PromTargetName: %#v", fsTargetName)
-		logger.Info("please give every PromTargetIP a unique IP and PromTargetName a unique name")
+		logger.Logger.Infof("failed to reload PromTargetIP: %#v", fsTargetIP)
+		logger.Logger.Infof("failed to reload PromTargetName: %#v", fsTargetName)
+		logger.Logger.Infof("please give every PromTargetIP a unique IP and PromTargetName a unique name")
 	}
 }

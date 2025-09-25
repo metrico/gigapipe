@@ -3,10 +3,11 @@ package plugins
 import (
 	"context"
 	"errors"
-	"github.com/metrico/qryn/reader/logql/logql_parser"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler_v2/shared"
-	"github.com/metrico/qryn/reader/model"
 	"net/http"
+
+	logql_parser "github.com/metrico/qryn/reader/logql/logql_parser"
+	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/reader/model"
 )
 
 var ErrPluginNotApplicable = errors.New("plugin not applicable")

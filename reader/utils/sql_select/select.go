@@ -1,4 +1,4 @@
-package sql
+package sql_select
 
 import (
 	"fmt"
@@ -18,6 +18,7 @@ type Select struct {
 	offset   SQLObject
 	withs    []*With
 	joins    []*Join
+	windows  []*WindowFunction
 	settings map[string]string
 }
 
@@ -266,9 +267,7 @@ func (s *Select) DropWith(alias ...string) ISelect {
 
 func (s *Select) GetWith() []*With {
 	res := make([]*With, 0, len(s.withs))
-	for _, w := range s.withs {
-		res = append(res, w)
-	}
+	res = append(res, s.withs...)
 	return res
 }
 
@@ -278,9 +277,7 @@ func (s *Select) Join(joins ...*Join) ISelect {
 }
 
 func (s *Select) AddJoin(joins ...*Join) ISelect {
-	for _, lj := range joins {
-		s.joins = append(s.joins, lj)
-	}
+	s.joins = append(s.joins, joins...)
 	return s
 }
 
@@ -288,142 +285,47 @@ func (s *Select) GetJoin() []*Join {
 	return s.joins
 }
 
+func (s *Select) AddWindows(windows ...*WindowFunction) ISelect {
+	s.windows = append(s.windows, windows...)
+	return s
+}
+
+func (s *Select) GetWindows() []*WindowFunction {
+	return s.windows
+}
+
+func (s *Select) SetWindows(windows ...*WindowFunction) ISelect {
+	s.windows = windows
+	return s
+}
+
 func (s *Select) String(ctx *Ctx, options ...int) (string, error) {
 	res := strings.Builder{}
-	skipWith := false
-	for _, i := range options {
-		skipWith = skipWith || i == STRING_OPT_SKIP_WITH || i == STRING_OPT_INLINE_WITH
+	renderer := selectRenderer{
+		ctx:     ctx,
+		options: options,
+		s:       s,
+		res:     &res,
 	}
-	if !skipWith && len(s.withs) > 0 {
-		res.WriteString("WITH ")
-		i := 0
-		_options := append(options, STRING_OPT_SKIP_WITH)
-		for _, w := range s.withs {
-			if i != 0 {
-				res.WriteRune(',')
-			}
-			str, err := w.String(ctx, _options...)
-			if err != nil {
-				return "", err
-			}
-			res.WriteString(str)
-			i++
-		}
+
+	funcs := []func() error{
+		renderer.with,
+		renderer.sel,
+		renderer.from,
+		renderer.prewhere,
+		renderer.where,
+		renderer.groupBy,
+		renderer.having,
+		renderer.window,
+		renderer.orderBy,
+		renderer.limit,
+		renderer.offset,
+		renderer.settings,
 	}
-	res.WriteString(" SELECT ")
-	if s.distinct {
-		res.WriteString(" DISTINCT ")
-	}
-	if s.columns == nil || len(s.columns) == 0 {
-		return "", fmt.Errorf("no 'SELECT' part")
-	}
-	for i, col := range s.columns {
-		if i != 0 {
-			res.WriteString(", ")
-		}
-		str, err := col.String(ctx, options...)
-		if err != nil {
+
+	for _, f := range funcs {
+		if err := f(); err != nil {
 			return "", err
-		}
-		res.WriteString(str)
-	}
-	var (
-		str string
-		err error
-	)
-	if s.from != nil {
-		res.WriteString(" FROM ")
-		str, err = s.from.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		res.WriteString(str)
-		for _, lj := range s.joins {
-			res.WriteString(fmt.Sprintf(" %s JOIN ", lj.tp))
-			str, err = lj.String(ctx, options...)
-			if err != nil {
-				return "", err
-			}
-			res.WriteString(str)
-		}
-	}
-	if s.preWhere != nil {
-		res.WriteString(" PREWHERE ")
-		str, err = s.preWhere.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		res.WriteString(str)
-	}
-	if s.where != nil {
-		res.WriteString(" WHERE ")
-		str, err = s.where.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		res.WriteString(str)
-	}
-	if s.groupBy != nil && len(s.groupBy) > 0 {
-		res.WriteString(" GROUP BY ")
-		for i, f := range s.groupBy {
-			if i != 0 {
-				res.WriteString(", ")
-			}
-			str, err = f.String(ctx, options...)
-			if err != nil {
-				return "", err
-			}
-			res.WriteString(str)
-		}
-	}
-	if s.having != nil {
-		res.WriteString(" HAVING ")
-		str, err = s.having.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		res.WriteString(str)
-	}
-	if s.orderBy != nil && len(s.orderBy) > 0 {
-		res.WriteString(" ORDER BY ")
-		for i, f := range s.orderBy {
-			if i != 0 {
-				res.WriteString(", ")
-			}
-			str, err = f.String(ctx, options...)
-			if err != nil {
-				return "", err
-			}
-			res.WriteString(str)
-		}
-	}
-	if s.limit != nil {
-		str, err = s.limit.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		if str != "" {
-			res.WriteString(" LIMIT ")
-			res.WriteString(str)
-		}
-	}
-	if s.offset != nil {
-		str, err = s.offset.String(ctx, options...)
-		if err != nil {
-			return "", err
-		}
-		if str != "" {
-			res.WriteString(" OFFSET ")
-			res.WriteString(str)
-		}
-	}
-	if s.settings != nil {
-		res.WriteString(" SETTINGS ")
-		for k, v := range s.settings {
-			res.WriteString(k)
-			res.WriteString("=")
-			res.WriteString(v)
-			res.WriteString(" ")
 		}
 	}
 	return res.String(), nil
@@ -431,4 +333,221 @@ func (s *Select) String(ctx *Ctx, options ...int) (string, error) {
 
 func NewSelect() ISelect {
 	return &Select{}
+}
+
+type selectRenderer struct {
+	ctx     *Ctx
+	options []int
+	s       *Select
+	res     *strings.Builder
+}
+
+func (r *selectRenderer) with() error {
+	skipWith := false
+	for _, i := range r.options {
+		skipWith = skipWith || i == STRING_OPT_SKIP_WITH || i == STRING_OPT_INLINE_WITH
+	}
+
+	if skipWith || len(r.s.withs) == 0 {
+		return nil
+	}
+	r.res.WriteString("WITH ")
+	i := 0
+	_options := append(r.options, STRING_OPT_SKIP_WITH)
+	for _, w := range r.s.withs {
+		if i != 0 {
+			r.res.WriteRune(',')
+		}
+		str, err := w.String(r.ctx, _options...)
+		if err != nil {
+			return err
+		}
+		r.res.WriteString(str)
+		i++
+	}
+	return nil
+}
+
+func (r *selectRenderer) sel() error {
+	r.res.WriteString(" SELECT ")
+	if r.s.distinct {
+		r.res.WriteString(" DISTINCT ")
+	}
+	if len(r.s.columns) == 0 {
+		return fmt.Errorf("no 'SELECT' part")
+	}
+	for i, col := range r.s.columns {
+		if i != 0 {
+			r.res.WriteString(", ")
+		}
+		str, err := col.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
+		r.res.WriteString(str)
+	}
+	return nil
+}
+
+func (r *selectRenderer) from() error {
+	if r.s.from == nil {
+		return nil
+	}
+	r.res.WriteString(" FROM ")
+	str, err := r.s.from.String(r.ctx, r.options...)
+	if err != nil {
+		return err
+	}
+	r.res.WriteString(str)
+	for _, lj := range r.s.joins {
+		r.res.WriteString(fmt.Sprintf(" %s JOIN ", lj.tp))
+		str, err = lj.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
+		r.res.WriteString(str)
+	}
+	return nil
+}
+
+func (r *selectRenderer) prewhere() error {
+	if r.s.preWhere == nil {
+		return nil
+	}
+	r.res.WriteString(" PREWHERE ")
+	str, err := r.s.preWhere.String(r.ctx, r.options...)
+	if err != nil {
+		return err
+	}
+	r.res.WriteString(str)
+	return nil
+}
+
+func (r *selectRenderer) where() error {
+	if r.s.where == nil {
+		return nil
+	}
+	r.res.WriteString(" WHERE ")
+	str, err := r.s.where.String(r.ctx, r.options...)
+	if err != nil {
+		return err
+	}
+	r.res.WriteString(str)
+	return nil
+}
+
+func (r *selectRenderer) groupBy() error {
+	if len(r.s.groupBy) == 0 {
+		return nil
+	}
+	r.res.WriteString(" GROUP BY ")
+	for i, f := range r.s.groupBy {
+		if i != 0 {
+			r.res.WriteString(", ")
+		}
+		str, err := f.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
+		r.res.WriteString(str)
+	}
+	return nil
+}
+
+func (r *selectRenderer) having() error {
+	if r.s.having == nil {
+		return nil
+	}
+	r.res.WriteString(" HAVING ")
+	str, err := r.s.having.String(r.ctx, r.options...)
+	if err != nil {
+		return err
+	}
+	r.res.WriteString(str)
+	return nil
+}
+
+func (r *selectRenderer) window() error {
+	if len(r.s.windows) == 0 {
+		return nil
+	}
+	windows := make([]string, len(r.s.windows))
+	var err error
+	i := 0
+	for _, w := range r.s.windows {
+		if w.Alias == "" {
+			continue
+		}
+		windows[i], err = w.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
+		i++
+	}
+	if i > 0 {
+		r.res.WriteString(fmt.Sprintf(" WINDOW %s", strings.Join(windows[:i], ", ")))
+	}
+	return nil
+}
+
+func (r *selectRenderer) orderBy() error {
+	if len(r.s.orderBy) == 0 {
+		return nil
+	}
+	r.res.WriteString(" ORDER BY ")
+	for i, f := range r.s.orderBy {
+		if i != 0 {
+			r.res.WriteString(", ")
+		}
+		str, err := f.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
+		r.res.WriteString(str)
+	}
+	return nil
+}
+
+func (r *selectRenderer) limit() error {
+	if r.s.limit == nil {
+		return nil
+	}
+	str, err := r.s.limit.String(r.ctx, r.options...)
+	if err != nil {
+		return err
+	}
+	if str != "" {
+		r.res.WriteString(" LIMIT ")
+		r.res.WriteString(str)
+	}
+	return nil
+}
+
+func (r *selectRenderer) offset() error {
+	if r.s.offset == nil {
+		return nil
+	}
+	str, err := r.s.offset.String(r.ctx, r.options...)
+	if err != nil {
+		return err
+	}
+	if str != "" {
+		r.res.WriteString(" OFFSET ")
+		r.res.WriteString(str)
+	}
+	return nil
+}
+
+func (r *selectRenderer) settings() error {
+	if r.s.settings == nil {
+		return nil
+	}
+	r.res.WriteString(" SETTINGS ")
+	for k, v := range r.s.settings {
+		r.res.WriteString(k)
+		r.res.WriteString("=")
+		r.res.WriteString(v)
+		r.res.WriteString(" ")
+	}
+	return nil
 }
