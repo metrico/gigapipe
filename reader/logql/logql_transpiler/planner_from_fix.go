@@ -70,13 +70,10 @@ func (m *FixPeriodPlanner) Process(ctx *shared.PlannerContext,
 				if idxTo < 0 || idxFrom >= int64(len(values)) {
 					continue
 				}
-				if idxFrom < 0 {
-					idxFrom = 0
-				}
-				if idxTo >= int64(len(values)) {
-					idxTo = int64(len(values)) - 1
-				}
-				fastFill(values[idxFrom:idxTo+1], entry.Value)
+				idxFrom = max(idxFrom, 0)
+				idxTo = min(idxTo, int64(len(values)))
+				idxTo = max(idxTo, idxFrom+1)
+				fastFill(values[idxFrom:idxTo], entry.Value)
 			}
 		}
 		exportEntries()
