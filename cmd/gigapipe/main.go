@@ -273,7 +273,9 @@ func main() {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
 
-	initDB(cfg)
+	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" {
+		initDB(cfg)
+	}
 	if os.Getenv("MODE") == "init_only" {
 		return
 	}
