@@ -252,6 +252,11 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		}
 	}
 
+	cfg.Setting.ClokiReader.Compat_4_0_19, err = boolEnv("COMPAT_4_0_19")
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

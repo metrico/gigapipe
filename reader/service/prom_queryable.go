@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/metrico/qryn/reader/config"
 	"github.com/metrico/qryn/reader/promql/promql_parser"
 	"math/rand"
 	"slices"
@@ -146,7 +147,9 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 
 	c.adjustHintsForRate(hints)
 
-	hints.Start = hints.Start / 15000 * 15000
+	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
+		hints.Start = hints.Start / 15000 * 15000
+	}
 
 	useRawData := hints.Start%15000 != 0 ||
 		hints.Step < 15000 ||

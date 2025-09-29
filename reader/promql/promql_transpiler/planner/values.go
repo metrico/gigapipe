@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"fmt"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
@@ -19,7 +20,10 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 	res := sql.NewSelect().With(withFp).Select(
 		sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
 		sql.NewSimpleCol("samples.value", "val"),
-		sql.NewSimpleCol("min(intDiv(samples.timestamp_ns, 1000000) + 15000, toUnixTimestamp(NOW()) * 1000)", "timestamp_ms"),
+		sql.NewSimpleCol(
+			fmt.Sprintf("intDiv(samples.timestamp_ns, %d) * %d",
+				ctx.Step.Nanoseconds(), ctx.Step.Milliseconds()),
+			"timestamp_ms"),
 	).From(sql.NewSimpleCol(ctx.SamplesTableName, "samples")).AndWhere(
 		sql.Gt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
 		sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),

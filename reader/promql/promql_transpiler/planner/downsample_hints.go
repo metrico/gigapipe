@@ -32,7 +32,7 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 	patchField(query, "value",
 		sql.NewSimpleCol(d.getValueMerge(hints.Func), "val").(sql.Aliased))
 	if rangeVectors[hints.Func] && hints.Step > hints.Range {
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns + %d000000, %d * 1000000) * %d - 1",
+		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns + %d * 1000000, %d * 1000000) * %d",
 			hints.Range, hints.Step, hints.Step)
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
