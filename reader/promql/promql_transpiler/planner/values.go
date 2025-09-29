@@ -19,7 +19,7 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 	res := sql.NewSelect().With(withFp).Select(
 		sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
 		sql.NewSimpleCol("samples.value", "val"),
-		sql.NewSimpleCol("intDiv(samples.timestamp_ns, 1000000)", "timestamp_ms"),
+		sql.NewSimpleCol("min(intDiv(samples.timestamp_ns, 1000000) + 15000, toUnixTimestamp(NOW()) * 1000)", "timestamp_ms"),
 	).From(sql.NewSimpleCol(ctx.SamplesTableName, "samples")).AndWhere(
 		sql.Gt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
 		sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
