@@ -252,6 +252,11 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		}
 	}
 
+	cfg.Setting.ClokiReader.Compat_4_0_19, err = boolEnv("COMPAT_4_0_19")
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -273,7 +278,9 @@ func main() {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
 
-	initDB(cfg)
+	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" {
+		initDB(cfg)
+	}
 	if os.Getenv("MODE") == "init_only" {
 		return
 	}

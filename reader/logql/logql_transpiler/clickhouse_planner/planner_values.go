@@ -31,7 +31,7 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		to = to.Add(*v.Offset)
 	}
 	res := sql.NewSelect().Select(sql.NewRawObject("val")).Distinct(true).
-		From(sql.NewRawObject(ctx.TimeSeriesGinTableName)).
+		From(sql.NewRawObject(ctx.TimeSeriesGinDistTableName)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
 			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(to.Format("2006-01-02"))),

@@ -54,11 +54,14 @@ func GetTableName(name string) string {
 }
 
 func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) *shared.PlannerContext {
-	tsGinTable := GetTableName("time_series_gin")
-	samplesTableName := GetTableName("samples_v3")
-	timeSeriesTableName := GetTableName("time_series")
-	timeSeriesDistTableName := GetTableName("time_series")
-	patternsTableName := GetTableName("patterns")
+	ctx.SamplesTableName = GetTableName("samples_v3")
+	ctx.SamplesDistTableName = GetTableName("samples_v3")
+	ctx.TimeSeriesTableName = GetTableName("time_series")
+	ctx.TimeSeriesDistTableName = GetTableName("time_series")
+	ctx.TimeSeriesGinTableName = GetTableName("time_series_gin")
+	ctx.TimeSeriesGinDistTableName = GetTableName("time_series_gin")
+	ctx.Metrics15sTableName = GetTableName("metrics_15s")
+	ctx.Metrics15sDistTableName = GetTableName("metrics_15s")
 
 	ctx.ProfilesSeriesGinTable = GetTableName("profiles_series_gin")
 	ctx.ProfilesSeriesGinDistTable = GetTableName("profiles_series_gin")
@@ -66,10 +69,9 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.ProfilesDistTable = GetTableName("profiles")
 	ctx.ProfilesSeriesTable = GetTableName("profiles_series")
 	ctx.ProfilesSeriesDistTable = GetTableName("profiles_series")
-	ctx.PatternsTable = patternsTableName
-	ctx.PatternsDistTable = patternsTableName
-	ctx.Metrics15sTableName = GetTableName("metrics_15s")
-	ctx.Metrics15sDistTableName = GetTableName("metrics_15s")
+
+	ctx.PatternsTable = GetTableName("patterns")
+	ctx.PatternsDistTable = GetTableName("patterns")
 
 	ctx.TracesAttrsTable = GetTableName("tempo_traces_attrs_gin")
 	ctx.TracesAttrsDistTable = GetTableName("tempo_traces_attrs_gin")
@@ -79,22 +81,20 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.TracesKVDistTable = GetTableName("tempo_traces_kv")
 
 	if db.Config.ClusterName != "" {
-		tsGinTable = fmt.Sprintf("`%s`.%s", db.Config.Name, tsGinTable)
-		samplesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, samplesTableName)
-		timeSeriesTableName = fmt.Sprintf("`%s`.%s", db.Config.Name, timeSeriesTableName)
-		timeSeriesDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, timeSeriesDistTableName)
+		ctx.SamplesDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.SamplesTableName)
+		ctx.TimeSeriesDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TimeSeriesTableName)
+		ctx.TimeSeriesGinDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TimeSeriesGinTableName)
+		ctx.Metrics15sDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.Metrics15sTableName)
+
 		ctx.ProfilesSeriesGinDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesSeriesGinTable)
 		ctx.ProfilesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesTable)
 		ctx.ProfilesSeriesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesSeriesTable)
+
+		ctx.PatternsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.PatternsTable)
+
 		ctx.TracesAttrsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesAttrsTable)
 		ctx.TracesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesTable)
 		ctx.TracesKVDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesKVTable)
-		ctx.PatternsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.PatternsTable)
-		ctx.Metrics15sDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.Metrics15sTableName)
 	}
-	ctx.TimeSeriesGinTableName = tsGinTable
-	ctx.SamplesTableName = samplesTableName
-	ctx.TimeSeriesTableName = timeSeriesTableName
-	ctx.TimeSeriesDistTableName = timeSeriesDistTableName
 	return ctx
 }

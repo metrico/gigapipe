@@ -23,7 +23,8 @@ func (d *DownsampleValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISele
 		}
 		if _s != nil && _s.GetAlias() == "timestamp_ms" {
 			sel[i] = sql.NewSimpleCol(
-				fmt.Sprintf("intDiv(timestamp_ns, %d) * %d", ctx.Step.Nanoseconds(), ctx.Step.Milliseconds()),
+				fmt.Sprintf("intDiv(timestamp_ns, %d) * %d",
+					ctx.Step.Nanoseconds(), ctx.Step.Milliseconds()),
 				"timestamp_ms")
 		}
 	}

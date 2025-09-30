@@ -31,13 +31,15 @@ type PlannerContext struct {
 	Limit     int64
 	Offset    time.Duration
 
-	TimeSeriesGinTableName  string
-	SamplesTableName        string
-	TimeSeriesTableName     string
-	TimeSeriesDistTableName string
-	Metrics15sTableName     string
-	Metrics15sDistTableName string
-	PatternsTable           string
+	TimeSeriesGinTableName     string
+	TimeSeriesGinDistTableName string
+	SamplesTableName           string
+	SamplesDistTableName       string
+	TimeSeriesTableName        string
+	TimeSeriesDistTableName    string
+	Metrics15sTableName        string
+	Metrics15sDistTableName    string
+	PatternsTable              string
 
 	TracesAttrsTable     string
 	TracesAttrsDistTable string
