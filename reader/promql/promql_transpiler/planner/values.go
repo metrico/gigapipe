@@ -24,7 +24,7 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 			fmt.Sprintf("intDiv(samples.timestamp_ns, %d) * %d",
 				ctx.Step.Nanoseconds(), ctx.Step.Milliseconds()),
 			"timestamp_ms"),
-	).From(sql.NewSimpleCol(ctx.SamplesTableName, "samples")).AndWhere(
+	).From(sql.NewSimpleCol(ctx.SamplesDistTableName, "samples")).AndWhere(
 		sql.Gt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
 		sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
 		sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp)),

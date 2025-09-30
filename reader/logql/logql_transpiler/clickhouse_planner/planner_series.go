@@ -33,13 +33,9 @@ func (s *SeriesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		return nil, err
 	}
 	withFPSel := sql.NewWith(fpSel, "fp_sel")
-	tableName := ctx.TimeSeriesTableName
-	if ctx.IsCluster {
-		tableName = ctx.TimeSeriesDistTableName
-	}
 	req := sql.NewSelect().With(withFPSel).Distinct(true).
 		Select(sql.NewSimpleCol("labels", "labels")).
-		From(sql.NewSimpleCol(tableName, "time_series")).
+		From(sql.NewSimpleCol(ctx.TimeSeriesDistTableName, "time_series")).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
 			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(to.Format("2006-01-02"))),

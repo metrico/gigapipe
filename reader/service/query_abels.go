@@ -186,7 +186,6 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 	}
 
 	var planner shared.SQLRequestPlanner
-	tsGinTableName := tables.GetTableName("time_series_gin")
 	//TODO: add pluggable extension
 	if len(match) > 0 {
 		planner, err = q.getMultiMatchValuesPlanner(match, label)
@@ -195,9 +194,6 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 		}
 	} else {
 		planner = clickhouse_planner.NewValuesPlanner(nil, label, nil)
-	}
-	if conn.Config.ClusterName != "" {
-		tsGinTableName += "_dist"
 	}
 
 	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
@@ -218,7 +214,6 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 		VersionInfo: versionInfo,
 	}
 	tables.PopulateTableNames(&plannerCtx, conn)
-	plannerCtx.TimeSeriesGinTableName = tsGinTableName
 	query, err := planner.Process(&plannerCtx)
 	if err != nil {
 		return nil, err

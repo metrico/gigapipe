@@ -38,7 +38,7 @@ func (s *SqlMainInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, e
 			sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
 			sql.NewSimpleCol("samples.string", "string"),
 			sql.NewSimpleCol("toFloat64(0)", "value"),
-		).From(sql.NewSimpleCol(ctx.SamplesTableName, "samples")).
+		).From(sql.NewSimpleCol(ctx.SamplesDistTableName, "samples")).
 		AndPreWhere(
 			sql.Ge(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(from.UnixNano())),
 			sql.Lt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(to.UnixNano())),

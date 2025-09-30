@@ -33,7 +33,7 @@ func (s *AggPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	}
 
 	labels := s.getLabels(withFp, ctx)
-	withLabels := sql.NewWith(labels, "labels")
+	withLabels := sql.NewWith(labels, "labels_req")
 
 	withMain := sql.NewWith(main, "pre_agg")
 
@@ -45,7 +45,7 @@ func (s *AggPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	values := sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("1", "type"),
-			sql.NewSimpleCol("labels.new_fingerprint", "fingerprint"),
+			sql.NewSimpleCol("labels_req.new_fingerprint", "fingerprint"),
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 			sql.NewCol(patchVal, "val"),
 			sql.NewSimpleCol("''", "labels")).
@@ -53,10 +53,10 @@ func (s *AggPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		Join(sql.NewJoin(
 			"any left",
 			sql.NewWithRef(withLabels),
-			sql.Eq(sql.NewRawObject("pre_agg.fingerprint"), sql.NewRawObject("labels.old_fingerprint")))).
-		GroupBy(sql.NewRawObject("labels.new_fingerprint"), sql.NewRawObject("timestamp_ms")).
+			sql.Eq(sql.NewRawObject("pre_agg.fingerprint"), sql.NewRawObject("labels_req.old_fingerprint")))).
+		GroupBy(sql.NewRawObject("labels_req.new_fingerprint"), sql.NewRawObject("timestamp_ms")).
 		OrderBy(
-			sql.NewOrderBy(sql.NewRawObject("labels.new_fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
+			sql.NewOrderBy(sql.NewRawObject("labels_req.new_fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
 			sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC))
 
 	labelsReq := sql.NewSelect().
@@ -84,7 +84,7 @@ func (s *AggPlanner) getLabels(withFp *sql.With, ctx *shared.PlannerContext) sql
 		sql.NewSimpleCol("labels", "old_labels"),
 		sql.NewCol(s.patchLabels(), "new_labels"),
 		sql.NewSimpleCol("cityHash64(new_labels)", "new_fingerprint")).
-		From(sql.NewRawObject(ctx.TimeSeriesTableName)).
+		From(sql.NewRawObject(ctx.TimeSeriesDistTableName)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(
 				clickhouse_planner.FormatFromDate(ctx.From))),
