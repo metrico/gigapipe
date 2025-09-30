@@ -2,6 +2,7 @@ package planner
 
 import (
 	"fmt"
+	"github.com/metrico/qryn/reader/config"
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/storage"
@@ -42,8 +43,12 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 			sql.Gt(msInStep, sql.NewIntVal(hints.Step*1000000-hints.Range*1000000)),
 		))
 	} else {
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d",
-			hints.Step, hints.Step)
+		compat4019 := ""
+		if config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
+			compat4019 = " - 1 "
+		}
+		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d%s",
+			hints.Step, hints.Step, compat4019)
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
 	}
