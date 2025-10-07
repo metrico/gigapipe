@@ -16,7 +16,8 @@ import (
 )
 
 func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
-	stats bool) {
+	stats bool,
+) {
 	eng := promql.NewEngine(promql.EngineOpts{
 		Logger:                   kitlog.NewLogger(logger.Logger),
 		Reg:                      nil,
@@ -43,6 +44,6 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 		Storage:    &svc,
 		Stats:      stats,
 	}
-	app.HandleFunc("/api/v1/query_range", ctrl.QueryRange).Methods("GET", "POST")
-	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST")
+	app.HandleFunc("/api/v1/query_range", ctrl.QueryRange).Methods("GET", "POST", "OPTIONS")
+	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST", "OPTIONS")
 }
