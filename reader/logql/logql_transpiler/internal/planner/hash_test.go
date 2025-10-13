@@ -6,7 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/go-faster/city"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 )
 
 func BenchmarkCH(b *testing.B) {

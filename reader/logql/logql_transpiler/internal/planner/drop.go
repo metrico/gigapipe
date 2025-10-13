@@ -1,6 +1,6 @@
 package planner
 
-import "github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+import "github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 
 type DropPlanner struct {
 	GenericPlanner

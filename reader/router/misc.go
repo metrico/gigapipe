@@ -2,7 +2,7 @@ package router
 
 import (
 	"github.com/gorilla/mux"
-	controllerv1 "github.com/metrico/qryn/reader/controller"
+	controllerv1 "github.com/metrico/qryn/v4/reader/controller"
 )
 
 func RouteMiscApis(app *mux.Router) {

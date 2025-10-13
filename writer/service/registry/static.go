@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metrico/qryn/writer/service"
+	"github.com/metrico/qryn/v4/writer/service"
 )
 
 type staticServiceRegistry struct {

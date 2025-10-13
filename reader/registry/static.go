@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/v4/reader/model"
 )
 
 type staticDBRegistry struct {

@@ -4,14 +4,14 @@ import (
 	"context"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/prof/prof_parser"
-	"github.com/metrico/qryn/reader/prof/prof_transpiler"
-	shared2 "github.com/metrico/qryn/reader/prof/shared"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
-	"github.com/metrico/qryn/reader/utils/tables"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/prof/prof_parser"
+	"github.com/metrico/qryn/v4/reader/prof/prof_transpiler"
+	shared2 "github.com/metrico/qryn/v4/reader/prof/shared"
+	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
 )
 
 func PlanLabelNames(ctx context.Context, scripts []*prof_parser.Script, from time.Time, to time.Time,

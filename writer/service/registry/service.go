@@ -1,6 +1,6 @@
 package registry
 
-import "github.com/metrico/qryn/writer/service"
+import "github.com/metrico/qryn/v4/writer/service"
 
 type ServiceRegistry interface {
 	GetTimeSeriesService(id string) (service.IInsertServiceV2, error)

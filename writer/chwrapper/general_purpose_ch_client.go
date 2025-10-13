@@ -11,8 +11,8 @@ import (
 
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/metrico/qryn/writer/utils/helputils"
-	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/helputils"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type Client struct {

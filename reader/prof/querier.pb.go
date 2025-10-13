@@ -7,8 +7,8 @@
 package prof
 
 import (
-	v11 "github.com/metrico/qryn/reader/prof/google/v1"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
+	v11 "github.com/metrico/qryn/v4/reader/prof/google/v1"
+	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

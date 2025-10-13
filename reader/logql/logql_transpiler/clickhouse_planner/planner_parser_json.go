@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 func (p *ParserPlanner) json(ctx *shared.PlannerContext) (sql.ISelect, error) {

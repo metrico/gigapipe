@@ -4,8 +4,8 @@ import (
 	"fmt"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/ctrl/logger"
-	"github.com/metrico/qryn/ctrl/qryn/maintenance"
+	"github.com/metrico/qryn/v4/ctrl/logger"
+	"github.com/metrico/qryn/v4/ctrl/qryn/maintenance"
 )
 
 var projects = map[string]struct {

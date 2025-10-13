@@ -2,7 +2,7 @@ package apirouterv1
 
 import (
 	"github.com/gorilla/mux"
-	controllerv1 "github.com/metrico/qryn/writer/controller"
+	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
 )
 
 func RouteMiscApis(router *mux.Router, cfg controllerv1.MiddlewareConfig) {

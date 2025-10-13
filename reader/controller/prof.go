@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metrico/qryn/reader/prof"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
-	"github.com/metrico/qryn/reader/service"
+	"github.com/metrico/qryn/v4/reader/prof"
+	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
+	"github.com/metrico/qryn/v4/reader/service"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )

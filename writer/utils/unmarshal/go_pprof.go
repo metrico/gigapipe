@@ -15,8 +15,8 @@ import (
 
 	"github.com/go-faster/city"
 	pprof_proto "github.com/google/pprof/profile"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils"
 )
 
 type SampleType struct {

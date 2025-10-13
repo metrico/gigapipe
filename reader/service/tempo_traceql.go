@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/model"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/traceql_parser"
-	traceql_transpiler "github.com/metrico/qryn/reader/traceql/traceql_transpiler"
-	"github.com/metrico/qryn/reader/utils/dbVersion"
-	"github.com/metrico/qryn/reader/utils/tables"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/model"
+	traceql_parser "github.com/metrico/qryn/v4/reader/traceql/traceql_parser"
+	traceql_transpiler "github.com/metrico/qryn/v4/reader/traceql/traceql_transpiler"
+	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
 )
 
 func (t *TempoService) SearchTraceQL(ctx context.Context,

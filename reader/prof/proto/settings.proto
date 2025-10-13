@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package settings.v1;
-option go_package="github.com/metrico/qryn/reader/prof";
+option go_package="github.com/metrico/qryn/v4/reader/prof";
 
 service SettingsService {
   rpc Get(GetSettingsRequest) returns (GetSettingsResponse) {}

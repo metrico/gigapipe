@@ -3,9 +3,9 @@ package writer
 import (
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/writer/config"
-	controllerv1 "github.com/metrico/qryn/writer/controller"
-	"github.com/metrico/qryn/writer/plugin"
+	"github.com/metrico/qryn/v4/writer/config"
+	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
+	"github.com/metrico/qryn/v4/writer/plugin"
 )
 
 // params for  Services

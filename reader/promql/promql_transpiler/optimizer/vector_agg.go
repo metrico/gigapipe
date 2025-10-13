@@ -2,8 +2,8 @@ package optimizer
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/promql/promql_parser"
-	"github.com/metrico/qryn/reader/promql/promql_transpiler/planner"
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler/planner"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
 	"math/rand"
 )

@@ -1,10 +1,10 @@
 package promql_transpiler
 
 import (
-	logql_transpiler "github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/promql/promql_parser"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	logql_transpiler "github.com/metrico/qryn/v4/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 )
 

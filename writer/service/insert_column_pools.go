@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/v4/writer/model"
 )
 
 func CreateColPools(size int32) {

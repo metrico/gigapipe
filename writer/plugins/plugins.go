@@ -2,9 +2,9 @@ package plugins
 
 import (
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/writer/chwrapper"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/service"
+	"github.com/metrico/qryn/v4/writer/chwrapper"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/service"
 )
 
 type NewTempoTracesService = func(opts model.InsertServiceOpts) service.IInsertServiceV2

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 type NotSupportedError struct {

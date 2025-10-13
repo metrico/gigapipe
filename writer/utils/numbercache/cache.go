@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/v4/writer/model"
 )
 
 type ICache[T any] interface {
