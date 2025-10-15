@@ -41,7 +41,6 @@ func initFlags() {
 	appFlags.ShowVersion = flag.Bool("version", false, "show version")
 	appFlags.ConfigPath = flag.String("config", "", "the path to the config file")
 	flag.Parse()
-
 }
 
 func boolEnv(key string) (bool, error) {
@@ -95,7 +94,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 		server = os.Getenv("CLICKHOUSE_SERVER")
 	}
 	cfg.Setting.DATABASE_DATA[0].Host = server
-	//TODO: add to readme to change port to tcp (9000) instead of http
+	// TODO: add to readme to change port to tcp (9000) instead of http
 	strPort := "9000"
 	if os.Getenv("CLICKHOUSE_PORT") != "" {
 		strPort = os.Getenv("CLICKHOUSE_PORT")
@@ -115,7 +114,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 	if os.Getenv("ADVANCED_SAMPLES_ORDERING") != "" {
 		cfg.Setting.DATABASE_DATA[0].SamplesOrdering = os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	}
-	//TODO: add to readme
+	// TODO: add to readme
 	secure := false
 	if os.Getenv("CLICKHOUSE_PROTO") == "https" || os.Getenv("CLICKHOUSE_PROTO") == "tls" {
 		secure = true
@@ -286,17 +285,17 @@ func main() {
 	}
 
 	app := mux.NewRouter()
+	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
+	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
+		app.Use(middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin))
+	}
+	commonroutes.RegisterCommonRoutes(app)
+	app.Use(middleware.AcceptEncodingMiddleware)
 	if cfg.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
 		cfg.Setting.AUTH_SETTINGS.BASIC.Password != "" {
 		app.Use(middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
-	app.Use(middleware.AcceptEncodingMiddleware)
-	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
-		app.Use(middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin))
-	}
-	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
-	commonroutes.RegisterCommonRoutes(app)
 	cfg.Setting.LOG_SETTINGS.Level = "debug"
 	cfg.Setting.LOG_SETTINGS.Stdout = true
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
