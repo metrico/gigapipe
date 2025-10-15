@@ -8,13 +8,13 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/writer/chwrapper"
-	controllerv1 "github.com/metrico/qryn/writer/controller"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/plugins"
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/utils/helpers"
-	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/chwrapper"
+	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/plugins"
+	"github.com/metrico/qryn/v4/writer/service"
+	"github.com/metrico/qryn/v4/writer/utils/helpers"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"gopkg.in/go-playground/validator.v9"
 )
 

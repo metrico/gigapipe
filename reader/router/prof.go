@@ -2,10 +2,10 @@ package router
 
 import (
 	"github.com/gorilla/mux"
-	controllerv1 "github.com/metrico/qryn/reader/controller"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/prof"
-	"github.com/metrico/qryn/reader/service"
+	controllerv1 "github.com/metrico/qryn/v4/reader/controller"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/prof"
+	"github.com/metrico/qryn/v4/reader/service"
 )
 
 func RouteProf(app *mux.Router, dataSession model.IDBRegistry) {

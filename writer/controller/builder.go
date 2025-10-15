@@ -9,17 +9,17 @@ import (
 	"time"
 
 	retry "github.com/avast/retry-go"
-	"github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/pattern/controller"
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/utils"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/helpers"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/numbercache"
-	"github.com/metrico/qryn/writer/utils/promise"
-	"github.com/metrico/qryn/writer/utils/stat"
+	"github.com/metrico/qryn/v4/writer/config"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/pattern/controller"
+	"github.com/metrico/qryn/v4/writer/service"
+	"github.com/metrico/qryn/v4/writer/utils"
+	customErrors "github.com/metrico/qryn/v4/writer/utils/errors"
+	"github.com/metrico/qryn/v4/writer/utils/helpers"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/numbercache"
+	"github.com/metrico/qryn/v4/writer/utils/promise"
+	"github.com/metrico/qryn/v4/writer/utils/stat"
 )
 
 const MaxRetries = 10

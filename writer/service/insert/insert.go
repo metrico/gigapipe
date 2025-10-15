@@ -1,8 +1,8 @@
 package insert
 
 import (
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/service"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/service"
 )
 
 type DevInsertServiceFactory struct{}

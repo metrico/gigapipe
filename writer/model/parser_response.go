@@ -1,6 +1,6 @@
 package model
 
-import "github.com/metrico/qryn/writer/utils/helpers"
+import "github.com/metrico/qryn/v4/writer/utils/helpers"
 
 type ParserResponse struct {
 	Error             error

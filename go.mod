@@ -1,4 +1,4 @@
-module github.com/metrico/qryn
+module github.com/metrico/qryn/v4
 
 go 1.24.0
 
@@ -20,7 +20,6 @@ replace (
 	k8s.io/api v0.32.3 => k8s.io/api v0.24.17
 	k8s.io/apimachinery v0.32.3 => k8s.io/apimachinery v0.24.17
 	k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.22.1
-
 )
 
 require (

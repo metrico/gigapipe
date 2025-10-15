@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type Metric struct {

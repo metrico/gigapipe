@@ -9,13 +9,13 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/reader/config"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/registry"
-	"github.com/metrico/qryn/reader/router"
-	"github.com/metrico/qryn/reader/utils/logger"
-	"github.com/metrico/qryn/reader/utils/middleware"
-	"github.com/metrico/qryn/reader/watchdog"
+	"github.com/metrico/qryn/v4/reader/config"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/registry"
+	"github.com/metrico/qryn/v4/reader/router"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/reader/watchdog"
 )
 
 var ownHttpServer bool = false

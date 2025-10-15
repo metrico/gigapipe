@@ -1,7 +1,7 @@
 package optimizer
 
 import (
-	"github.com/metrico/qryn/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
 )
 

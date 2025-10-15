@@ -15,13 +15,13 @@ import (
 	"github.com/grafana/pyroscope-go"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/ctrl"
-	"github.com/metrico/qryn/reader"
-	"github.com/metrico/qryn/reader/utils/logger"
-	"github.com/metrico/qryn/reader/utils/middleware"
-	"github.com/metrico/qryn/shared/commonroutes"
-	"github.com/metrico/qryn/view"
-	"github.com/metrico/qryn/writer"
+	"github.com/metrico/qryn/v4/ctrl"
+	"github.com/metrico/qryn/v4/reader"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/shared/commonroutes"
+	"github.com/metrico/qryn/v4/view"
+	"github.com/metrico/qryn/v4/writer"
 )
 
 var appFlags CommandLineFlags

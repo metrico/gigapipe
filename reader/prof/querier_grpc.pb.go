@@ -8,8 +8,8 @@ package prof
 
 import (
 	context "context"
-	v11 "github.com/metrico/qryn/reader/prof/google/v1"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
+	v11 "github.com/metrico/qryn/v4/reader/prof/google/v1"
+	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"

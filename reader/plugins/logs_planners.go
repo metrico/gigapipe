@@ -3,7 +3,7 @@ package plugins
 import (
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 )
 
 type SeriesPlannerPlugin func(main shared.SQLRequestPlanner) shared.SQLRequestPlanner

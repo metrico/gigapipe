@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/metrico/qryn/writer/utils"
-	"github.com/metrico/qryn/writer/utils/unmarshal"
+	"github.com/metrico/qryn/v4/writer/utils"
+	"github.com/metrico/qryn/v4/writer/utils/unmarshal"
 )
 
 func TargetDocV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {

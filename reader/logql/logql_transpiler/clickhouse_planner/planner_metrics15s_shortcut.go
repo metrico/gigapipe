@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/plugins"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/plugins"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type Metrics15ShortcutPlanner struct {

@@ -1,10 +1,10 @@
 package traceql_transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/traceql/traceql_parser"
-	"github.com/metrico/qryn/reader/traceql/traceql_transpiler/clickhouse_transpiler"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/traceql/traceql_parser"
+	"github.com/metrico/qryn/v4/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 )
 
 func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, error) {

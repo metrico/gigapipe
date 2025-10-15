@@ -13,12 +13,12 @@ import (
 	"github.com/go-faster/city"
 	"github.com/go-faster/jx"
 	clcwriter "github.com/metrico/cloki-config/config/writer"
-	"github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/helputils"
-	"github.com/metrico/qryn/writer/utils/helputils/cityhash102"
-	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/config"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils/errors"
+	"github.com/metrico/qryn/v4/writer/utils/helputils"
+	"github.com/metrico/qryn/v4/writer/utils/helputils/cityhash102"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type pushRequestDec struct {

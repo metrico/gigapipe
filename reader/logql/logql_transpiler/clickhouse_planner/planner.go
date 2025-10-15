@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_parser"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 func Plan(script *logql_parser.LogQLScript, finalize bool) (shared.SQLRequestPlanner, error) {

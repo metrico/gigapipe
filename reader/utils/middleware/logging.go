@@ -10,7 +10,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 func LoggingMiddleware(tpl string) func(next http.Handler) http.Handler {

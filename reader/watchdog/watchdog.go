@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 var svc *model.ServiceData

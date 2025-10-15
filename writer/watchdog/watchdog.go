@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/stat"
+	"github.com/metrico/qryn/v4/writer/service"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/stat"
 )
 
 var servicesToCheck []service.InsertSvcMap = nil

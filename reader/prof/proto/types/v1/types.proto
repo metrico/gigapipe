@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package types.v1;
-option go_package = "github.com/metrico/qryn/reader/prof/types/v1";
+option go_package = "github.com/metrico/qryn/v4/reader/prof/types/v1";
 
 message LabelPair {
     string name = 1;
