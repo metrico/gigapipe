@@ -368,6 +368,7 @@ func initPyro() {
 			pyroscope.ProfileAllocSpace,
 			pyroscope.ProfileInuseObjects,
 			pyroscope.ProfileInuseSpace,
+			pyroscope.ProfileGoroutines,
 		},
 	}
 
