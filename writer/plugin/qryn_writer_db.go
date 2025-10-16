@@ -30,11 +30,10 @@ const (
 )
 
 func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer) ([]model.DataDatabasesMap, []chwrapper.IChClient, []chwrapper.IChClientFactory) {
-
 	dbNodeMap := []model.DataDatabasesMap{}
-	//dbv2Map := []clickhouse_v2.Conn{}
+	// dbv2Map := []clickhouse_v2.Conn{}
 	dbv2Map := []chwrapper.IChClient{}
-	//dbv3Map := []service.IChClientFactory{}
+	// dbv3Map := []service.IChClientFactory{}
 	dbv3Map := []chwrapper.IChClientFactory{}
 	// Rlogs
 	if logger.RLogs != nil {
@@ -57,8 +56,8 @@ func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer
 			connV3, err := chwrapper.NewSmartDatabaseAdapter(&dbObject, true)
 			return connV3, err
 		})
-		//connV3, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
-		//dbv3Map = append(dbv3Map, connV3)
+		// connV3, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
+		// dbv3Map = append(dbv3Map, connV3)
 
 		dbNodeMap = append(dbNodeMap,
 			model.DataDatabasesMap{ClokiBaseDataBase: dbObject})
@@ -233,6 +232,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		TempoSamplesSvcs,
 		TempoTagsSvcs,
 		ProfileInsertSvcs,
+		PatternInsertSvcs,
 	})
 
 	if config2.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {
@@ -243,7 +243,6 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		})
 	}
 
-	//Run Prometheus Scaper
-	//go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)
-
+	// Run Prometheus Scaper
+	// go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)
 }

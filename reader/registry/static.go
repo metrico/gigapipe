@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 type staticDBRegistry struct {
@@ -40,6 +41,18 @@ func (s *staticDBRegistry) Run() {
 }
 
 func (s *staticDBRegistry) Stop() {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	logger.Info("Stopping staticDBRegistry, closing sessions...")
+	for _, dbMap := range s.databases {
+		if dbMap.Session != nil {
+			dbMap.Session.Close()
+		}
+	}
+	s.databases = nil
+	s.lastPingTime = time.Time{}
+	s.rand = nil
+	s.mtx = sync.Mutex{}
 }
 
 func (s *staticDBRegistry) Ping() error {

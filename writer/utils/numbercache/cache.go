@@ -11,6 +11,7 @@ import (
 type ICache[T any] interface {
 	CheckAndSet(key T) bool
 	DB(db string) ICache[T]
+	Stop()
 }
 
 type Cache[K any] struct {
@@ -53,7 +54,8 @@ func (c *Cache[T]) DB(db string) ICache[T] {
 }
 
 func NewCache[T comparable](TTL time.Duration, serializer func(val T) []byte,
-	nodeMap map[string]*model.DataDatabasesMap) *Cache[T] {
+	nodeMap map[string]*model.DataDatabasesMap,
+) *Cache[T] {
 	if serializer == nil {
 		panic("NO SER")
 	}
