@@ -13,13 +13,12 @@ import (
 var (
 	servicesToCheck []service.InsertSvcMap = nil
 	lastCheck       time.Time
-	timer           *time.Ticker
 	done            chan struct{}
 )
 
 func Init(services []service.InsertSvcMap) {
 	servicesToCheck = services
-	timer = time.NewTicker(time.Second * 5)
+	timer := time.NewTicker(time.Second * 5)
 	done = make(chan struct{})
 
 	go func() {
@@ -45,11 +44,9 @@ func Init(services []service.InsertSvcMap) {
 // Stop gracefully terminates the watchdog goroutine.
 func Stop() {
 	if done != nil {
-		done <- struct{}{}
 		close(done)
 		servicesToCheck = nil
 		done = nil
-		timer = nil
 	}
 }
 

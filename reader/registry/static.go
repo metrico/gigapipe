@@ -52,7 +52,6 @@ func (s *staticDBRegistry) Stop() {
 	s.databases = nil
 	s.lastPingTime = time.Time{}
 	s.rand = nil
-	s.mtx = sync.Mutex{}
 }
 
 func (s *staticDBRegistry) Ping() error {

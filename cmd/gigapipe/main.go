@@ -1,16 +1,9 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
-	"log"
-	"net"
-	"net/http"
-	"os"
-	"slices"
-	"strconv"
-	"strings"
-
 	"github.com/gorilla/mux"
 	"github.com/grafana/pyroscope-go"
 	clconfig "github.com/metrico/cloki-config"
@@ -22,6 +15,14 @@ import (
 	"github.com/metrico/qryn/v4/shared/commonroutes"
 	"github.com/metrico/qryn/v4/view"
 	"github.com/metrico/qryn/v4/writer"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 )
 
 var appFlags CommandLineFlags
@@ -261,6 +262,14 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 
 func main() {
 	initFlags()
+	initPyro()
+	start()
+	for {
+		time.Sleep(time.Second)
+	}
+}
+
+func start() {
 	var configPaths []string
 	if _, err := os.Stat(*appFlags.ConfigPath); err == nil {
 		configPaths = append(configPaths, *appFlags.ConfigPath)
@@ -309,23 +318,28 @@ func main() {
 		reader.Init(cfg, app)
 		view.Init(cfg, app)
 	}
-
-	initPyro()
-
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
+	handleStop(app)
 	httpStart(app, httpURL)
+
+}
+
+var listener net.Listener
+
+func stop() {
+	listener.Close()
 }
 
 func httpStart(server *mux.Router, httpURL string) {
 	logger.Info("Starting service")
-	http.Handle("/", server)
-	listener, err := net.Listen("tcp", httpURL)
+	var err error
+	listener, err = net.Listen("tcp", httpURL)
 	if err != nil {
 		logger.Error("Error creating listener:", err)
 		panic(err)
 	}
 	logger.Info("Server is listening on", httpURL)
-	if err := http.Serve(listener, server); err != nil {
+	if err := http.Serve(listener, server); err != nil && !errors.Is(err, net.ErrClosed) {
 		logger.Error("Error serving:", err)
 		panic(err)
 	}
