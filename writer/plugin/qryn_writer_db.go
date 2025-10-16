@@ -123,87 +123,101 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			MainNode = node.Node
 		}
 
-		_node := node.Node
-
-		TsSvcs[node.Node] = insert.NewTimeSeriesInsertService(model.InsertServiceOpts{
+		tsSvc := insert.NewTimeSeriesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum: config.SYSTEM_SETTINGS.ChannelsTimeSeries,
 			AsyncInsert: node.AsyncInsert,
 		})
-		TsSvcs[node.Node].Init()
 
-		go TsSvcs[node.Node].Run()
-
-		SplSvcs[node.Node] = insert.NewSamplesInsertService(model.InsertServiceOpts{
+		splSvc := insert.NewSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TsSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tsSvc.PlanFlush() },
 		})
-		SplSvcs[node.Node].Init()
-		go SplSvcs[node.Node].Run()
 
-		MtrSvcs[node.Node] = insert.NewMetricsInsertService(model.InsertServiceOpts{
+		mtrSvc := insert.NewMetricsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TsSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tsSvc.PlanFlush() },
 		})
-		MtrSvcs[node.Node].Init()
-		go MtrSvcs[node.Node].Run()
 
-		TempoSamplesSvcs[node.Node] = insert.NewTempoSamplesInsertService(model.InsertServiceOpts{
+		var tempoTagsSvc service.IInsertServiceV2
+
+		tempoSamplesSvc := insert.NewTempoSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TempoTagsSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tempoTagsSvc.PlanFlush() },
 		})
-		TempoSamplesSvcs[node.Node].Init()
-		go TempoSamplesSvcs[node.Node].Run()
 
-		TempoTagsSvcs[node.Node] = insert.NewTempoTagsInsertService(model.InsertServiceOpts{
+		tempoTagsSvc = insert.NewTempoTagsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TempoSamplesSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tempoSamplesSvc.PlanFlush() },
 		})
-		TempoTagsSvcs[node.Node].Init()
-		go TempoTagsSvcs[node.Node].Run()
-		ProfileInsertSvcs[node.Node] = insert.NewProfileSamplesInsertService(model.InsertServiceOpts{
+
+		profileInsertSvc := insert.NewProfileSamplesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum: config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert: node.AsyncInsert,
 		})
+
+		patternInsertSvc := insert.NewPatternInsertService(model.InsertServiceOpts{
+			Session:      p.ServicesObject.Dbv3Map[i],
+			Node:         &node,
+			Interval:     time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
+			ParallelNum:  config.SYSTEM_SETTINGS.ChannelsSample,
+			AsyncInsert:  node.AsyncInsert,
+			MaxQueueSize: int64(config.SYSTEM_SETTINGS.DBBulk),
+		})
+
+		// Initialize and run services
+		MtrSvcs[node.Node] = mtrSvc
+		MtrSvcs[node.Node].Init()
+		go MtrSvcs[node.Node].Run()
+
+		TempoTagsSvcs[node.Node] = tempoTagsSvc
+		TempoTagsSvcs[node.Node].Init()
+		go TempoTagsSvcs[node.Node].Run()
+
+		ProfileInsertSvcs[node.Node] = profileInsertSvc
 		ProfileInsertSvcs[node.Node].Init()
 		go ProfileInsertSvcs[node.Node].Run()
 
-		PatternInsertSvcs[node.Node] = insert.NewPatternInsertService(model.InsertServiceOpts{
-			Session:        p.ServicesObject.Dbv3Map[i],
-			Node:           &node,
-			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
-			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
-			AsyncInsert:    node.AsyncInsert,
-			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TempoSamplesSvcs[_node].PlanFlush() },
-		})
+		PatternInsertSvcs[node.Node] = patternInsertSvc
 		PatternInsertSvcs[node.Node].Init()
 		go PatternInsertSvcs[node.Node].Run()
+
+		TsSvcs[node.Node] = tsSvc
+		TsSvcs[node.Node].Init()
+		go TsSvcs[node.Node].Run()
+
+		TempoSamplesSvcs[node.Node] = tempoSamplesSvc
+		TempoSamplesSvcs[node.Node].Init()
+		go TempoSamplesSvcs[node.Node].Run()
+
+		SplSvcs[node.Node] = splSvc
+		SplSvcs[node.Node].Init()
+		go SplSvcs[node.Node].Run()
 
 		table := "qryn_fingerprints"
 		if node.ClusterName != "" {
