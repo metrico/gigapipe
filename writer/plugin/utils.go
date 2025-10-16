@@ -21,8 +21,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var ServiceRegistry registry.ServiceRegistry
-var GoCache numbercache.ICache[uint64]
+var (
+	ServiceRegistry registry.ServiceRegistry
+	GoCache         numbercache.ICache[uint64]
+)
 
 type SetupState struct {
 	Version         string
@@ -53,20 +55,37 @@ func (p *QrynWriterPlugin) humanReadableErrorsFromClickhouse(err error) error {
 	return fmt.Errorf("%s. %s", err.Error(), hint)
 }
 
-func (p *QrynWriterPlugin) logCHSetup() {
-	t := time.NewTicker(time.Hour)
+func (p *QrynWriterPlugin) StartLogCHSetup() {
+	p.logCHSetupDone = make(chan struct{})
 	go func() {
+		logger.Info("logCHSetup goroutine started.")
+		defer logger.Info("logCHSetup goroutine finished.")
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
 		s := checkSetup(p.ServicesObject.Dbv2Map[0])
 		for _, l := range s.ToLogLines() {
 			logger.Info(l)
 		}
-		for range t.C {
-			s = checkSetup(p.ServicesObject.Dbv2Map[0])
-			for _, l := range s.ToLogLines() {
-				logger.Info(l)
+		for {
+			select {
+			case <-p.logCHSetupDone:
+				return
+			case <-ticker.C:
+				s = checkSetup(p.ServicesObject.Dbv2Map[0])
+				for _, l := range s.ToLogLines() {
+					logger.Info(l)
+				}
 			}
 		}
 	}()
+}
+
+func (p *QrynWriterPlugin) StopLogCHSetup() {
+	if p.logCHSetupDone != nil {
+		p.logCHSetupDone <- struct{}{}
+		close(p.logCHSetupDone)
+		p.logCHSetupDone = nil
+	}
 }
 
 func (s SetupState) ToLogLines() []string {
@@ -136,7 +155,8 @@ func getShardsNum(conn chwrapper.IChClient, clusterName string) int {
 func (p *QrynWriterPlugin) performV1APIRouting(
 	middlewareFactory controllerv1.MiddlewareConfig,
 	middlewareTempoFactory controllerv1.MiddlewareConfig,
-	router *mux.Router) {
+	router *mux.Router,
+) {
 	apirouterv1.RouteInsertDataApis(router, middlewareFactory)
 	apirouterv1.RoutePromDataApis(router, middlewareFactory)
 	apirouterv1.RouteElasticDataApis(router, middlewareFactory)
@@ -146,30 +166,44 @@ func (p *QrynWriterPlugin) performV1APIRouting(
 }
 
 func (p *QrynWriterPlugin) StartPushStat() {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop() // Ensure ticker is stopped when function exits
-
-	statCache := make(map[string]prometheus.Gauge)
-	getGauge := func(k string) prometheus.Gauge {
-		g, ok := statCache[k]
-		if !ok {
-			g = promauto.NewGauge(prometheus.GaugeOpts{
-				Name: stat.SanitizeName(k),
-			})
-			statCache[k] = g
+	p.pushStatDone = make(chan struct{})
+	go func() {
+		logger.Info("pushStat goroutine started.")
+		defer logger.Info("pushStat goroutine finished.")
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		statCache := make(map[string]prometheus.Gauge)
+		getGauge := func(k string) prometheus.Gauge {
+			g, ok := statCache[k]
+			if !ok {
+				g = promauto.NewGauge(prometheus.GaugeOpts{
+					Name: stat.SanitizeName(k),
+				})
+				statCache[k] = g
+			}
+			return g
 		}
-		return g
-	}
-
-	for range ticker.C {
-		stats := stat.GetRate()
-		stat.ResetRate()
-		// Update Prometheus gauges
-		if config.Cloki.Setting.PROMETHEUS_CLIENT.Enable {
-			for k, v := range stats {
-				getGauge(k).Set(float64(v))
+		for {
+			select {
+			case <-p.pushStatDone:
+				return
+			case <-ticker.C:
+				stats := stat.GetRate()
+				stat.ResetRate()
+				if config.Cloki.Setting.PROMETHEUS_CLIENT.Enable {
+					for k, v := range stats {
+						getGauge(k).Set(float64(v))
+					}
+				}
 			}
 		}
+	}()
+}
 
+func (p *QrynWriterPlugin) StopPushStat() {
+	if p.pushStatDone != nil {
+		p.pushStatDone <- struct{}{}
+		close(p.pushStatDone)
+		p.pushStatDone = nil
 	}
 }

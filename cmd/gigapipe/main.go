@@ -41,7 +41,6 @@ func initFlags() {
 	appFlags.ShowVersion = flag.Bool("version", false, "show version")
 	appFlags.ConfigPath = flag.String("config", "", "the path to the config file")
 	flag.Parse()
-
 }
 
 func boolEnv(key string) (bool, error) {
@@ -95,7 +94,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 		server = os.Getenv("CLICKHOUSE_SERVER")
 	}
 	cfg.Setting.DATABASE_DATA[0].Host = server
-	//TODO: add to readme to change port to tcp (9000) instead of http
+	// TODO: add to readme to change port to tcp (9000) instead of http
 	strPort := "9000"
 	if os.Getenv("CLICKHOUSE_PORT") != "" {
 		strPort = os.Getenv("CLICKHOUSE_PORT")
@@ -115,7 +114,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 	if os.Getenv("ADVANCED_SAMPLES_ORDERING") != "" {
 		cfg.Setting.DATABASE_DATA[0].SamplesOrdering = os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	}
-	//TODO: add to readme
+	// TODO: add to readme
 	secure := false
 	if os.Getenv("CLICKHOUSE_PROTO") == "https" || os.Getenv("CLICKHOUSE_PROTO") == "tls" {
 		secure = true

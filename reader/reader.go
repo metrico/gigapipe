@@ -23,7 +23,7 @@ var ownHttpServer bool = false
 func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
 	config.Cloki = cnf
 
-	//Set to max cpu if the value is equals 0
+	// Set to max cpu if the value is equals 0
 	if config.Cloki.Setting.SYSTEM_SETTINGS.CPUMaxProcs == 0 {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	} else {
@@ -39,9 +39,18 @@ func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
 		ownHttpServer = true
 	}
 
-	//Api
+	// Api
 	// configure to serve WebServices
 	configureAsHTTPServer(app)
+}
+
+func Stop() {
+	logger.Info("Stopping Reader module...")
+	watchdog.Stop()
+	logger.Info("Reader watchdog stopped.")
+	registry.Stop()
+	logger.Info("Reader registry stopped.")
+	logger.Info("Reader module stopped.")
 }
 
 func configureAsHTTPServer(acc *mux.Router) {
