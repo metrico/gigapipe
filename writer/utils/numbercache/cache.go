@@ -1,6 +1,7 @@
 package numbercache
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -16,11 +17,12 @@ type ICache[T any] interface {
 
 type Cache[K any] struct {
 	nodeMap       map[string]*model.DataDatabasesMap
-	cleanup       *time.Ticker
 	sets          *fastcache.Cache
 	mtx           *sync.Mutex
 	db            []byte
 	isDistributed bool
+	ctx           context.Context
+	cancel        context.CancelFunc
 	serializer    func(t K) []byte
 }
 
@@ -39,7 +41,7 @@ func (c *Cache[T]) CheckAndSet(key T) bool {
 }
 
 func (c *Cache[T]) Stop() {
-	c.cleanup.Stop()
+	c.cancel()
 }
 
 func (c *Cache[T]) DB(db string) ICache[T] {
@@ -59,19 +61,26 @@ func NewCache[T comparable](TTL time.Duration, serializer func(val T) []byte,
 	if serializer == nil {
 		panic("NO SER")
 	}
-	res := Cache[T]{
+	res := &Cache[T]{
 		nodeMap:    nodeMap,
-		cleanup:    time.NewTicker(TTL),
 		sets:       fastcache.New(100 * 1024 * 1024),
 		mtx:        &sync.Mutex{},
 		serializer: serializer,
 	}
+	res.ctx, res.cancel = context.WithCancel(context.Background())
+	cleanup := time.NewTicker(TTL)
 	go func() {
-		for range res.cleanup.C {
-			res.mtx.Lock()
-			res.sets.Reset()
-			res.mtx.Unlock()
+		for {
+			select {
+			case <-cleanup.C:
+				res.mtx.Lock()
+				res.sets.Reset()
+				res.mtx.Unlock()
+			case <-res.ctx.Done():
+				cleanup.Stop()
+				return
+			}
 		}
 	}()
-	return &res
+	return res
 }
