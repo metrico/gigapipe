@@ -319,7 +319,6 @@ func start() {
 		view.Init(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
-	handleStop(app)
 	httpStart(app, httpURL)
 
 }
