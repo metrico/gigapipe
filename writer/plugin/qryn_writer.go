@@ -188,7 +188,9 @@ func (p *QrynWriterPlugin) Stop() error {
 	TempoTagsSvcs = make(service.InsertSvcMap)
 	ProfileInsertSvcs = make(service.InsertSvcMap)
 	PatternInsertSvcs = make(service.InsertSvcMap)
+	ServiceRegistry.Stop()
 	ServiceRegistry = nil
+	GoCache.Stop()
 	GoCache = nil
 
 	logger.Info("writer successfully cleaned up")

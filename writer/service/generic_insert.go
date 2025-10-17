@@ -158,6 +158,7 @@ func (svc *InsertServiceV2) Run() {
 			svc.running = false
 			svc.watchdog.Stop()
 			svc.mtx.Unlock()
+			svc.fetchLoopIteration()
 			return
 		case <-svc.insertCtx.Done():
 			svc.fetchLoopIteration()
