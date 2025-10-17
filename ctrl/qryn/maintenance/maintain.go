@@ -13,6 +13,7 @@ import (
 
 func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
 	conn, err := maintenance.ConnectV2(dbObject, true)
+	defer conn.Close()
 	if err != nil {
 		return err
 	}
