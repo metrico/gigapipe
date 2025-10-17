@@ -155,10 +155,12 @@ func (svc *InsertServiceV2) Run() {
 			svc.ping()
 		case <-svc.ctx.Done():
 			svc.mtx.Lock()
+			for _, r := range svc.results {
+				r.Done(0, fmt.Errorf("[IS003] insert service is stopped"))
+			}
 			svc.running = false
 			svc.watchdog.Stop()
 			svc.mtx.Unlock()
-			svc.fetchLoopIteration()
 			return
 		case <-svc.insertCtx.Done():
 			svc.fetchLoopIteration()
