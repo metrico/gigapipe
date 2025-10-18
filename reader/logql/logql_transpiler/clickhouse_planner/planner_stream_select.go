@@ -7,31 +7,21 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/plugins"
 	sql "github.com/metrico/qryn/reader/utils/sql_select"
 )
 
 type StreamSelectPlanner struct {
-	LabelNames []string
-	Ops        []string
-	Values     []string
-	Offset     *time.Duration
-}
-
-func NewStreamSelectPlanner(labelNames, ops, values []string, offset *time.Duration) shared.SQLRequestPlanner {
-	p := plugins.GetStreamSelectPlannerPlugin()
-	if p != nil {
-		return (*p)(labelNames, ops, values)
-	}
-	return &StreamSelectPlanner{
-		LabelNames: labelNames,
-		Ops:        ops,
-		Values:     values,
-		Offset:     offset,
-	}
+	NoStreamSelect bool
+	LabelNames     []string
+	Ops            []string
+	Values         []string
+	Offset         *time.Duration
 }
 
 func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if s.NoStreamSelect {
+		return nil, nil
+	}
 	from := ctx.From
 	if s.Offset != nil {
 		from = from.Add(*s.Offset)

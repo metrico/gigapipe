@@ -144,7 +144,9 @@ func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With) (sql.ISele
 	if err != nil {
 		return nil, err
 	}
-	_from.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(fpCache)))
+	if fpCache != nil {
+		_from.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(fpCache)))
+	}
 	return _from, nil
 }
 

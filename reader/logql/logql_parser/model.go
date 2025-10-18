@@ -39,7 +39,7 @@ func (l LogQLScript) String() string {
 }
 
 type StrSelector struct {
-	StrSelCmds []StrSelCmd           `"{" @@ ("," @@ )* "}" `
+	StrSelCmds []StrSelCmd           `"{" @@? ("," @@ )* "}" `
 	Pipelines  []StrSelectorPipeline `@@*`
 }
 

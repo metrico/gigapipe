@@ -8,27 +8,37 @@ import (
 )
 
 type LabelsJoinPlanner struct {
-	Main         shared.SQLRequestPlanner
-	Fingerprints shared.SQLRequestPlanner
-	TimeSeries   shared.SQLRequestPlanner
-	FpCache      **sql.With
-	LabelsCache  **sql.With
+	NoStreamSelect bool
+	Main           shared.SQLRequestPlanner
+	Fingerprints   shared.SQLRequestPlanner
+	TimeSeries     shared.SQLRequestPlanner
+	FpCache        **sql.With
+	LabelsCache    **sql.With
 }
 
 func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	tsReq, err := (&WithConnectorPlanner{
-		Main:      l.TimeSeries,
-		With:      l.Fingerprints,
-		Alias:     "fp_sel",
-		WithCache: l.FpCache,
+	var (
+		tsReq sql.ISelect
+		err   error
+	)
+	if !l.NoStreamSelect {
+		tsReq, err = (&WithConnectorPlanner{
+			Main:      l.TimeSeries,
+			With:      l.Fingerprints,
+			Alias:     "fp_sel",
+			WithCache: l.FpCache,
 
-		ProcessFn: func(q sql.ISelect, w *sql.With) (sql.ISelect, error) {
-			return q.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(w))), nil
-		},
-	}).Process(ctx)
+			ProcessFn: func(q sql.ISelect, w *sql.With) (sql.ISelect, error) {
+				return q.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(w))), nil
+			},
+		}).Process(ctx)
+	} else {
+		tsReq, err = l.TimeSeries.Process(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
+
 	mainReq, err := l.Main.Process(ctx)
 	if err != nil {
 		return nil, err

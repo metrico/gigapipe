@@ -8,8 +8,9 @@ import (
 )
 
 type PlannerDropSimple struct {
-	Labels []string
-	Vals   []string
+	NoStreamSelect bool
+	Labels         []string
+	Vals           []string
 
 	LabelsCache **sql.With
 	FPCache     **sql.With
@@ -37,7 +38,11 @@ func (d *PlannerDropSimple) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			}, "labels"),
 		).From(sql.NewCol(sql.NewWithRef(withMain), "a"))
 	} else {
-		labels, err = labelsFromScratch(ctx, *d.FPCache)
+		var fpCache *sql.With
+		if !d.NoStreamSelect {
+			fpCache = *d.FPCache
+		}
+		labels, err = labelsFromScratch(ctx, fpCache)
 		if err != nil {
 			return nil, err
 		}
