@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils"
-	customErrors "github.com/metrico/qryn/writer/utils/errors"
-	"github.com/metrico/qryn/writer/utils/numbercache"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils"
+	customErrors "github.com/metrico/qryn/v4/writer/utils/errors"
+	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 )
 
 type ElasticUnmarshalOpts struct {

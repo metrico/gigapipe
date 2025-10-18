@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils"
 )
 
 // binaryStreamPProfProtoDec extends pProfProtoDec to handle binary/octet-stream content type

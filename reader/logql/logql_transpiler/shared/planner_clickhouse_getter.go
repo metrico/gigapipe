@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"io"
 
-	sql2 "github.com/metrico/qryn/reader/utils/sql_select"
+	sql2 "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type ClickhouseGetterPlanner struct {

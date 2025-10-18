@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metrico/qryn/writer/service"
+	"github.com/metrico/qryn/v4/writer/service"
 )
 
 type staticServiceRegistry struct {
@@ -53,7 +53,8 @@ func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) ServiceRegistry {
 }
 
 func staticServiceRegistryGetService[T interface{ GetNodeName() string }](r *staticServiceRegistry, id string,
-	svcs []T) (T, error) {
+	svcs []T,
+) (T, error) {
 	if id != "" {
 		for _, svc := range svcs {
 			if svc.GetNodeName() == id {
@@ -68,7 +69,8 @@ func staticServiceRegistryGetService[T interface{ GetNodeName() string }](r *sta
 }
 
 func (r *staticServiceRegistry) getService(id string,
-	svcs []service.IInsertServiceV2) (service.IInsertServiceV2, error) {
+	svcs []service.IInsertServiceV2,
+) (service.IInsertServiceV2, error) {
 	return staticServiceRegistryGetService(r, id, svcs)
 }
 
@@ -78,17 +80,14 @@ func (r *staticServiceRegistry) GetTimeSeriesService(id string) (service.IInsert
 
 func (r *staticServiceRegistry) GetSamplesService(id string) (service.IInsertServiceV2, error) {
 	return r.getService(id, r.SamplesSvcs)
-
 }
 
 func (r *staticServiceRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
 	return r.getService(id, r.MetricSvcs)
-
 }
 
 func (r *staticServiceRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {
 	return r.getService(id, r.TempoSamplesSvcs)
-
 }
 
 func (r *staticServiceRegistry) GetSpansSeriesService(id string) (service.IInsertServiceV2, error) {
@@ -98,6 +97,7 @@ func (r *staticServiceRegistry) GetSpansSeriesService(id string) (service.IInser
 func (r *staticServiceRegistry) GetProfileInsertService(id string) (service.IInsertServiceV2, error) {
 	return r.getService(id, r.ProfileInsertSvcs)
 }
+
 func (r *staticServiceRegistry) GetPatternInsertService(id string) (service.IInsertServiceV2, error) {
 	return r.getService(id, r.PatternInsertSvcs)
 }

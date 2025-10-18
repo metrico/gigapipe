@@ -15,7 +15,7 @@ import (
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/v4/writer/config"
 	"github.com/sirupsen/logrus"
 )
 

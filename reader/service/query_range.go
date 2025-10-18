@@ -10,15 +10,15 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/reader/logql/logql_parser"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/plugins"
-	"github.com/metrico/qryn/reader/utils/dbVersion"
-	"github.com/metrico/qryn/reader/utils/logger"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
-	"github.com/metrico/qryn/reader/utils/tables"
+	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/plugins"
+	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
 )
 
 type QueryRangeService struct {

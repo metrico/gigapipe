@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
 )
 
 func GetDuration(script any) (time.Duration, error) {

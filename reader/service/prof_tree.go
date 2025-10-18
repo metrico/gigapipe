@@ -3,7 +3,7 @@ package service
 import (
 	"sort"
 
-	"github.com/metrico/qryn/reader/prof"
+	"github.com/metrico/qryn/v4/reader/prof"
 )
 
 type Tree struct {

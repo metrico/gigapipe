@@ -2,8 +2,8 @@ package controller
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/promql/promql_parser"
-	"github.com/metrico/qryn/reader/promql/promql_transpiler"
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
 	"math"
 	"net/http"
 	"strconv"
@@ -11,8 +11,8 @@ import (
 
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/reader/service"
-	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/service"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"

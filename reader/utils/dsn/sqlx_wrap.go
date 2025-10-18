@@ -76,6 +76,7 @@ func (s *StableSqlxDBWrapper) Conn(ctx context.Context) (*sql.Conn, error) {
 	defer s.mtx.RUnlock()
 	return s.DB.Conn(ctx)
 }
+
 func (s *StableSqlxDBWrapper) Begin() (*sql.Tx, error) {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()

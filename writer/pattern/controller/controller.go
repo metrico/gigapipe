@@ -8,25 +8,38 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/metrico/qryn/writer/chwrapper"
-	config "github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/pattern/clustering"
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/service/registry"
-	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/chwrapper"
+	config "github.com/metrico/qryn/v4/writer/config"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/pattern/clustering"
+	"github.com/metrico/qryn/v4/writer/service"
+	"github.com/metrico/qryn/v4/writer/service/registry"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
-var InsertServiceRegistry registry.ServiceRegistry
-var ClusteringService *clustering.LogClusterer
-var connFactory chwrapper.IChClientFactory
-var isCluster bool
-var patternsTable string
+var (
+	InsertServiceRegistry registry.ServiceRegistry
+	ClusteringService     *clustering.LogClusterer
+	connFactory           chwrapper.IChClientFactory
+	isCluster             bool
+	patternsTable         string
+)
 
-var tokPool = sync.Pool{}
-var tokPoolSize int32
-var random *rand.Rand
-var mtx sync.Mutex
+var (
+	tokPool     = sync.Pool{}
+	tokPoolSize int32
+	random      *rand.Rand
+	mtx         sync.Mutex
+	done        chan struct{}
+)
+
+func Stop() {
+	if done != nil {
+		logger.Info("Stopping Pattern Controller goroutines...")
+		close(done)
+		done = nil
+	}
+}
 
 func skipLine() bool {
 	if config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling == 1 {
@@ -45,6 +58,7 @@ func getToks() []clustering.Token {
 	}
 	return make([]clustering.Token, 0, 150)
 }
+
 func putToks(toks []clustering.Token) {
 	if atomic.LoadInt32(&tokPoolSize) > 100 {
 		return
@@ -91,6 +105,7 @@ func Init(opts InitOpts) {
 	if isCluster {
 		patternsTable = "patterns_dist"
 	}
+	done = make(chan struct{})
 	err := syncPatterns(time.Minute * 5)
 	if err != nil {
 		logger.Error("Failed to load patterns: " + err.Error())
@@ -102,63 +117,86 @@ func Init(opts InitOpts) {
 
 func RunCleanup() {
 	t := time.NewTicker(time.Second * 30)
-	for range t.C {
-		ClusteringService.Cleanup()
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			logger.Info("Pattern Cleanup routine stopped.")
+			return
+		case <-t.C:
+			ClusteringService.Cleanup()
+		}
 	}
 }
 
 func RunFlush() {
 	t := time.NewTicker(time.Second)
-	for range t.C {
-		data := ClusteringService.Flush()
-		req := model.PatternsData{
-			MTimestamp10m:    make([]uint32, len(data)),
-			MFingerprint:     make([]uint64, len(data)),
-			MTimestampS:      make([]uint32, len(data)),
-			MTokens:          make([][]string, len(data)),
-			MClasses:         make([][]uint32, len(data)),
-			MOverallCost:     make([]uint32, len(data)),
-			MGeneralizedCost: make([]uint32, len(data)),
-			MSamplesCount:    make([]uint32, len(data)),
-			MPatternId:       make([]uint64, len(data)),
-			MIterationId:     make([]uint64, len(data)),
-			//MWriterID:     make([]string, len(data)), TODO
-		}
-
-		for i, logLine := range data {
-			req.MTimestamp10m[i] = logLine.TimestampS / 600
-			req.MFingerprint[i] = logLine.Fingerprint
-			req.MTimestampS[i] = logLine.TimestampS
-			req.MOverallCost[i] = uint32(logLine.OverallCost)
-			req.MGeneralizedCost[i] = uint32(logLine.GeneralizedCost)
-			req.MSamplesCount[i] = uint32(logLine.Count)
-			req.MPatternId[i] = logLine.PatternId
-			req.MIterationId[i] = logLine.IterationId
-			for _, t := range logLine.Tokens {
-				req.MTokens[i] = append(req.MTokens[i], t.Value)
-				req.MClasses[i] = append(req.MClasses[i], uint32(t.Type))
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			logger.Info("Pattern Flush routine stopped.")
+			return
+		case <-t.C:
+			data := ClusteringService.Flush()
+			if len(data) == 0 {
+				continue
 			}
-		}
-		svc, err := InsertServiceRegistry.GetPatternInsertService("")
-		if err != nil {
-			logger.Error("Failed to get pattern insert service: ", err)
-			continue
-		}
-		go func() {
-			_, err := svc.Request(&req, service.INSERT_MODE_DEFAULT).Get()
+			req := model.PatternsData{
+				MTimestamp10m:    make([]uint32, len(data)),
+				MFingerprint:     make([]uint64, len(data)),
+				MTimestampS:      make([]uint32, len(data)),
+				MTokens:          make([][]string, len(data)),
+				MClasses:         make([][]uint32, len(data)),
+				MOverallCost:     make([]uint32, len(data)),
+				MGeneralizedCost: make([]uint32, len(data)),
+				MSamplesCount:    make([]uint32, len(data)),
+				MPatternId:       make([]uint64, len(data)),
+				MIterationId:     make([]uint64, len(data)),
+				// MWriterID:     make([]string, len(data)), TODO
+			}
+			for i, logLine := range data {
+				req.MTimestamp10m[i] = logLine.TimestampS / 600
+				req.MFingerprint[i] = logLine.Fingerprint
+				req.MTimestampS[i] = logLine.TimestampS
+				req.MOverallCost[i] = uint32(logLine.OverallCost)
+				req.MGeneralizedCost[i] = uint32(logLine.GeneralizedCost)
+				req.MSamplesCount[i] = uint32(logLine.Count)
+				req.MPatternId[i] = logLine.PatternId
+				req.MIterationId[i] = logLine.IterationId
+				for _, t := range logLine.Tokens {
+					req.MTokens[i] = append(req.MTokens[i], t.Value)
+					req.MClasses[i] = append(req.MClasses[i], uint32(t.Type))
+				}
+			}
+			svc, err := InsertServiceRegistry.GetPatternInsertService("")
 			if err != nil {
-				logger.Error("Failed to flush clustered lines: ", err)
+				logger.Error("Failed to get pattern insert service: ", err)
+				continue
 			}
-		}()
+			go func() {
+				_, err := svc.Request(&req, service.INSERT_MODE_DEFAULT).Get()
+				if err != nil {
+					logger.Error("Failed to flush clustered lines: ", err)
+				}
+			}()
+		}
 	}
 }
 
 func RunSync() {
 	t := time.NewTicker(time.Minute)
-	for range t.C {
-		err := syncPatterns(time.Second * 90)
-		if err != nil {
-			logger.Error("Failed to sync patterns: ", err)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			logger.Info("Pattern Sync routine stopped.")
+			return
+		case <-t.C:
+			err := syncPatterns(time.Second * 90)
+			if err != nil {
+				logger.Error("Failed to sync patterns: ", err)
+			}
 		}
 	}
 }
@@ -195,7 +233,8 @@ WHERE timestamp_10m >= ? AND timestamp_s >= ? GROUP BY pattern_id`, patternsTabl
 }
 
 func (p *PatternsSynchronizer) getPatterns(patternIds []uint64,
-	conn chwrapper.IChClient) ([]clustering.PatternInfo, error) {
+	conn chwrapper.IChClient,
+) ([]clustering.PatternInfo, error) {
 	rows, err := conn.Query(context.Background(),
 		fmt.Sprintf(`SELECT pattern_id, 
        max(iteration_id) as iter, 

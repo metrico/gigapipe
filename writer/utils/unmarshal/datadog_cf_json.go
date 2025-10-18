@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils"
-	"github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils"
+	"github.com/metrico/qryn/v4/writer/utils/errors"
 )
 
 type datadogCFRequestDec struct {

@@ -3,7 +3,7 @@ package planner
 import (
 	"io"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 )
 
 type GenericPlanner struct {

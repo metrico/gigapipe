@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/reader/utils/logger"
-	watchdog "github.com/metrico/qryn/reader/watchdog"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	watchdog "github.com/metrico/qryn/v4/reader/watchdog"
 )
 
 type MiscController struct {

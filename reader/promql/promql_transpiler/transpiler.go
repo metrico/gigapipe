@@ -1,10 +1,10 @@
 package promql_transpiler
 
 import (
-	logql_transpiler_shared "github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/promql/promql_transpiler/planner"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	logql_transpiler_shared "github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler/planner"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 )

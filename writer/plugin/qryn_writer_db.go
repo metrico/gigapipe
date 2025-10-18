@@ -8,16 +8,16 @@ import (
 
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/writer/chwrapper"
-	config2 "github.com/metrico/qryn/writer/config"
-	"github.com/metrico/qryn/writer/model"
-	patternCtrl "github.com/metrico/qryn/writer/pattern/controller"
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/service/insert"
-	"github.com/metrico/qryn/writer/service/registry"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/numbercache"
-	"github.com/metrico/qryn/writer/watchdog"
+	"github.com/metrico/qryn/v4/writer/chwrapper"
+	config2 "github.com/metrico/qryn/v4/writer/config"
+	"github.com/metrico/qryn/v4/writer/model"
+	patternCtrl "github.com/metrico/qryn/v4/writer/pattern/controller"
+	"github.com/metrico/qryn/v4/writer/service"
+	"github.com/metrico/qryn/v4/writer/service/insert"
+	"github.com/metrico/qryn/v4/writer/service/registry"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/numbercache"
+	"github.com/metrico/qryn/v4/writer/watchdog"
 )
 
 var MainNode string
@@ -30,11 +30,10 @@ const (
 )
 
 func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer) ([]model.DataDatabasesMap, []chwrapper.IChClient, []chwrapper.IChClientFactory) {
-
 	dbNodeMap := []model.DataDatabasesMap{}
-	//dbv2Map := []clickhouse_v2.Conn{}
+	// dbv2Map := []clickhouse_v2.Conn{}
 	dbv2Map := []chwrapper.IChClient{}
-	//dbv3Map := []service.IChClientFactory{}
+	// dbv3Map := []service.IChClientFactory{}
 	dbv3Map := []chwrapper.IChClientFactory{}
 	// Rlogs
 	if logger.RLogs != nil {
@@ -57,8 +56,8 @@ func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer
 			connV3, err := chwrapper.NewSmartDatabaseAdapter(&dbObject, true)
 			return connV3, err
 		})
-		//connV3, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
-		//dbv3Map = append(dbv3Map, connV3)
+		// connV3, err := ch_wrapper.NewSmartDatabaseAdapter(&dbObject, true)
+		// dbv3Map = append(dbv3Map, connV3)
 
 		dbNodeMap = append(dbNodeMap,
 			model.DataDatabasesMap{ClokiBaseDataBase: dbObject})
@@ -124,87 +123,101 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			MainNode = node.Node
 		}
 
-		_node := node.Node
-
-		TsSvcs[node.Node] = insert.NewTimeSeriesInsertService(model.InsertServiceOpts{
+		tsSvc := insert.NewTimeSeriesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum: config.SYSTEM_SETTINGS.ChannelsTimeSeries,
 			AsyncInsert: node.AsyncInsert,
 		})
-		TsSvcs[node.Node].Init()
 
-		go TsSvcs[node.Node].Run()
-
-		SplSvcs[node.Node] = insert.NewSamplesInsertService(model.InsertServiceOpts{
+		splSvc := insert.NewSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TsSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tsSvc.PlanFlush() },
 		})
-		SplSvcs[node.Node].Init()
-		go SplSvcs[node.Node].Run()
 
-		MtrSvcs[node.Node] = insert.NewMetricsInsertService(model.InsertServiceOpts{
+		mtrSvc := insert.NewMetricsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TsSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tsSvc.PlanFlush() },
 		})
-		MtrSvcs[node.Node].Init()
-		go MtrSvcs[node.Node].Run()
 
-		TempoSamplesSvcs[node.Node] = insert.NewTempoSamplesInsertService(model.InsertServiceOpts{
+		var tempoTagsSvc service.IInsertServiceV2
+
+		tempoSamplesSvc := insert.NewTempoSamplesInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TempoTagsSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tempoTagsSvc.PlanFlush() },
 		})
-		TempoSamplesSvcs[node.Node].Init()
-		go TempoSamplesSvcs[node.Node].Run()
 
-		TempoTagsSvcs[node.Node] = insert.NewTempoTagsInsertService(model.InsertServiceOpts{
+		tempoTagsSvc = insert.NewTempoTagsInsertService(model.InsertServiceOpts{
 			Session:        p.ServicesObject.Dbv3Map[i],
 			Node:           &node,
 			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert:    node.AsyncInsert,
 			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TempoSamplesSvcs[_node].PlanFlush() },
+			OnBeforeInsert: func() { tempoSamplesSvc.PlanFlush() },
 		})
-		TempoTagsSvcs[node.Node].Init()
-		go TempoTagsSvcs[node.Node].Run()
-		ProfileInsertSvcs[node.Node] = insert.NewProfileSamplesInsertService(model.InsertServiceOpts{
+
+		profileInsertSvc := insert.NewProfileSamplesInsertService(model.InsertServiceOpts{
 			Session:     p.ServicesObject.Dbv3Map[i],
 			Node:        &node,
 			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
 			ParallelNum: config.SYSTEM_SETTINGS.ChannelsSample,
 			AsyncInsert: node.AsyncInsert,
 		})
+
+		patternInsertSvc := insert.NewPatternInsertService(model.InsertServiceOpts{
+			Session:      p.ServicesObject.Dbv3Map[i],
+			Node:         &node,
+			Interval:     time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
+			ParallelNum:  config.SYSTEM_SETTINGS.ChannelsSample,
+			AsyncInsert:  node.AsyncInsert,
+			MaxQueueSize: int64(config.SYSTEM_SETTINGS.DBBulk),
+		})
+
+		// Initialize and run services
+		MtrSvcs[node.Node] = mtrSvc
+		MtrSvcs[node.Node].Init()
+		go MtrSvcs[node.Node].Run()
+
+		TempoTagsSvcs[node.Node] = tempoTagsSvc
+		TempoTagsSvcs[node.Node].Init()
+		go TempoTagsSvcs[node.Node].Run()
+
+		ProfileInsertSvcs[node.Node] = profileInsertSvc
 		ProfileInsertSvcs[node.Node].Init()
 		go ProfileInsertSvcs[node.Node].Run()
 
-		PatternInsertSvcs[node.Node] = insert.NewPatternInsertService(model.InsertServiceOpts{
-			Session:        p.ServicesObject.Dbv3Map[i],
-			Node:           &node,
-			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
-			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
-			AsyncInsert:    node.AsyncInsert,
-			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { TempoSamplesSvcs[_node].PlanFlush() },
-		})
+		PatternInsertSvcs[node.Node] = patternInsertSvc
 		PatternInsertSvcs[node.Node].Init()
 		go PatternInsertSvcs[node.Node].Run()
+
+		TsSvcs[node.Node] = tsSvc
+		TsSvcs[node.Node].Init()
+		go TsSvcs[node.Node].Run()
+
+		TempoSamplesSvcs[node.Node] = tempoSamplesSvc
+		TempoSamplesSvcs[node.Node].Init()
+		go TempoSamplesSvcs[node.Node].Run()
+
+		SplSvcs[node.Node] = splSvc
+		SplSvcs[node.Node].Init()
+		go SplSvcs[node.Node].Run()
 
 		table := "qryn_fingerprints"
 		if node.ClusterName != "" {
@@ -233,6 +246,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		TempoSamplesSvcs,
 		TempoTagsSvcs,
 		ProfileInsertSvcs,
+		PatternInsertSvcs,
 	})
 
 	if config2.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {
@@ -243,7 +257,6 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		})
 	}
 
-	//Run Prometheus Scaper
-	//go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)
-
+	// Run Prometheus Scaper
+	// go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)
 }

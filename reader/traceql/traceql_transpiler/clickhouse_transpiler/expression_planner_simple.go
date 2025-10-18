@@ -3,8 +3,8 @@ package clickhouse_transpiler
 import (
 	"fmt"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/traceql_parser"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	traceql_parser "github.com/metrico/qryn/v4/reader/traceql/traceql_parser"
 )
 
 type simpleExpressionPlanner struct {

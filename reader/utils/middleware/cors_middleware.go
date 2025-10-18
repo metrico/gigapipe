@@ -13,6 +13,10 @@ func CorsMiddleware(allowOrigin string) func(handler http.Handler) http.Handler 
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			if request.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			next.ServeHTTP(w, request)
 		})
 	}

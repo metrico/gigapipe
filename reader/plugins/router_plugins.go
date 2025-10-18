@@ -2,7 +2,7 @@ package plugins
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/prometheus/prometheus/storage"
 )
 

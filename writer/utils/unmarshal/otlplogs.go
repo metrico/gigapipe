@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/v4/writer/model"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlplogs "go.opentelemetry.io/proto/otlp/logs/v1"
 	"google.golang.org/protobuf/proto"

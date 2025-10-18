@@ -5,8 +5,8 @@ import (
 	"sort"
 	"unsafe"
 
-	"github.com/metrico/qryn/reader/prof"
-	"github.com/metrico/qryn/writer/utils/helputils/cityhash102"
+	"github.com/metrico/qryn/v4/reader/prof"
+	"github.com/metrico/qryn/v4/writer/utils/helputils/cityhash102"
 )
 
 func clone[T any](v *T) *T {

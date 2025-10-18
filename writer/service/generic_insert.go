@@ -10,12 +10,12 @@ import (
 
 	fch "github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/writer/chwrapper"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils/helpers"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/promise"
-	"github.com/metrico/qryn/writer/utils/stat"
+	"github.com/metrico/qryn/v4/writer/chwrapper"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils/helpers"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/promise"
+	"github.com/metrico/qryn/v4/writer/utils/stat"
 )
 
 const (
@@ -62,7 +62,7 @@ type IInsertServiceV2 interface {
 
 type requestPortion struct {
 	cols []IColPoolRes
-	//res  []*chan error
+	// res  []*chan error
 	res  []*promise.Promise[uint32]
 	size int64
 }
@@ -155,6 +155,9 @@ func (svc *InsertServiceV2) Run() {
 			svc.ping()
 		case <-svc.ctx.Done():
 			svc.mtx.Lock()
+			for _, r := range svc.results {
+				r.Done(0, fmt.Errorf("[IS003] insert service is stopped"))
+			}
 			svc.running = false
 			svc.watchdog.Stop()
 			svc.mtx.Unlock()
@@ -192,7 +195,7 @@ type SizeGetter interface {
 }
 
 func (svc *InsertServiceV2) Request(req helpers.SizeGetter, insertMode int) *promise.Promise[uint32] {
-	//res := req.Response()
+	// res := req.Response()
 	p := promise.New[uint32]()
 	if !svc.running {
 		logger.Info("service stopped")
@@ -305,7 +308,6 @@ func (svc *InsertServiceV2) fetchLoopIteration() {
 		svc.client.Close()
 		svc.client = nil
 	}
-
 }
 
 func (svc *InsertServiceV2) IngestSize(input *proto.InputColumn) int {
@@ -332,7 +334,7 @@ func (svc *InsertServiceV2) IngestSize(input *proto.InputColumn) int {
 
 type InsertServiceV2RoundRobin struct {
 	ServiceData
-	//V3Session    func() (IChClient, error)
+	// V3Session    func() (IChClient, error)
 
 	V3Session      chwrapper.IChClientFactory
 	DatabaseNode   *model.DataDatabasesMap
@@ -366,9 +368,7 @@ func (svc *InsertServiceV2RoundRobin) GetNodeName() string {
 }
 
 func (svc *InsertServiceV2RoundRobin) GetState(insertMode int) int {
-	var (
-		idle bool
-	)
+	var idle bool
 	for _, svc := range svc.services {
 		switch svc.GetState(insertMode) {
 		case INSERT_STATE_INSERTING:
@@ -482,7 +482,7 @@ func (svc *InsertServiceV2RoundRobin) Request(req helpers.SizeGetter, insertMode
 
 type InsertServiceV2Multimodal struct {
 	ServiceData
-	//V3Session    func() (IChClient, error)
+	// V3Session    func() (IChClient, error)
 	V3Session      chwrapper.IChClientFactory
 	DatabaseNode   *model.DataDatabasesMap
 	AsyncInsert    bool
@@ -568,6 +568,7 @@ func (svc *InsertServiceV2Multimodal) Init() {
 	defer svc.mtx.Unlock()
 	svc.init()
 }
+
 func (svc *InsertServiceV2Multimodal) Run() {
 	svc.mtx.Lock()
 	logger.Info("Running")
