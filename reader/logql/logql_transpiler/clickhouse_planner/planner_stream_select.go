@@ -49,6 +49,11 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
 			s.Values = append(s.Values[:i], s.Values[i+1:]...)
 		}
+		if s.Ops[i] == "=~" && s.Values[i] == ".*" {
+			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
+			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
+			s.Values = append(s.Values[:i], s.Values[i+1:]...)
+		}
 	}
 	clauses := make([]sql.SQLCondition, len(s.LabelNames))
 	for i, name := range s.LabelNames {
