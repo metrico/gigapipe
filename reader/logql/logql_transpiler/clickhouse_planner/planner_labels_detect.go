@@ -6,7 +6,8 @@ import (
 )
 
 type DetectLabelsPlanner struct {
-	fpPlanner shared.SQLRequestPlanner
+	NoStreamSelect bool
+	fpPlanner      shared.SQLRequestPlanner
 }
 
 func (d *DetectLabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -24,7 +25,7 @@ func (d *DetectLabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
 			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02")))).
 		GroupBy(sql.NewRawObject("key"))
-	if d.fpPlanner == nil {
+	if d.NoStreamSelect || d.fpPlanner == nil {
 		return req, nil
 	}
 

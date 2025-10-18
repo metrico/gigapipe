@@ -9,6 +9,7 @@ import (
 )
 
 type ByWithoutPlanner struct {
+	NoStreamSelect     bool
 	Main               shared.SQLRequestPlanner
 	Labels             []string
 	By                 bool
@@ -59,7 +60,11 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 			}, "labels"),
 		).From(sql.NewCol(sql.NewWithRef(*b.LabelsCache), "a"))
 	} else {
-		from, err := labelsFromScratch(ctx, *b.FPCache)
+		var fpCache *sql.With
+		if !b.NoStreamSelect {
+			fpCache = *b.FPCache
+		}
+		from, err := labelsFromScratch(ctx, fpCache)
 		if err != nil {
 			return nil, err
 		}

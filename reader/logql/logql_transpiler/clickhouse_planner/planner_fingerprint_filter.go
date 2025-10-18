@@ -6,6 +6,7 @@ import (
 )
 
 type FingerprintFilterPlanner struct {
+	NoStreamSelect            bool
 	FingerprintsSelectPlanner shared.SQLRequestPlanner
 	MainRequestPlanner        shared.SQLRequestPlanner
 
@@ -13,6 +14,9 @@ type FingerprintFilterPlanner struct {
 }
 
 func (s *FingerprintFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if s.NoStreamSelect {
+		return s.MainRequestPlanner.Process(ctx)
+	}
 	withPlanner := WithConnectorPlanner{
 		Main:  s.MainRequestPlanner,
 		With:  s.FingerprintsSelectPlanner,

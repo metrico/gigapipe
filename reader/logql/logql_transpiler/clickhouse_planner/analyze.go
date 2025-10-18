@@ -8,6 +8,7 @@ import (
 )
 
 func (p *planner) analyzeScript() {
+	p.analyzeStreamSelect()
 	pipeline := getPipeline(p.script)
 
 	p.labelsJoinIdx = -1
@@ -64,6 +65,22 @@ func (p *planner) analyzeScript() {
 	p.matrixFunctionsLabelsIDX = -1
 	p.getFunctionOrder(p.script)
 
+}
+
+func (p *planner) analyzeStreamSelect() {
+	streamSelect := findFirst[logql_parser.StrSelector](p.script)
+	if streamSelect == nil || len(streamSelect.StrSelCmds) == 0 {
+		p.noStreamSelect = true
+		return
+	}
+
+	count := 0
+	for _, c := range streamSelect.StrSelCmds {
+		if c.Op != "=~" || (c.Val.Str != "`.*`" && c.Val.Str != `".*"`) {
+			count++
+		}
+	}
+	p.noStreamSelect = count == 0
 }
 
 func analyzeOffset(script *logql_parser.LogQLScript) *time.Duration {

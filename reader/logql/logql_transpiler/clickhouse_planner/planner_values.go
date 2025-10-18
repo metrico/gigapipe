@@ -9,6 +9,7 @@ import (
 )
 
 type ValuesPlanner struct {
+	NoStreamSelect      bool // Not used for now
 	FingerprintsPlanner shared.SQLRequestPlanner
 	Key                 string
 	Offset              *time.Duration
@@ -38,7 +39,7 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(v.Key)),
 			GetTypes(ctx),
 		)
-	if v.FingerprintsPlanner != nil {
+	if !v.NoStreamSelect && v.FingerprintsPlanner != nil {
 		fp, err := v.FingerprintsPlanner.Process(ctx)
 		if err != nil {
 			return nil, err
