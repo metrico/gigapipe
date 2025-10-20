@@ -1,8 +1,20 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"github.com/gorilla/mux"
+	"github.com/grafana/pyroscope-go"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v4/ctrl"
+	"github.com/metrico/qryn/v4/reader"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/shared/commonroutes"
+	"github.com/metrico/qryn/v4/view"
+	"github.com/metrico/qryn/v4/writer"
 	"log"
 	"net"
 	"net/http"
@@ -10,18 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/gorilla/mux"
-	"github.com/grafana/pyroscope-go"
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/ctrl"
-	"github.com/metrico/qryn/reader"
-	"github.com/metrico/qryn/reader/utils/logger"
-	"github.com/metrico/qryn/reader/utils/middleware"
-	"github.com/metrico/qryn/shared/commonroutes"
-	"github.com/metrico/qryn/view"
-	"github.com/metrico/qryn/writer"
+	"time"
 )
 
 var appFlags CommandLineFlags
@@ -41,7 +42,6 @@ func initFlags() {
 	appFlags.ShowVersion = flag.Bool("version", false, "show version")
 	appFlags.ConfigPath = flag.String("config", "", "the path to the config file")
 	flag.Parse()
-
 }
 
 func boolEnv(key string) (bool, error) {
@@ -95,7 +95,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 		server = os.Getenv("CLICKHOUSE_SERVER")
 	}
 	cfg.Setting.DATABASE_DATA[0].Host = server
-	//TODO: add to readme to change port to tcp (9000) instead of http
+	// TODO: add to readme to change port to tcp (9000) instead of http
 	strPort := "9000"
 	if os.Getenv("CLICKHOUSE_PORT") != "" {
 		strPort = os.Getenv("CLICKHOUSE_PORT")
@@ -115,7 +115,7 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 	if os.Getenv("ADVANCED_SAMPLES_ORDERING") != "" {
 		cfg.Setting.DATABASE_DATA[0].SamplesOrdering = os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	}
-	//TODO: add to readme
+	// TODO: add to readme
 	secure := false
 	if os.Getenv("CLICKHOUSE_PROTO") == "https" || os.Getenv("CLICKHOUSE_PROTO") == "tls" {
 		secure = true
@@ -262,6 +262,14 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 
 func main() {
 	initFlags()
+	initPyro()
+	start()
+	for {
+		time.Sleep(time.Second)
+	}
+}
+
+func start() {
 	var configPaths []string
 	if _, err := os.Stat(*appFlags.ConfigPath); err == nil {
 		configPaths = append(configPaths, *appFlags.ConfigPath)
@@ -286,17 +294,17 @@ func main() {
 	}
 
 	app := mux.NewRouter()
+	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
+	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
+		app.Use(middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin))
+	}
+	commonroutes.RegisterCommonRoutes(app)
+	app.Use(middleware.AcceptEncodingMiddleware)
 	if cfg.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
 		cfg.Setting.AUTH_SETTINGS.BASIC.Password != "" {
 		app.Use(middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
-	app.Use(middleware.AcceptEncodingMiddleware)
-	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
-		app.Use(middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin))
-	}
-	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
-	commonroutes.RegisterCommonRoutes(app)
 	cfg.Setting.LOG_SETTINGS.Level = "debug"
 	cfg.Setting.LOG_SETTINGS.Stdout = true
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
@@ -310,23 +318,27 @@ func main() {
 		reader.Init(cfg, app)
 		view.Init(cfg, app)
 	}
-
-	initPyro()
-
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	httpStart(app, httpURL)
+
+}
+
+var listener net.Listener
+
+func stop() {
+	listener.Close()
 }
 
 func httpStart(server *mux.Router, httpURL string) {
 	logger.Info("Starting service")
-	http.Handle("/", server)
-	listener, err := net.Listen("tcp", httpURL)
+	var err error
+	listener, err = net.Listen("tcp", httpURL)
 	if err != nil {
 		logger.Error("Error creating listener:", err)
 		panic(err)
 	}
 	logger.Info("Server is listening on", httpURL)
-	if err := http.Serve(listener, server); err != nil {
+	if err := http.Serve(listener, server); err != nil && !errors.Is(err, net.ErrClosed) {
 		logger.Error("Error serving:", err)
 		panic(err)
 	}
@@ -355,6 +367,7 @@ func initPyro() {
 			pyroscope.ProfileAllocSpace,
 			pyroscope.ProfileInuseObjects,
 			pyroscope.ProfileInuseSpace,
+			pyroscope.ProfileGoroutines,
 		},
 	}
 

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/utils/unmarshal"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/utils/unmarshal"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	resource "go.opentelemetry.io/proto/otlp/resource/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"

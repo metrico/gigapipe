@@ -1,10 +1,10 @@
 package prof_transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/prof/prof_parser"
-	shared2 "github.com/metrico/qryn/reader/prof/shared"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/prof/prof_parser"
+	shared2 "github.com/metrico/qryn/v4/reader/prof/shared"
+	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
 )
 
 func PlanLabelNames(scripts []*prof_parser.Script) (shared.SQLRequestPlanner, error) {

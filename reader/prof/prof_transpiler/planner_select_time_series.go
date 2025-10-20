@@ -1,10 +1,10 @@
 package prof_transpiler
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/clickhouse_planner"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/prof/prof_parser"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/prof/prof_parser"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type TimeSeriesSelectPlanner struct {

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	traceql_parser "github.com/metrico/qryn/reader/traceql/traceql_parser"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	traceql_parser "github.com/metrico/qryn/v4/reader/traceql/traceql_parser"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 func TestPlanner(t *testing.T) {

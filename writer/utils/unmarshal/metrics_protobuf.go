@@ -3,8 +3,8 @@ package unmarshal
 import (
 	"time"
 
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils/proto/prompb"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils/proto/prompb"
 	"google.golang.org/protobuf/proto"
 )
 

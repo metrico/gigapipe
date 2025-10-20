@@ -2,8 +2,8 @@ package planner
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type DownsampleValuesPlanner struct {

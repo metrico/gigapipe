@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_parser"
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 func Plan(script *logql_parser.LogQLScript, finalize bool) (shared.SQLRequestPlanner, error) {
@@ -42,6 +42,7 @@ type planner struct {
 	matrixFunctionsLabelsIDX int
 	metrics15Shortcut        bool
 	offsetModifier           *time.Duration
+	noStreamSelect           bool
 
 	//SQL Planners
 	fpPlanner      shared.SQLRequestPlanner
@@ -100,10 +101,11 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 
 	if p.labelsJoinIdx == -1 && p.matrixFunctionsLabelsIDX == -1 {
 		p.samplesPlanner = &LabelsJoinPlanner{
-			Main:         p.samplesPlanner,
-			Fingerprints: p.fpPlanner,
-			TimeSeries:   NewTimeSeriesInitPlanner(p.offsetModifier),
-			FpCache:      &p.fpCache,
+			NoStreamSelect: p.noStreamSelect,
+			Main:           p.samplesPlanner,
+			Fingerprints:   p.fpPlanner,
+			TimeSeries:     NewTimeSeriesInitPlanner(p.offsetModifier),
+			FpCache:        &p.fpCache,
 		}
 	}
 
@@ -163,6 +165,7 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 			return err
 		}
 		p.samplesPlanner = &FingerprintFilterPlanner{
+			NoStreamSelect:             p.noStreamSelect,
 			FingerprintsSelectPlanner:  p.fpPlanner,
 			MainRequestPlanner:         NewMetrics15ShortcutPlanner(script.Fn, duration, p.offsetModifier),
 			FingerprintSelectWithCache: &p.fpCache,
@@ -174,7 +177,7 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 
 func (p *planner) planDetectLabels() (shared.SQLRequestPlanner, error) {
 	if p.script == nil {
-		return &DetectLabelsPlanner{}, nil
+		return &DetectLabelsPlanner{NoStreamSelect: p.noStreamSelect}, nil
 	}
 	if p.script.StrSelector == nil {
 		return nil, fmt.Errorf("unsupported query")
@@ -183,7 +186,7 @@ func (p *planner) planDetectLabels() (shared.SQLRequestPlanner, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DetectLabelsPlanner{fpPlanner: p.fpPlanner}, nil
+	return &DetectLabelsPlanner{NoStreamSelect: p.noStreamSelect, fpPlanner: p.fpPlanner}, nil
 }
 
 func (p *planner) planPatterns() (shared.SQLRequestPlanner, error) {
@@ -216,7 +219,13 @@ func (p *planner) planTS() error {
 		}
 		values = append(values, val)
 	}
-	_fpPlanner := NewStreamSelectPlanner(labelNames, ops, values, p.offsetModifier)
+	var _fpPlanner shared.SQLRequestPlanner = &StreamSelectPlanner{
+		NoStreamSelect: p.noStreamSelect,
+		LabelNames:     labelNames,
+		Ops:            ops,
+		Values:         values,
+		Offset:         p.offsetModifier,
+	}
 
 	p.fpPlanner = _fpPlanner
 
@@ -227,8 +236,9 @@ func (p *planner) planTS() error {
 		ppl := getPipeline(p.script)[i]
 		if ppl.LabelFilter != nil {
 			p.fpPlanner = &SimpleLabelFilterPlanner{
-				Expr:  getPipeline(p.script)[i].LabelFilter,
-				FPSel: p.fpPlanner,
+				NoStreamSelect: p.noStreamSelect,
+				Expr:           getPipeline(p.script)[i].LabelFilter,
+				FPSel:          p.fpPlanner,
 			}
 		}
 	}
@@ -240,6 +250,7 @@ func (p *planner) planSpl() error {
 	streamSelector := getStreamSelector(p.script)
 
 	p.samplesPlanner = &FingerprintFilterPlanner{
+		NoStreamSelect:             p.noStreamSelect,
 		FingerprintsSelectPlanner:  p.fpPlanner,
 		MainRequestPlanner:         NewSQLMainInitPlanner(p.offsetModifier),
 		FingerprintSelectWithCache: &p.fpCache,
@@ -247,11 +258,12 @@ func (p *planner) planSpl() error {
 	for i, ppl := range streamSelector.Pipelines {
 		if i == p.labelsJoinIdx {
 			p.samplesPlanner = &LabelsJoinPlanner{
-				Main:         &MainOrderByPlanner{[]string{"timestamp_ns"}, p.samplesPlanner},
-				Fingerprints: p.fpPlanner,
-				TimeSeries:   NewTimeSeriesInitPlanner(p.offsetModifier),
-				FpCache:      &p.fpCache,
-				LabelsCache:  &p.labelsCache,
+				NoStreamSelect: p.noStreamSelect,
+				Main:           &MainOrderByPlanner{[]string{"timestamp_ns"}, p.samplesPlanner},
+				Fingerprints:   p.fpPlanner,
+				TimeSeries:     NewTimeSeriesInitPlanner(p.offsetModifier),
+				FpCache:        &p.fpCache,
+				LabelsCache:    &p.labelsCache,
 			}
 		}
 		var err error
@@ -350,6 +362,7 @@ func (p *planner) planByWithout(byWithout ...*logql_parser.ByOrWithout) error {
 	}
 
 	p.samplesPlanner = &ByWithoutPlanner{
+		NoStreamSelect:     p.noStreamSelect,
 		Main:               p.samplesPlanner,
 		Labels:             labels,
 		By:                 strings.ToLower(_byWithout.Fn) == "by",

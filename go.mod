@@ -1,4 +1,4 @@
-module github.com/metrico/qryn
+module github.com/metrico/qryn/v4
 
 go 1.24.0
 
@@ -20,7 +20,6 @@ replace (
 	k8s.io/api v0.32.3 => k8s.io/api v0.24.17
 	k8s.io/apimachinery v0.32.3 => k8s.io/apimachinery v0.24.17
 	k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.22.1
-
 )
 
 require (
@@ -38,7 +37,6 @@ require (
 	github.com/go-logfmt/logfmt v0.6.0
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/gofiber/websocket/v2 v2.2.1
-	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20241029153458-d1b30febd7db
 	github.com/gorilla/mux v1.8.1
@@ -105,6 +103,7 @@ require (
 	github.com/go-playground/locales v0.14.0 // indirect
 	github.com/go-playground/universal-translator v0.18.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/cel-go v0.23.0 // indirect

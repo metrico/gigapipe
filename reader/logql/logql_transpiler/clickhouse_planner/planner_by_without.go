@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type ByWithoutPlanner struct {
+	NoStreamSelect     bool
 	Main               shared.SQLRequestPlanner
 	Labels             []string
 	By                 bool
@@ -59,7 +60,11 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 			}, "labels"),
 		).From(sql.NewCol(sql.NewWithRef(*b.LabelsCache), "a"))
 	} else {
-		from, err := labelsFromScratch(ctx, *b.FPCache)
+		var fpCache *sql.With
+		if !b.NoStreamSelect {
+			fpCache = *b.FPCache
+		}
+		from, err := labelsFromScratch(ctx, fpCache)
 		if err != nil {
 			return nil, err
 		}

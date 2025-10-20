@@ -6,17 +6,18 @@ import (
 	kitlog "github.com/go-kit/kit/log/logrus"
 	"github.com/gorilla/mux"
 	grafana_re "github.com/grafana/regexp"
-	"github.com/metrico/qryn/reader/config"
-	controllerv1 "github.com/metrico/qryn/reader/controller"
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/service"
-	"github.com/metrico/qryn/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/config"
+	controllerv1 "github.com/metrico/qryn/v4/reader/controller"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/service"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/prometheus/prometheus/promql"
 	api_v1 "github.com/prometheus/prometheus/web/api/v1"
 )
 
 func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
-	stats bool) {
+	stats bool,
+) {
 	eng := promql.NewEngine(promql.EngineOpts{
 		Logger:                   kitlog.NewLogger(logger.Logger),
 		Reg:                      nil,
@@ -43,6 +44,6 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 		Storage:    &svc,
 		Stats:      stats,
 	}
-	app.HandleFunc("/api/v1/query_range", ctrl.QueryRange).Methods("GET", "POST")
-	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST")
+	app.HandleFunc("/api/v1/query_range", ctrl.QueryRange).Methods("GET", "POST", "OPTIONS")
+	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST", "OPTIONS")
 }

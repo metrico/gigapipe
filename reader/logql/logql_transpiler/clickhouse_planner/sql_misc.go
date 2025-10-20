@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type SqlMatch struct {
@@ -144,7 +144,9 @@ func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With) (sql.ISele
 	if err != nil {
 		return nil, err
 	}
-	_from.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(fpCache)))
+	if fpCache != nil {
+		_from.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(fpCache)))
+	}
 	return _from, nil
 }
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/alecthomas/participle/v2"
 	"github.com/alecthomas/participle/v2/lexer"
-	"github.com/metrico/qryn/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
 )
 
 func JsonPathParamToTypedArray(param string) ([]string, error) {

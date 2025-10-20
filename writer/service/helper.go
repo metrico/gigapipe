@@ -2,7 +2,7 @@ package service
 
 import (
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/writer/model"
+	"github.com/metrico/qryn/v4/writer/model"
 )
 
 type ColTupleStrStrAdapter struct {

@@ -2,36 +2,26 @@ package clickhouse_planner
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/writer/config"
+	"github.com/metrico/qryn/v4/writer/config"
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/plugins"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type StreamSelectPlanner struct {
-	LabelNames []string
-	Ops        []string
-	Values     []string
-	Offset     *time.Duration
-}
-
-func NewStreamSelectPlanner(labelNames, ops, values []string, offset *time.Duration) shared.SQLRequestPlanner {
-	p := plugins.GetStreamSelectPlannerPlugin()
-	if p != nil {
-		return (*p)(labelNames, ops, values)
-	}
-	return &StreamSelectPlanner{
-		LabelNames: labelNames,
-		Ops:        ops,
-		Values:     values,
-		Offset:     offset,
-	}
+	NoStreamSelect bool
+	LabelNames     []string
+	Ops            []string
+	Values         []string
+	Offset         *time.Duration
 }
 
 func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if s.NoStreamSelect {
+		return nil, nil
+	}
 	from := ctx.From
 	if s.Offset != nil {
 		from = from.Add(*s.Offset)
@@ -45,6 +35,11 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		}
 		if (s.Ops[i] == "=" || s.Ops[i] == "=~") && s.Values[i] == "" {
 			emptyLabels = append(emptyLabels, s.LabelNames[i])
+			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
+			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
+			s.Values = append(s.Values[:i], s.Values[i+1:]...)
+		}
+		if s.Ops[i] == "=~" && s.Values[i] == ".*" {
 			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
 			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
 			s.Values = append(s.Values[:i], s.Values[i+1:]...)

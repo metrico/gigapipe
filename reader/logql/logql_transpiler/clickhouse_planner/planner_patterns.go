@@ -3,8 +3,8 @@ package clickhouse_planner
 import (
 	"fmt"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type PatternsPlanner struct {
@@ -32,6 +32,7 @@ func (p *PatternsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 			sql.Le(sql.NewRawObject("p.timestamp_10m"), sql.NewIntVal(ctx.To.Unix()/600)),
 			sql.Ge(sql.NewRawObject("p.timestamp_s"), sql.NewIntVal(ctx.From.Unix())),
 			sql.Le(sql.NewRawObject("p.timestamp_s"), sql.NewIntVal(ctx.To.Unix())),
+			//TODO:FP
 			sql.NewIn(sql.NewRawObject("p.fingerprint"), sql.NewWithRef(withFp))).
 		GroupBy(sql.NewRawObject("pattern_id"), sql.NewRawObject("timestamp_s"))
 	withReq := sql.NewWith(_req, "pregroup")

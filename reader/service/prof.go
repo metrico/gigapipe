@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/reader/model"
-	"github.com/metrico/qryn/reader/prof"
-	"github.com/metrico/qryn/reader/prof/prof_parser"
-	"github.com/metrico/qryn/reader/prof/shared"
-	v1 "github.com/metrico/qryn/reader/prof/types/v1"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
-	"github.com/metrico/qryn/reader/utils/tables"
+	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/prof"
+	"github.com/metrico/qryn/v4/reader/prof/prof_parser"
+	"github.com/metrico/qryn/v4/reader/prof/shared"
+	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
 	"google.golang.org/protobuf/proto"
 )
 

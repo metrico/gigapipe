@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/ctrl/logger"
-	"github.com/metrico/qryn/ctrl/maintenance"
+	"github.com/metrico/qryn/v4/ctrl/logger"
+	"github.com/metrico/qryn/v4/ctrl/maintenance"
 )
 
 func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
 	conn, err := maintenance.ConnectV2(dbObject, true)
+	defer conn.Close()
 	if err != nil {
 		return err
 	}

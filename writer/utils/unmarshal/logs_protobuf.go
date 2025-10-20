@@ -1,8 +1,8 @@
 package unmarshal
 
 import (
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils/proto/logproto"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils/proto/logproto"
 	"google.golang.org/protobuf/proto"
 )
 

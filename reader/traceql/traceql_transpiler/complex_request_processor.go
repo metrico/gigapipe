@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/reader/model"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v4/reader/model"
 )
 
 type ComplexRequestProcessor struct {

@@ -12,10 +12,10 @@ import (
 	"strings"
 
 	"github.com/golang/snappy"
-	"github.com/metrico/qryn/writer/chwrapper"
-	"github.com/metrico/qryn/writer/service"
-	"github.com/metrico/qryn/writer/utils"
-	"github.com/metrico/qryn/writer/utils/errors"
+	"github.com/metrico/qryn/v4/writer/chwrapper"
+	"github.com/metrico/qryn/v4/writer/service"
+	"github.com/metrico/qryn/v4/writer/utils"
+	"github.com/metrico/qryn/v4/writer/utils/errors"
 )
 
 var DbClient chwrapper.IChClient

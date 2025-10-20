@@ -8,7 +8,7 @@ import (
 
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/ctrl/logger"
+	"github.com/metrico/qryn/v4/ctrl/logger"
 )
 
 func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2.Conn, error) {

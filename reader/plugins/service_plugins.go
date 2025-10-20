@@ -3,8 +3,8 @@ package plugins
 import (
 	"context"
 
-	"github.com/metrico/qryn/reader/model"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/model"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type TempoServicePlugin interface {

@@ -1,11 +1,12 @@
 package clickhouse_planner
 
 import (
-	"github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type FingerprintFilterPlanner struct {
+	NoStreamSelect            bool
 	FingerprintsSelectPlanner shared.SQLRequestPlanner
 	MainRequestPlanner        shared.SQLRequestPlanner
 
@@ -13,6 +14,9 @@ type FingerprintFilterPlanner struct {
 }
 
 func (s *FingerprintFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if s.NoStreamSelect {
+		return s.MainRequestPlanner.Process(ctx)
+	}
 	withPlanner := WithConnectorPlanner{
 		Main:  s.MainRequestPlanner,
 		With:  s.FingerprintsSelectPlanner,

@@ -10,7 +10,7 @@ import (
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 func NewGeneralPurposeClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, database bool) (IChClient, error) {

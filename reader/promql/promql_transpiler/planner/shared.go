@@ -1,6 +1,6 @@
 package planner
 
-import sql "github.com/metrico/qryn/reader/utils/sql_select"
+import sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 
 func patchField(query sql.ISelect, alias string, newField sql.Aliased) sql.ISelect {
 	_select := make([]sql.SQLObject, len(query.GetSelect()))

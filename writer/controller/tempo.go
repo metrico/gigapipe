@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/metrico/qryn/writer/utils"
-	"github.com/metrico/qryn/writer/utils/unmarshal"
+	"github.com/metrico/qryn/v4/writer/utils"
+	"github.com/metrico/qryn/v4/writer/utils/unmarshal"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 

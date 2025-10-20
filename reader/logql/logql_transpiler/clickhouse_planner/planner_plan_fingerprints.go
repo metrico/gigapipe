@@ -1,6 +1,6 @@
 package clickhouse_planner
 
-import "github.com/metrico/qryn/reader/logql/logql_transpiler/shared"
+import "github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 
 func (p *planner) planFingerprints() (shared.SQLRequestPlanner, error) {
 	var (
@@ -17,6 +17,12 @@ func (p *planner) planFingerprints() (shared.SQLRequestPlanner, error) {
 		}
 		values = append(values, val)
 	}
-	res := NewStreamSelectPlanner(labelNames, ops, values, p.offsetModifier)
+	res := &StreamSelectPlanner{
+		NoStreamSelect: p.noStreamSelect,
+		LabelNames:     labelNames,
+		Ops:            ops,
+		Values:         values,
+		Offset:         p.offsetModifier,
+	}
 	return res, nil
 }

@@ -1,9 +1,9 @@
 package promql_transpiler
 
 import (
-	"github.com/metrico/qryn/reader/promql/promql_parser"
-	"github.com/metrico/qryn/reader/promql/promql_transpiler/optimizer"
-	"github.com/metrico/qryn/reader/promql/promql_transpiler/planner"
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler/optimizer"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler/planner"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

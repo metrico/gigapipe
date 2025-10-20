@@ -10,10 +10,10 @@ import (
 	"unsafe"
 
 	"github.com/go-faster/city"
-	"github.com/metrico/qryn/writer/model"
-	"github.com/metrico/qryn/writer/utils"
-	"github.com/metrico/qryn/writer/utils/logger"
-	"github.com/metrico/qryn/writer/utils/numbercache"
+	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils"
+	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 	"google.golang.org/protobuf/proto"
 )
 
