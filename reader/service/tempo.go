@@ -148,7 +148,6 @@ func (t *TempoService) Query(ctx context.Context, startNS int64, endNS int64, tr
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(request)
 	rows, err := conn.Session.QueryCtx(ctx, request)
 	if err != nil {
 		return nil, err
@@ -374,7 +373,6 @@ func (t *TempoService) Search(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(strRequest)
 	rows, err := conn.Session.QueryCtx(ctx, strRequest)
 	if err != nil {
 		return nil, err
