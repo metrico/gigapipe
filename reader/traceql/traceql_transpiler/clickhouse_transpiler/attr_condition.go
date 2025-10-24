@@ -46,7 +46,7 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	}
 	res := main
 	if len(a.where) > 0 {
-		res = res.OrWhere(sql.And(a.where...))
+		res = res.AndWhere(sql.Or(a.where...))
 	}
 	if having != nil {
 		res = res.AndHaving(having)
