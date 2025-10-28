@@ -2,7 +2,7 @@ package clickhouse_planner
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/v4/writer/config"
+	"github.com/metrico/qryn/v4/reader/config"
 	"strings"
 	"time"
 

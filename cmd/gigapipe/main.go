@@ -22,7 +22,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var appFlags CommandLineFlags
@@ -264,9 +263,6 @@ func main() {
 	initFlags()
 	initPyro()
 	start()
-	for {
-		time.Sleep(time.Second)
-	}
 }
 
 func start() {
@@ -286,7 +282,8 @@ func start() {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
 
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" {
+	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
+		cfg.Setting.SYSTEM_SETTINGS.Mode == "init_only" {
 		initDB(cfg)
 	}
 	if os.Getenv("MODE") == "init_only" {

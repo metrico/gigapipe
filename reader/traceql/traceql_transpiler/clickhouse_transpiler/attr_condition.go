@@ -44,8 +44,13 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	if err != nil {
 		return nil, err
 	}
-
-	res := main.AndWhere(sql.Or(a.where...)).AndHaving(having)
+	res := main
+	if len(a.where) > 0 {
+		res = res.AndWhere(sql.Or(a.where...))
+	}
+	if having != nil {
+		res = res.AndHaving(having)
+	}
 
 	if ctx.RandomFilter.Max != 0 && len(ctx.CachedTraceIds) > 0 {
 		rawCachedTraceIds := make([]sql.SQLObject, len(ctx.CachedTraceIds))
