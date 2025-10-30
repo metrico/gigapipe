@@ -148,7 +148,7 @@ func (q *QueryLabelsService) PromValues(ctx context.Context, label string, match
 
 func (q *QueryLabelsService) Prom2LogqlMatch(match string) (string, error) {
 	e := promql.NewEngine(promql.EngineOpts{})
-	rq, err := e.NewRangeQuery(nil, nil, match, time.Now(), time.Now(), time.Second)
+	rq, err := e.NewRangeQuery(context.Background(), nil, nil, match, time.Now(), time.Now(), time.Second)
 	if err != nil {
 		panic(err)
 	}

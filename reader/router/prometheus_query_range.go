@@ -1,9 +1,9 @@
 package router
 
 import (
+	"log/slog"
 	"time"
 
-	kitlog "github.com/go-kit/kit/log/logrus"
 	"github.com/gorilla/mux"
 	grafana_re "github.com/grafana/regexp"
 	"github.com/metrico/qryn/v4/reader/config"
@@ -18,8 +18,11 @@ import (
 func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 	stats bool,
 ) {
+	slogLogger := slog.New(slog.NewJSONHandler(logger.Logger.Out, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 	eng := promql.NewEngine(promql.EngineOpts{
-		Logger:                   kitlog.NewLogger(logger.Logger),
+		Logger:                   slogLogger,
 		Reg:                      nil,
 		MaxSamples:               config.Cloki.Setting.SYSTEM_SETTINGS.MetricsMaxSamples,
 		Timeout:                  time.Second * 30,
