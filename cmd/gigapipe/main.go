@@ -4,17 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/grafana/pyroscope-go"
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/ctrl"
-	"github.com/metrico/qryn/v4/reader"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
-	"github.com/metrico/qryn/v4/reader/utils/middleware"
-	"github.com/metrico/qryn/v4/shared/commonroutes"
-	"github.com/metrico/qryn/v4/view"
-	"github.com/metrico/qryn/v4/writer"
 	"log"
 	"net"
 	"net/http"
@@ -22,6 +11,19 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/gorilla/mux"
+	"github.com/grafana/pyroscope-go"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v4/ctrl"
+	"github.com/metrico/qryn/v4/reader"
+	reader_config "github.com/metrico/qryn/v4/reader/config"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/shared/commonroutes"
+	"github.com/metrico/qryn/v4/view"
+	"github.com/metrico/qryn/v4/writer"
 )
 
 var appFlags CommandLineFlags
@@ -251,6 +253,10 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		}
 	}
 
+	if os.Getenv("LOG_LEVEL") != "" {
+		cfg.Setting.LOG_SETTINGS.Level = os.Getenv("LOG_LEVEL")
+	}
+
 	cfg.Setting.ClokiReader.Compat_4_0_19, err = boolEnv("COMPAT_4_0_19")
 	if err != nil {
 		return err
@@ -281,6 +287,10 @@ func start() {
 	if cfg.Setting.HTTP_SETTINGS.Port == 0 {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
+	// init logger here to respect the log_level env in httpStart
+	reader_config.Cloki = cfg
+	// needs reader_config.Cloki
+	logger.InitLogger()
 
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "init_only" {
@@ -302,7 +312,6 @@ func start() {
 		app.Use(middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
-	cfg.Setting.LOG_SETTINGS.Level = "debug"
 	cfg.Setting.LOG_SETTINGS.Stdout = true
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
@@ -317,7 +326,6 @@ func start() {
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	httpStart(app, httpURL)
-
 }
 
 var listener net.Listener

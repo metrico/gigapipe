@@ -2,6 +2,7 @@ package ctrl
 
 import (
 	"fmt"
+
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v4/ctrl/logger"
@@ -22,6 +23,7 @@ var projects = map[string]struct {
 
 func Init(config *clconfig.ClokiConfig, project string) error {
 	var err error
+	logger.InitLogger(config, nil)
 	proj, ok := projects[project]
 	if !ok {
 		return fmt.Errorf("project %s not found", project)
