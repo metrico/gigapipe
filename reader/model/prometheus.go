@@ -210,7 +210,7 @@ func (p *prolongSeriesIt) Next() chunkenc.ValueType {
 	}
 
 	if done {
-		return chunkenc.ValNone
+		return chunkenc.ValFloat
 	}
 
 	p.timestampMs += p.stepMs
