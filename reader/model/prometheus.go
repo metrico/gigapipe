@@ -139,7 +139,7 @@ func (s *seriesIt) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogra
 }
 
 func (s *seriesIt) AtT() int64 {
-	return 0
+	return s.samples[s.idx].TimestampMs
 }
 
 func (s *seriesIt) Err() error {
@@ -226,7 +226,7 @@ func (p *prolongSeriesIt) At() (int64, float64) {
 // is unspecified.
 // The method accepts an optional Histogram object which will be
 // reused when not nil. Otherwise, a new Histogram object will be allocated.
-func (s *prolongSeriesIt) AtHistogram(histogram *histogram.Histogram) (int64, *histogram.Histogram) {
+func (p *prolongSeriesIt) AtHistogram(histogram *histogram.Histogram) (int64, *histogram.Histogram) {
 	return 0, nil
 }
 
@@ -237,12 +237,12 @@ func (s *prolongSeriesIt) AtHistogram(histogram *histogram.Histogram) (int64, *h
 // has advanced, the behaviour is unspecified.
 // The method accepts an optional FloatHistogram object which will be
 // reused when not nil. Otherwise, a new FloatHistogram object will be allocated.
-func (s *prolongSeriesIt) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
+func (p *prolongSeriesIt) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	return 0, nil
 }
 
 // AtT returns the current timestamp.
 // Before the iterator has advanced, the behaviour is unspecified.
-func (s *prolongSeriesIt) AtT() int64 {
-	return 0
+func (p *prolongSeriesIt) AtT() int64 {
+	return p.timestampMs
 }
