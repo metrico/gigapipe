@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/plugins"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 func getRequiredFloat(ctx *http.Request, name string, def string, err error) (float64, error) {

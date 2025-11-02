@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type profileSamplesAcquirer struct {
@@ -65,7 +65,6 @@ func (t *profileSamplesAcquirer) toIFace() []service.IColPoolRes {
 }
 
 func (t *profileSamplesAcquirer) fromIFace(iface []service.IColPoolRes) *profileSamplesAcquirer {
-
 	t.timestampNs = iface[0].(*service.PooledColumn[proto.ColUInt64])
 	t.ptype = iface[1].(*service.PooledColumn[*proto.ColStr])
 	t.serviceName = iface[2].(*service.PooledColumn[*proto.ColStr])
@@ -108,14 +107,13 @@ func NewProfileSamplesInsertService(opts model.InsertServiceOpts) service.IInser
 			return (&profileSamplesAcquirer{}).acq().toIFace()
 		},
 		ProcessRequest: func(ts any, res []service.IColPoolRes) (int, []service.IColPoolRes, error) {
-
 			profileSeriesData, ok := ts.(*model.ProfileData)
 			if !ok {
 				logger.Info("profileSeriesData")
 				return 0, nil, fmt.Errorf("invalid request samples insert")
 			}
 			acquirer := (&profileSamplesAcquirer{}).fromIFace(res)
-			//snap := acquirer.snapshot()
+			// snap := acquirer.snapshot()
 			s1 := res[0].Size()
 
 			(&service.Uint64Adaptor{ColUInt64: &acquirer.timestampNs.Data}).AppendArr(profileSeriesData.TimestampNs)

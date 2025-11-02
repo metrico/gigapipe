@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/ctrl/logger"
 	"github.com/metrico/qryn/v4/ctrl/maintenance"
+	"github.com/metrico/qryn/v4/logger"
+	"github.com/sirupsen/logrus"
 )
 
-func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
+func upgradeDB(dbObject *config.ClokiBaseDataBase, logger *logrus.Logger) error {
 	conn, err := maintenance.ConnectV2(dbObject, true)
 	defer conn.Close()
 	if err != nil {
@@ -31,7 +32,7 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 		dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
 }
 
-func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
+func InitDB(dbObject *config.ClokiBaseDataBase, logger *logrus.Logger) error {
 	if dbObject.Name == "" || dbObject.Name == "default" {
 		return nil
 	}
@@ -61,7 +62,7 @@ func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
 	return nil
 }
 
-func TestDistributed(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) (bool, error) {
+func TestDistributed(dbObject *config.ClokiBaseDataBase, logger *logrus.Logger) (bool, error) {
 	if dbObject.ClusterName == "" {
 		return false, nil
 	}
@@ -143,7 +144,7 @@ func ReindexDB(dbObject *config.ClokiBaseDataBase) error {
 	return UpdateLogsIndex(connDb, dbObject.ClusterName != "", dbObject.LogsIndex, int(dbObject.LogsIndexGranularity))
 }
 
-func UpgradeAll(config []config.ClokiBaseDataBase, logger logger.ILogger) error {
+func UpgradeAll(config []config.ClokiBaseDataBase, logger *logrus.Logger) error {
 	for _, dbObject := range config {
 		logger.Info(fmt.Sprintf("Upgrading %s:%d/%s", dbObject.Host, dbObject.Port, dbObject.Name))
 		err := upgradeDB(&dbObject, logger)
@@ -155,7 +156,7 @@ func UpgradeAll(config []config.ClokiBaseDataBase, logger logger.ILogger) error 
 	return nil
 }
 
-func RotateAll(base []config.ClokiBaseDataBase, logger logger.ILogger) error {
+func RotateAll(base []config.ClokiBaseDataBase, logger *logrus.Logger) error {
 	for _, dbObject := range base {
 		logger.Info(fmt.Sprintf("Rotating %s:%d/%s", dbObject.Host, dbObject.Port, dbObject.Name))
 		err := rotateDB(&dbObject)

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/config"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 // remove reload.gp

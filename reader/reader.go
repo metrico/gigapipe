@@ -9,11 +9,11 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/config"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/registry"
 	"github.com/metrico/qryn/v4/reader/router"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
 	"github.com/metrico/qryn/v4/reader/watchdog"
 )
@@ -22,6 +22,7 @@ var ownHttpServer bool = false
 
 func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
 	config.Cloki = cnf
+	logger.Info("Initializing Writer module...")
 
 	// Set to max cpu if the value is equals 0
 	if config.Cloki.Setting.SYSTEM_SETTINGS.CPUMaxProcs == 0 {
@@ -31,8 +32,6 @@ func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
 	}
 
 	// initialize logger
-	//
-	logger.InitLogger()
 
 	if app == nil {
 		app = mux.NewRouter()

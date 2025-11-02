@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/go-faster/city"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/config"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type LogLine struct {
@@ -178,7 +178,7 @@ func (c *LogCluster) generalize(line *LogLine) bool {
 		i++
 		j++
 	}
-	var DefaultSimilarity = config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsSimilarity
+	DefaultSimilarity := config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsSimilarity
 	if (float64(differenceCost+c.GeneralizedCost) / float64(c.OverallCost)) > (1 - DefaultSimilarity) {
 		return false
 	}

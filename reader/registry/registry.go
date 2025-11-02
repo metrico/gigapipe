@@ -8,11 +8,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jmoiron/sqlx"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/config"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
 	"github.com/metrico/qryn/v4/reader/utils/dsn"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 var Registry model.IDBRegistry

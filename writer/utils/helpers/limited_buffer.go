@@ -11,20 +11,22 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang/snappy"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/utils/errors"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/valyala/bytebufferpool"
 	"golang.org/x/sync/semaphore"
 )
 
 var RateLimitingEnable = false
 
-type UUID [16]byte
-type RateLimitedBuffer interface {
-	Bytes() []byte
-	Write([]byte) (int, error)
-	Release()
-}
+type (
+	UUID              [16]byte
+	RateLimitedBuffer interface {
+		Bytes() []byte
+		Write([]byte) (int, error)
+		Release()
+	}
+)
 
 type RateLimitedPooledBuffer struct {
 	pool   *RateLimitedPool
@@ -94,7 +96,7 @@ func (r *RateLimitedPool) releasePooledBuffer(buffer *RateLimitedPooledBuffer) {
 	if RateLimitingEnable {
 		r.rateLimiter.Release(int64(buffer.limit))
 	}
-	//bytebufferpool.Put(buffer.buffer)
+	// bytebufferpool.Put(buffer.buffer)
 }
 
 func (r *RateLimitedPool) acquireSlice(size int) (RateLimitedBuffer, error) {
@@ -116,13 +118,14 @@ func (r *RateLimitedPool) acquireSlice(size int) (RateLimitedBuffer, error) {
 }
 
 func (r *RateLimitedPool) releaseSlice(buffer *RateLimitedSliceBuffer) {
-	//r.rateLimiter.Release(int64(len(buffer.bytes)))
+	// r.rateLimiter.Release(int64(len(buffer.bytes)))
 }
 
 var requestPool = RateLimitedPool{
 	limit:       50 * 1024 * 1024,
 	rateLimiter: semaphore.NewWeighted(50 * 1024 * 1024),
 }
+
 var pbPool = RateLimitedPool{
 	limit:       50 * 1024 * 1024,
 	rateLimiter: semaphore.NewWeighted(50 * 1024 * 1024),
@@ -132,7 +135,7 @@ func getPayloadBuffer(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
 	var ctxLen int
 	if ctx.Get("content-length", "") == "" {
 		return nil, errors.New400Error("content-length is required")
-		//return nil, util.NewCLokiWriterError(400, "content-length is required")
+		// return nil, util.NewCLokiWriterError(400, "content-length is required")
 	} else {
 		ctxLen, _ = strconv.Atoi(ctx.Get("content-length", ""))
 	}
@@ -155,7 +158,7 @@ func decompressPayload(buf RateLimitedBuffer) (RateLimitedBuffer, error) {
 	}
 	if decompSize > pbPool.limit {
 		return nil, errors.New400Error("decompressed request too long")
-		//return nil, util.NewCLokiWriterError(400, "decompressed request too long")
+		// return nil, util.NewCLokiWriterError(400, "decompressed request too long")
 	}
 	slice, err := pbPool.acquireSlice(decompSize)
 	if err != nil {
@@ -166,7 +169,7 @@ func decompressPayload(buf RateLimitedBuffer) (RateLimitedBuffer, error) {
 		slice.Release()
 		logger.Error(err)
 		return nil, errors.New400Error("request decompress error")
-		//return nil, util.NewCLokiWriterError(400, "request decompress error")
+		// return nil, util.NewCLokiWriterError(400, "request decompress error")
 	}
 	return slice, nil
 }
@@ -194,9 +197,9 @@ func GetRawBody(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
 		return buf, nil
 	}
 	defer buf.Release()
-	//t1 := time.Now().UnixNano()
+	// t1 := time.Now().UnixNano()
 	slice, err := decompressPayload(buf)
-	//stat.AddSentMetrics("Decompression time", time.Now().UnixNano()-t1)
+	// stat.AddSentMetrics("Decompression time", time.Now().UnixNano()-t1)
 	return slice, err
 }
 

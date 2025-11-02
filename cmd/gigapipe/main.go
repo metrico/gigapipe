@@ -17,9 +17,8 @@ import (
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v4/ctrl"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader"
-	reader_config "github.com/metrico/qryn/v4/reader/config"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
 	"github.com/metrico/qryn/v4/shared/commonroutes"
 	"github.com/metrico/qryn/v4/view"
@@ -287,10 +286,9 @@ func start() {
 	if cfg.Setting.HTTP_SETTINGS.Port == 0 {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
-	// init logger here to respect the log_level env in httpStart
-	reader_config.Cloki = cfg
-	// needs reader_config.Cloki
-	logger.InitLogger()
+
+	cfg.Setting.LOG_SETTINGS.Stdout = true
+	logger.InitLogger(cfg)
 
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "init_only" {
@@ -312,7 +310,6 @@ func start() {
 		app.Use(middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
-	cfg.Setting.LOG_SETTINGS.Stdout = true
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {

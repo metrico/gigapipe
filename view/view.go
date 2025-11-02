@@ -36,7 +36,8 @@ func Init(cfg *clconfig.ClokiConfig, mux *mux.Router) {
 		viewPath + "/plugins",
 		viewPath + "/users",
 		viewPath + "/datasources",
-		viewPath + "/datasources/{ds}"} {
+		viewPath + "/datasources/{ds}",
+	} {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			contents, err := Static.ReadFile("/dist/index.html")
 			if err != nil {

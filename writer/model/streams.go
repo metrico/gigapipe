@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/logger"
 )
 
 type PushRequest struct {
@@ -44,7 +44,7 @@ func (l *LokiTime) GetNanos() int64 {
 
 // UnmarshalJSON is the method that satisfies the Unmarshaller interface
 func (u *LokiTime) UnmarshalJSON(b []byte) error {
-	//2021-12-26T16:00:06.944Z
+	// 2021-12-26T16:00:06.944Z
 	var err error
 	if b != nil {
 		var timestamp int64

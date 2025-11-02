@@ -11,8 +11,8 @@ import (
 
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/utils/helputils"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type Client struct {
@@ -117,7 +117,6 @@ func (c *Client) tableEmpty(ctx context.Context, name string) (bool, error) {
 }
 
 func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
-
 	logger.Info("query Info", query)
 	return c.c.Exec(ctx, query, args)
 }
@@ -211,12 +210,12 @@ VALUES ($1, $2, $3, $4, NOW())`, fp, tp, name, value)
 }
 
 func (c *Client) Ping(ctx context.Context) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
 func (c *Client) Do(ctx context.Context, query ch.Query) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 

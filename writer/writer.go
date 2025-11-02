@@ -3,10 +3,10 @@ package writer
 import (
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/config"
 	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
 	"github.com/metrico/qryn/v4/writer/plugin"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 var qrynPlugin *plugin.QrynWriterPlugin
@@ -14,6 +14,7 @@ var qrynPlugin *plugin.QrynWriterPlugin
 func Init(cfg *clconfig.ClokiConfig, router *mux.Router) {
 	/* first check admin flags */
 	config.Cloki = cfg
+	logger.Info("Initializing Writer module...")
 	qrynPlugin = &plugin.QrynWriterPlugin{}
 	qrynPlugin.Initialize(*config.Cloki.Setting)
 	qrynPlugin.CreateStaticServiceRegistry(*config.Cloki.Setting)

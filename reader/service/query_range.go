@@ -10,13 +10,13 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
-	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
 )
@@ -47,7 +47,8 @@ func onErr(err error, res chan model.QueryRangeOutput) {
 }
 
 func (q *QueryRangeService) exportStreamsValue(out chan []shared.LogEntry,
-	res chan model.QueryRangeOutput) {
+	res chan model.QueryRangeOutput,
+) {
 	defer close(res)
 
 	json := jsoniter.ConfigFastest
@@ -156,7 +157,8 @@ type QueryVolumeResult struct {
 }
 
 func (q *QueryRangeService) QueryVolume(ctx context.Context, query string, fromNs int64, toNs int64,
-	stepMs int64, aggregateByLabels []string) ([]QueryVolumeResult, error) {
+	stepMs int64, aggregateByLabels []string,
+) ([]QueryVolumeResult, error) {
 	var err error
 	if len(aggregateByLabels) == 0 {
 		aggregateByLabels, err = q.getLabelsForVolume(query)
@@ -211,7 +213,8 @@ type QueryDetectedLabelsResult struct {
 }
 
 func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query string, fromNs int64,
-	toNs int64) ([]QueryDetectedLabelsResult, error) {
+	toNs int64,
+) ([]QueryDetectedLabelsResult, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -287,7 +290,8 @@ type PatternsResult struct {
 }
 
 func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fromNs int64, toNs int64,
-	stepMs int64, limit int64) ([]PatternsResult, error) {
+	stepMs int64, limit int64,
+) ([]PatternsResult, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -376,7 +380,8 @@ func (q *QueryRangeService) scan(rows *databaseSql.Rows) (PatternsResult, error)
 		for _, s := range samplesV1 {
 			res.Samples = append(res.Samples, [2]int32{
 				int32(s["timestamp_s"].(uint64)),
-				int32(s["count"].(uint64))})
+				int32(s["count"].(uint64)),
+			})
 		}
 		return res, nil
 	}
@@ -395,13 +400,15 @@ func (q *QueryRangeService) scan(rows *databaseSql.Rows) (PatternsResult, error)
 	for _, s := range samplesV2 {
 		res.Samples = append(res.Samples, [2]int32{
 			int32(s[0].(uint64)),
-			int32(s[1].(uint64))})
+			int32(s[1].(uint64)),
+		})
 	}
 	return res, nil
 }
 
 func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
-	limit int64, forward bool) (chan model.QueryRangeOutput, error) {
+	limit int64, forward bool,
+) (chan model.QueryRangeOutput, error) {
 	out, isMatrix, err := q.prepareOutput(ctx, query, fromNs, toNs, stepMs, limit, forward)
 	if err != nil {
 		return nil, err
@@ -515,7 +522,8 @@ func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs
 }
 
 func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
-	limit int64, forward bool) (chan []shared.LogEntry, bool, error) {
+	limit int64, forward bool,
+) (chan []shared.LogEntry, bool, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, false, err
@@ -551,8 +559,10 @@ func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fro
 	res, err := chain[0].Process(plannerCtx, nil)
 	return res, chain[0].IsMatrix(), err
 }
+
 func (q *QueryRangeService) QueryInstant(ctx context.Context, query string, timeNs int64, stepMs int64,
-	limit int64) (chan model.QueryRangeOutput, error) {
+	limit int64,
+) (chan model.QueryRangeOutput, error) {
 	out, isMatrix, err := q.prepareOutput(ctx, query, timeNs-300000000000, timeNs, stepMs, limit, false)
 	if err != nil {
 		return nil, err

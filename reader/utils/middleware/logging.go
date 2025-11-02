@@ -10,7 +10,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/logger"
 )
 
 func LoggingMiddleware(tpl string) func(next http.Handler) http.Handler {
@@ -21,7 +21,7 @@ func LoggingMiddleware(tpl string) func(next http.Handler) http.Handler {
 			// TODO: Log the request details using the template
 			_w := &responseWriterWithCode{ResponseWriter: w, statusCode: http.StatusOK}
 			start := time.Now()
-			//t.Execute(w, r)
+			// t.Execute(w, r)
 			next.ServeHTTP(_w, r)
 			duration := time.Since(start)
 			b := bytes.NewBuffer(nil)

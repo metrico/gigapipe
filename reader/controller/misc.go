@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/logger"
 	watchdog "github.com/metrico/qryn/v4/reader/watchdog"
 )
 
@@ -42,9 +42,9 @@ func (uc *MiscController) Metadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (uc *MiscController) Buildinfo(w http.ResponseWriter, r *http.Request) {
-	//w.Header().Set("Content-Type", "application/json")
-	//w.WriteHeader(http.StatusOK)
-	//w.Write([]byte(fmt.Sprintf(`{"status": "success","data": {"version": "%s"}}`, uc.Version)))
+	// w.Header().Set("Content-Type", "application/json")
+	// w.WriteHeader(http.StatusOK)
+	// w.Write([]byte(fmt.Sprintf(`{"status": "success","data": {"version": "%s"}}`, uc.Version)))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -67,5 +67,4 @@ func (uc *MiscController) Buildinfo(w http.ResponseWriter, r *http.Request) {
 	stream.WriteObjectEnd()
 
 	w.Write(stream.Buffer())
-
 }

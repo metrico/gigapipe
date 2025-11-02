@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type Metric struct {
@@ -23,7 +23,7 @@ type MetricHandler interface {
 }
 
 func New(name string) *Metric {
-	var register = map[string]MetricHandler{
+	register := map[string]MetricHandler{
 		"prometheus": new(Prometheus),
 	}
 

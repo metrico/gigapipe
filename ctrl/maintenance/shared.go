@@ -8,7 +8,7 @@ import (
 
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/ctrl/logger"
+	"github.com/sirupsen/logrus"
 )
 
 func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2.Conn, error) {
@@ -40,7 +40,7 @@ func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2
 	return clickhouse_v2.Open(opt)
 }
 
-func InitDBTry(conn clickhouse_v2.Conn, clusterName string, dbName string, cloud bool, logger logger.ILogger) error {
+func InitDBTry(conn clickhouse_v2.Conn, clusterName string, dbName string, cloud bool, logger *logrus.Logger) error {
 	engine := ""
 	onCluster := ""
 	if clusterName != "" {

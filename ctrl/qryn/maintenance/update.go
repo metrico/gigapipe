@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/metrico/qryn/v4/ctrl/logger"
 	"github.com/metrico/qryn/v4/ctrl/qryn/sql"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -24,7 +24,8 @@ const (
 
 func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
-	logger logger.ILogger) error {
+	logger *logrus.Logger,
+) error {
 	checkMode := func(m int) bool { return mode&m == m }
 	var err error
 	err = updateScripts(db, dbname, clusterName, 1, sql.LogScript, checkMode(CLUST_MODE_CLOUD),
@@ -85,7 +86,7 @@ func getSQLFile(strContents string) ([]string, error) {
 	return res, nil
 }
 
-func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger) func(query string, args ...[]interface{}) error {
+func getDBExec(db clickhouse.Conn, env map[string]string, logger *logrus.Logger) func(query string, args ...[]interface{}) error {
 	rand := rand2.New(rand2.NewSource(time.Now().UnixNano()))
 	return func(query string, args ...[]interface{}) error {
 		name := fmt.Sprintf("tpl_%d", rand.Uint64())
@@ -111,7 +112,8 @@ func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger)
 }
 
 func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int64, file string, replicated bool,
-	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool, logger logger.ILogger) error {
+	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool, logger *logrus.Logger,
+) error {
 	scripts, err := getSQLFile(file)
 	if err != nil {
 		return err
@@ -129,11 +131,11 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)
 	}
-	//TODO: move to the config package as it should be: os.Getenv("ADVANCED_SAMPLES_ORDERING")
+	// TODO: move to the config package as it should be: os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	if advancedSamplesOrdering != "" {
 		env["SAMPLES_ORDER_RUL"] = advancedSamplesOrdering
 	}
-	//TODO: move to the config package
+	// TODO: move to the config package
 	if skipUnavailableShards {
 		env["DIST_CREATE_SETTINGS"] += " SETTINGS skip_unavailable_shards = 1"
 	}
@@ -241,8 +243,8 @@ func isExistsAndEmpty(db clickhouse.Conn, name string) (bool, error) {
 	return empty, err
 }
 
-func Cleanup(db clickhouse.Conn, clusterName string, distributed bool, dbname string, logger logger.ILogger) error {
-	//TODO: add plugin extension
+func Cleanup(db clickhouse.Conn, clusterName string, distributed bool, dbname string, logger *logrus.Logger) error {
+	// TODO: add plugin extension
 	env := map[string]string{
 		"DB":             dbname,
 		"CLUSTER":        clusterName,

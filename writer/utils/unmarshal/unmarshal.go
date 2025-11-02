@@ -13,12 +13,12 @@ import (
 	"github.com/go-faster/city"
 	"github.com/go-faster/jx"
 	clcwriter "github.com/metrico/cloki-config/config/writer"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/config"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/utils/errors"
 	"github.com/metrico/qryn/v4/writer/utils/helputils"
 	"github.com/metrico/qryn/v4/writer/utils/helputils/cityhash102"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type pushRequestDec struct {
@@ -282,7 +282,7 @@ func sanitizeLabels(lbls [][]string) [][]string {
 }
 
 func parseTime(b []byte) (int64, error) {
-	//2021-12-26T16:00:06.944Z
+	// 2021-12-26T16:00:06.944Z
 	var err error
 	if b != nil {
 		var timestamp int64

@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/metrico/qryn/v4/writer/utils/stat"
 )
 

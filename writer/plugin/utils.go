@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/chwrapper"
 	"github.com/metrico/qryn/v4/writer/config"
 	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
 	apirouterv1 "github.com/metrico/qryn/v4/writer/router"
 	"github.com/metrico/qryn/v4/writer/service/registry"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 	"github.com/metrico/qryn/v4/writer/utils/stat"
 	"github.com/prometheus/client_golang/prometheus"

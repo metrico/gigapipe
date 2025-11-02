@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/metrico/qryn/v4/ctrl/logger"
 	"github.com/metrico/qryn/v4/ctrl/qryn/helputils"
+	"github.com/sirupsen/logrus"
 )
 
 func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, error) {
@@ -46,7 +46,8 @@ VALUES ($1, $2, $3, $4, NOW())`, fp, tp, name, value)
 
 func rotateTables(db clickhouse.Conn, clusterName string, distributed bool, days []RotatePolicy, minTTL time.Duration,
 	insertTimeExpression string, dropTTLExpression, settingName string,
-	logger logger.ILogger, tables ...string) error {
+	logger *logrus.Logger, tables ...string,
+) error {
 	var rotateTTLArr []string
 	for _, rp := range days {
 		intsevalSec := int32(rp.TTL.Seconds())
@@ -94,7 +95,8 @@ MODIFY SETTING ttl_only_drop_parts = 1, merge_with_ttl_timeout = 3600, index_gra
 }
 
 func storagePolicyUpdate(db clickhouse.Conn, clusterName string,
-	distributed bool, storagePolicy string, setting string, tables ...string) error {
+	distributed bool, storagePolicy string, setting string, tables ...string,
+) error {
 	onCluster := ""
 	if clusterName != "" {
 		onCluster = fmt.Sprintf(" ON CLUSTER `%s` ", clusterName)
@@ -119,8 +121,9 @@ type RotatePolicy struct {
 }
 
 func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []RotatePolicy, dropTTLDays int,
-	storagePolicy string, logger logger.ILogger) error {
-	//TODO: add pluggable extension
+	storagePolicy string, logger *logrus.Logger,
+) error {
+	// TODO: add pluggable extension
 	err := storagePolicyUpdate(db, clusterName, distributed, storagePolicy, "v3_storage_policy",
 		"time_series", "time_series_gin", "samples_v3")
 	if err != nil {

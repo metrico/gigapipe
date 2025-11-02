@@ -15,30 +15,22 @@ import (
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/metrico/qryn/v4/writer/config"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/qryn/v4/reader/system"
 	"github.com/sirupsen/logrus"
-)
-
-const (
-	SYSLOG_LOG_EMERG   = "LOG_EMERG"
-	SYSLOG_LOG_ALERT   = "LOG_ALERT"
-	SYSLOG_LOG_CRIT    = "LOG_CRIT"
-	SYSLOG_LOG_ERR     = "LOG_ERR"
-	SYSLOG_LOG_WARNING = "LOG_WARNING"
-	SYSLOG_LOG_NOTICE  = "LOG_NOTICE"
-	SYSLOG_LOG_INFO    = "LOG_INFO"
-	SYSLOG_LOG_DEBUG   = "LOG_DEBUG"
 )
 
 type LogInfo logrus.Fields
 
-var RLogs *rotatelogs.RotateLogs
-var Logger = logrus.New()
+var (
+	RLogs  *rotatelogs.RotateLogs
+	Logger = logrus.New()
+)
 
 type DbLogger struct{}
 
 /* db logger for logrus */
-func (*DbLogger) Print(v ...interface{}) {
+func (*DbLogger) Print(v ...any) {
 	if v[0] == "sql" {
 		Logger.WithFields(logrus.Fields{"module": "db", "type": "sql"}).Print(v[3])
 	}
@@ -48,72 +40,70 @@ func (*DbLogger) Print(v ...interface{}) {
 }
 
 // initLogger function
-func InitLogger() {
-
-	//env := os.Getenv("environment")
-	//isLocalHost := env == "local"
-	if config.Cloki.Setting.LOG_SETTINGS.Json {
+func InitLogger(cfg *clconfig.ClokiConfig) {
+	// env := os.Getenv("environment")
+	// isLocalHost := env == "local"
+	if cfg.Setting.LOG_SETTINGS.Json {
 		// Log as JSON instead of the default ASCII formatter.
 		Logger.SetFormatter(&logrus.JSONFormatter{})
 	} else {
 		Logger.Formatter.(*logrus.TextFormatter).DisableTimestamp = false
 		Logger.Formatter.(*logrus.TextFormatter).DisableColors = true
 	}
-	if config.Cloki.Setting.LOG_SETTINGS.Qryn.Url != "" {
+
+	if cfg.Setting.LOG_SETTINGS.Qryn.Url != "" {
 		hostname := ""
-		if config.Cloki.Setting.LOG_SETTINGS.Qryn.AddHostname {
+		if cfg.Setting.LOG_SETTINGS.Qryn.AddHostname {
 			hostname, _ = os.Hostname()
 		}
 
 		headers := map[string]string{}
-		for _, h := range strings.Split(config.Cloki.Setting.LOG_SETTINGS.Qryn.Headers, ";;") {
+		for _, h := range strings.Split(cfg.Setting.LOG_SETTINGS.Qryn.Headers, ";;") {
 			pair := strings.Split(h, ":")
 			headers[pair[0]] = strings.Join(pair[1:], ":")
 		}
 
 		qrynFmt := &qrynFormatter{
 			formatter: Logger.Formatter,
-			url:       config.Cloki.Setting.LOG_SETTINGS.Qryn.Url,
-			app:       config.Cloki.Setting.LOG_SETTINGS.Qryn.App,
+			url:       cfg.Setting.LOG_SETTINGS.Qryn.Url,
+			app:       cfg.Setting.LOG_SETTINGS.Qryn.App,
 			hostname:  hostname,
 			headers:   headers,
 		}
 		Logger.SetFormatter(qrynFmt)
 		qrynFmt.Run()
 	}
+
 	// Output to stdout instead of the default stderr
 	// Can be any io.Writer, see below for File example
-	if config.Cloki.Setting.LOG_SETTINGS.Stdout {
+	if cfg.Setting.LOG_SETTINGS.Stdout {
 		Logger.SetOutput(os.Stdout)
 		log.SetOutput(os.Stdout)
 	}
 
 	/* log level default */
-	if config.Cloki.Setting.LOG_SETTINGS.Level == "" {
-		config.Cloki.Setting.LOG_SETTINGS.Level = "info"
+	if cfg.Setting.LOG_SETTINGS.Level == "" {
+		cfg.Setting.LOG_SETTINGS.Level = "error"
 	}
 
-	if logLevel, ok := logrus.ParseLevel(config.Cloki.Setting.LOG_SETTINGS.Level); ok == nil {
+	if logLevel, ok := logrus.ParseLevel(cfg.Setting.LOG_SETTINGS.Level); ok == nil {
 		// Only log the warning severity or above.
 		Logger.SetLevel(logLevel)
 	} else {
-		Logger.Error("Couldn't parse loglevel", config.Cloki.Setting.LOG_SETTINGS.Level)
+		Logger.Error("Couldn't parse loglevel", cfg.Setting.LOG_SETTINGS.Level)
 		Logger.SetLevel(logrus.ErrorLevel)
 	}
 
-	Logger.Info("init logging system")
-
-	if !config.Cloki.Setting.LOG_SETTINGS.Stdout && !config.Cloki.Setting.LOG_SETTINGS.SysLog {
+	if !cfg.Setting.LOG_SETTINGS.Stdout && !cfg.Setting.LOG_SETTINGS.SysLog {
 		// configure file system hook
-		configureLocalFileSystemHook()
-	} else if !config.Cloki.Setting.LOG_SETTINGS.Stdout {
-		configureSyslogHook()
+		configureLocalFileSystemHook(cfg)
+	} else if !cfg.Setting.LOG_SETTINGS.Stdout {
+		configureSyslogHook(cfg)
 	}
 }
 
 // SetLoggerLevel function
 func SetLoggerLevel(loglevelString string) {
-
 	if logLevel, ok := logrus.ParseLevel(loglevelString); ok == nil {
 		// Only log the warning severity or above.
 		Logger.SetLevel(logLevel)
@@ -123,17 +113,16 @@ func SetLoggerLevel(loglevelString string) {
 	}
 }
 
-func configureLocalFileSystemHook() {
-
-	logPath := config.Cloki.Setting.LOG_SETTINGS.Path
-	logName := config.Cloki.Setting.LOG_SETTINGS.Name
+func configureLocalFileSystemHook(cfg *clconfig.ClokiConfig) {
+	logPath := cfg.Setting.LOG_SETTINGS.Path
+	logName := cfg.Setting.LOG_SETTINGS.Name
 	var err error
 
-	if configPath := os.Getenv("CLOKIAPPLOGPATH"); configPath != "" {
+	if configPath := os.Getenv("WEBAPPLOGPATH"); configPath != "" {
 		logPath = configPath
 	}
 
-	if configName := os.Getenv("CLOKIAPPLOGNAME"); configName != "" {
+	if configName := os.Getenv("WEBAPPLOGNAME"); configName != "" {
 		logName = configName
 	}
 
@@ -146,10 +135,9 @@ func configureLocalFileSystemHook() {
 	RLogs, err = rotatelogs.New(
 		pathAllLog,
 		rotatelogs.WithLinkName(pathLog),
-		rotatelogs.WithMaxAge(time.Duration(config.Cloki.Setting.LOG_SETTINGS.MaxAgeDays)*time.Hour),
-		rotatelogs.WithRotationTime(time.Duration(config.Cloki.Setting.LOG_SETTINGS.RotationHours)*time.Hour),
+		rotatelogs.WithMaxAge(time.Duration(cfg.Setting.LOG_SETTINGS.MaxAgeDays)*time.Hour),
+		rotatelogs.WithRotationTime(time.Duration(cfg.Setting.LOG_SETTINGS.RotationHours)*time.Hour),
 	)
-
 	if err != nil {
 		Logger.Println("Local file system hook initialize fail")
 		return
@@ -166,18 +154,16 @@ func configureLocalFileSystemHook() {
 		}, &logrus.JSONFormatter{}))
 	*/
 }
-func configureSyslogHook() {
 
+func configureSyslogHook(cfg *clconfig.ClokiConfig) {
 	var err error
 
 	Logger.Println("Init syslog...")
 
-	sevceritySyslog := getSevirtyByName(config.Cloki.Setting.LOG_SETTINGS.SysLogLevel)
+	sevceritySyslog := getSevirtyByName(cfg.Setting.LOG_SETTINGS.SysLogLevel)
 
 	syslogger, err := syslog.New(sevceritySyslog, "hepic-app-server")
-
-	//hook, err := lSyslog.NewSyslogHook(proto, logSyslogUri, sevceritySyslog, "")
-
+	// hook, err := lSyslog.NewSyslogHook(proto, logSyslogUri, sevceritySyslog, "")
 	if err != nil {
 		Logger.Println("Unable to connect to syslog:", err)
 	}
@@ -194,40 +180,39 @@ func configureSyslogHook() {
 	*/
 }
 
-func Info(args ...interface{}) {
+func Info(args ...any) {
 	Logger.Info(args...)
 }
 
-func Warning(args ...interface{}) {
-	Logger.Warning(args...)
-}
-
-func Error(args ...interface{}) {
+func Error(args ...any) {
 	Logger.Error(args...)
 }
 
-func Debug(args ...interface{}) {
+func Warn(args ...any) {
+	Logger.Warn(args...)
+}
+
+func Debug(args ...any) {
 	Logger.Debug(args...)
 }
 
 func getSevirtyByName(sevirity string) syslog.Priority {
-
 	switch sevirity {
-	case SYSLOG_LOG_EMERG:
+	case system.SYSLOG_LOG_EMERG:
 		return syslog.LOG_EMERG
-	case SYSLOG_LOG_ALERT:
+	case system.SYSLOG_LOG_ALERT:
 		return syslog.LOG_ALERT
-	case SYSLOG_LOG_CRIT:
+	case system.SYSLOG_LOG_CRIT:
 		return syslog.LOG_CRIT
-	case SYSLOG_LOG_ERR:
+	case system.SYSLOG_LOG_ERR:
 		return syslog.LOG_ERR
-	case SYSLOG_LOG_WARNING:
+	case system.SYSLOG_LOG_WARNING:
 		return syslog.LOG_WARNING
-	case SYSLOG_LOG_NOTICE:
+	case system.SYSLOG_LOG_NOTICE:
 		return syslog.LOG_NOTICE
-	case SYSLOG_LOG_INFO:
+	case system.SYSLOG_LOG_INFO:
 		return syslog.LOG_INFO
-	case SYSLOG_LOG_DEBUG:
+	case system.SYSLOG_LOG_DEBUG:
 		return syslog.LOG_DEBUG
 	default:
 		return syslog.LOG_INFO
@@ -252,11 +237,10 @@ type qrynLogs struct {
 }
 
 func (q *qrynFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	res, err := q.formatter.Format(e)
 	q.mtx.Lock()
 	q.bufferToQryn = append(q.bufferToQryn, e)
 	q.mtx.Unlock()
-	return res, err
+	return q.formatter.Format(e)
 }
 
 func (q *qrynFormatter) Run() {
@@ -284,7 +268,7 @@ func (q *qrynFormatter) Run() {
 				if _, ok := streams[strStream]; !ok {
 					streams[strStream] = &qrynLogs{Stream: stream}
 				}
-				e.Buffer = nil
+
 				strValue, _ := q.formatter.Format(e)
 				streams[strStream].Values = append(
 					streams[strStream].Values,

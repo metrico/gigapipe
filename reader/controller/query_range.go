@@ -9,9 +9,9 @@ import (
 	ws "github.com/gofiber/websocket/v2"
 	"github.com/gorilla/websocket"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/service"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
 )
 
 type QueryRangeController struct {

@@ -19,10 +19,10 @@ import (
 
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
 	"github.com/metrico/qryn/v4/writer/chwrapper"
 	"github.com/metrico/qryn/v4/writer/plugin"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/mochi-co/mqtt/server/listeners"
 	"github.com/openzipkin/zipkin-go/model"
 	"github.com/prometheus/client_golang/prometheus"
@@ -63,7 +63,8 @@ stream / values format
 var serviceInfo plugin.ServicesObject
 
 func genLines(_labels map[string]string, freqS float64, testid string, fromNS int64, toNS int64,
-	lineGen func(int) string, valGen func(int) float64) map[string]interface{} {
+	lineGen func(int) string, valGen func(int) float64,
+) map[string]interface{} {
 	if lineGen == nil {
 		lineGen = func(i int) string {
 			return fmt.Sprintf("TEST_LINE_%d", i)
@@ -109,7 +110,8 @@ labels / entries format
 */
 
 func genOldLines(_labels map[string]string, freqS float64, testid string, fromNS int64, toNS int64,
-	lineGen func(int) string, valGen func(int) float64) map[string]interface{} {
+	lineGen func(int) string, valGen func(int) float64,
+) map[string]interface{} {
 	if lineGen == nil {
 		lineGen = func(i int) string {
 			return fmt.Sprintf("TEST_LINE_%d", i)
@@ -143,7 +145,8 @@ func genOldLines(_labels map[string]string, freqS float64, testid string, fromNS
 }
 
 func genProtoLines(_labels map[string]string, freqS float64, testid string, fromNS int64, toNS int64,
-	lineGen func(int) string) []byte {
+	lineGen func(int) string,
+) []byte {
 	if lineGen == nil {
 		lineGen = func(i int) string {
 			return fmt.Sprintf("TEST_LINE_%d", i)
@@ -215,7 +218,7 @@ func getTSTable() string {
 
 func getTestIDData(testID string) []string {
 	var fp uint64
-	//client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
+	// client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
 	client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
@@ -335,7 +338,7 @@ func TestE2E(t *testing.T) {
 
 	////ReadConfig
 	config.Cloki.ReadConfig()
-	//checkLicenseFlags()
+	// checkLicenseFlags()
 
 	app := mux.NewRouter()
 	if config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
@@ -350,14 +353,14 @@ func TestE2E(t *testing.T) {
 	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
 
 	Init(config.Cloki, app)
-	var pluginInfo = &plugin.QrynWriterPlugin{}
+	pluginInfo := &plugin.QrynWriterPlugin{}
 	//pluginInfo.Initialize(appFlags)
 	//////License After Config - need check some params
 	//
 	//pluginInfo.RegisterRoutes(*config.Cloki.Setting)
 
 	serviceInfo = pluginInfo.ServicesObject
-	//go main()
+	// go main()
 	time.Sleep(5 * time.Second)
 
 	end := time.Now().UnixNano() / 1e6 * 1e6
@@ -431,7 +434,7 @@ func TestE2E(t *testing.T) {
 	ingestInfluxTest(t, uint64(testId))
 	time.Sleep(5 * time.Second)
 	testUsageCounting(t)
-	//ingestInfluxJSONTest(t, uint64(testId))
+	// ingestInfluxJSONTest(t, uint64(testId))
 }
 
 var mqttServer *mqtt.Server
@@ -449,15 +452,16 @@ func runMQTT() {
 	}
 }
 
-var promTestGauge prometheus.Gauge = nil
-var promTestCounter prometheus.Counter = nil
-var promTestHist prometheus.Histogram = nil
-var promTestSumm prometheus.Summary = nil
-var metricsSrv *http.Server
+var (
+	promTestGauge   prometheus.Gauge     = nil
+	promTestCounter prometheus.Counter   = nil
+	promTestHist    prometheus.Histogram = nil
+	promTestSumm    prometheus.Summary   = nil
+	metricsSrv      *http.Server
+)
 
 func runPrometheus(testID int64) error {
 	cLbls := map[string]string{
-
 		"test": fmt.Sprintf("promtest_%d", testID),
 	}
 	promTestGauge = promauto.NewGauge(prometheus.GaugeOpts{
@@ -515,7 +519,7 @@ func testPrometheusScrape(t *testing.T, testID int64) {
 	bytes := make([]byte, 0, 10000)
 	code, bytes, _ := fasthttp.Get(bytes, "http://localhost:2112/metrics")
 	fmt.Printf("[%d]: %s\n", code, bytes)
-	//client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
+	// client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
 	client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		t.Fatal(err)
@@ -523,7 +527,6 @@ func testPrometheusScrape(t *testing.T, testID int64) {
 	labels, err := client.GetList(fmt.Sprintf("SELECT DISTINCT labels "+
 		"FROM "+getTSTable()+" WHERE JSONExtractString(labels, 'test') == 'promtest_%d' and org_id=='1' "+
 		"ORDER BY labels", testID))
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -701,7 +704,7 @@ func checkZipkinSpan(traceIDs ...uint64) []string {
 		strTraceIDs[i] = fmt.Sprintf("%016x0000000000000000", traceID)
 		strSpanIDs[i] = fmt.Sprintf("%016x", traceID)
 	}
-	//client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
+	// client, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
 	client, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
@@ -724,8 +727,10 @@ func checkZipkinSpan(traceIDs ...uint64) []string {
 }
 
 func miscTest() {
-	for _, url := range []string{"http://localhost:3215/metrics", "http://localhost:3215/config",
-		"http://localhost:3215/ready"} {
+	for _, url := range []string{
+		"http://localhost:3215/metrics", "http://localhost:3215/config",
+		"http://localhost:3215/ready",
+	} {
 		resp, err := http.Get(url)
 		if err != nil {
 			panic(err)
@@ -735,7 +740,6 @@ func miscTest() {
 			panic(fmt.Sprintf("miscTest: [%d]: %s", resp.StatusCode, string(body)))
 		}
 	}
-
 }
 
 func ingestInfluxTest(t *testing.T, testId uint64) {
@@ -781,7 +785,7 @@ func ingestInfluxTest(t *testing.T, testId uint64) {
 	}
 	fmt.Println("CHECKING 10 mb influx")
 
-	//CHClient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
+	// CHClient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
 	CHClient, err := chwrapper.NewSmartDatabaseAdapter(&config.Cloki.Setting.DATABASE_DATA[0], true)
 	if err != nil {
 		panic(err)
@@ -853,7 +857,7 @@ func readAllNoErr(reader io.Reader) []byte {
 
 func testUsageCounting(t *testing.T) {
 	fmt.Println("TESTING USAGE COUNTING")
-	//CHClient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
+	// CHClient, err := adapter.NewClient(context.Background(), &config.Cloki.Setting.DATABASE_DATA[0], true)
 	client, err := chwrapper.NewSmartDatabaseAdapterWithDSN(config.Cloki.Setting.AnalyticsDatabase, true)
 	if err != nil {
 		panic(err)

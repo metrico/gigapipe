@@ -9,6 +9,7 @@ import (
 	"time"
 
 	retry "github.com/avast/retry-go"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/config"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/pattern/controller"
@@ -16,14 +17,15 @@ import (
 	"github.com/metrico/qryn/v4/writer/utils"
 	customErrors "github.com/metrico/qryn/v4/writer/utils/errors"
 	"github.com/metrico/qryn/v4/writer/utils/helpers"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 	"github.com/metrico/qryn/v4/writer/utils/promise"
 	"github.com/metrico/qryn/v4/writer/utils/stat"
 )
 
-const MaxRetries = 10
-const RetrySleepTimeS = 30
+const (
+	MaxRetries      = 10
+	RetrySleepTimeS = 30
+)
 
 type MiddlewareConfig struct {
 	ExtraMiddleware []BuildOption
@@ -36,8 +38,10 @@ func NewMiddlewareConfig(middlewares ...BuildOption) MiddlewareConfig {
 	}
 }
 
-type Requester func(w http.ResponseWriter, r *http.Request) error
-type Parser func(ctx context.Context, body io.Reader, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
+type (
+	Requester func(w http.ResponseWriter, r *http.Request) error
+	Parser    func(ctx context.Context, body io.Reader, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
+)
 
 type BuildOption func(ctx *PusherCtx) *PusherCtx
 
@@ -90,6 +94,7 @@ func ErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	logger.Error(err)
 	writeErrorResponse(w, http.StatusInternalServerError, "internal server error")
 }
+
 func writeErrorResponse(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	w.Header().Set("Content-Type", "application/json")
@@ -139,7 +144,6 @@ func Build(options ...BuildOption) func(w http.ResponseWriter, r *http.Request) 
 			ErrorHandler(w, r, err) // Call ErrorHandler if pusherCtx.Do returns an error
 		}
 	}
-
 }
 
 func getService(r *http.Request, name utils.ContextKey) service.IInsertServiceV2 {
@@ -163,7 +167,7 @@ func doPush(req helpers.SizeGetter, insertMode int, svc service.IInsertServiceV2
 	go func() {
 		err := retry.Do(
 			func() error {
-				//req.ResetResponse()
+				// req.ResetResponse()
 				reqPromise := svc.Request(req, insertMode)
 				_, reqErr := reqPromise.Get() // Wait for the result from the svc.Request
 				if reqErr != nil {
@@ -187,6 +191,7 @@ func doPush(req helpers.SizeGetter, insertMode int, svc service.IInsertServiceV2
 	}()
 	return p
 }
+
 func getBodyStream(r *http.Request) io.Reader {
 	if bodyStream, ok := r.Context().Value(utils.ContextKeyBodyStream).(io.Reader); ok {
 		return bodyStream
@@ -207,7 +212,7 @@ func doParse(r *http.Request, parser Parser) error {
 	profileService := getService(r, utils.ContextKeyProfileService)
 	node := r.Context().Value(utils.ContextKeyNode).(string)
 
-	//var promises []chan error
+	// var promises []chan error
 	var promises []*promise.Promise[uint32]
 	var err error = nil
 	res := parser(r.Context(), reader, FPCache.DB(node))

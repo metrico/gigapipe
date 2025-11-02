@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type MetricsAcquirer struct {
@@ -32,8 +32,7 @@ func (a *MetricsAcquirer) serialize() []service.IColPoolRes {
 }
 
 func (a *MetricsAcquirer) deserialize(res []service.IColPoolRes) *MetricsAcquirer {
-	a.Type, a.Fingerprint, a.TimestampNS, a.Value =
-		res[0].(*service.PooledColumn[proto.ColUInt8]),
+	a.Type, a.Fingerprint, a.TimestampNS, a.Value = res[0].(*service.PooledColumn[proto.ColUInt8]),
 		res[1].(*service.PooledColumn[proto.ColUInt64]),
 		res[2].(*service.PooledColumn[proto.ColInt64]),
 		res[3].(*service.PooledColumn[proto.ColFloat64])
@@ -41,7 +40,6 @@ func (a *MetricsAcquirer) deserialize(res []service.IColPoolRes) *MetricsAcquire
 }
 
 func NewMetricsInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
-
 	plugin := plugins.GetMetricInsertServicePlugin()
 	if plugin != nil {
 		return (*plugin)(opts)

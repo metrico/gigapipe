@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/config"
 	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 const (
@@ -28,7 +28,7 @@ type Prometheus struct {
 }
 
 func (p *Prometheus) expose(metrics chan *model.PrometheusMetric) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 

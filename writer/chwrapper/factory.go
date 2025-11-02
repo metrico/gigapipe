@@ -10,7 +10,7 @@ import (
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/logger"
 )
 
 func NewGeneralPurposeClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, database bool) (IChClient, error) {
@@ -71,7 +71,6 @@ func NewGeneralPurposeClientWithXDSN(ctx context.Context, Xdsn string, database 
 
 // NewGeneralPurposeClientWithDSN initializes a ClickHouse client using a  string.
 func NewGeneralPurposeClientWithDSN(ctx context.Context, dsn string, database bool) (IChClient, error) {
-
 	dsnOpts, err := clickhouse.ParseDSN(dsn)
 	if err != nil {
 		return nil, err
@@ -101,7 +100,6 @@ func NewGeneralPurposeClientWithDSN(ctx context.Context, dsn string, database bo
 	return &Client{
 		c: conn,
 	}, nil
-
 }
 
 func NewWriterClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, database bool) (IChClient, error) {
@@ -148,7 +146,6 @@ func NewWriterClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, da
 
 // NewWriterClientWithXDSN initializes a ClickHouse client using an X-DSN string.
 func NewWriterClientWithXDSN(ctx context.Context, Xdsn string, database bool) (IChClient, error) {
-
 	// Extract the prefix (n- or c-) from the X-DSN
 	if len(Xdsn) < 2 {
 		return nil, fmt.Errorf("invalid X-DSN format: %s", Xdsn)
@@ -156,7 +153,6 @@ func NewWriterClientWithXDSN(ctx context.Context, Xdsn string, database bool) (I
 	dsn := Xdsn[2:] // The rest is the actual ClickHouse DSN
 
 	return NewWriterClientWithDSN(ctx, dsn, database)
-
 }
 
 // NewWriterClientWithDSN initializes a ClickHouse client using a  string.
@@ -209,7 +205,6 @@ func NewWriterClientWithDSN(ctx context.Context, dsn string, database bool) (ICh
 
 // NewSmartDatabaseAdapter initializes a SmartDatabaseAdapter using the given ClokiBaseDataBase config object.
 func NewSmartDatabaseAdapter(dbObject *config.ClokiBaseDataBase, database bool) (IChClient, error) {
-
 	if dbObject == nil {
 		return nil, fmt.Errorf("dbObject cannot be nil")
 	}
@@ -233,7 +228,6 @@ func NewSmartDatabaseAdapterWithXDSN(Xdsn string, database bool) (IChClient, err
 
 // NewSmartDatabaseAdapterWithDSN initializes a SmartDatabaseAdapter using a ClickHouse DSN string.
 func NewSmartDatabaseAdapterWithDSN(dsn string, database bool) (IChClient, error) {
-
 	if dsn == "" {
 		return nil, fmt.Errorf("DSN cannot be empty")
 	}

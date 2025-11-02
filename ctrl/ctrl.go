@@ -5,14 +5,15 @@ import (
 
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/ctrl/logger"
 	"github.com/metrico/qryn/v4/ctrl/qryn/maintenance"
+	"github.com/metrico/qryn/v4/logger"
+	"github.com/sirupsen/logrus"
 )
 
 var projects = map[string]struct {
-	init    func(*config.ClokiBaseDataBase, logger.ILogger) error
-	upgrade func(config []config.ClokiBaseDataBase, logger logger.ILogger) error
-	rotate  func(base []config.ClokiBaseDataBase, logger logger.ILogger) error
+	init    func(config *config.ClokiBaseDataBase, logger *logrus.Logger) error
+	upgrade func(config []config.ClokiBaseDataBase, logger *logrus.Logger) error
+	rotate  func(base []config.ClokiBaseDataBase, logger *logrus.Logger) error
 }{
 	"qryn": {
 		maintenance.InitDB,
@@ -23,7 +24,7 @@ var projects = map[string]struct {
 
 func Init(config *clconfig.ClokiConfig, project string) error {
 	var err error
-	logger.InitLogger(config, nil)
+	logger.Info("Initializing ctrl module...")
 	proj, ok := projects[project]
 	if !ok {
 		return fmt.Errorf("project %s not found", project)

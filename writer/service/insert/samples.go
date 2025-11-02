@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 )
 
 type SamplesAcquirer struct {
@@ -34,9 +34,7 @@ func (a *SamplesAcquirer) serialize() []service.IColPoolRes {
 }
 
 func (a *SamplesAcquirer) deserialize(res []service.IColPoolRes) *SamplesAcquirer {
-	a.Type, a.Fingerprint, a.TimestampNS, a.String, a.Value =
-
-		res[0].(*service.PooledColumn[proto.ColUInt8]),
+	a.Type, a.Fingerprint, a.TimestampNS, a.String, a.Value = res[0].(*service.PooledColumn[proto.ColUInt8]),
 		res[1].(*service.PooledColumn[proto.ColUInt64]),
 		res[2].(*service.PooledColumn[proto.ColInt64]),
 		res[3].(*service.PooledColumn[*proto.ColStr]),
@@ -45,7 +43,6 @@ func (a *SamplesAcquirer) deserialize(res []service.IColPoolRes) *SamplesAcquire
 }
 
 func NewSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
-
 	plugin := plugins.GetSamplesInsertServicePlugin()
 	if plugin != nil {
 		return (*plugin)(opts)

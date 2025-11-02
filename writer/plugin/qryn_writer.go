@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/chwrapper"
 	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
 	"github.com/metrico/qryn/v4/writer/model"
@@ -15,7 +16,6 @@ import (
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
 	"github.com/metrico/qryn/v4/writer/utils/helpers"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/metrico/qryn/v4/writer/watchdog"
 	"gopkg.in/go-playground/validator.v9"
 )
@@ -54,8 +54,6 @@ var (
 
 // Initialize sets up the plugin with the given configuration.
 func (p *QrynWriterPlugin) Initialize(config config.ClokiBaseSettingServer) error {
-	logger.InitLogger()
-
 	if config.SYSTEM_SETTINGS.CPUMaxProcs == 0 {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	} else {

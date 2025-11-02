@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
-	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
 	"github.com/prometheus/prometheus/model/labels"
@@ -83,7 +83,8 @@ func (q *QueryLabelsService) isDistributed(db *model.DataDatabasesMap) bool {
 }
 
 func (q *QueryLabelsService) GetEstimateKVComplexityRequest(ctx context.Context,
-	conn *model.DataDatabasesMap) sql.ISelect {
+	conn *model.DataDatabasesMap,
+) sql.ISelect {
 	if q.plugin != nil {
 		return q.plugin.EstimateKVComplexity(ctx, conn)
 	}
@@ -134,7 +135,8 @@ func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs in
 }
 
 func (q *QueryLabelsService) PromValues(ctx context.Context, label string, match []string, startMs int64, endMs int64,
-	labelsType uint16) (chan string, error) {
+	labelsType uint16,
+) (chan string, error) {
 	lMatchers := make([]string, len(match))
 	var err error
 	for i, m := range match {
@@ -173,7 +175,8 @@ func (q *QueryLabelsService) Prom2LogqlMatch(match string) (string, error) {
 }
 
 func (q *QueryLabelsService) Values(ctx context.Context, label string, match []string, startMs int64, endMs int64,
-	labelsType uint16) (chan string, error) {
+	labelsType uint16,
+) (chan string, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -186,7 +189,7 @@ func (q *QueryLabelsService) Values(ctx context.Context, label string, match []s
 	}
 
 	var planner shared.SQLRequestPlanner
-	//TODO: add pluggable extension
+	// TODO: add pluggable extension
 	if len(match) > 0 {
 		planner, err = q.getMultiMatchValuesPlanner(match, label)
 		if err != nil {
@@ -250,7 +253,8 @@ func (q *QueryLabelsService) getMultiMatchValuesPlanner(match []string, key stri
 }
 
 func (q *QueryLabelsService) Series(ctx context.Context, requests []string, startMs int64, endMs int64,
-	labelsType uint16) (chan string, error) {
+	labelsType uint16,
+) (chan string, error) {
 	res := make(chan string)
 	if requests == nil {
 		go func() {
@@ -323,7 +327,6 @@ func (q *QueryLabelsService) Series(ctx context.Context, requests []string, star
 }
 
 func (q *QueryLabelsService) querySeries(requests []string) (shared.SQLRequestPlanner, error) {
-
 	fpPlanners := make([]shared.SQLRequestPlanner, len(requests))
 	for i, req := range requests {
 		script, err := logql_parser.ParseSeries(req)

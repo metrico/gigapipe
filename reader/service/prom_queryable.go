@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/metrico/qryn/v4/reader/config"
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
 	"math/rand"
 	"slices"
 	"sort"
@@ -16,12 +14,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metrico/qryn/v4/reader/config"
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
 	"github.com/metrico/qryn/v4/reader/utils/cityhash102"
-	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
 
 	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
@@ -126,14 +127,14 @@ var supportedFunctions = map[string]bool{
 	"last_over_time":     true,
 	"present_over_time":  true,
 	"absent_over_time":   true,
-	//instant
+	// instant
 	"":    true,
 	"abs": true, "absent": true, "ceil": true, "exp": true, "floor": true,
 	"ln": true, "log2": true, "log10": true, "round": true, "scalar": true,
 	"sgn": true, "sort": true, "sqrt": true, "timestamp": true, "atan": true,
 	"cos": true, "cosh": true, "sin": true, "sinh": true, "tan": true,
 	"tanh": true, "deg": true, "rad": true,
-	//agg
+	// agg
 	"sum":   true,
 	"min":   true,
 	"max":   true,
@@ -142,7 +143,8 @@ var supportedFunctions = map[string]bool{
 }
 
 func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
-	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
+	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo,
+) (*promql_transpiler.TranspileResponse, error) {
 	isSupported, ok := supportedFunctions[hints.Func]
 
 	c.adjustHintsForRate(hints)
@@ -210,8 +212,8 @@ func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.
 }
 
 func (c *CLokiQuerier) Select(sortSeries bool, hints *storage.SelectHints,
-	matchers ...*labels.Matcher) storage.SeriesSet {
-
+	matchers ...*labels.Matcher,
+) storage.SeriesSet {
 	var _matchers []*labels.Matcher
 	for _, m := range matchers {
 		if m.Name == "__ignore_usage__" && m.Type == labels.MatchEqual && m.Value == "" {
@@ -480,7 +482,7 @@ func (l *labelsGetter) Fetch() error {
 			return strings.Compare(strLabels[i][0], strLabels[j][0]) < 0
 		})
 		l.fingerprintsHas[fingerprint] = strLabels
-		//cache.Set(l.getIdx(fingerprint), bLabels)
+		// cache.Set(l.getIdx(fingerprint), bLabels)
 	}
 	return nil
 }

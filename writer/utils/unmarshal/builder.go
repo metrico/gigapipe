@@ -10,9 +10,9 @@ import (
 	"unsafe"
 
 	"github.com/go-faster/city"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/utils"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
 	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 	"google.golang.org/protobuf/proto"
 )
@@ -142,6 +142,7 @@ func (p *parserDoer) doParseProfile() {
 func (p *parserDoer) resetProfile() {
 	p.profile = &model.ProfileData{}
 }
+
 func (p *parserDoer) doParseLogs() {
 	parser := p.LogsParser
 	meta := ""
@@ -206,6 +207,7 @@ func (p *parserDoer) tamePanic() {
 		recover()
 	}
 }
+
 func (p *parserDoer) resetSpans() {
 	p.spans = &model.TempoSamples{}
 	p.attrs = &model.TempoTag{}
@@ -217,7 +219,8 @@ func (p *parserDoer) onProfile(timestampNs uint64,
 	samplesTypesUnits []model.StrStr, periodType string,
 	periodUnit string, tags []model.StrStr,
 	durationNs uint64, payloadType string, payload []byte,
-	valuersAgg []model.ValuesAgg, tree []model.TreeRootStructure, functions []model.Function) error {
+	valuersAgg []model.ValuesAgg, tree []model.TreeRootStructure, functions []model.Function,
+) error {
 	p.profile.TimestampNs = append(p.profile.TimestampNs, timestampNs)
 	p.profile.Ptype = append(p.profile.Ptype, Type)
 	p.profile.ServiceName = append(p.profile.ServiceName, serviceName)
@@ -247,6 +250,7 @@ func (p *parserDoer) onProfile(timestampNs uint64,
 
 	return nil
 }
+
 func (p *parserDoer) calculateProfileSize() int {
 	size := 0
 
@@ -270,7 +274,6 @@ func (p *parserDoer) calculateProfileSize() int {
 
 	// Accumulate the size
 	return size
-
 }
 
 var serviceNameCandidates = map[string]bool{
@@ -308,8 +311,8 @@ func (p *parserDoer) discoverServiceName(labels *[][]string) {
 }
 
 func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8) error {
-
+	message []string, value []float64, types []uint8,
+) error {
 	ttlDays := p.ttlDays
 	if ttlDays == 0 {
 		var _labels [][]string
@@ -375,7 +378,8 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 }
 
 func (p *parserDoer) onSpan(traceId []byte, spanId []byte, timestampNs int64, durationNs int64,
-	parentId string, name string, serviceName string, payload []byte, key []string, val []string) error {
+	parentId string, name string, serviceName string, payload []byte, key []string, val []string,
+) error {
 	p.spans.MTraceId = append(p.spans.MTraceId, traceId)
 	p.spans.MSpanId = append(p.spans.MSpanId, spanId)
 	p.spans.MTimestampNs = append(p.spans.MTimestampNs, timestampNs)
@@ -438,12 +442,14 @@ func Build(options ...buildOption) ParsingFunction {
 		return doer.Do()
 	}
 }
+
 func withProfileParser(fn func(ctx *ParserCtx) iProfilesParser) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.ProfileParser = fn
 		return builder
 	}
 }
+
 func withLogsParser(fn func(ctx *ParserCtx) iLogsParser) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.LogsParser = fn

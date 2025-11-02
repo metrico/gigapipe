@@ -6,11 +6,11 @@ import (
 	kitlog "github.com/go-kit/kit/log/logrus"
 	"github.com/gorilla/mux"
 	grafana_re "github.com/grafana/regexp"
+	"github.com/metrico/qryn/v4/logger"
 	"github.com/metrico/qryn/v4/reader/config"
 	controllerv1 "github.com/metrico/qryn/v4/reader/controller"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/service"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/prometheus/prometheus/promql"
 	api_v1 "github.com/prometheus/prometheus/web/api/v1"
 )
