@@ -1,0 +1,50 @@
+name: Documentation Request
+description: Request new documentation or improvements to existing docs
+title: "[docs]: "
+labels: ['docs:askmanu']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve our documentation! Please provide details about what documentation is needed.
+
+        **Note**: Don't forget to keep the `docs:askmanu` label on this issue so our documentation bot can find it.
+
+  - type: textarea
+    id: coverage
+    attributes:
+      label: What should the docs cover?
+      description: Describe what topics, features, or concepts the documentation should explain
+      placeholder: |
+        Example:
+        - Add reference documentation
+        - Improve README.md
+        - Setting up environment locally
+        - API endpoint usage
+        - Configuration options
+    validations:
+      required: true
+  
+  - type: input
+    id: location
+    attributes:
+      label: Where should the doc file be placed? (optional)
+      description: Specify the path where the documentation file should be created
+      placeholder: "docs/guides/authentication.md"
+    validations:
+      required: false
+  
+  - type: textarea
+    id: relevant-files
+    attributes:
+      label: What files are relevant? (optional)
+      description: |
+        List any source code files, existing docs, or other resources that are relevant to this documentation.
+
+        For example, for adding reference docs you can list up to 3 files that need to be documented.
+      placeholder: |
+        - src/auth/login.ts
+        - src/auth/session.ts
+        - docs/api-reference.md
+    validations:
+      required: false
