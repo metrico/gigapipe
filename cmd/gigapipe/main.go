@@ -256,6 +256,10 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		return err
 	}
 
+	if os.Getenv("LOG_LEVEL") != "" {
+		cfg.Setting.LOG_SETTINGS.Level = os.Getenv("LOG_LEVEL")
+	}
+
 	return nil
 }
 
@@ -302,7 +306,6 @@ func start() {
 		app.Use(middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
-	cfg.Setting.LOG_SETTINGS.Level = "debug"
 	cfg.Setting.LOG_SETTINGS.Stdout = true
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
@@ -358,6 +361,7 @@ func initPyro() {
 		ApplicationName: applicationName,
 		ServerAddress:   serverAddress,
 		Logger:          pyroscope.StandardLogger,
+
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,
