@@ -45,7 +45,7 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 			return
 		}
 	}
-	promQuery, err := q.Api.QueryEngine.NewInstantQuery(q.Storage.SetOidAndDB(ctx, expr), nil,
+	promQuery, err := q.Api.QueryEngine.NewInstantQuery(ctx, q.Storage.SetOidAndDB(ctx, expr), nil,
 		expr.Expr.String(), req.Time)
 	if err != nil {
 		PromError(500, err.Error(), w)
