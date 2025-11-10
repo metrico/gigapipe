@@ -34,7 +34,6 @@ require (
 	github.com/go-logfmt/logfmt v0.6.0
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/gofiber/websocket/v2 v2.2.1
-	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20250923004556-9e5a51aed1e8
 	github.com/gorilla/mux v1.8.1
@@ -57,11 +56,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fastjson v1.6.4
-	go.opentelemetry.io/collector/pdata v1.42.0
+	go.opentelemetry.io/collector/pdata v1.45.0
 	go.opentelemetry.io/proto/otlp v1.8.0
 	golang.org/x/exp v0.0.0-20250808145144-a408d31f581a
 	golang.org/x/sync v0.17.0
-	google.golang.org/grpc v1.75.1
+	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -129,6 +128,7 @@ require (
 	github.com/go-playground/universal-translator v0.18.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/google/cel-go v0.23.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -213,7 +213,7 @@ require (
 	go.opentelemetry.io/collector/confmap v1.42.0 // indirect
 	go.opentelemetry.io/collector/confmap/xconfmap v0.136.0 // indirect
 	go.opentelemetry.io/collector/consumer v1.42.0 // indirect
-	go.opentelemetry.io/collector/featuregate v1.42.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.45.0 // indirect
 	go.opentelemetry.io/collector/internal/telemetry v0.136.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.42.0 // indirect
 	go.opentelemetry.io/collector/processor v1.42.0 // indirect
