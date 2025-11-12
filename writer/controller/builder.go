@@ -205,6 +205,7 @@ func doParse(r *http.Request, parser Parser) error {
 	spanAttrsService := getService(r, utils.ContextKeySpanAttrsService)
 	spansService := getService(r, utils.ContextKeySpansService)
 	profileService := getService(r, utils.ContextKeyProfileService)
+	metadataService := getService(r, utils.ContextKeyMetadataService)
 	node := r.Context().Value(utils.ContextKeyNode).(string)
 
 	//var promises []chan error
@@ -226,6 +227,7 @@ func doParse(r *http.Request, parser Parser) error {
 			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, spanAttrsService),
 			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, spansService),
 			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, profileService),
+			doPush(response.MetadataRequest, service.INSERT_MODE_SYNC, metadataService),
 		)
 		if response.SamplesRequest != nil {
 			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))

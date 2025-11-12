@@ -19,6 +19,7 @@ const (
 	ContextKeyNode             ContextKey = "node"
 	ContextKeySpanAttrsService ContextKey = "spanAttrsService"
 	ContextKeySpansService     ContextKey = "spansService"
+	ContextKeyMetadataService  ContextKey = "metadataService"
 	ContextKeyFrom             ContextKey = "from"
 	ContextKeyName             ContextKey = "name"
 	ContextKeyUntil            ContextKey = "until"

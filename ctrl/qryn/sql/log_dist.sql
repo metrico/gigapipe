@@ -76,3 +76,9 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.patterns_dist {{.OnCluster}}(
     pattern_id UInt64,
     iteration_id UInt64
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'patterns', fingerprint) {{.DIST_CREATE_SETTINGS}};
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_meta_dist {{.OnCluster}} (
+    `metric_name` String, 
+    `value` String, 
+    `timestamp_ms` Int64
+) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'metrics_meta', rand()) {{.DIST_CREATE_SETTINGS}};

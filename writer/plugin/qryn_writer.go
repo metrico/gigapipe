@@ -47,6 +47,7 @@ var (
 	TempoTagsSvcs     = make(service.InsertSvcMap)
 	ProfileInsertSvcs = make(service.InsertSvcMap)
 	PatternInsertSvcs = make(service.InsertSvcMap)
+	MetadataSvcs      = make(service.InsertSvcMap)
 )
 
 // var servicesObject ServicesObject

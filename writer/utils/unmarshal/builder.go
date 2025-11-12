@@ -13,6 +13,7 @@ import (
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/utils"
 	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/metadata"
 	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 	"google.golang.org/protobuf/proto"
 )
@@ -311,6 +312,11 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	message []string, value []float64, types []uint8) error {
 
 	ttlDays := p.ttlDays
+	var metricName string
+	var metadataFromLabels map[string]*metadata.MetricMetadata
+	var labelsToRemove map[string]bool
+
+	// Extract metadata from labels and find metric name
 	if ttlDays == 0 {
 		var _labels [][]string
 		for _, lbl := range labels {
@@ -321,9 +327,34 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 				}
 				continue
 			}
+			if lbl[0] == "__name__" {
+				metricName = lbl[1]
+			}
 			_labels = append(_labels, lbl)
 		}
 		labels = _labels
+	} else {
+		// Find metric name even if ttlDays is set
+		for _, lbl := range labels {
+			if lbl[0] == "__name__" {
+				metricName = lbl[1]
+				break
+			}
+		}
+	}
+
+	// Extract metadata from special labels
+	metadataFromLabels, labelsToRemove = metadata.ExtractMetadataFromLabels(labels)
+
+	// Remove metadata labels before processing
+	if len(labelsToRemove) > 0 {
+		var cleanedLabels [][]string
+		for _, lbl := range labels {
+			if !labelsToRemove[lbl[0]] {
+				cleanedLabels = append(cleanedLabels, lbl)
+			}
+		}
+		labels = cleanedLabels
 	}
 
 	p.discoverServiceName(&labels)
@@ -346,6 +377,36 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	for i, tsns := range timestampsNS {
 		dates[time.Unix(tsns/1000000000, 0).Truncate(time.Hour*24)] = true
 		p.tsSpl.spl.Size += len(message[i]) + 26
+	}
+
+	// Process metadata: extract from labels
+	var finalMetadata *metadata.MetricMetadata
+	if metricName != "" && len(metadataFromLabels) > 0 {
+		// Use metadata from labels
+		if md, ok := metadataFromLabels[metricName]; ok {
+			finalMetadata = md
+		}
+	}
+
+	// Store metadata if found and not already stored for this metric name
+	if finalMetadata != nil {
+		// Check if we already have metadata for this metric name in current batch
+		alreadyStored := false
+		for _, storedName := range p.tsSpl.metadata.MetricNames {
+			if storedName == metricName {
+				alreadyStored = true
+				break
+			}
+		}
+
+		if !alreadyStored {
+			metadataJSON, err := finalMetadata.ToJSON()
+			if err == nil {
+				p.tsSpl.metadata.MetricNames = append(p.tsSpl.metadata.MetricNames, metricName)
+				p.tsSpl.metadata.MetadataJSON = append(p.tsSpl.metadata.MetadataJSON, metadataJSON)
+				p.tsSpl.metadata.Size += len(metadataJSON) + len(metricName) // metric_name + json size
+			}
+		}
 	}
 
 	for d := range dates {

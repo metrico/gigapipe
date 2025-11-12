@@ -234,6 +234,12 @@ var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.
 	}
 	ctx = context.WithValue(ctx, utils.ContextKeyProfileService, svc)
 
+	metadataSvc, err := Registry.GetMetadataService(dsn.(string))
+	if err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, utils.ContextKeyMetadataService, metadataSvc)
+
 	nodeName := svc.GetNodeName()
 	ctx = context.WithValue(ctx, utils.ContextKeyNode, nodeName)
 	*r = *r.WithContext(ctx)

@@ -4,14 +4,16 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v4/writer/utils/metadata"
 )
 
 type timeSeriesAndSamples struct {
-	ts   *model.TimeSeriesData
-	spl  *model.TimeSamplesData
-	size int
-	c    chan *model.ParserResponse
-	meta string
+	ts        *model.TimeSeriesData
+	spl       *model.TimeSamplesData
+	metadata  *model.MetadataData
+	size      int
+	c         chan *model.ParserResponse
+	meta      string
 }
 
 func (t *timeSeriesAndSamples) reset() {
@@ -29,12 +31,28 @@ func (t *timeSeriesAndSamples) reset() {
 		MMessage:     make([]string, 0, 1000),
 		MValue:       make([]float64, 0, 1000),
 	}
+	t.metadata = &model.MetadataData{
+		MetricNames:  make([]string, 0, 10),
+		MetadataJSON: make([]string, 0, 10),
+	}
 }
 
 func (t *timeSeriesAndSamples) flush() {
+	// Prepare metadata request if we have any metadata
+	var metadataReq *model.MetadataData
+	if len(t.metadata.MetricNames) > 0 {
+		metadataReq = t.metadata
+		// Reset for next batch
+		t.metadata = &model.MetadataData{
+			MetricNames:  make([]string, 0, 10),
+			MetadataJSON: make([]string, 0, 10),
+		}
+	}
+
 	t.c <- &model.ParserResponse{
 		TimeSeriesRequest: t.ts,
 		SamplesRequest:    t.spl,
+		MetadataRequest:   metadataReq,
 	}
 }
 

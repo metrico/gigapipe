@@ -9,4 +9,5 @@ type ParserResponse struct {
 	SpansAttrsRequest helpers.SizeGetter
 	SpansRequest      helpers.SizeGetter
 	ProfileRequest    helpers.SizeGetter
+	MetadataRequest   helpers.SizeGetter
 }
