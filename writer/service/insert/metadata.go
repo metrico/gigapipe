@@ -73,7 +73,7 @@ func NewMetadataInsertService(opts model.InsertServiceOpts) service.IInsertServi
 				return 0, nil, fmt.Errorf("invalid request type metadata")
 			}
 			acquirer := (&MetadataAcquirer{}).deserialize(res)
-			_len := len(acquirer.MetricName.Data)
+			_len := acquirer.MetricName.Data.Rows()
 
 			for _, metricName := range metadataData.MetricNames {
 				acquirer.MetricName.Data.Append(metricName)
@@ -92,7 +92,7 @@ func NewMetadataInsertService(opts model.InsertServiceOpts) service.IInsertServi
 				acquirer.TimestampMS.Data.Append(timestampMS)
 			}
 
-			return len(acquirer.MetricName.Data) - _len, res, nil
+			return acquirer.MetricName.Data.Rows() - _len, res, nil
 		},
 	}
 }

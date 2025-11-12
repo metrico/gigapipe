@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/utils/metadata"
 )
 
 type timeSeriesAndSamples struct {
