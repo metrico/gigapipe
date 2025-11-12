@@ -190,6 +190,14 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			MaxQueueSize: int64(config.SYSTEM_SETTINGS.DBBulk),
 		})
 
+		metadataSvc := insert.NewMetadataInsertService(model.InsertServiceOpts{
+			Session:     p.ServicesObject.Dbv3Map[i],
+			Node:        &node,
+			Interval:    time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
+			ParallelNum: config.SYSTEM_SETTINGS.ChannelsSample,
+			AsyncInsert: node.AsyncInsert,
+		})
+
 		// Initialize and run services
 		MtrSvcs[node.Node] = mtrSvc
 		MtrSvcs[node.Node].Init()
@@ -219,6 +227,10 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		SplSvcs[node.Node].Init()
 		go SplSvcs[node.Node].Run()
 
+		MetadataSvcs[node.Node] = metadataSvc
+		MetadataSvcs[node.Node].Init()
+		go MetadataSvcs[node.Node].Run()
+
 		table := "qryn_fingerprints"
 		if node.ClusterName != "" {
 			table += "_dist"
@@ -233,6 +245,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		TempoTagsSvcs:     TempoTagsSvcs,
 		ProfileInsertSvcs: ProfileInsertSvcs,
 		PatternInsertSvcs: PatternInsertSvcs,
+		MetadataSvcs:     MetadataSvcs,
 	})
 
 	GoCache = numbercache.NewCache(time.Minute*30, func(val uint64) []byte {
@@ -247,6 +260,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		TempoTagsSvcs,
 		ProfileInsertSvcs,
 		PatternInsertSvcs,
+		MetadataSvcs,
 	})
 
 	if config2.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {

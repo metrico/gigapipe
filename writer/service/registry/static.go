@@ -16,6 +16,7 @@ type staticServiceRegistry struct {
 	TempoTagsSvcs     []service.IInsertServiceV2
 	ProfileInsertSvcs []service.IInsertServiceV2
 	PatternInsertSvcs []service.IInsertServiceV2
+	MetadataSvcs      []service.IInsertServiceV2
 	rand              *rand.Rand
 	mtx               sync.Mutex
 }
@@ -28,6 +29,7 @@ type StaticServiceRegistryOpts struct {
 	TempoTagsSvcs     map[string]service.IInsertServiceV2
 	ProfileInsertSvcs map[string]service.IInsertServiceV2
 	PatternInsertSvcs map[string]service.IInsertServiceV2
+	MetadataSvcs      map[string]service.IInsertServiceV2
 }
 
 func mapToSlice(m map[string]service.IInsertServiceV2) []service.IInsertServiceV2 {
@@ -49,6 +51,7 @@ func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) ServiceRegistry {
 	res.TempoTagsSvcs = mapToSlice(opts.TempoTagsSvcs)
 	res.ProfileInsertSvcs = mapToSlice(opts.ProfileInsertSvcs)
 	res.PatternInsertSvcs = mapToSlice(opts.PatternInsertSvcs)
+	res.MetadataSvcs = mapToSlice(opts.MetadataSvcs)
 	return &res
 }
 
@@ -100,6 +103,10 @@ func (r *staticServiceRegistry) GetProfileInsertService(id string) (service.IIns
 
 func (r *staticServiceRegistry) GetPatternInsertService(id string) (service.IInsertServiceV2, error) {
 	return r.getService(id, r.PatternInsertSvcs)
+}
+
+func (r *staticServiceRegistry) GetMetadataService(id string) (service.IInsertServiceV2, error) {
+	return r.getService(id, r.MetadataSvcs)
 }
 
 func (r *staticServiceRegistry) Run() {}

@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
+	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/service"
 )
 
@@ -85,14 +88,44 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 
 func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
-	_, err := RunPreRequestPlugins(r)
+	ctx, err := RunPreRequestPlugins(r)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	w.WriteHeader(200)
+
+	// Parse query parameters
+	metricFilter := r.URL.Query().Get("metric")
+	limitStr := r.URL.Query().Get("limit")
+	limit := service.ParseLimit(limitStr)
+
+	// Get metadata
+	metadataService := service.NewMetadataService(&model.ServiceData{
+		Session: p.QueryLabelsService.Session,
+	})
+
+	metadataResult, err := metadataService.GetMetadata(ctx, metricFilter, limit)
+	if err != nil {
+		PromError(500, fmt.Sprintf("Failed to get metadata: %v", err), w)
+		return
+	}
+
+	// Format response according to Prometheus API spec
+	response := map[string]interface{}{
+		"status": "success",
+		"data":   metadataResult,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status": "success", "data": {}}`))
+	w.WriteHeader(200)
+
+	jsonData, err := json.Marshal(response)
+	if err != nil {
+		PromError(500, fmt.Sprintf("Failed to marshal response: %v", err), w)
+		return
+	}
+
+	w.Write(jsonData)
 }
 
 func (p *PromQueryLabelsController) Series(w http.ResponseWriter, r *http.Request) {
