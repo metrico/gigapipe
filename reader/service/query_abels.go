@@ -105,6 +105,10 @@ func (q *QueryLabelsService) GetEstimateKVComplexityRequest(ctx context.Context,
 }
 
 func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16) (chan string, error) {
+	return q.LabelsWithMatch(ctx, nil, startMs, endMs, labelsType)
+}
+
+func (q *QueryLabelsService) LabelsWithMatch(ctx context.Context, match []string, startMs int64, endMs int64, labelsType uint16) (chan string, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -123,6 +127,42 @@ func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs in
 			sql.Le(sql.NewRawObject("date"),
 				sql.NewStringVal(time.Unix(endMs/1000, 0).UTC().Format("2006-01-02"))),
 		)
+	
+	// If match selectors are provided, filter by fingerprints
+	if len(match) > 0 {
+		planner, err := q.getMultiMatchLabelsPlanner(match)
+		if err != nil {
+			return nil, err
+		}
+
+		versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+		if err != nil {
+			return nil, err
+		}
+
+		plannerCtx := shared.PlannerContext{
+			IsCluster:   conn.Config.ClusterName != "",
+			From:        time.Unix(startMs/1000, 0),
+			To:          time.Unix(endMs/1000, 0),
+			Limit:       10000,
+			UseCache:    false,
+			Ctx:         ctx,
+			CHDb:        conn.Session,
+			CHSqlCtx:    nil,
+			Type:        uint8(labelsType),
+			VersionInfo: versionInfo,
+		}
+		tables.PopulateTableNames(&plannerCtx, conn)
+		fpQuery, err := planner.Process(&plannerCtx)
+		if err != nil {
+			return nil, err
+		}
+		
+		withFp := sql.NewWith(fpQuery, "fp_sel")
+		sel = sel.With(withFp).
+			AndWhere(sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp)))
+	}
+	
 	query, err := sel.String(&sql.Ctx{
 		Params: map[string]sql.SQLObject{},
 		Result: map[string]sql.SQLObject{},
@@ -131,6 +171,43 @@ func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs in
 		return nil, err
 	}
 	return q.GenericLabelReq(ctx, query)
+}
+
+func (q *QueryLabelsService) PromLabels(ctx context.Context, match []string, startMs int64, endMs int64,
+	labelsType uint16) (chan string, error) {
+	if len(match) == 0 {
+		return q.Labels(ctx, startMs, endMs, labelsType)
+	}
+	
+	lMatchers := make([]string, len(match))
+	var err error
+	for i, m := range match {
+		lMatchers[i], err = q.Prom2LogqlMatch(m)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return q.LabelsWithMatch(ctx, lMatchers, startMs, endMs, labelsType)
+}
+
+func (q *QueryLabelsService) getMultiMatchLabelsPlanner(match []string) (shared.SQLRequestPlanner, error) {
+	matchScripts := make([]*logql_parser.LogQLScript, len(match))
+	var err error
+	for i, m := range match {
+		matchScripts[i], err = logql_parser.Parse(m)
+		if err != nil {
+			return nil, err
+		}
+	}
+	selects := make([]shared.SQLRequestPlanner, len(matchScripts))
+	for i, m := range matchScripts {
+		selects[i], err = logql_transpiler.PlanFingerprints(m)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var planner shared.SQLRequestPlanner = &clickhouse_planner.MultiStreamSelectPlanner{Mains: selects}
+	return planner, nil
 }
 
 func (q *QueryLabelsService) PromValues(ctx context.Context, label string, match []string, startMs int64, endMs int64,

@@ -44,7 +44,13 @@ func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Re
 		PromError(400, err.Error(), w)
 		return
 	}
-	res, err := p.QueryLabelsService.Labels(internalCtx, params.start.UnixMilli(), params.end.UnixMilli(), 2)
+	// Extract match[] parameters
+	seriesParams, err := getPromSeriesParamsV2(r)
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	res, err := p.QueryLabelsService.PromLabels(internalCtx, seriesParams.Match, params.start.UnixMilli(), params.end.UnixMilli(), 2)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
