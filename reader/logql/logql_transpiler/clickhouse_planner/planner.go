@@ -28,6 +28,10 @@ func PlanPatterns(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, e
 	return (&planner{script: script}).planPatterns()
 }
 
+func PlanLabels(scripts []*logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
+	return (&multiScriptPlanner{scripts: scripts}).planLabels()
+}
+
 type planner struct {
 	script   *logql_parser.LogQLScript
 	finalize bool
@@ -569,4 +573,23 @@ func getLabelsAndValuesFromDrop(drop *logql_parser.Drop) ([]string, []string, er
 		vals[i] = val
 	}
 	return labels, vals, nil
+}
+
+type multiScriptPlanner struct {
+	planner
+	scripts []*logql_parser.LogQLScript
+}
+
+func (p *multiScriptPlanner) planLabels() (shared.SQLRequestPlanner, error) {
+	var scriptPlanners []shared.SQLRequestPlanner
+	for _, script := range p.scripts {
+		p.script = script
+		singleScriptPlanner, err := p.planner.planFingerprints()
+		if err != nil {
+			return nil, err
+		}
+		scriptPlanners = append(scriptPlanners, singleScriptPlanner)
+	}
+	sqlRequestPlanner := LabelNamesPlanner{FPPlanners: scriptPlanners}
+	return &sqlRequestPlanner, nil
 }
