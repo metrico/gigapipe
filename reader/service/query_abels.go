@@ -126,6 +126,7 @@ func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs in
 		return nil, err
 	}
 	sqlCtx := shared.PlannerContext{
+		Type:      uint8(labelsType),
 		IsCluster: conn.Config.ClusterName != "",
 		From:      time.Unix(startMs/1000, 0),
 		To:        time.Unix(endMs/1000, 0),
