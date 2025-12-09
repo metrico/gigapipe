@@ -242,7 +242,6 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	if err != nil {
 		return &model.SeriesSet{Error: err}
 	}
-	fmt.Println(str)
 	rows, err := c.db.Session.QueryCtx(c.ctx, str)
 	if err != nil {
 		fmt.Println(str)

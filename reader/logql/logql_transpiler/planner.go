@@ -1,6 +1,7 @@
 package logql_transpiler
 
 import (
+	"fmt"
 	"reflect"
 
 	log_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
@@ -63,6 +64,15 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 
 	proc, err = MatrixPostProcessors(script, proc)
 	return shared.RequestProcessorChain{proc}, err
+}
+
+func PlanLabels(scripts []*log_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
+	for _, script := range scripts {
+		if script.StrSelector == nil {
+			return nil, fmt.Errorf("unsupported query")
+		}
+	}
+	return clickhouse_planner.PlanLabels(scripts)
 }
 
 func MatrixPostProcessors(script *log_parser.LogQLScript,

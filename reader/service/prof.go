@@ -564,7 +564,6 @@ func (ps *ProfService) queryCols(ctx context.Context, db *model.DataDatabasesMap
 	if err != nil {
 		return err
 	}
-	fmt.Println(strSel)
 	rows, err := db.Session.QueryCtx(ctx, strSel)
 	if err != nil {
 		return err

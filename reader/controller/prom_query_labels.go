@@ -19,11 +19,13 @@ type PromQueryLabelsController struct {
 type promLabelsParams struct {
 	start time.Time
 	end   time.Time
+	match []string
 }
 
 type rawPromLabelsParams struct {
-	Start string `form:"start"`
-	End   string `form:"end"`
+	Start string   `form:"start"`
+	End   string   `form:"end"`
+	Match []string `form:"match[]"`
 }
 
 type promSeriesParams struct {
@@ -42,7 +44,8 @@ func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Re
 		PromError(400, err.Error(), w)
 		return
 	}
-	res, err := p.QueryLabelsService.Labels(internalCtx, params.start.UnixMilli(), params.end.UnixMilli(), 2)
+	res, err := p.QueryLabelsService.Labels(internalCtx, params.start.UnixMilli(), params.end.UnixMilli(), 2,
+		params.match)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
@@ -205,6 +208,7 @@ func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 		return &promLabelsParams{
 			start: parserTimeString(rawParams.Start, time.Now().Add(time.Hour*-6)),
 			end:   parserTimeString(rawParams.End, time.Now()),
+			match: rawParams.Match,
 		}, nil
 	}
 
