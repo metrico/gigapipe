@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
@@ -51,14 +52,14 @@ func (m *MetadataService) Metadata(ctx context.Context, metricFilter string, lim
 
 	// LIMIT BY selects top N entries per metric
 	if limitPerMetric > 0 {
-		sel.LimitBy(sql.NewIntVal(int64(limitPerMetric)), sql.NewRawObject("metric_name"))
+		sel.Limit(sql.NewLimitBy(sql.NewIntVal(int64(limitPerMetric)), sql.NewRawObject("metric_name")))
 	} else {
 		// Default to 1 for missing limit_per_metric query param
-		sel.LimitBy(sql.NewIntVal(1), sql.NewRawObject("metric_name"))
+		sel.Limit(sql.NewLimitBy(sql.NewIntVal(1), sql.NewRawObject("metric_name")))
 	}
 
 	if limit > 0 {
-		sel.Limit(sql.NewIntVal(int64(limit)))
+		sel.AddLimit(sql.NewIntVal(int64(limit)))
 	}
 
 	query, err := sel.String(&sql.Ctx{

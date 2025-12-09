@@ -57,10 +57,9 @@ type ISelect interface {
 	GetGroupBy() []SQLObject
 	OrderBy(fields ...SQLObject) ISelect
 	GetOrderBy() []SQLObject
-	Limit(limit SQLObject) ISelect
+	Limit(limit ...SQLObject) ISelect
+	AddLimit(limit ...SQLObject) ISelect
 	GetLimit() SQLObject
-	LimitBy(limit SQLObject, exprs ...SQLObject) ISelect
-	GetLimitBy() (SQLObject, []SQLObject)
 	Offset(offset SQLObject) ISelect
 	GetOffset() SQLObject
 	With(withs ...*With) ISelect
