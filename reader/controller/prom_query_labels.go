@@ -29,7 +29,7 @@ type rawPromLabelsParams struct {
 }
 
 type promSeriesParams struct {
-	Match []string `form:"match[]"`
+	Match []string `form:"match"`
 }
 
 func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Request) {
@@ -197,9 +197,13 @@ func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 	if r.Method == "POST" && r.Header.Get("content-type") == "application/x-www-form-urlencoded" {
 		rawParams := rawPromLabelsParams{}
 		dec := schema.NewDecoder()
+		dec.IgnoreUnknownKeys(true)
 		err := r.ParseForm()
 		if err != nil {
 			return nil, err
+		}
+		if matches, ok := r.Form["match[]"]; ok {
+			rawParams.Match = matches
 		}
 		err = dec.Decode(&rawParams, r.Form)
 		if err != nil {
