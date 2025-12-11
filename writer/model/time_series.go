@@ -19,6 +19,8 @@ type TableTimeSeries struct {
 	// example: 10
 	// required: true
 	Name string `db:"name" clickhouse:"type:String" json:"string"`
+	// JSON metadata containing type, help, unit
+	Metadata string `db:"metadata" clickhouse:"type:String" json:"metadata"`
 }
 
 /*

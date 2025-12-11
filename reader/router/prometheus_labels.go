@@ -8,11 +8,14 @@ import (
 )
 
 func RouteSelectPrometheusLabels(app *mux.Router, dataSession model.IDBRegistry) {
-	qrService := service.NewQueryLabelsService(&model.ServiceData{
+	sd := &model.ServiceData{
 		Session: dataSession,
-	})
+	}
+	qrService := service.NewQueryLabelsService(sd)
+	metadataService := service.NewMetadataService(sd)
 	qrCtrl := &controllerv1.PromQueryLabelsController{
 		QueryLabelsService: qrService,
+		MetadataService:    metadataService,
 	}
 	app.HandleFunc("/api/v1/labels", qrCtrl.PromLabels).Methods("GET", "POST", "OPTIONS")
 	app.HandleFunc("/api/v1/label/{name}/values", qrCtrl.LabelValues).Methods("GET", "OPTIONS")

@@ -40,7 +40,6 @@ func NewQueryLabelsService(sd *model.ServiceData) *QueryLabelsService {
 }
 
 func (q *QueryLabelsService) GenericLabelReq(ctx context.Context, query string, args ...interface{}) (chan string, error) {
-	fmt.Println(query)
 	session, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -104,29 +103,42 @@ func (q *QueryLabelsService) GetEstimateKVComplexityRequest(ctx context.Context,
 	return fpRequest
 }
 
-func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16) (chan string, error) {
+func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16,
+	matches []string) (chan string, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
 	}
-	samplesKVTable := tables.GetTableName("time_series_gin")
-	if conn.Config.ClusterName != "" {
-		samplesKVTable = tables.GetTableName("time_series_gin_dist")
+	var scripts []*logql_parser.LogQLScript
+	for _, m := range matches {
+		logqlQuery, err := q.Prom2LogqlMatch(m)
+		if err != nil {
+			return nil, err
+		}
+		script, err := logql_parser.Parse(logqlQuery)
+		if err != nil {
+			return nil, err
+		}
+		scripts = append(scripts, script)
 	}
-	sel := sql.NewSelect().Distinct(true).
-		Select(sql.NewRawObject("key")).
-		From(sql.NewSimpleCol(samplesKVTable, "samples")).
-		AndWhere(
-			sql.NewIn(sql.NewRawObject("type"), sql.NewIntVal(int64(labelsType)), sql.NewIntVal(int64(0))),
-			sql.Ge(sql.NewRawObject("date"),
-				sql.NewStringVal(FormatFromDate(time.Unix(startMs/1000, 0)))),
-			sql.Le(sql.NewRawObject("date"),
-				sql.NewStringVal(time.Unix(endMs/1000, 0).UTC().Format("2006-01-02"))),
-		)
-	query, err := sel.String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
-	})
+	planner, err := logql_transpiler.PlanLabels(scripts)
+	if err != nil {
+		return nil, err
+	}
+	sqlCtx := shared.PlannerContext{
+		Type:      uint8(labelsType),
+		IsCluster: conn.Config.ClusterName != "",
+		From:      time.Unix(startMs/1000, 0),
+		To:        time.Unix(endMs/1000, 0),
+		Ctx:       ctx,
+		CHDb:      conn.Session,
+	}
+	tables.PopulateTableNames(&sqlCtx, conn)
+	sel, err := planner.Process(&sqlCtx)
+	if err != nil {
+		return nil, err
+	}
+	query, err := sel.String(sql.DefaultCtx())
 	if err != nil {
 		return nil, err
 	}

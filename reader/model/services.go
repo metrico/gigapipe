@@ -19,7 +19,7 @@ type ITempoService interface {
 }
 
 type IQueryLabelsService interface {
-	Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16) (chan string, error)
+	Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16, match []string) (chan string, error)
 	PromValues(ctx context.Context, label string, match []string, startMs int64, endMs int64,
 		labelsType uint16) (chan string, error)
 	Prom2LogqlMatch(match string) (string, error)

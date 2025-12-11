@@ -337,7 +337,6 @@ func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fro
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(strReq)
 	rows, err := conn.Session.QueryCtx(_ctx, strReq)
 	if err != nil {
 		return nil, err

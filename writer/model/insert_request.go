@@ -163,6 +163,7 @@ type TimeSeriesData struct {
 	Size         int
 	MType        []uint8
 	MMeta        string
+	MMetadata    []string // JSON metadata strings for each timeseries entry
 }
 
 func (t *TimeSeriesData) GetSize() int64 {

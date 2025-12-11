@@ -162,6 +162,43 @@ func NewJoin(tp string, table SQLObject, on SQLCondition) *Join {
 	}
 }
 
+type LimitBy struct {
+	limit SQLObject
+	exprs []SQLObject
+}
+
+func (l *LimitBy) String(ctx *Ctx, options ...int) (string, error) {
+	limitStr, err := l.limit.String(ctx, options...)
+	if err != nil {
+		return "", err
+	}
+
+	exprStrs := make([]string, len(l.exprs))
+	for i, expr := range l.exprs {
+		exprStrs[i], err = expr.String(ctx, options...)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return fmt.Sprintf("%s BY %s", limitStr, strings.Join(exprStrs, ", ")), nil
+}
+
+func (l *LimitBy) GetLimit() SQLObject {
+	return l.limit
+}
+
+func (l *LimitBy) GetExprs() []SQLObject {
+	return l.exprs
+}
+
+func NewLimitBy(limit SQLObject, exprs ...SQLObject) *LimitBy {
+	return &LimitBy{
+		limit: limit,
+		exprs: exprs,
+	}
+}
+
 type CtxParam struct {
 	name string
 	def  *string
@@ -393,7 +430,6 @@ func (w *WindowFunction) String(ctx *Ctx, options ...int) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s(%s%s %s BETWEEN %s AND %s)", res, partitionBy, orderBy, rows, start, end), nil
-
 }
 
 func (w *WindowFunction) stringify(objs []SQLObject, prefix string, ctx *Ctx, options ...int) (string, error) {

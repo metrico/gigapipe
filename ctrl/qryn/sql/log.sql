@@ -159,16 +159,16 @@ GROUP BY fingerprint, timestamp_ns, type;
 
 DROP TABLE IF EXISTS {{.DB}}.metrics_15s_mv_bak {{.OnCluster}};
 
-ALTER TABLE time_series
+ALTER TABLE time_series {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
-ALTER TABLE time_series_gin
+ALTER TABLE time_series_gin {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
-ALTER TABLE samples_v3
+ALTER TABLE samples_v3 {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
-ALTER TABLE metrics_15s
+ALTER TABLE metrics_15s {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.patterns {{.OnCluster}}(
@@ -185,3 +185,9 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.patterns {{.OnCluster}}(
 ) ENGINE = {{.MergeTree}}
 PARTITION BY toDate(fromUnixTimestamp(timestamp_10m*600))
 ORDER BY (timestamp_10m, fingerprint) {{.CREATE_SETTINGS}};
+
+ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS metadata String DEFAULT '';
+
+ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));

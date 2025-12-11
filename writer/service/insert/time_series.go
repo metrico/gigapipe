@@ -15,6 +15,7 @@ type TimeSeriesAcquirer struct {
 	Date        *service.PooledColumn[proto.ColDate]
 	Fingerprint *service.PooledColumn[proto.ColUInt64]
 	Labels      *service.PooledColumn[*proto.ColStr]
+	Metadata    *service.PooledColumn[*proto.ColStr]
 }
 
 func (a *TimeSeriesAcquirer) acq() *TimeSeriesAcquirer {
@@ -24,24 +25,24 @@ func (a *TimeSeriesAcquirer) acq() *TimeSeriesAcquirer {
 	a.Date = service.DatePool.Acquire("date")
 	a.Fingerprint = service.UInt64Pool.Acquire("fingerprint")
 	a.Labels = service.StrPool.Acquire("labels")
+	a.Metadata = service.StrPool.Acquire("metadata")
 	return a
 }
 
 func (a *TimeSeriesAcquirer) serialize() []service.IColPoolRes {
-	return []service.IColPoolRes{a.Type, a.Date, a.Fingerprint, a.Labels}
+	return []service.IColPoolRes{a.Type, a.Date, a.Fingerprint, a.Labels, a.Metadata}
 }
 
 func (a *TimeSeriesAcquirer) deserialize(res []service.IColPoolRes) *TimeSeriesAcquirer {
-	a.Type, a.Date, a.Fingerprint, a.Labels =
-		res[0].(*service.PooledColumn[proto.ColUInt8]),
+	a.Type, a.Date, a.Fingerprint, a.Labels, a.Metadata = res[0].(*service.PooledColumn[proto.ColUInt8]),
 		res[1].(*service.PooledColumn[proto.ColDate]),
 		res[2].(*service.PooledColumn[proto.ColUInt64]),
-		res[3].(*service.PooledColumn[*proto.ColStr])
+		res[3].(*service.PooledColumn[*proto.ColStr]),
+		res[4].(*service.PooledColumn[*proto.ColStr])
 	return a
 }
 
 func NewTimeSeriesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
-
 	plugin := plugins.GetTimeSeriesInsertServicePlugin()
 	if plugin != nil {
 		return (*plugin)(opts)
@@ -53,7 +54,7 @@ func NewTimeSeriesInsertService(opts model.InsertServiceOpts) service.IInsertSer
 	if opts.Node.ClusterName != "" {
 		table += "_dist"
 	}
-	insertReq := fmt.Sprintf("INSERT INTO %s (type, date, fingerprint, labels)",
+	insertReq := fmt.Sprintf("INSERT INTO %s (type, date, fingerprint, labels, metadata)",
 		table)
 	return &service.InsertServiceV2Multimodal{
 		ServiceData:    service.ServiceData{},
@@ -81,6 +82,12 @@ func NewTimeSeriesInsertService(opts model.InsertServiceOpts) service.IInsertSer
 			for i, d := range timeSeriesData.MDate {
 				acquirer.Date.Data.Append(d)
 				acquirer.Labels.Data.Append(timeSeriesData.MLabels[i])
+				// Append metadata if available, otherwise empty string
+				if i < len(timeSeriesData.MMetadata) {
+					acquirer.Metadata.Data.Append(timeSeriesData.MMetadata[i])
+				} else {
+					acquirer.Metadata.Data.Append("")
+				}
 			}
 
 			for _, Mf := range timeSeriesData.MFingerprint {

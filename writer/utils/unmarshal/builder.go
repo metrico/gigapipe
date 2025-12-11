@@ -13,6 +13,7 @@ import (
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/utils"
 	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v4/writer/utils/metadata"
 	"github.com/metrico/qryn/v4/writer/utils/numbercache"
 	"google.golang.org/protobuf/proto"
 )
@@ -142,6 +143,7 @@ func (p *parserDoer) doParseProfile() {
 func (p *parserDoer) resetProfile() {
 	p.profile = &model.ProfileData{}
 }
+
 func (p *parserDoer) doParseLogs() {
 	parser := p.LogsParser
 	meta := ""
@@ -206,6 +208,7 @@ func (p *parserDoer) tamePanic() {
 		recover()
 	}
 }
+
 func (p *parserDoer) resetSpans() {
 	p.spans = &model.TempoSamples{}
 	p.attrs = &model.TempoTag{}
@@ -217,7 +220,8 @@ func (p *parserDoer) onProfile(timestampNs uint64,
 	samplesTypesUnits []model.StrStr, periodType string,
 	periodUnit string, tags []model.StrStr,
 	durationNs uint64, payloadType string, payload []byte,
-	valuersAgg []model.ValuesAgg, tree []model.TreeRootStructure, functions []model.Function) error {
+	valuersAgg []model.ValuesAgg, tree []model.TreeRootStructure, functions []model.Function,
+) error {
 	p.profile.TimestampNs = append(p.profile.TimestampNs, timestampNs)
 	p.profile.Ptype = append(p.profile.Ptype, Type)
 	p.profile.ServiceName = append(p.profile.ServiceName, serviceName)
@@ -247,6 +251,7 @@ func (p *parserDoer) onProfile(timestampNs uint64,
 
 	return nil
 }
+
 func (p *parserDoer) calculateProfileSize() int {
 	size := 0
 
@@ -270,7 +275,6 @@ func (p *parserDoer) calculateProfileSize() int {
 
 	// Accumulate the size
 	return size
-
 }
 
 var serviceNameCandidates = map[string]bool{
@@ -308,28 +312,39 @@ func (p *parserDoer) discoverServiceName(labels *[][]string) {
 }
 
 func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8) error {
-
+	message []string, value []float64, types []uint8,
+) error {
 	ttlDays := p.ttlDays
-	if ttlDays == 0 {
-		var _labels [][]string
-		for _, lbl := range labels {
-			if lbl[0] == "__ttl_days__" {
-				_ttlDays, err := strconv.ParseInt(lbl[1], 10, 16)
-				if err == nil {
-					ttlDays = uint16(_ttlDays)
-				}
-				continue
+
+	// Extract metadata from labels
+	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
+
+	// Filter special labels (__ttl_days__, __metric_type__, __metric_help__, __metric_unit__)
+	filtered := make([][]string, 0, len(labels))
+	for _, label := range labels {
+		lname := label[0]
+		lval := label[1]
+
+		// Check for TTL override if not already set
+		if lname == "__ttl_days__" && ttlDays == 0 {
+			if ttl, err := strconv.ParseInt(lval, 10, 16); err == nil {
+				ttlDays = uint16(ttl)
 			}
-			_labels = append(_labels, lbl)
+			continue
 		}
-		labels = _labels
+
+		// Skip metadata labels
+		if metadata.IsMetadataLabel(lname) {
+			continue
+		}
+
+		filtered = append(filtered, label)
 	}
 
-	p.discoverServiceName(&labels)
+	p.discoverServiceName(&filtered)
 
 	dates := map[time.Time]bool{}
-	fp := fingerprintLabels(labels)
+	fp := fingerprintLabels(filtered)
 
 	p.tsSpl.spl.MMessage = append(p.tsSpl.spl.MMessage, message...)
 	p.tsSpl.spl.MValue = append(p.tsSpl.spl.MValue, value...)
@@ -348,9 +363,15 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 		p.tsSpl.spl.Size += len(message[i]) + 26
 	}
 
+	// Convert metadata to JSON if present
+	metadataJSON, err := metricMetadata.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to convert metadata to JSON: %w", err)
+	}
+
 	for d := range dates {
 		if maybeAddFp(d, fp, p.ctx.fpCache) {
-			_labels := encodeLabels(labels)
+			_labels := encodeLabels(filtered)
 			for t := range tps {
 				if !tps[t] {
 					continue
@@ -361,7 +382,8 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 				p.tsSpl.ts.MFingerprint = append(p.tsSpl.ts.MFingerprint, fp)
 				p.tsSpl.ts.MType = append(p.tsSpl.ts.MType, uint8(t))
 				p.tsSpl.ts.MTTLDays = append(p.tsSpl.ts.MTTLDays, ttlDays)
-				p.tsSpl.ts.Size += 14 + len(_labels)
+				p.tsSpl.ts.MMetadata = append(p.tsSpl.ts.MMetadata, metadataJSON)
+				p.tsSpl.ts.Size += 14 + len(_labels) + len(metadataJSON)
 			}
 		}
 	}
@@ -375,7 +397,8 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 }
 
 func (p *parserDoer) onSpan(traceId []byte, spanId []byte, timestampNs int64, durationNs int64,
-	parentId string, name string, serviceName string, payload []byte, key []string, val []string) error {
+	parentId string, name string, serviceName string, payload []byte, key []string, val []string,
+) error {
 	p.spans.MTraceId = append(p.spans.MTraceId, traceId)
 	p.spans.MSpanId = append(p.spans.MSpanId, spanId)
 	p.spans.MTimestampNs = append(p.spans.MTimestampNs, timestampNs)
@@ -438,12 +461,14 @@ func Build(options ...buildOption) ParsingFunction {
 		return doer.Do()
 	}
 }
+
 func withProfileParser(fn func(ctx *ParserCtx) iProfilesParser) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.ProfileParser = fn
 		return builder
 	}
 }
+
 func withLogsParser(fn func(ctx *ParserCtx) iLogsParser) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.LogsParser = fn

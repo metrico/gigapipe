@@ -22,6 +22,7 @@ func (t *timeSeriesAndSamples) reset() {
 		MFingerprint: make([]uint64, 0, 100),
 		MType:        make([]uint8, 0, 100),
 		MMeta:        t.meta,
+		MMetadata:    make([]string, 0, 100),
 	}
 	t.spl = &model.TimeSamplesData{
 		MTimestampNS: make([]int64, 0, 1000),

@@ -52,16 +52,16 @@ ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}} ADD COLUMN IF NOT EXISTS `ty
 
 ALTER TABLE {{.DB}}.time_series_gin_dist {{.OnCluster}} ADD COLUMN IF NOT EXISTS `type` UInt8;
 
-ALTER TABLE time_series_dist
+ALTER TABLE time_series_dist {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
-ALTER TABLE time_series_gin_dist
+ALTER TABLE time_series_gin_dist {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
-ALTER TABLE samples_v3_dist
+ALTER TABLE samples_v3_dist {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
-ALTER TABLE metrics_15s_dist
+ALTER TABLE metrics_15s_dist {{.OnCluster}}
     ADD COLUMN `type_v2` UInt8 ALIAS type;
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.patterns_dist {{.OnCluster}}(
@@ -76,3 +76,9 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.patterns_dist {{.OnCluster}}(
     pattern_id UInt64,
     iteration_id UInt64
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'patterns', fingerprint) {{.DIST_CREATE_SETTINGS}};
+
+ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS metadata String DEFAULT '';
+
+ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));

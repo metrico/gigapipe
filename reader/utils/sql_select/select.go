@@ -14,10 +14,11 @@ type Select struct {
 	having   SQLCondition
 	groupBy  []SQLObject
 	orderBy  []SQLObject
-	limit    SQLObject
+	limit    []SQLObject
 	offset   SQLObject
 	withs    []*With
 	joins    []*Join
+	limitBys []*LimitBy
 	windows  []*WindowFunction
 	settings map[string]string
 }
@@ -202,13 +203,21 @@ func (s *Select) GetOrderBy() []SQLObject {
 	return s.orderBy
 }
 
-func (s *Select) Limit(limit SQLObject) ISelect {
+func (s *Select) Limit(limit ...SQLObject) ISelect {
 	s.limit = limit
 	return s
 }
 
+func (s *Select) AddLimit(limit ...SQLObject) ISelect {
+	s.limit = append(s.limit, limit...)
+	return s
+}
+
 func (s *Select) GetLimit() SQLObject {
-	return s.limit
+	if len(s.limit) == 0 {
+		return nil
+	}
+	return s.limit[0]
 }
 
 func (s *Select) Offset(offset SQLObject) ISelect {
@@ -318,6 +327,7 @@ func (s *Select) String(ctx *Ctx, options ...int) (string, error) {
 		renderer.having,
 		renderer.window,
 		renderer.orderBy,
+		// renderer.limitBy,
 		renderer.limit,
 		renderer.offset,
 		renderer.settings,
@@ -512,12 +522,32 @@ func (r *selectRenderer) limit() error {
 	if r.s.limit == nil {
 		return nil
 	}
-	str, err := r.s.limit.String(r.ctx, r.options...)
-	if err != nil {
-		return err
+	limits := make([]string, len(r.s.limit))
+	for i, l := range r.s.limit {
+		var err error
+		limits[i], err = l.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
+
 	}
-	if str != "" {
+	if len(limits) != 0 {
 		r.res.WriteString(" LIMIT ")
+		r.res.WriteString(strings.Join(limits, " LIMIT "))
+	}
+	return nil
+}
+
+func (r *selectRenderer) limitBy() error {
+	if len(r.s.limitBys) == 0 {
+		return nil
+	}
+	for _, lb := range r.s.limitBys {
+		r.res.WriteString(" LIMIT ")
+		str, err := lb.String(r.ctx, r.options...)
+		if err != nil {
+			return err
+		}
 		r.res.WriteString(str)
 	}
 	return nil
