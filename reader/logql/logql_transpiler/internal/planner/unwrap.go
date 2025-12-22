@@ -27,9 +27,11 @@ func (l *UnwrapPlanner) Process(ctx *shared.PlannerContext,
 			if val != "" {
 				fVal, err := strconv.ParseFloat(val, 64)
 				if err != nil {
-					return nil
+					return errSkipEntry
 				}
 				entry.Value = fVal
+			} else {
+				return errSkipEntry
 			}
 			return nil
 		},
