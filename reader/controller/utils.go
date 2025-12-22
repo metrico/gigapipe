@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"runtime/debug"
 	"strconv"
 	"time"
 
+	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/smart_buffer"
 )
 
 func getRequiredFloat(ctx *http.Request, name string, def string, err error) (float64, error) {
@@ -109,4 +112,45 @@ func runPreWSRequestPlugins(ctx context.Context, r *http.Request) (context.Conte
 		return nil, err
 	}
 	return ctx, nil
+}
+
+// SmartBufferServe buffers data from a QueryRangeOutput channel using SmartBuffer,
+// checking for errors in the output before sending the response.
+func SmartBufferServe(w http.ResponseWriter, ch <-chan model.QueryRangeOutput) {
+	buffer := smart_buffer.New()
+	defer buffer.Close()
+
+	for output := range ch {
+		if output.Err != nil {
+			PromError(500, output.Err.Error(), w)
+			return
+		}
+		_, err := buffer.Write([]byte(output.Str))
+		if err != nil {
+			PromError(500, err.Error(), w)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	io.Copy(w, buffer)
+}
+
+// SmartBufferServeStrings buffers data from a string channel using SmartBuffer.
+func SmartBufferServeStrings(w http.ResponseWriter, ch <-chan string) {
+	buffer := smart_buffer.New()
+	defer buffer.Close()
+
+	for str := range ch {
+		_, err := buffer.Write([]byte(str))
+		if err != nil {
+			PromError(500, err.Error(), w)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	io.Copy(w, buffer)
 }

@@ -54,10 +54,7 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		PromError(500, err.Error(), w)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	for str := range ch {
-		w.Write([]byte(str.Str))
-	}
+	SmartBufferServe(w, ch)
 }
 
 func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
@@ -143,10 +140,7 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	for str := range ch {
-		w.Write([]byte(str.Str))
-	}
+	SmartBufferServe(w, ch)
 }
 
 var upgrader = websocket.Upgrader{

@@ -42,9 +42,7 @@ func (q *QueryLabelsController) Labels(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 func (q *QueryLabelsController) Values(w http.ResponseWriter, r *http.Request) {
@@ -70,9 +68,7 @@ func (q *QueryLabelsController) Values(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 type SeriesParams struct {
@@ -106,9 +102,7 @@ func (q *QueryLabelsController) Series(w http.ResponseWriter, r *http.Request) {
 		PromError(400, err.Error(), w)
 		return
 	}
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 func ParseLogSeriesParamsV2(r *http.Request, unit time.Duration) (SeriesParams, error) {
@@ -138,7 +132,7 @@ func ParseLogSeriesParamsV2(r *http.Request, unit time.Duration) (SeriesParams, 
 }
 
 func ParseTimeParamsV2(r *http.Request, unit time.Duration) (ValuesParams, error) {
-	//TODO: Rewrite ParseTimeParams using http.Request instead of fiber.Ctx
+	// TODO: Rewrite ParseTimeParams using http.Request instead of fiber.Ctx
 	res := ValuesParams{}
 	if r.Method == "POST" && r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
 		err := r.ParseForm()
