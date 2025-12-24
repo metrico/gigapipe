@@ -48,28 +48,13 @@ func (g *GenericPlanner) WrapProcess(ctx *shared.PlannerContext,
 				onErr(err)
 				return
 			}
-
-			shift := 0
-			for i, m := range skipMask {
-				var start, end int
-				for m != 0 {
-					for m&1 == 0 {
-						m >>= 1
-						start++
-						end++
-					}
-					for m&1 != 0 {
-						m >>= 1
-						end++
-					}
-					copy(entries[i*64-shift+start:], entries[i*64-shift+end:])
-					entries = entries[:len(entries)-end+start]
-					shift += end - start
-				}
-
+			err := filterByMask(&entries, skipMask)
+			if err != nil {
+				onErr(err)
+				return
 			}
 
-			err := ops.OnAfterEntriesSlice(entries, out)
+			err = ops.OnAfterEntriesSlice(entries, out)
 			if err != nil && err != io.EOF {
 				onErr(err)
 				return
@@ -81,6 +66,39 @@ func (g *GenericPlanner) WrapProcess(ctx *shared.PlannerContext,
 		}
 	}()
 	return out, nil
+}
+
+/**
+ * mask is an array of int64s. bit #i is 1 if the entry of the array
+ * should be SKIPPED
+ */
+func filterByMask[T any](arr *[]T, mask []uint64) error {
+	if len(mask)*64 < len(*arr) {
+		return errors.New("mask is too short")
+	}
+
+	shift := 0
+	for i, m := range mask {
+		var start, end int
+		for m != 0 {
+			for m&1 == 0 {
+				m >>= 1
+				start++
+				end++
+			}
+			for m&1 != 0 {
+				m >>= 1
+				end++
+			}
+			copy((*arr)[i*64-shift+start:], (*arr)[i*64-shift+end:])
+			*arr = (*arr)[:len(*arr)-end+start]
+			shift += end - start
+			start = end
+		}
+
+	}
+	return nil
+
 }
 
 type GenericPlannerOps struct {
