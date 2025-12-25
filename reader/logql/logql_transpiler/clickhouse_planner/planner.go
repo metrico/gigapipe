@@ -378,7 +378,12 @@ func (p *planner) planByWithout(byWithout ...*logql_parser.ByOrWithout) error {
 }
 
 func (p *planner) planAgg(agg *logql_parser.AggOperator, withLabels bool) error {
-	err := p.planByWithout(agg.ByOrWithoutPrefix, agg.ByOrWithoutSuffix)
+	var err error
+	if agg.ByOrWithoutPrefix == nil && agg.ByOrWithoutSuffix == nil {
+		err = p.planByWithout(&logql_parser.ByOrWithout{Fn: "by", Labels: nil})
+	} else {
+		err = p.planByWithout(agg.ByOrWithoutPrefix, agg.ByOrWithoutSuffix)
+	}
 	if err != nil {
 		return err
 	}

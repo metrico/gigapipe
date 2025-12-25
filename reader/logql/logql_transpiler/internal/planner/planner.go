@@ -150,7 +150,11 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 		if err != nil {
 			return nil, err
 		}
-		proc = planByWithout(proc, script.ByOrWithoutPrefix, script.ByOrWithoutSuffix)
+		if script.ByOrWithoutPrefix == nil && script.ByOrWithoutSuffix == nil {
+			proc = planByWithout(proc, &logql_parser.ByOrWithout{Fn: "by", Labels: nil})
+		} else {
+			proc = planByWithout(proc, script.ByOrWithoutPrefix, script.ByOrWithoutSuffix)
+		}
 		return maybeComparison(&AggOpPlanner{
 			AggregatorPlanner: AggregatorPlanner{
 				GenericPlanner: GenericPlanner{proc},
