@@ -56,14 +56,14 @@ func (u *UnwrapPlanner) processSimple(_ *shared.PlannerContext, main sql.ISelect
 					return "", err
 				}
 			}
-			return fmt.Sprintf("toFloat64OrZero(%s)", strLabel), nil
+			return fmt.Sprintf("toFloat64OrNull(%s)", strLabel), nil
 		}), nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return main.Select(sel...), nil
+	return main.Select(sel...).AndWhere(sql.NotNull(sql.NewRawObject("value"))), nil
 }
 
 func (u *UnwrapPlanner) processTimeSeries(ctx *shared.PlannerContext, main sql.ISelect) (sql.ISelect, error) {

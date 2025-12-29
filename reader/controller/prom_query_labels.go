@@ -50,11 +50,7 @@ func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Re
 		PromError(500, err.Error(), w)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.Request) {
@@ -80,11 +76,7 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 		PromError(500, err.Error(), w)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Request) {
@@ -125,12 +117,7 @@ func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Requ
 		PromError(500, err.Error(), w)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 func (p *PromQueryLabelsController) Series(w http.ResponseWriter, r *http.Request) {
@@ -157,11 +144,7 @@ func (p *PromQueryLabelsController) Series(w http.ResponseWriter, r *http.Reques
 		PromError(500, err.Error(), w)
 		return
 	}
-	w.WriteHeader(200)
-	w.Header().Set("Content-Type", "application/json")
-	for str := range res {
-		w.Write([]byte(str))
-	}
+	SmartBufferServeStrings(w, res)
 }
 
 func getPromSeriesParamsV2(r *http.Request) (promSeriesParams, error) {
