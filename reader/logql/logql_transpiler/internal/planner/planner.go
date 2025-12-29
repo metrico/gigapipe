@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -114,13 +113,11 @@ func Plan(script *logql_parser.LogQLScript,
 }
 
 func planAggregators(script any, init shared.RequestProcessor) (shared.RequestProcessor, error) {
-	dfs := func(node ...any) (shared.RequestProcessor, error) {
-		for _, n := range node {
-			if n != nil && !reflect.ValueOf(n).IsNil() {
-				return planAggregators(n, init)
-			}
-		}
-		return init, nil
+	if logql_parser.FindFirst[logql_parser.TopK](script) != nil {
+		return nil, &shared.NotSupportedError{Msg: "topk is not supported"}
+	}
+	if logql_parser.FindFirst[logql_parser.QuantileOverTime](script) != nil {
+		return nil, &shared.NotSupportedError{Msg: "quantile_over_time is not supported"}
 	}
 	maybeComparison := func(proc shared.RequestProcessor,
 		comp *logql_parser.Comparison) (shared.RequestProcessor, error) {
@@ -137,62 +134,69 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 			Val:            fVal,
 		}, nil
 	}
+	var aggOp *logql_parser.AggOperator = logql_parser.FindFirst[logql_parser.AggOperator](script)
+	var lra *logql_parser.LRAOrUnwrap = logql_parser.FindFirst[logql_parser.LRAOrUnwrap](script)
+	if aggOp == nil && lra == nil {
+		return init, nil
+	}
+	duration, err := time.ParseDuration(lra.Time + lra.TimeUnit)
+	if err != nil {
+		return nil, err
+	}
+	proc := init
+	if aggOp != nil {
+		if canSwapByWithout(aggOp.Fn, lra.Fn) && lra.Comparison == nil {
+			if aggOp.ByOrWithoutPrefix == nil && aggOp.ByOrWithoutSuffix == nil {
+				proc = planByWithout(proc, &logql_parser.ByOrWithout{Fn: "by", Labels: nil})
+			} else {
+				proc = planByWithout(proc, aggOp.ByOrWithoutPrefix, aggOp.ByOrWithoutSuffix)
+			}
+			proc = &LRAPlanner{
+				AggregatorPlanner: AggregatorPlanner{
+					GenericPlanner: GenericPlanner{proc},
+					Duration:       duration,
+				},
+				Func: lra.Fn,
+			}
+			return maybeComparison(proc, aggOp.Comparison)
+		}
+	}
 
-	switch script := script.(type) {
-	case *logql_parser.LogQLScript:
-		return dfs(script.TopK, script.AggOperator, script.LRAOrUnwrap, script.QuantileOverTime)
-	case *logql_parser.AggOperator:
-		proc, err := dfs(&script.LRAOrUnwrap)
-		if err != nil {
-			return nil, err
-		}
-		duration, err := time.ParseDuration(script.LRAOrUnwrap.Time + script.LRAOrUnwrap.TimeUnit)
-		if err != nil {
-			return nil, err
-		}
-		if script.ByOrWithoutPrefix == nil && script.ByOrWithoutSuffix == nil {
-			proc = planByWithout(proc, &logql_parser.ByOrWithout{Fn: "by", Labels: nil})
-		} else {
-			proc = planByWithout(proc, script.ByOrWithoutPrefix, script.ByOrWithoutSuffix)
-		}
-		return maybeComparison(&AggOpPlanner{
+	if len(lra.StrSel.Pipelines) > 0 && lra.StrSel.Pipelines[len(lra.StrSel.Pipelines)-1].Unwrap != nil {
+		proc = planByWithout(proc, lra.ByOrWithoutPrefix, lra.ByOrWithoutSuffix)
+		proc = &UnwrapAggPlanner{
 			AggregatorPlanner: AggregatorPlanner{
 				GenericPlanner: GenericPlanner{proc},
 				Duration:       duration,
 			},
-			Func: script.Fn,
-		}, script.Comparison)
-	case *logql_parser.LRAOrUnwrap:
-		duration, err := time.ParseDuration(script.Time + script.TimeUnit)
-		if err != nil {
-			return nil, err
+			Function: lra.Fn,
 		}
-		var p shared.RequestProcessor
-		if len(script.StrSel.Pipelines) > 0 && script.StrSel.Pipelines[len(script.StrSel.Pipelines)-1].Unwrap != nil {
-			init = planByWithout(init, script.ByOrWithoutPrefix, script.ByOrWithoutSuffix)
-			p = &UnwrapAggPlanner{
-				AggregatorPlanner: AggregatorPlanner{
-					GenericPlanner: GenericPlanner{init},
-					Duration:       duration,
-				},
-				Function: script.Fn,
-			}
-		} else {
-			p = &LRAPlanner{
-				AggregatorPlanner: AggregatorPlanner{
-					GenericPlanner: GenericPlanner{init},
-					Duration:       duration,
-				},
-				Func: script.Fn,
-			}
+	} else {
+		proc = &LRAPlanner{
+			AggregatorPlanner: AggregatorPlanner{
+				GenericPlanner: GenericPlanner{proc},
+				Duration:       duration,
+			},
+			Func: lra.Fn,
 		}
-		return maybeComparison(p, script.Comparison)
-	case *logql_parser.QuantileOverTime:
-		return nil, &shared.NotSupportedError{Msg: "quantile_over_time is not supported"}
-	case *logql_parser.TopK:
-		return nil, &shared.NotSupportedError{Msg: "topk is not supported for the current request"}
 	}
-	return init, nil
+	proc, err = maybeComparison(proc, lra.Comparison)
+	if aggOp == nil || err != nil {
+		return proc, err
+	}
+
+	if aggOp.ByOrWithoutPrefix == nil && aggOp.ByOrWithoutSuffix == nil {
+		proc = planByWithout(proc, &logql_parser.ByOrWithout{Fn: "by", Labels: nil})
+	} else {
+		proc = planByWithout(proc, aggOp.ByOrWithoutPrefix, aggOp.ByOrWithoutSuffix)
+	}
+	return maybeComparison(&AggOpPlanner{
+		AggregatorPlanner: AggregatorPlanner{
+			GenericPlanner: GenericPlanner{proc},
+			Duration:       duration,
+		},
+		Func: aggOp.Fn,
+	}, aggOp.Comparison)
 }
 
 func planByWithout(init shared.RequestProcessor,
@@ -218,4 +222,28 @@ func planByWithout(init shared.RequestProcessor,
 		By:             strings.ToLower(_byWithout.Fn) == "by",
 		Labels:         labels,
 	}
+}
+
+// canSwapByWithout checks if outer aggregation function can commute with inner range function
+// allowing us to apply by/without before the inner function to reduce cardinality early
+func canSwapByWithout(outerFn string, innerFn string) bool {
+	switch outerFn {
+	case "sum":
+		// sum(by(count)) = by(sum(count)) for count-like operations
+		switch innerFn {
+		case "count_over_time", "rate", "bytes_over_time", "bytes_rate", "sum_over_time":
+			return true
+		}
+	case "max":
+		// max(by(max)) = by(max(max))
+		if innerFn == "max_over_time" {
+			return true
+		}
+	case "min":
+		// min(by(min)) = by(min(min))
+		if innerFn == "min_over_time" {
+			return true
+		}
+	}
+	return false
 }
