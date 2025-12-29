@@ -144,7 +144,8 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 		return nil, err
 	}
 	proc := init
-	if aggOp != nil {
+	hasUnwrap := len(lra.StrSel.Pipelines) > 0 && lra.StrSel.Pipelines[len(lra.StrSel.Pipelines)-1].Unwrap != nil
+	if aggOp != nil && !hasUnwrap {
 		if canSwapByWithout(aggOp.Fn, lra.Fn) && lra.Comparison == nil {
 			if aggOp.ByOrWithoutPrefix == nil && aggOp.ByOrWithoutSuffix == nil {
 				proc = planByWithout(proc, &logql_parser.ByOrWithout{Fn: "by", Labels: nil})
