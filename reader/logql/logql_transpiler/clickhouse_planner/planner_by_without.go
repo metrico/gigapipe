@@ -117,6 +117,9 @@ type byWithoutFilterCol struct {
 }
 
 func (b *byWithoutFilterCol) String(ctx *sql.Ctx, opts ...int) (string, error) {
+	if len(b.labels) == 0 {
+		return b.emptyLabels(ctx, opts...)
+	}
 	str, err := b.labelsCol.String(ctx, opts...)
 	if err != nil {
 		return "", err
@@ -136,4 +139,12 @@ func (b *byWithoutFilterCol) String(ctx *sql.Ctx, opts ...int) (string, error) {
 	}
 
 	return fmt.Sprintf("mapFilter((k,v) -> k %s (%s), %s)", fn, strings.Join(sqlLabels, ","), str), nil
+}
+
+func (b *byWithoutFilterCol) emptyLabels(ctx *sql.Ctx, opts ...int) (string, error) {
+	if b.by {
+		return "map()", nil
+	}
+	str, err := b.labelsCol.String(ctx, opts...)
+	return str, err
 }
