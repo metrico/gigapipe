@@ -144,8 +144,9 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 		return nil, err
 	}
 	proc := init
-	if aggOp != nil {
-		if aggOp.Fn == "sum" && lra.Fn == "count_over_time" && lra.Comparison == nil {
+	hasUnwrap := len(lra.StrSel.Pipelines) > 0 && lra.StrSel.Pipelines[len(lra.StrSel.Pipelines)-1].Unwrap != nil
+	if aggOp != nil && !hasUnwrap {
+		if canSwapByWithout(aggOp.Fn, lra.Fn) && lra.Comparison == nil {
 			if aggOp.ByOrWithoutPrefix == nil && aggOp.ByOrWithoutSuffix == nil {
 				proc = planByWithout(proc, &logql_parser.ByOrWithout{Fn: "by", Labels: nil})
 			} else {
@@ -222,4 +223,28 @@ func planByWithout(init shared.RequestProcessor,
 		By:             strings.ToLower(_byWithout.Fn) == "by",
 		Labels:         labels,
 	}
+}
+
+// canSwapByWithout checks if outer aggregation function can commute with inner range function
+// allowing us to apply by/without before the inner function to reduce cardinality early
+func canSwapByWithout(outerFn string, innerFn string) bool {
+	switch outerFn {
+	case "sum":
+		// sum(by(count)) = by(sum(count)) for count-like operations
+		switch innerFn {
+		case "count_over_time", "rate", "bytes_over_time", "bytes_rate", "sum_over_time":
+			return true
+		}
+	case "max":
+		// max(by(max)) = by(max(max))
+		if innerFn == "max_over_time" {
+			return true
+		}
+	case "min":
+		// min(by(min)) = by(min(min))
+		if innerFn == "min_over_time" {
+			return true
+		}
+	}
+	return false
 }
