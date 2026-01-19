@@ -201,6 +201,7 @@ func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 
 	return &promLabelsParams{
 		start: parserTimeString(r.URL.Query().Get("start"), time.Now().Add(time.Hour*-6)),
-		end:   parserTimeString(r.URL.Query().Get("end"), time.Now().Add(time.Hour*-6)),
+		end:   parserTimeString(r.URL.Query().Get("end"), time.Now()),
+		match: r.URL.Query()["match[]"],
 	}, nil
 }
