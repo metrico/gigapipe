@@ -29,6 +29,126 @@
 * Setup & Deploy **gigapipe** _opensource_ using the [documentation](https://gigapipe.com/docs/oss) and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
 * Looking for a quick test before installing? Signup for a free trial at [gigapipe.com](https://gigapipe.com)
 
+## 🐳 Docker
+
+Run **gigapipe** using Docker containers with multi-architecture support for `linux/amd64` and `linux/arm64`.
+
+### Container Image
+
+Pull the latest image from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/metrico/gigapipe:latest
+```
+
+### Basic Usage
+
+Run gigapipe with default settings:
+
+```bash
+docker run -p 3100:3100 ghcr.io/metrico/gigapipe:latest
+```
+
+The container exposes port **3100** for HTTP traffic.
+
+### Configuration
+
+Configure gigapipe using environment variables. Below are the available options organized by category:
+
+#### Database Configuration
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `CLICKHOUSE_DB` | Database name | `cloki` |
+| `CLICKHOUSE_SERVER` | ClickHouse server address | `localhost` |
+| `CLICKHOUSE_PORT` | ClickHouse port | `9000` |
+| `CLICKHOUSE_AUTH` | Authentication in format `username:password` | - |
+| `CLICKHOUSE_PROTO` | Protocol (`http`, `https`, or `tls`) | - |
+| `SELF_SIGNED_CERT` | Allow self-signed certificates (`true`/`false`) | `false` |
+| `ADVANCED_SAMPLES_ORDERING` | Samples ordering strategy | - |
+| `SAMPLES_DAYS` | TTL for samples in days | `7` |
+| `STORAGE_POLICY` | ClickHouse storage policy | - |
+| `OMIT_CREATE_TABLES` | Skip table creation (`true`/`false`) | `false` |
+
+#### HTTP Server
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `PORT` | HTTP port | `3100` |
+| `HOST` | HTTP host | `0.0.0.0` |
+| `CORS_ALLOW_ORIGIN` | CORS origin for cross-origin requests | - |
+
+#### Authentication
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `QRYN_LOGIN` / `CLOKI_LOGIN` | Basic auth username | - |
+| `QRYN_PASSWORD` / `CLOKI_PASSWORD` | Basic auth password | - |
+
+#### System Settings
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `MODE` | Operation mode (`all`, `reader`, `writer`, `init_only`) | `all` |
+| `READONLY` | Set to `true` for read-only mode | `false` |
+| `ADVANCED_PROMETHEUS_MAX_SAMPLES` | Max samples for Prometheus queries | - |
+| `BULK_MAX_SIZE_BYTES` | Maximum bulk size in bytes | - |
+| `BULK_MAX_AGE_MS` | Maximum bulk age in milliseconds | `100` |
+| `ADVANCED_OMIT_EMPTY_VALUES` | Omit empty values in queries (`true`/`false`) | `false` |
+
+#### Log Drilldown
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `LOG_DRILLDOWN` | Enable log drilldown feature (`true`/`false`) | `false` |
+| `LOG_PATTERN_SIMILARITY` | Pattern similarity threshold (0-1) | `0.7` |
+| `LOG_PATTERN_READ_LIMIT` | Number of patterns to read | `300` |
+
+#### Compatibility
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `COMPAT_4_0_19` | Enable Loki 4.0.19 compatibility (`true`/`false`) | `false` |
+
+#### Logging
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `LOG_LEVEL` | Log level | - |
+
+#### Pyroscope Profiling
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `PYROSCOPE_SERVER_ADDRESS` | Pyroscope server address | - |
+| `PYROSCOPE_APPLICATION_NAME` | Application name for profiling | `gigapipe` |
+
+### Example: ClickHouse Backend
+
+Run gigapipe with a ClickHouse backend:
+
+```bash
+docker run -p 3100:3100 \
+  -e CLICKHOUSE_SERVER=clickhouse.example.com \
+  -e CLICKHOUSE_PORT=9000 \
+  -e CLICKHOUSE_DB=observability \
+  -e CLICKHOUSE_AUTH=user:password \
+  ghcr.io/metrico/gigapipe:latest
+```
+
+### Example: With Authentication
+
+Run gigapipe with basic authentication:
+
+```bash
+docker run -p 3100:3100 \
+  -e QRYN_LOGIN=admin \
+  -e QRYN_PASSWORD=secret \
+  -e CLICKHOUSE_SERVER=clickhouse.example.com \
+  -e CLICKHOUSE_AUTH=user:password \
+  ghcr.io/metrico/gigapipe:latest
+```
+
 ## Features
 💡 _**gigapipe** independently implements popular observability standards, protocols and query languages_
 
