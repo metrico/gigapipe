@@ -29,6 +29,92 @@
 * Setup & Deploy **gigapipe** _opensource_ using the [documentation](https://gigapipe.com/docs/oss) and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
 * Looking for a quick test before installing? Signup for a free trial at [gigapipe.com](https://gigapipe.com)
 
+## 🐳 Docker
+
+Run gigapipe using Docker containers with the official image from GitHub Container Registry.
+
+### Quick Start
+
+```bash
+docker run -p 3100:3100 ghcr.io/metrico/gigapipe:latest
+```
+
+### With ClickHouse Backend
+
+```bash
+docker run -p 3100:3100 \
+  -e CLICKHOUSE_SERVER=clickhouse.example.com \
+  -e CLICKHOUSE_PORT=9000 \
+  -e CLICKHOUSE_DB=observability \
+  -e CLICKHOUSE_AUTH=username:password \
+  ghcr.io/metrico/gigapipe:latest
+```
+
+### With Authentication
+
+```bash
+docker run -p 3100:3100 \
+  -e QRYN_LOGIN=admin \
+  -e QRYN_PASSWORD=secret \
+  ghcr.io/metrico/gigapipe:latest
+```
+
+### Environment Variables
+
+Configure gigapipe using environment variables:
+
+#### Database Configuration
+
+- `CLICKHOUSE_DB`: Database name (default: `cloki`)
+- `CLICKHOUSE_SERVER`: ClickHouse server address (default: `localhost`)
+- `CLICKHOUSE_PORT`: ClickHouse port (default: `9000`)
+- `CLICKHOUSE_AUTH`: Authentication in format `username:password`
+- `CLICKHOUSE_PROTO`: Protocol (`http`, `https`, or `tls`)
+- `SELF_SIGNED_CERT`: Allow self-signed certificates (`true` or `false`)
+- `ADVANCED_SAMPLES_ORDERING`: Samples ordering strategy
+- `SAMPLES_DAYS`: TTL for samples in days (default: `7`)
+- `STORAGE_POLICY`: ClickHouse storage policy
+- `OMIT_CREATE_TABLES`: Skip table creation (`true` or `false`)
+
+#### HTTP Server
+
+- `PORT`: HTTP port (default: `3100`)
+- `HOST`: HTTP host (default: `0.0.0.0`)
+- `CORS_ALLOW_ORIGIN`: CORS origin for cross-origin requests
+
+#### Authentication
+
+- `QRYN_LOGIN` / `CLOKI_LOGIN`: Basic auth username
+- `QRYN_PASSWORD` / `CLOKI_PASSWORD`: Basic auth password
+
+#### System Settings
+
+- `MODE`: Operation mode (`all`, `reader`, `writer`, or `init_only`)
+- `READONLY`: Set to `true` for read-only mode
+- `ADVANCED_PROMETHEUS_MAX_SAMPLES`: Max samples for Prometheus queries
+- `BULK_MAX_SIZE_BYTES`: Maximum bulk size in bytes
+- `BULK_MAX_AGE_MS`: Maximum bulk age in milliseconds (default: `100`)
+- `ADVANCED_OMIT_EMPTY_VALUES`: Omit empty values in queries (`true` or `false`)
+
+#### Log Drilldown
+
+- `LOG_DRILLDOWN`: Enable log drilldown feature (`true` or `false`)
+- `LOG_PATTERN_SIMILARITY`: Pattern similarity threshold (0-1, default: `0.7`)
+- `LOG_PATTERN_READ_LIMIT`: Number of patterns to read (default: `300`)
+
+#### Compatibility
+
+- `COMPAT_4_0_19`: Enable Loki 4.0.19 compatibility (`true` or `false`)
+
+#### Logging
+
+- `LOG_LEVEL`: Log level
+
+#### Pyroscope Profiling
+
+- `PYROSCOPE_SERVER_ADDRESS`: Pyroscope server address
+- `PYROSCOPE_APPLICATION_NAME`: Application name for profiling (default: `gigapipe`)
+
 ## Features
 💡 _**gigapipe** independently implements popular observability standards, protocols and query languages_
 
