@@ -28,6 +28,7 @@
 
 * Setup & Deploy **gigapipe** _opensource_ using the [documentation](https://gigapipe.com/docs/oss) and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
 * Looking for a quick test before installing? Signup for a free trial at [gigapipe.com](https://gigapipe.com)
+* Looking for documentation? Ask the [Gigapipe Deepwiki](https://deepwiki.com/metrico/gigapipe)
 
 ## Features
 💡 _**gigapipe** independently implements popular observability standards, protocols and query languages_
