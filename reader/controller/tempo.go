@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/metrico/qryn/v4/reader/utils/unmarshal"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	resource "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -108,6 +110,8 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 			PromError(500, err.Error(), w)
 			return
 		}
+		w.Header().Set("Content-Type", "application/protobuf")
+		w.WriteHeader(200)
 		w.Write(bTraceData)
 	default:
 		w.Header().Set("Content-Type", "application/json")
@@ -379,7 +383,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 	for trace := range resChan {
 		bTrace, err := json.Marshal(trace)
 		if err != nil {
-			fmt.Println(err)
+			logger.Error("failed to marshal trace: ", err.Error())
 			continue
 		}
 		if i != 0 {
@@ -404,6 +408,7 @@ type traceSearchParams struct {
 func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	var err error
 	res := traceSearchParams{}
+	// Tempo parser handles all TraceQL features natively, no normalization needed
 	res.Q = r.URL.Query().Get("q")
 	res.Tags = r.URL.Query().Get("tags")
 	res.MinDuration, err = time.ParseDuration(orDefault(r.URL.Query().Get("minDuration"), "0"))
@@ -442,4 +447,241 @@ func orDefault(str string, def string) string {
 		return def
 	}
 	return str
+}
+
+
+// parseStepDuration parses step parameter which can be either:
+// - plain integer (seconds): "60"
+// - duration string: "28s", "1m", "5m30s"
+func parseStepDuration(s string) (time.Duration, error) {
+	// First try parsing as plain integer (seconds)
+	if seconds, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return time.Duration(seconds) * time.Second, nil
+	}
+	// Try parsing as Go duration string (e.g., "28s", "1m", "5m30s")
+	return time.ParseDuration(s)
+}
+
+// MetricsQueryRange handles GET /api/metrics/query_range
+func (t *TempoController) MetricsQueryRange(w http.ResponseWriter, r *http.Request) {
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	// Tempo API uses "q" parameter, Prometheus uses "query"
+	// Note: Tempo parser handles {true && true} natively, no normalization needed
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = r.URL.Query().Get("query")
+	}
+	if query == "" {
+		PromError(400, "q parameter is required", w)
+		return
+	}
+
+	startS, err := strconv.ParseInt(orDefault(r.URL.Query().Get("start"), "0"), 10, 64)
+	if err != nil {
+		PromError(400, fmt.Sprintf("invalid start: %v", err), w)
+		return
+	}
+	endS, err := strconv.ParseInt(orDefault(r.URL.Query().Get("end"), "0"), 10, 64)
+	if err != nil {
+		PromError(400, fmt.Sprintf("invalid end: %v", err), w)
+		return
+	}
+	step, err := parseStepDuration(orDefault(r.URL.Query().Get("step"), "60"))
+	if err != nil {
+		PromError(400, fmt.Sprintf("invalid step: %v", err), w)
+		return
+	}
+
+	start := time.Unix(startS, 0)
+	end := time.Unix(endS, 0)
+	if startS == 0 {
+		start = time.Now().Add(-time.Hour)
+	}
+	if endS == 0 {
+		end = time.Now()
+	}
+
+	result, err := t.Service.MetricsQueryRange(internalCtx, query, start, end, step)
+	if err != nil {
+		errStr := err.Error()
+		// Handle context cancellation (client disconnected)
+		if strings.Contains(errStr, "context canceled") || strings.Contains(errStr, "context deadline exceeded") {
+			// 499 Client Closed Request (nginx convention)
+			w.WriteHeader(499)
+			return
+		}
+		// Return 400 for parse errors and unsupported operations
+		if strings.Contains(errStr, "not supported") ||
+			strings.Contains(errStr, "parse error") ||
+			strings.Contains(errStr, "unsupported") ||
+			strings.Contains(errStr, "not a metrics query") {
+			PromError(400, errStr, w)
+		} else {
+			PromError(500, errStr, w)
+		}
+		return
+	}
+
+	// Format response in Tempo native format (for Grafana Tempo datasource)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	response := formatTempoRangeResponse(result)
+	json.NewEncoder(w).Encode(response)
+}
+
+// MetricsQuery handles GET /api/metrics/query (instant query)
+func (t *TempoController) MetricsQuery(w http.ResponseWriter, r *http.Request) {
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	// Tempo API uses "q" parameter, Prometheus uses "query"
+	// Note: Tempo parser handles {true && true} natively, no normalization needed
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = r.URL.Query().Get("query")
+	}
+	if query == "" {
+		PromError(400, "q parameter is required", w)
+		return
+	}
+
+	timeS, err := strconv.ParseInt(orDefault(r.URL.Query().Get("time"), "0"), 10, 64)
+	if err != nil {
+		PromError(400, fmt.Sprintf("invalid time: %v", err), w)
+		return
+	}
+
+	ts := time.Unix(timeS, 0)
+	if timeS == 0 {
+		ts = time.Now()
+	}
+
+	result, err := t.Service.MetricsQueryInstant(internalCtx, query, ts)
+	if err != nil {
+		errStr := err.Error()
+		// Handle context cancellation (client disconnected)
+		if strings.Contains(errStr, "context canceled") || strings.Contains(errStr, "context deadline exceeded") {
+			// 499 Client Closed Request (nginx convention)
+			w.WriteHeader(499)
+			return
+		}
+		// Return 400 for parse errors and unsupported operations
+		if strings.Contains(errStr, "not supported") ||
+			strings.Contains(errStr, "parse error") ||
+			strings.Contains(errStr, "unsupported") ||
+			strings.Contains(errStr, "not a metrics query") {
+			PromError(400, errStr, w)
+		} else {
+			PromError(500, errStr, w)
+		}
+		return
+	}
+
+	// Format response in Tempo native format (for Grafana Tempo datasource)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	response := formatTempoInstantResponse(result)
+	json.NewEncoder(w).Encode(response)
+}
+
+// Tempo native response format (for Grafana Tempo datasource)
+// Matches tempopb.QueryRangeResponse protobuf
+type tempoQueryRangeResponse struct {
+	Series  []tempoTimeSeries `json:"series"`
+	Metrics *tempoMetrics     `json:"metrics,omitempty"`
+	Status  int               `json:"status"` // 0=COMPLETE, 1=PARTIAL
+	Message string            `json:"message,omitempty"`
+}
+
+type tempoMetrics struct {
+	InspectedTraces uint32 `json:"inspectedTraces,omitempty"`
+	InspectedBytes  uint64 `json:"inspectedBytes,omitempty"`
+	InspectedSpans  uint64 `json:"inspectedSpans,omitempty"`
+}
+
+type tempoTimeSeries struct {
+	Labels  []tempoKeyValue `json:"labels"`
+	Samples []tempoSample   `json:"samples"`
+}
+
+// tempoKeyValue matches OTEL KeyValue with AnyValue
+type tempoKeyValue struct {
+	Key   string        `json:"key"`
+	Value tempoAnyValue `json:"value"`
+}
+
+type tempoAnyValue struct {
+	StringValue string `json:"stringValue,omitempty"`
+}
+
+type tempoSample struct {
+	TimestampMs int64   `json:"timestampMs,string"` // proto int64 serializes as string
+	Value       float64 `json:"value"`
+}
+
+func formatTempoRangeResponse(result *model.MetricsQueryRangeResult) tempoQueryRangeResponse {
+	series := make([]tempoTimeSeries, len(result.Series))
+
+	for i, s := range result.Series {
+		samples := make([]tempoSample, len(s.Values))
+		for j, v := range s.Values {
+			samples[j] = tempoSample{
+				TimestampMs: s.Times[j],
+				Value:       v,
+			}
+		}
+		series[i] = tempoTimeSeries{
+			Labels:  mapToKeyValues(s.Labels),
+			Samples: samples,
+		}
+	}
+
+	return tempoQueryRangeResponse{
+		Series: series,
+		Status: 0, // COMPLETE
+	}
+}
+
+func mapToKeyValues(m map[string]string) []tempoKeyValue {
+	labels := make([]tempoKeyValue, 0, len(m))
+	for k, v := range m {
+		labels = append(labels, tempoKeyValue{
+			Key:   k,
+			Value: tempoAnyValue{StringValue: v},
+		})
+	}
+	return labels
+}
+
+func formatTempoInstantResponse(result *model.MetricsQueryResult) tempoQueryRangeResponse {
+	series := make([]tempoTimeSeries, len(result.Series))
+
+	for i, s := range result.Series {
+		samples := make([]tempoSample, 0, len(s.Values))
+		for j, v := range s.Values {
+			samples = append(samples, tempoSample{
+				TimestampMs: s.Times[j],
+				Value:       v,
+			})
+		}
+		series[i] = tempoTimeSeries{
+			Labels:  mapToKeyValues(s.Labels),
+			Samples: samples,
+		}
+	}
+
+	return tempoQueryRangeResponse{
+		Series: series,
+		Status: 0, // COMPLETE
+	}
 }

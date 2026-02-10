@@ -28,4 +28,10 @@ func RouteTempo(app *mux.Router, dataSession model.IDBRegistry) {
 	app.HandleFunc("/api/v2/search/tags", ctrl.TagsV2).Methods("GET", "OPTIONS")
 	app.HandleFunc("/tempo/api/search", ctrl.Search).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/search", ctrl.Search).Methods("GET", "OPTIONS")
+
+	// TraceQL Metrics API
+	app.HandleFunc("/tempo/api/metrics/query", ctrl.MetricsQuery).Methods("GET", "OPTIONS")
+	app.HandleFunc("/api/metrics/query", ctrl.MetricsQuery).Methods("GET", "OPTIONS")
+	app.HandleFunc("/tempo/api/metrics/query_range", ctrl.MetricsQueryRange).Methods("GET", "OPTIONS")
+	app.HandleFunc("/api/metrics/query_range", ctrl.MetricsQueryRange).Methods("GET", "OPTIONS")
 }

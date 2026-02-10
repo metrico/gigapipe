@@ -12,9 +12,10 @@ import (
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
 	"github.com/metrico/qryn/v4/reader/tempo"
-	traceql_parser "github.com/metrico/qryn/v4/reader/traceql/traceql_parser"
-	traceql_transpiler "github.com/metrico/qryn/v4/reader/traceql/traceql_transpiler"
+	tempoParser "github.com/metrico/qryn/v4/reader/traceql/tempo"
+	traceql_transpiler_v2 "github.com/metrico/qryn/v4/reader/traceql/traceql_transpiler_v2"
 	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
 	sqlselect "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
 	"github.com/valyala/fastjson"
@@ -112,7 +113,7 @@ func (t *TempoService) OutputQuery(binIds bool, rows *sql.Rows) (chan *model.Spa
 			err := rows.Scan(&zipkin.traceId, &zipkin.spanId, &zipkin.parentId,
 				&zipkin.startTimeNs, &zipkin.durationNs, &zipkin.payloadType, &zipkin.payload)
 			if err != nil {
-				fmt.Println(err)
+				logger.Error("error: ", err.Error())
 				return
 			}
 			var (
@@ -126,7 +127,7 @@ func (t *TempoService) OutputQuery(binIds bool, rows *sql.Rows) (chan *model.Spa
 				span, serviceName, err = parseOTLP(&zipkin)
 			}
 			if err != nil {
-				fmt.Println(err)
+				logger.Error("error: ", err.Error())
 				return
 			}
 			res <- &model.SpanResponse{
@@ -203,9 +204,11 @@ func (t *TempoService) TagsV2(ctx context.Context, query string, from time.Time,
 	if err != nil {
 		return nil, err
 	}
-	var oScript *traceql_parser.TraceQLScript
+
+	// Parse query using Tempo parser if provided
+	var ast *tempoParser.RootExpr
 	if query != "" {
-		oScript, err = traceql_parser.Parse(query)
+		ast, err = tempoParser.Parse(query)
 		if err != nil {
 			return nil, err
 		}
@@ -222,7 +225,7 @@ func (t *TempoService) TagsV2(ctx context.Context, query string, from time.Time,
 
 	tables.PopulateTableNames(&planCtx, conn)
 
-	planner, err := traceql_transpiler.PlanTagsV2(oScript)
+	planner, err := traceql_transpiler_v2.PlanTagsV2(ast)
 	if err != nil {
 		return nil, err
 	}
@@ -251,9 +254,11 @@ func (t *TempoService) ValuesV2(ctx context.Context, key string, query string, f
 	if err != nil {
 		return nil, err
 	}
-	var oScript *traceql_parser.TraceQLScript
+
+	// Parse query using Tempo parser if provided
+	var ast *tempoParser.RootExpr
 	if query != "" {
-		oScript, err = traceql_parser.Parse(query)
+		ast, err = tempoParser.Parse(query)
 		if err != nil {
 			return nil, err
 		}
@@ -270,7 +275,7 @@ func (t *TempoService) ValuesV2(ctx context.Context, key string, query string, f
 
 	tables.PopulateTableNames(&planCtx, conn)
 
-	planner, err := traceql_transpiler.PlanValuesV2(oScript, key)
+	planner, err := traceql_transpiler_v2.PlanValuesV2(ast, key)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +393,7 @@ func (t *TempoService) Search(ctx context.Context,
 				&row.StartTimeUnixNano,
 				&row.DurationMs)
 			if err != nil {
-				fmt.Println(err)
+				logger.Error("error: ", err.Error())
 				return
 			}
 			res <- &row
@@ -426,27 +431,7 @@ func parseZipkinJSON(payload *zipkinPayload, parser *fastjson.Parser, _ bool) (*
 		kind = v1.Span_SPAN_KIND_CONSUMER
 	}
 	traceId := payload.traceId
-	/*if binIds {
-		_traceId := make([]byte, 32)
-		_, err := hex.Decode(_traceId, traceId)
-		if err != nil {
-			fmt.Println(traceId)
-			fmt.Println(err)
-			return nil, "", err
-		}
-		traceId = _traceId
-	}*/
 	id := payload.spanId
-	/*if binIds {
-		_id := make([]byte, 16)
-		_, err := hex.Decode(_id, id)
-		if err != nil {
-			fmt.Println(id)
-			fmt.Println(err)
-			return nil, "", err
-		}
-		id = _id
-	}*/
 	span := v1.Span{
 		TraceId:                []byte(traceId[:16]),
 		SpanId:                 []byte(id[:8]),

@@ -82,6 +82,17 @@ func (d *OTLPDecoder) Decode() error {
 				attrsMap := map[string]string{}
 				populateServiceNames(span)
 				d.initAttributesMap(span.Attributes, "", &attrsMap)
+				// Expose OTLP span status as "status" attribute so TraceQL status=error works.
+				if _, has := attrsMap["status"]; !has && span.Status != nil {
+					switch span.Status.Code {
+					case tracev1.Status_STATUS_CODE_OK:
+						attrsMap["status"] = "ok"
+					case tracev1.Status_STATUS_CODE_ERROR:
+						attrsMap["status"] = "error"
+					default:
+						attrsMap["status"] = "unset"
+					}
+				}
 				payload, err := proto.Marshal(span)
 				if err != nil {
 					return errors.NewUnmarshalError(err)

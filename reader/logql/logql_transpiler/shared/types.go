@@ -80,6 +80,19 @@ type PlannerContext struct {
 	RandomFilter   RandomFilter
 	CachedTraceIds []string
 	VersionInfo    dbversion.VersionInfo
+
+	// NestedSetParentFilter stores the nestedSetParent filter condition
+	// to be applied at the final query stage (on tempo_traces table)
+	// Values: "root" for parent_id='', "non-root" for parent_id!=''
+	NestedSetParentFilter string
+
+	// SelectAttributes contains the list of attribute keys to return in the response
+	// when select() operator is used (e.g., select(resource.service.name, span.http.method))
+	SelectAttributes []string
+
+	// MostRecent indicates if with(most_recent=true) hint is set
+	// When true, only the most recent spans should be returned
+	MostRecent bool
 }
 
 func (p *PlannerContext) Id() int {

@@ -16,6 +16,26 @@ type ITempoService interface {
 		limit int, fromNS int64, toNS int64) (chan *TraceResponse, error)
 	SearchTraceQL(ctx context.Context, q string, limit int, from time.Time, to time.Time) (chan []TraceInfo, error)
 	TagsV2(ctx context.Context, query string, from time.Time, to time.Time, limit int) (chan string, error)
+	// Metrics API
+	MetricsQueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (*MetricsQueryRangeResult, error)
+	MetricsQueryInstant(ctx context.Context, query string, ts time.Time) (*MetricsQueryResult, error)
+}
+
+// MetricsQueryRangeResult is the result of a metrics range query.
+type MetricsQueryRangeResult struct {
+	Series []MetricsSeries
+}
+
+// MetricsQueryResult is the result of a metrics instant query.
+type MetricsQueryResult struct {
+	Series []MetricsSeries
+}
+
+// MetricsSeries represents a single time series.
+type MetricsSeries struct {
+	Labels map[string]string
+	Values []float64
+	Times  []int64 // Unix timestamps in milliseconds
 }
 
 type IQueryLabelsService interface {
