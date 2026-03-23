@@ -8,7 +8,6 @@ import (
 
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/writer/chwrapper"
 	config2 "github.com/metrico/qryn/v4/writer/config"
 	"github.com/metrico/qryn/v4/writer/model"
@@ -76,10 +75,9 @@ func healthCheck(conn chwrapper.IChClient, isDistributed bool) {
 		"time_series", "samples_v3", "settings",
 		"tempo_traces", "tempo_traces_attrs_gin",
 	}
-	suffix := distconfig.Suffix()
 	distTablesToCheck := []string{
-		"samples_v3" + suffix, "time_series" + suffix,
-		"tempo_traces" + suffix, "tempo_traces_attrs_gin" + suffix,
+		"samples_v3_dist", "time_series_dist",
+		"tempo_traces_dist", "tempo_traces_attrs_gin_dist",
 	}
 	checkTable := func(table string) error {
 		query := fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", table)
@@ -223,7 +221,7 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 
 		table := "qryn_fingerprints"
 		if node.ClusterName != "" {
-			table += distconfig.Suffix()
+			table += "_dist"
 		}
 	}
 

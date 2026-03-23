@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
@@ -53,7 +52,7 @@ func NewTimeSeriesInsertService(opts model.InsertServiceOpts) service.IInsertSer
 	}
 	table := "time_series"
 	if opts.Node.ClusterName != "" {
-		table += distconfig.Suffix()
+		table += "_dist"
 	}
 	insertReq := fmt.Sprintf("INSERT INTO %s (type, date, fingerprint, labels, metadata)",
 		table)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/service"
 )
@@ -73,7 +72,7 @@ func NewPatternInsertService(opts model.InsertServiceOpts) service.IInsertServic
 	}
 	tableName := "patterns"
 	if opts.Node.ClusterName != "" {
-		tableName += distconfig.Suffix()
+		tableName += "_dist"
 	}
 	insertReq := fmt.Sprintf("INSERT INTO %s (timestamp_10m, fingerprint, timestamp_s, tokens, classes, overall_cost, generalized_cost, samples_count, pattern_id, iteration_id)",
 		tableName)
