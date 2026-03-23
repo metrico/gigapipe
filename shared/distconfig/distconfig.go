@@ -13,7 +13,7 @@ var (
 // Init sets the distributed table suffix. Call once at startup.
 func Init() {
 	once.Do(func() {
-		if v := os.Getenv("CLICKHOUSE_DIST_SUFFIX"); v != "" {
+		if v := os.Getenv("CLICKHOUSE_READ_DIST_SUFFIX"); v != "" {
 			distSuffix = v
 		} else {
 			distSuffix = "_dist"

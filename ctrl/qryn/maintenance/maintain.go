@@ -29,7 +29,7 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 		return fmt.Errorf("ttl_days should be set for node#%s", dbObject.Node)
 	}
 	readCluster := os.Getenv("CLICKHOUSE_READ_CLUSTER")
-	readSuffix := os.Getenv("CLICKHOUSE_DIST_SUFFIX")
+	readSuffix := os.Getenv("CLICKHOUSE_READ_DIST_SUFFIX")
 	if readSuffix == "" {
 		readSuffix = "_dist"
 	}
