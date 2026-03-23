@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
@@ -55,7 +56,7 @@ func NewSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServic
 	}
 	table := "samples_v3"
 	if opts.Node.ClusterName != "" {
-		table += "_dist"
+		table += distconfig.Suffix()
 	}
 	insertReq := fmt.Sprintf("INSERT INTO %s (type,fingerprint, timestamp_ns, string, value)",
 		table)

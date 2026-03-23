@@ -162,6 +162,8 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLC
 			return a.getTermDuration(t)
 		case "name":
 			key = "name"
+		case "status":
+			key = "otel.status_code"
 		default:
 			return nil, fmt.Errorf("unsupported attribute %s", key)
 		}

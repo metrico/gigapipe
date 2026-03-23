@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/writer/chwrapper"
 	config "github.com/metrico/qryn/v4/writer/config"
 	"github.com/metrico/qryn/v4/writer/model"
@@ -103,7 +104,7 @@ func Init(opts InitOpts) {
 	isCluster = opts.IsCluster
 	patternsTable = "patterns"
 	if isCluster {
-		patternsTable = "patterns_dist"
+		patternsTable = "patterns" + distconfig.Suffix()
 	}
 	done = make(chan struct{})
 	err := syncPatterns(time.Minute * 5)

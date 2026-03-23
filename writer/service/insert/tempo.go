@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/writer/model"
 	"github.com/metrico/qryn/v4/writer/plugins"
 	"github.com/metrico/qryn/v4/writer/service"
@@ -85,7 +86,7 @@ func NewTempoSamplesInsertService(opts model.InsertServiceOpts) service.IInsertS
 	}
 	tableName := "tempo_traces"
 	if opts.Node.ClusterName != "" {
-		tableName += "_dist"
+		tableName += distconfig.Suffix()
 	}
 	insertRequest := fmt.Sprintf("INSERT INTO %s "+
 		"(trace_id ,span_id, parent_id, name, timestamp_ns, "+
@@ -184,7 +185,7 @@ func NewTempoTagsInsertService(opts model.InsertServiceOpts) service.IInsertServ
 	}
 	tableName := "tempo_traces_attrs_gin"
 	if opts.Node.ClusterName != "" {
-		tableName += "_dist"
+		tableName += distconfig.Suffix()
 	}
 	insertRequest := fmt.Sprintf("INSERT INTO %s (date, key, val, trace_id, span_id, timestamp_ns, duration)",
 		tableName)

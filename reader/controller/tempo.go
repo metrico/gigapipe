@@ -251,6 +251,9 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 		timespan[i] = time.Unix(iT, 0)
 	}
 	tag := mux.Vars(r)["tag"]
+	if tag == "status" {
+		tag = "otel.status_code"
+	}
 
 	limit := 2000
 	if r.URL.Query().Get("limit") != "" {
@@ -302,6 +305,9 @@ func (t *TempoController) Values(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tag := mux.Vars(r)["tag"]
+	if tag == "status" {
+		tag = "otel.status_code"
+	}
 	cRes, err := t.Service.Values(internalCtx, tag)
 	if err != nil {
 		PromError(500, err.Error(), w)

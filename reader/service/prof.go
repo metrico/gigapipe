@@ -13,6 +13,7 @@ import (
 	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -325,8 +326,8 @@ func (ps *ProfService) ProfileStats(ctx context.Context) (*v1.GetProfileStatsRes
 	profilesTableName := tables.GetTableName("profiles")
 	profilesSeriesTableName := tables.GetTableName("profiles_series")
 	if db.Config.ClusterName != "" {
-		profilesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, profilesTableName)
-		profilesSeriesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, profilesSeriesTableName)
+		profilesTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, profilesTableName, distconfig.Suffix())
+		profilesSeriesTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, profilesSeriesTableName, distconfig.Suffix())
 	}
 
 	brackets := func(object sql.SQLObject) sql.SQLObject {

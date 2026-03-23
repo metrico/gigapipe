@@ -3,6 +3,7 @@ package maintenance
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -27,8 +28,13 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 	if dbObject.TTLDays == 0 {
 		return fmt.Errorf("ttl_days should be set for node#%s", dbObject.Node)
 	}
-	return Update(conn, dbObject.Name, dbObject.ClusterName, mode, dbObject.TTLDays,
-		dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
+	readCluster := os.Getenv("CLICKHOUSE_READ_CLUSTER")
+	readSuffix := os.Getenv("CLICKHOUSE_DIST_SUFFIX")
+	if readSuffix == "" {
+		readSuffix = "_dist"
+	}
+	return UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
+		dbObject.TTLDays, dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
 }
 
 func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
