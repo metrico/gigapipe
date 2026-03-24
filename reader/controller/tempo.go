@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -57,6 +58,9 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 	}
 	accept := r.Header.Get("Accept")
 	if accept == "" {
+		accept = "application/json"
+	}
+	if strings.HasSuffix(r.URL.Path, "/json") {
 		accept = "application/json"
 	}
 	res, err := t.Service.Query(internalCtx, start*1e9, end*1e9, []byte(traceId), accept == "application/protobuf")
