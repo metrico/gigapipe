@@ -18,7 +18,6 @@ func RouteTempo(app *mux.Router, dataSession model.IDBRegistry) {
 	app.HandleFunc("/tempo/api/traces/{traceId}", ctrl.Trace).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/traces/{traceId}", ctrl.Trace).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/traces/{traceId}/json", ctrl.Trace).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/v2/traces/{traceId}", ctrl.Trace).Methods("GET", "OPTIONS")
 	app.HandleFunc("/tempo/api/echo", ctrl.Echo).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/echo", ctrl.Echo).Methods("GET", "OPTIONS")
 	app.HandleFunc("/tempo/api/search/tags", ctrl.Tags).Methods("GET", "OPTIONS")
