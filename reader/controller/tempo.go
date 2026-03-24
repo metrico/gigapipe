@@ -110,12 +110,19 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(bTraceData)
 	default:
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"resourceSpans": [{ 
-			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]}, 
-			"instrumentationLibrarySpans": [{ "spans": [`))
-		i := 0
+		spans := make([]*model.SpanResponse, 0)
 		for span := range res {
+			spans = append(spans, span)
+		}
+		if len(spans) == 0 {
+			w.WriteHeader(404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"resourceSpans": [{
+			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]},
+			"instrumentationLibrarySpans": [{ "spans": [`))
+		for i, span := range spans {
 			res, err := json.Marshal(unmarshal.SpanToJSONSpan(span.Span))
 			if err != nil {
 				PromError(500, err.Error(), w)
@@ -125,7 +132,6 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(","))
 			}
 			w.Write(res)
-			i++
 		}
 		w.Write([]byte("]}]}]}"))
 	}
