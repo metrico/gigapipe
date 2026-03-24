@@ -116,8 +116,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(spans) == 0 {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(404)
-			w.Write([]byte(`{"message":"trace not found"}`))
+			w.Write([]byte(`{"resourceSpans":[]}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
