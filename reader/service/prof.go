@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -248,10 +251,11 @@ func (ps *ProfService) MergeProfiles(ctx context.Context, strScript string, strT
 
 	err = ps.queryCols(ctx, db, sel, func() error {
 		p.Reset()
+		data, err := decompressPayload(payload)
 		if err != nil {
 			return err
 		}
-		err = proto.Unmarshal(payload, &p)
+		err = proto.Unmarshal(data, &p)
 		if err != nil {
 			return err
 		}
@@ -582,6 +586,20 @@ func (ps *ProfService) queryCols(ctx context.Context, db *model.DataDatabasesMap
 		}
 	}
 	return nil
+}
+
+// decompressPayload checks if data is gzip-compressed and decompresses it.
+// Profile payloads may be stored as gzip-compressed protobuf in ClickHouse.
+func decompressPayload(data []byte) ([]byte, error) {
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+		return io.ReadAll(r)
+	}
+	return data, nil
 }
 
 func (ps *ProfService) detachTypeId(strQuery string) (string, string, error) {
