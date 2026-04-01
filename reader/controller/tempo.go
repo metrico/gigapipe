@@ -107,6 +107,10 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		for _, spans := range spansByServiceName {
 			resourceSpans = append(resourceSpans, spans)
 		}
+		if len(resourceSpans) == 0 {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
 		traceData := v1.TracesData{
 			ResourceSpans: resourceSpans,
 		}
@@ -122,8 +126,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 			spans = append(spans, span)
 		}
 		if len(spans) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"resourceSpans":[]}`))
+			http.Error(w, "Not found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
