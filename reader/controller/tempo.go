@@ -34,6 +34,9 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		PromError(400, "traceId is required", w)
 		return
 	}
+	if len(traceId) < 32 {
+		traceId = strings.Repeat("0", 32-len(traceId)) + traceId
+	}
 	strStart := r.URL.Query().Get("start")
 	if strStart == "" {
 		strStart = "0"
