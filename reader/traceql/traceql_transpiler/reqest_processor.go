@@ -45,7 +45,7 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 				durationsNs       []int64
 				timestampsNs      []int64
 				startTimeUnixNano int64
-				traceDurationMs   float64
+				traceDurationMs   int64
 				rootServiceName   string
 				rootTraceName     string
 			)

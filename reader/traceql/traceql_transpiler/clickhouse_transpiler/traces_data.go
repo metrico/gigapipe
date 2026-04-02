@@ -46,7 +46,7 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			Select(
 				sql.NewSimpleCol("traces.trace_id", "trace_id"),
 				sql.NewSimpleCol("min(traces.timestamp_ns)", "_start_time_unix_nano"),
-				sql.NewSimpleCol("toFloat64(max(traces.timestamp_ns + traces.duration_ns) - min(traces.timestamp_ns)) / 1000000", "_duration_ms"),
+				sql.NewSimpleCol("intDiv(max(traces.timestamp_ns + traces.duration_ns) - min(traces.timestamp_ns), 1000000)", "_duration_ms"),
 				sql.NewSimpleCol("argMin(traces.service_name, traces.timestamp_ns)", "_root_service_name"),
 				sql.NewSimpleCol("argMin(traces.name, traces.timestamp_ns)", "_root_trace_name")).
 			From(sql.NewSimpleCol(ctx.TracesTable, "traces")).
