@@ -2,6 +2,7 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +43,47 @@ func TestPlanner(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Println(res)
+}
+
+// TestTracesDataDurationMsSQL verifies that the generated SQL uses intDiv (integer
+// division) for _duration_ms rather than toFloat64, which would produce fractional
+// values that Grafana's Tempo datasource cannot unmarshal into uint32 (issue #782).
+func TestTracesDataDurationMsSQL(t *testing.T) {
+	script, err := traceql_parser.Parse(`{.service.name="test"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Plan(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := plan.Process(&shared.PlannerContext{
+		IsCluster:            false,
+		From:                 time.Now().Add(time.Hour * -1),
+		To:                   time.Now(),
+		Limit:                10,
+		TracesAttrsTable:     "tempo_traces_attrs_gin",
+		TracesAttrsDistTable: "tempo_traces_attrs_gin_dist",
+		TracesTable:          "tempo_traces",
+		TracesDistTable:      "tempo_traces_dist",
+		VersionInfo:          map[string]int64{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := req.String(&sql.Ctx{
+		Params: map[string]sql.SQLObject{},
+		Result: map[string]sql.SQLObject{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(query, "toFloat64") {
+		t.Errorf("generated SQL must not contain toFloat64 for _duration_ms; got:\n%s", query)
+	}
+	if !strings.Contains(query, "intDiv") {
+		t.Errorf("generated SQL must use intDiv for _duration_ms; got:\n%s", query)
+	}
 }
 
 func TestComplexPlanner(t *testing.T) {

@@ -38,7 +38,7 @@ type TraceInfo struct {
 	RootServiceName   string    `json:"rootServiceName"`
 	RootTraceName     string    `json:"rootTraceName"`
 	StartTimeUnixNano string    `json:"startTimeUnixNano"`
-	DurationMs        float64   `json:"durationMs"`
+	DurationMs        int64     `json:"durationMs"`
 	SpanSet           SpanSet   `json:"spanSet"`
 	SpanSets          []SpanSet `json:"spanSets"`
 }
