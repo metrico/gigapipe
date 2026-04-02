@@ -43,7 +43,7 @@ func (l *promMetricsProtoDec) Decode() error {
 			points++
 			if points >= flushLimit {
 				err := l.onEntries(oLblsBuf, tsns, msg, value,
-					fastFillArray[uint8](len(ts.GetSamples()), model.SAMPLE_TYPE_METRIC))
+					fastFillArray[uint8](len(tsns), model.SAMPLE_TYPE_METRIC))
 				if err != nil {
 					return err
 				}
