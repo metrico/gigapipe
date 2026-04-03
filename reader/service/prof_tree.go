@@ -1,7 +1,9 @@
 package service
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/metrico/qryn/v4/reader/prof"
 )
@@ -456,4 +458,128 @@ func findNode(nodeID uint64, children []*TreeNodeV2) int {
 		}
 	}
 	return -1
+}
+
+// ToDot converts the tree to Graphviz DOT format suitable for flamegraph visualization and AI analysis.
+// sampleType should be in "type:unit" form (e.g. "cpu:nanoseconds").
+// profileName is used as the graph title (e.g. "process_cpu:cpu:nanoseconds:cpu:nanoseconds").
+func (t *Tree) ToDot(sampleType string, profileName string) string {
+	sampleTypeIndex := -1
+	for i, st := range t.SampleTypes {
+		if st == sampleType {
+			sampleTypeIndex = i
+			break
+		}
+	}
+	if sampleTypeIndex == -1 {
+		return "digraph flamegraph {}\n"
+	}
+
+	total := t.Total()
+	var totalVal int64
+	if len(total) > sampleTypeIndex {
+		totalVal = total[sampleTypeIndex]
+	}
+
+	pct := func(v int64) float64 {
+		if totalVal == 0 {
+			return 0
+		}
+		return float64(v) / float64(totalVal) * 100
+	}
+	// weight is an integer 1–100 proportional to the child's share of total samples.
+	// Graphviz requires weight >= 1 and works best with small integers.
+	edgeWeight := func(v int64) int {
+		w := int(pct(v))
+		if w < 1 {
+			w = 1
+		}
+		return w
+	}
+
+	// Map raw NodeIDs to compact sequential integers so Graphviz node names stay small.
+	seqID := make(map[uint64]int)
+	nextID := 0
+	assignID := func(nodeID uint64) int {
+		if id, ok := seqID[nodeID]; ok {
+			return id
+		}
+		seqID[nodeID] = nextID
+		nextID++
+		return nextID - 1
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("digraph %q {\n", profileName))
+	sb.WriteString("  node [shape=box fontsize=12];\n")
+	sb.WriteString("  edge [fontsize=10];\n")
+	rootSeq := assignID(0)
+	sb.WriteString(fmt.Sprintf("  N%d [label=%q style=filled fillcolor=\"#eeeeee\"];\n",
+		rootSeq, fmt.Sprintf("total\nsamples: %d (100%%)", totalVal)))
+
+	visited := make(map[uint64]bool)
+	visited[0] = true
+	queue := []uint64{0}
+
+	for len(queue) > 0 {
+		parentID := queue[0]
+		queue = queue[1:]
+		parentSeq := seqID[parentID]
+
+		children, ok := t.Nodes[parentID]
+		if !ok {
+			continue
+		}
+
+		for _, child := range children {
+			if visited[child.NodeID] {
+				continue
+			}
+			visited[child.NodeID] = true
+			childSeq := assignID(child.NodeID)
+
+			name := "n/a"
+			if idx, exists := t.NamesMap[child.FnID]; exists && idx < len(t.Names) {
+				name = t.Names[idx]
+			}
+
+			selfVal := child.Self[sampleTypeIndex]
+			childTotal := child.Total[sampleTypeIndex]
+			label := fmt.Sprintf("%s\ntotal: %d (%.1f%%) self: %d (%.1f%%)",
+				name, childTotal, pct(childTotal), selfVal, pct(selfVal))
+
+			fillColor := heatColor(selfVal, totalVal)
+
+			sb.WriteString(fmt.Sprintf("  N%d [label=%q style=filled fillcolor=%q];\n",
+				childSeq, label, fillColor))
+			sb.WriteString(fmt.Sprintf("  N%d -> N%d [label=%q weight=%d];\n",
+				parentSeq, childSeq,
+				fmt.Sprintf("%.1f%%", pct(childTotal)),
+				edgeWeight(childTotal)))
+
+			queue = append(queue, child.NodeID)
+		}
+	}
+
+	sb.WriteString("}\n")
+	return sb.String()
+}
+
+// heatColor returns a hex fill color for a DOT node based on self-sample fraction.
+// 0% self → light gray, 100% self → red.
+func heatColor(self, total int64) string {
+	if total == 0 || self == 0 {
+		return "#f8f8f8"
+	}
+	ratio := float64(self) / float64(total)
+	if ratio > 1 {
+		ratio = 1
+	}
+	r := 248 - int(ratio*float64(248-255))
+	if r > 255 {
+		r = 255
+	}
+	g := int(248 - ratio*248)
+	b := int(248 - ratio*248)
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }

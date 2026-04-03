@@ -21,6 +21,6 @@ func RouteProf(app *mux.Router, dataSession model.IDBRegistry) {
 	app.HandleFunc(prof.QuerierService_GetProfileStats_FullMethodName, ctrl.ProfileStats).Methods("POST", "OPTIONS")
 	app.HandleFunc(prof.SettingsService_Get_FullMethodName, ctrl.Settings).Methods("POST", "OPTIONS")
 	app.HandleFunc(prof.QuerierService_AnalyzeQuery_FullMethodName, ctrl.AnalyzeQuery).Methods("POST", "OPTIONS")
-	// app.HandleFunc("/pyroscope/render", ctrl.NotImplemented).Methods("GET")
+	app.HandleFunc("/pyroscope/render", ctrl.Render).Methods("GET", "OPTIONS")
 	app.HandleFunc("/pyroscope/render-diff", ctrl.RenderDiff).Methods("GET", "OPTIONS")
 }

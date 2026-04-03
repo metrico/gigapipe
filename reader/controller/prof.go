@@ -204,6 +204,49 @@ func (pc *ProfController) Settings(w http.ResponseWriter, r *http.Request) {
 	pc.writeResponse(w, r, res)
 }
 
+func (pc *ProfController) Render(w http.ResponseWriter, r *http.Request) {
+	for _, param := range []string{"query", "from", "until"} {
+		if len(r.URL.Query()[param]) == 0 || r.URL.Query()[param][0] == "" {
+			defaultError(w, 400, fmt.Sprintf("Missing required parameter: %s", param))
+			return
+		}
+	}
+
+	query := r.URL.Query()["query"][0]
+	var from, to time.Time
+	for _, v := range [][2]any{{"from", &from}, {"until", &to}} {
+		strVal := r.URL.Query()[v[0].(string)][0]
+		iVal, err := strconv.ParseInt(strVal, 10, 64)
+		if err != nil {
+			defaultError(w, 400, fmt.Sprintf("Invalid value for %s: %s", html.EscapeString(v[0].(string)), html.EscapeString(strVal)))
+			return
+		}
+		*(v[1].(*time.Time)) = time.Unix(iVal, 0)
+	}
+
+	format := r.URL.Query().Get("format")
+
+	if format == "dot" {
+		dot, err := pc.ProfService.RenderDot(r.Context(), query, from, to)
+		if err != nil {
+			defaultError(w, 500, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/vnd.graphviz; charset=utf-8")
+		w.Write([]byte(dot))
+		return
+	}
+
+	fb, err := pc.ProfService.Render(r.Context(), query, from, to)
+	if err != nil {
+		defaultError(w, 500, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(fb.FlamebearerProfileV1)
+}
+
 func (pc *ProfController) RenderDiff(w http.ResponseWriter, r *http.Request) {
 	for _, param := range []string{"leftQuery", "leftFrom", "leftUntil", "rightQuery", "rightFrom", "rightUntil"} {
 		if len(r.URL.Query()[param]) == 0 || r.URL.Query()[param][0] == "" {
