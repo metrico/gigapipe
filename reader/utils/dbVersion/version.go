@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 type VersionInfo map[string]int64
@@ -45,7 +46,7 @@ func GetVersionInfo(ctx context.Context, dist bool, db model.ISqlxDB) (VersionIn
 	}
 	tableName := "settings"
 	if dist {
-		tableName += "_dist"
+		tableName += distconfig.Suffix()
 	}
 	_versions := map[string]int64{}
 	rows, err := db.QueryCtx(ctx, fmt.Sprintf(`SELECT argMax(name, inserted_at) as _name , argMax(value, inserted_at) as _value 

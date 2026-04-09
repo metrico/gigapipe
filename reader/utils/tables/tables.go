@@ -7,6 +7,7 @@ import (
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 var tableNames = func() map[string]string {
@@ -37,6 +38,21 @@ func init() {
 	tableNames["tempo_traces_attrs_gin"] = "tempo_traces_attrs_gin"
 	tableNames["tempo_traces_attrs_gin_dist"] = "tempo_traces_attrs_gin_dist"
 	tableNames["patterns"] = "patterns"
+}
+
+// InitDistTableNames re-registers dist table names using the configured suffix.
+// Must be called after distconfig.Init().
+func InitDistTableNames() {
+	lock.Lock()
+	defer lock.Unlock()
+	suffix := distconfig.Suffix()
+	tableNames["tempo_traces_dist"] = "tempo_traces" + suffix
+	tableNames["tempo_traces_kv_dist"] = "tempo_traces_kv" + suffix
+	tableNames["time_series_dist"] = "time_series" + suffix
+	tableNames["samples_kv_dist"] = "samples_kv" + suffix
+	tableNames["time_series_gin_dist"] = "time_series_gin" + suffix
+	tableNames["samples_v3_dist"] = "samples_v3" + suffix
+	tableNames["tempo_traces_attrs_gin_dist"] = "tempo_traces_attrs_gin" + suffix
 }
 
 func GetTableName(name string) string {
@@ -81,20 +97,21 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.TracesKVDistTable = GetTableName("tempo_traces_kv")
 
 	if db.Config.ClusterName != "" {
-		ctx.SamplesDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.SamplesTableName)
-		ctx.TimeSeriesDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TimeSeriesTableName)
-		ctx.TimeSeriesGinDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TimeSeriesGinTableName)
-		ctx.Metrics15sDistTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.Metrics15sTableName)
+		suffix := distconfig.Suffix()
+		ctx.SamplesDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.SamplesTableName, suffix)
+		ctx.TimeSeriesDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TimeSeriesTableName, suffix)
+		ctx.TimeSeriesGinDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TimeSeriesGinTableName, suffix)
+		ctx.Metrics15sDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.Metrics15sTableName, suffix)
 
-		ctx.ProfilesSeriesGinDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesSeriesGinTable)
-		ctx.ProfilesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesTable)
-		ctx.ProfilesSeriesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.ProfilesSeriesTable)
+		ctx.ProfilesSeriesGinDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.ProfilesSeriesGinTable, suffix)
+		ctx.ProfilesDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.ProfilesTable, suffix)
+		ctx.ProfilesSeriesDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.ProfilesSeriesTable, suffix)
 
-		ctx.PatternsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.PatternsTable)
+		ctx.PatternsDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.PatternsTable, suffix)
 
-		ctx.TracesAttrsDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesAttrsTable)
-		ctx.TracesDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesTable)
-		ctx.TracesKVDistTable = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, ctx.TracesKVTable)
+		ctx.TracesAttrsDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesAttrsTable, suffix)
+		ctx.TracesDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesTable, suffix)
+		ctx.TracesKVDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesKVTable, suffix)
 	}
 	return ctx
 }

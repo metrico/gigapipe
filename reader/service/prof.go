@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -247,10 +251,11 @@ func (ps *ProfService) MergeProfiles(ctx context.Context, strScript string, strT
 
 	err = ps.queryCols(ctx, db, sel, func() error {
 		p.Reset()
+		data, err := decompressPayload(payload)
 		if err != nil {
 			return err
 		}
-		err = proto.Unmarshal(payload, &p)
+		err = proto.Unmarshal(data, &p)
 		if err != nil {
 			return err
 		}
@@ -325,8 +330,8 @@ func (ps *ProfService) ProfileStats(ctx context.Context) (*v1.GetProfileStatsRes
 	profilesTableName := tables.GetTableName("profiles")
 	profilesSeriesTableName := tables.GetTableName("profiles_series")
 	if db.Config.ClusterName != "" {
-		profilesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, profilesTableName)
-		profilesSeriesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, profilesSeriesTableName)
+		profilesTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, profilesTableName, distconfig.Suffix())
+		profilesSeriesTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, profilesSeriesTableName, distconfig.Suffix())
 	}
 
 	brackets := func(object sql.SQLObject) sql.SQLObject {
@@ -650,6 +655,20 @@ func (ps *ProfService) queryCols(ctx context.Context, db *model.DataDatabasesMap
 		}
 	}
 	return nil
+}
+
+// decompressPayload checks if data is gzip-compressed and decompresses it.
+// Profile payloads may be stored as gzip-compressed protobuf in ClickHouse.
+func decompressPayload(data []byte) ([]byte, error) {
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+		return io.ReadAll(r)
+	}
+	return data, nil
 }
 
 func (ps *ProfService) detachTypeId(strQuery string) (string, string, error) {

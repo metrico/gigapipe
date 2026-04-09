@@ -3,6 +3,7 @@ package clickhouse_planner
 import (
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 type DetectLabelsPlanner struct {
@@ -13,7 +14,7 @@ type DetectLabelsPlanner struct {
 func (d *DetectLabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	from := ctx.TimeSeriesGinTableName
 	if ctx.IsCluster {
-		from += "_dist"
+		from += distconfig.Suffix()
 	}
 
 	req := sql.NewSelect().

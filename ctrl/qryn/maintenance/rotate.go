@@ -10,6 +10,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v4/ctrl/logger"
 	"github.com/metrico/qryn/v4/ctrl/qryn/helputils"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, error) {
@@ -18,7 +19,7 @@ func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, 
 	)
 	settings := "settings"
 	if dist {
-		settings += "_dist"
+		settings += distconfig.Suffix()
 	}
 	rows, err := db.Query(context.Background(),
 		fmt.Sprintf(`SELECT argMax(value, inserted_at) as _value FROM %s WHERE fingerprint = $1 

@@ -5,11 +5,12 @@ import (
 
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 func getTableName(ctx *model.DataDatabasesMap, name string) string {
 	if ctx.Config.ClusterName != "" {
-		return name + "_dist"
+		return name + distconfig.Suffix()
 	}
 	return name
 }

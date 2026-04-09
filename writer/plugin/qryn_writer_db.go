@@ -76,7 +76,7 @@ func healthCheck(conn chwrapper.IChClient, isDistributed bool) {
 		"tempo_traces", "tempo_traces_attrs_gin",
 	}
 	distTablesToCheck := []string{
-		"samples_v3_dist", " time_series_dist",
+		"samples_v3_dist", "time_series_dist",
 		"tempo_traces_dist", "tempo_traces_attrs_gin_dist",
 	}
 	checkTable := func(table string) error {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 type SQLIndexQuery struct {
@@ -25,7 +26,7 @@ type SQLIndexQuery struct {
 func (s *SQLIndexQuery) String(ctx *sql.Ctx, options ...int) (string, error) {
 	tableName := "`" + s.Database + "`.tempo_traces_attrs_gin"
 	if s.Distributed {
-		tableName += "_dist"
+		tableName += distconfig.Suffix()
 	}
 	var (
 		tags *Tags

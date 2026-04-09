@@ -224,6 +224,9 @@ func GetLocationKey(l *prof.Location) uint64 {
 }
 
 func hashLines(lines []*prof.Line) uint64 {
+	if len(lines) == 0 {
+		return 0
+	}
 	x := make([]uint64, len(lines))
 	for i, line := range lines {
 		x[i] = line.FunctionId | (uint64(line.Line) << 32)
@@ -274,6 +277,9 @@ func hashProfileLabels(labels []*prof.Label) uint64 {
 }
 
 func hashLocations(locations []uint64) uint64 {
+	if len(locations) == 0 {
+		return 0
+	}
 	// Convert []uint64 to []byte
 	u8Arr := unsafe.Slice((*byte)(unsafe.Pointer(&locations[0])), len(locations)*8)
 
