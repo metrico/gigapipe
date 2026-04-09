@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	v1 "github.com/metrico/qryn/v4/reader/prof/types/v1"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -247,10 +251,11 @@ func (ps *ProfService) MergeProfiles(ctx context.Context, strScript string, strT
 
 	err = ps.queryCols(ctx, db, sel, func() error {
 		p.Reset()
+		data, err := decompressPayload(payload)
 		if err != nil {
 			return err
 		}
-		err = proto.Unmarshal(payload, &p)
+		err = proto.Unmarshal(data, &p)
 		if err != nil {
 			return err
 		}
@@ -325,8 +330,8 @@ func (ps *ProfService) ProfileStats(ctx context.Context) (*v1.GetProfileStatsRes
 	profilesTableName := tables.GetTableName("profiles")
 	profilesSeriesTableName := tables.GetTableName("profiles_series")
 	if db.Config.ClusterName != "" {
-		profilesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, profilesTableName)
-		profilesSeriesTableName = fmt.Sprintf("`%s`.%s_dist", db.Config.Name, profilesSeriesTableName)
+		profilesTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, profilesTableName, distconfig.Suffix())
+		profilesSeriesTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, profilesSeriesTableName, distconfig.Suffix())
 	}
 
 	brackets := func(object sql.SQLObject) sql.SQLObject {
@@ -419,6 +424,75 @@ func (ps *ProfService) Settings(ctx context.Context) (*prof.GetSettingsResponse,
 			},
 		},
 	}, nil
+}
+
+func (ps *ProfService) Render(ctx context.Context, strQuery string, from, to time.Time) (*Flamebearer, error) {
+	db, err := ps.DataSession.GetDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	strTypeId, strScript, err := ps.detachTypeId(strQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	scripts, err := ps.parseScripts([]string{strScript})
+	if err != nil {
+		return nil, err
+	}
+
+	typeId, err := shared.ParseTypeId(strTypeId)
+	if err != nil {
+		return nil, err
+	}
+
+	tree, err := ps.getTree(ctx, scripts[0], &typeId, from, to, db)
+	if err != nil {
+		return nil, err
+	}
+
+	sampleTypeUnit := fmt.Sprintf("%s:%s", typeId.SampleType, typeId.SampleUnit)
+	levels := tree.BFS(sampleTypeUnit)
+
+	flameGraph := &prof.FlameGraph{
+		Names:   tree.Names,
+		Levels:  levels,
+		Total:   tree.Total()[0],
+		MaxSelf: tree.MaxSelf()[0],
+	}
+
+	return ps.flameGraphToFlameBearer(flameGraph, &typeId), nil
+}
+
+func (ps *ProfService) RenderDot(ctx context.Context, strQuery string, from, to time.Time) (string, error) {
+	db, err := ps.DataSession.GetDB(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	strTypeId, strScript, err := ps.detachTypeId(strQuery)
+	if err != nil {
+		return "", err
+	}
+
+	scripts, err := ps.parseScripts([]string{strScript})
+	if err != nil {
+		return "", err
+	}
+
+	typeId, err := shared.ParseTypeId(strTypeId)
+	if err != nil {
+		return "", err
+	}
+
+	tree, err := ps.getTree(ctx, scripts[0], &typeId, from, to, db)
+	if err != nil {
+		return "", err
+	}
+
+	sampleTypeUnit := fmt.Sprintf("%s:%s", typeId.SampleType, typeId.SampleUnit)
+	return tree.ToDot(sampleTypeUnit, strTypeId), nil
 }
 
 func (ps *ProfService) RenderDiff(ctx context.Context,
@@ -581,6 +655,20 @@ func (ps *ProfService) queryCols(ctx context.Context, db *model.DataDatabasesMap
 		}
 	}
 	return nil
+}
+
+// decompressPayload checks if data is gzip-compressed and decompresses it.
+// Profile payloads may be stored as gzip-compressed protobuf in ClickHouse.
+func decompressPayload(data []byte) ([]byte, error) {
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+		return io.ReadAll(r)
+	}
+	return data, nil
 }
 
 func (ps *ProfService) detachTypeId(strQuery string) (string, string, error) {

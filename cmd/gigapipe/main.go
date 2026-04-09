@@ -11,6 +11,8 @@ import (
 	"github.com/metrico/qryn/v4/ctrl"
 	"github.com/metrico/qryn/v4/reader"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
 	"github.com/metrico/qryn/v4/shared/commonroutes"
 	"github.com/metrico/qryn/v4/view"
@@ -270,6 +272,8 @@ func main() {
 }
 
 func start() {
+	distconfig.Init()
+	tables.InitDistTableNames()
 	var configPaths []string
 	if _, err := os.Stat(*appFlags.ConfigPath); err == nil {
 		configPaths = append(configPaths, *appFlags.ConfigPath)

@@ -129,6 +129,9 @@ func (t *TempoService) OutputQuery(binIds bool, rows *sql.Rows) (chan *model.Spa
 				fmt.Println(err)
 				return
 			}
+			if span == nil {
+				continue
+			}
 			res <- &model.SpanResponse{
 				Span: span, ServiceName: serviceName,
 			}

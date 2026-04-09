@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -33,6 +34,9 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		PromError(400, "traceId is required", w)
 		return
 	}
+	if len(traceId) < 32 {
+		traceId = strings.Repeat("0", 32-len(traceId)) + traceId
+	}
 	strStart := r.URL.Query().Get("start")
 	if strStart == "" {
 		strStart = "0"
@@ -57,6 +61,9 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 	}
 	accept := r.Header.Get("Accept")
 	if accept == "" {
+		accept = "application/json"
+	}
+	if strings.HasSuffix(r.URL.Path, "/json") {
 		accept = "application/json"
 	}
 	res, err := t.Service.Query(internalCtx, start*1e9, end*1e9, []byte(traceId), accept == "application/protobuf")
@@ -100,6 +107,10 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		for _, spans := range spansByServiceName {
 			resourceSpans = append(resourceSpans, spans)
 		}
+		if len(resourceSpans) == 0 {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
 		traceData := v1.TracesData{
 			ResourceSpans: resourceSpans,
 		}
@@ -110,12 +121,19 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(bTraceData)
 	default:
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"resourceSpans": [{ 
-			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]}, 
-			"instrumentationLibrarySpans": [{ "spans": [`))
-		i := 0
+		spans := make([]*model.SpanResponse, 0)
 		for span := range res {
+			spans = append(spans, span)
+		}
+		if len(spans) == 0 {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"resourceSpans": [{
+			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]},
+			"instrumentationLibrarySpans": [{ "spans": [`))
+		for i, span := range spans {
 			res, err := json.Marshal(unmarshal.SpanToJSONSpan(span.Span))
 			if err != nil {
 				PromError(500, err.Error(), w)
@@ -125,7 +143,6 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(","))
 			}
 			w.Write(res)
-			i++
 		}
 		w.Write([]byte("]}]}]}"))
 	}
@@ -251,6 +268,9 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 		timespan[i] = time.Unix(iT, 0)
 	}
 	tag := mux.Vars(r)["tag"]
+	if tag == "status" {
+		tag = "otel.status_code"
+	}
 
 	limit := 2000
 	if r.URL.Query().Get("limit") != "" {
@@ -302,6 +322,9 @@ func (t *TempoController) Values(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tag := mux.Vars(r)["tag"]
+	if tag == "status" {
+		tag = "otel.status_code"
+	}
 	cRes, err := t.Service.Values(internalCtx, tag)
 	if err != nil {
 		PromError(500, err.Error(), w)

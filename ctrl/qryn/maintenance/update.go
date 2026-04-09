@@ -14,6 +14,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v4/ctrl/logger"
 	"github.com/metrico/qryn/v4/ctrl/qryn/sql"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 )
 
 const (
@@ -23,6 +24,14 @@ const (
 )
 
 func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
+	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
+	logger logger.ILogger) error {
+	return UpdateWithReadCluster(db, dbname, clusterName, "", "", mode,
+		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+}
+
+func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string,
+	readCluster string, readSuffix string, mode int,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
 	logger logger.ILogger) error {
 	checkMode := func(m int) bool { return mode&m == m }
@@ -60,6 +69,26 @@ func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
 	if checkMode(CLUST_MODE_DISTRIBUTED) {
 		err = updateScripts(db, dbname, clusterName, 6, sql.ProfilesDistScript,
 			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Cross-cluster read-path tables: when a separate read cluster is configured,
+	// create distributed tables that aggregate queries across multiple clusters.
+	if readCluster != "" && readCluster != clusterName && checkMode(CLUST_MODE_DISTRIBUTED) {
+		err = updateReadDistScripts(db, dbname, clusterName, readCluster, readSuffix,
+			7, sql.LogReadDistScript, logger)
+		if err != nil {
+			return err
+		}
+		err = updateReadDistScripts(db, dbname, clusterName, readCluster, readSuffix,
+			8, sql.TracesReadDistScript, logger)
+		if err != nil {
+			return err
+		}
+		err = updateReadDistScripts(db, dbname, clusterName, readCluster, readSuffix,
+			9, sql.ProfilesReadDistScript, logger)
 		if err != nil {
 			return err
 		}
@@ -108,6 +137,51 @@ func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger)
 		}
 		return nil
 	}
+}
+
+func updateReadDistScripts(db clickhouse.Conn, dbname string, clusterName string,
+	readCluster string, readSuffix string, k int64, file string, logger logger.ILogger) error {
+	scripts, err := getSQLFile(file)
+	if err != nil {
+		return err
+	}
+	env := map[string]string{
+		"DB":           dbname,
+		"CLUSTER":      clusterName,
+		"OnCluster":    "ON CLUSTER `" + clusterName + "`",
+		"READ_CLUSTER": readCluster,
+		"READ_SUFFIX":  readSuffix,
+	}
+	exec := getDBExec(db, env, logger)
+	verTable := "ver" + distconfig.Suffix()
+	var ver uint64 = 0
+	if k >= 0 {
+		rows, err := db.Query(context.Background(),
+			fmt.Sprintf("SELECT max(ver) as ver FROM %s WHERE k = $1 FORMAT JSON", verTable), k)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			err = rows.Scan(&ver)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	for i := ver; i < uint64(len(scripts)); i++ {
+		logger.Info(fmt.Sprintf("Upgrade read-dist v.%d to v.%d ", i, i+1))
+		err = exec(scripts[i])
+		if err != nil {
+			logger.Error(scripts[i])
+			return err
+		}
+		err = db.Exec(context.Background(), "INSERT INTO ver (k, ver) VALUES ($1, $2)", k, i+1)
+		if err != nil {
+			return err
+		}
+		logger.Info(fmt.Sprintf("Upgrade read-dist v.%d to v.%d ok", i, i+1))
+	}
+	return nil
 }
 
 func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int64, file string, replicated bool,
@@ -165,7 +239,7 @@ ENGINE=Distributed('{{.CLUSTER}}','{{.DB}}', 'ver', rand())`)
 		if err != nil {
 			return err
 		}
-		verTable = "ver_dist"
+		verTable = "ver" + distconfig.Suffix()
 	}
 	var ver uint64 = 0
 	if k >= 0 {
