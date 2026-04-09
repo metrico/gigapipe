@@ -421,6 +421,75 @@ func (ps *ProfService) Settings(ctx context.Context) (*prof.GetSettingsResponse,
 	}, nil
 }
 
+func (ps *ProfService) Render(ctx context.Context, strQuery string, from, to time.Time) (*Flamebearer, error) {
+	db, err := ps.DataSession.GetDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	strTypeId, strScript, err := ps.detachTypeId(strQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	scripts, err := ps.parseScripts([]string{strScript})
+	if err != nil {
+		return nil, err
+	}
+
+	typeId, err := shared.ParseTypeId(strTypeId)
+	if err != nil {
+		return nil, err
+	}
+
+	tree, err := ps.getTree(ctx, scripts[0], &typeId, from, to, db)
+	if err != nil {
+		return nil, err
+	}
+
+	sampleTypeUnit := fmt.Sprintf("%s:%s", typeId.SampleType, typeId.SampleUnit)
+	levels := tree.BFS(sampleTypeUnit)
+
+	flameGraph := &prof.FlameGraph{
+		Names:   tree.Names,
+		Levels:  levels,
+		Total:   tree.Total()[0],
+		MaxSelf: tree.MaxSelf()[0],
+	}
+
+	return ps.flameGraphToFlameBearer(flameGraph, &typeId), nil
+}
+
+func (ps *ProfService) RenderDot(ctx context.Context, strQuery string, from, to time.Time) (string, error) {
+	db, err := ps.DataSession.GetDB(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	strTypeId, strScript, err := ps.detachTypeId(strQuery)
+	if err != nil {
+		return "", err
+	}
+
+	scripts, err := ps.parseScripts([]string{strScript})
+	if err != nil {
+		return "", err
+	}
+
+	typeId, err := shared.ParseTypeId(strTypeId)
+	if err != nil {
+		return "", err
+	}
+
+	tree, err := ps.getTree(ctx, scripts[0], &typeId, from, to, db)
+	if err != nil {
+		return "", err
+	}
+
+	sampleTypeUnit := fmt.Sprintf("%s:%s", typeId.SampleType, typeId.SampleUnit)
+	return tree.ToDot(sampleTypeUnit, strTypeId), nil
+}
+
 func (ps *ProfService) RenderDiff(ctx context.Context,
 	strLeftQuery string, strRightQuery string,
 	leftFrom time.Time, rightFrom time.Time,
