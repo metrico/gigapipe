@@ -47,7 +47,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fastjson v1.6.4
 	go.opentelemetry.io/collector/pdata v1.57.0
-	go.opentelemetry.io/proto/otlp v1.9.0
+	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
 	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.81.0
