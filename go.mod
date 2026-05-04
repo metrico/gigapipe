@@ -20,7 +20,7 @@ require (
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
 	github.com/c2h5oh/datasize v0.0.0-20231215233829-aa82cc1e6500
 	github.com/go-faster/city v1.0.1
-	github.com/go-faster/jx v1.1.0
+	github.com/go-faster/jx v1.2.0
 	github.com/go-kit/kit v0.13.0
 	github.com/go-logfmt/logfmt v0.6.0
 	github.com/gofiber/fiber/v3 v3.2.0
