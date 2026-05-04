@@ -5,7 +5,7 @@ import (
 )
 
 func Parse(query string) (*Expr, error) {
-	expr, err := parser.ParseExpr(query)
+	expr, err := parser.NewParser(parser.Options{}).ParseExpr(query)
 	return &Expr{
 		Expr:        expr,
 		Substitutes: make(map[string]*Substitute),
