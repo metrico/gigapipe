@@ -14,7 +14,7 @@ require (
 	github.com/ClickHouse/ch-go v0.71.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.34.0
 	github.com/Masterminds/sprig v2.22.0+incompatible
-	github.com/VictoriaMetrics/fastcache v1.12.2
+	github.com/VictoriaMetrics/fastcache v1.13.3
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
