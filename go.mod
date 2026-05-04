@@ -7,11 +7,6 @@ replace (
 	github.com/docker/distribution v2.7.1+incompatible => github.com/docker/distribution v2.8.0+incompatible
 	github.com/pascaldekloe/mqtt v1.0.0 => github.com/metrico/mqtt v1.0.1-0.20220314083119-cb53cdb0fcbe
 	github.com/prometheus/common v0.63.0 => github.com/prometheus/common v0.61.0
-	//TODO: remove this
-	go.opentelemetry.io/collector/pdata v1.12.0 => go.opentelemetry.io/collector/pdata v0.62.1
-	go.opentelemetry.io/otel v1.19.0 => go.opentelemetry.io/otel v1.7.0
-	go.opentelemetry.io/otel/internal/global v1.19.0 => go.opentelemetry.io/otel/internal/global v1.7.0
-	go.opentelemetry.io/otel/metric v1.21.0 => go.opentelemetry.io/otel/metric v0.30.0
 	gopkg.in/fatih/pool.v2 v2.0.0 => gopkg.in/fatih/pool.v3 v3.0.0
 	k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.22.1
 )
