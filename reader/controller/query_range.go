@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	ws "github.com/gofiber/websocket/v2"
 	"github.com/gorilla/websocket"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v4/reader/model"
@@ -199,13 +198,13 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 		case <-watchCtx.Done():
 			return
 		case <-pingTimer.C:
-			err := con.WriteMessage(ws.TextMessage, []byte(`{"streams":[]}`))
+			err := con.WriteMessage(websocket.TextMessage, []byte(`{"streams":[]}`))
 			if err != nil {
 				logger.Error(err)
 				return
 			}
 		case str := <-watcher.GetRes():
-			err = con.WriteMessage(ws.TextMessage, []byte(str.Str))
+			err = con.WriteMessage(websocket.TextMessage, []byte(str.Str))
 			if err != nil {
 				logger.Error(err)
 				return
