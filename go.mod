@@ -12,7 +12,6 @@ replace (
 	go.opentelemetry.io/otel v1.19.0 => go.opentelemetry.io/otel v1.7.0
 	go.opentelemetry.io/otel/internal/global v1.19.0 => go.opentelemetry.io/otel/internal/global v1.7.0
 	go.opentelemetry.io/otel/metric v1.21.0 => go.opentelemetry.io/otel/metric v0.30.0
-	google.golang.org/grpc v1.47.0 => google.golang.org/grpc v1.45.0
 	gopkg.in/fatih/pool.v2 v2.0.0 => gopkg.in/fatih/pool.v3 v3.0.0
 	k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.22.1
 )
@@ -57,7 +56,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.8.0
 	golang.org/x/exp v0.0.0-20250808145144-a408d31f581a
 	golang.org/x/sync v0.20.0
-	google.golang.org/grpc v1.75.1
+	google.golang.org/grpc v1.81.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/yaml.v2 v2.4.0
