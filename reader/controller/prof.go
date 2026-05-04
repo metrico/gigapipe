@@ -355,5 +355,5 @@ func defaultMarshaller[T proto.Message](r *http.Request, t T) ([]byte, error) {
 func defaultError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	w.Write([]byte(strconv.Quote(html.EscapeString(message))))
 }
