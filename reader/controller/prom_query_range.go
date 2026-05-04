@@ -158,8 +158,8 @@ func parseQueryRangePropsV3(r *http.Request) (QueryRangeProps, error) {
 }
 
 func PromError(code int, msg string, w http.ResponseWriter) {
-	w.WriteHeader(code)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
 
 	json := jsoniter.ConfigFastest
 	stream := json.BorrowStream(nil)
