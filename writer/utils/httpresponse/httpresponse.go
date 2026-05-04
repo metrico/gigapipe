@@ -1,10 +1,10 @@
 package httpresponse
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
-func CreateBadResponse(ctx *fiber.Ctx, requestCode int, message string) error {
+func CreateBadResponse(ctx fiber.Ctx, requestCode int, message string) error {
 
 	return ctx.Status(requestCode).JSON(&fiber.Map{
 		"success": false,
@@ -12,7 +12,7 @@ func CreateBadResponse(ctx *fiber.Ctx, requestCode int, message string) error {
 	})
 }
 
-func CreateBadResponseWithCode(ctx *fiber.Ctx, requestCode int, errorCode int, message string) error {
+func CreateBadResponseWithCode(ctx fiber.Ctx, requestCode int, errorCode int, message string) error {
 
 	return ctx.Status(requestCode).JSON(&fiber.Map{
 		"success":   false,
@@ -21,7 +21,7 @@ func CreateBadResponseWithCode(ctx *fiber.Ctx, requestCode int, errorCode int, m
 	})
 }
 
-func CreateSuccessResponse(ctx *fiber.Ctx, requestCode int, message string) error {
+func CreateSuccessResponse(ctx fiber.Ctx, requestCode int, message string) error {
 
 	return ctx.Status(requestCode).JSON(&fiber.Map{
 		"success": true,
@@ -29,7 +29,7 @@ func CreateSuccessResponse(ctx *fiber.Ctx, requestCode int, message string) erro
 	})
 }
 
-func CreateBadResponseWithJson(ctx *fiber.Ctx, requestCode int, message []byte) error {
+func CreateBadResponseWithJson(ctx fiber.Ctx, requestCode int, message []byte) error {
 
 	return ctx.Status(requestCode).JSON(&fiber.Map{
 		"success": false,
@@ -37,13 +37,13 @@ func CreateBadResponseWithJson(ctx *fiber.Ctx, requestCode int, message []byte) 
 	})
 }
 
-func CreateSuccessResponseWithJson(ctx *fiber.Ctx, requestCode int, message []byte) error {
+func CreateSuccessResponseWithJson(ctx fiber.Ctx, requestCode int, message []byte) error {
 	return ctx.Status(requestCode).JSON(&fiber.Map{
 		"success": true,
 		"message": message,
 	})
 }
 
-func CreateSuccessResponseWTBody(ctx *fiber.Ctx, requestCode int) error {
+func CreateSuccessResponseWTBody(ctx fiber.Ctx, requestCode int) error {
 	return ctx.Status(requestCode).SendString("")
 }
