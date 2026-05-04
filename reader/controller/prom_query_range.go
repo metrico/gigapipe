@@ -1,13 +1,15 @@
 package controller
 
 import (
+	encjson "encoding/json"
 	"fmt"
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
 
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
@@ -158,25 +160,13 @@ func parseQueryRangePropsV3(r *http.Request) (QueryRangeProps, error) {
 }
 
 func PromError(code int, msg string, w http.ResponseWriter) {
-	w.WriteHeader(code)
 	w.Header().Set("Content-Type", "application/json")
-
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
-
-	stream.WriteObjectStart()
-	stream.WriteObjectField("status")
-	stream.WriteString("error")
-	stream.WriteMore()
-	stream.WriteObjectField("errorType")
-	stream.WriteString("error")
-	stream.WriteMore()
-	stream.WriteObjectField("error")
-	stream.WriteString(msg)
-	stream.WriteObjectEnd()
-
-	w.Write(stream.Buffer())
+	w.WriteHeader(code)
+	encjson.NewEncoder(w).Encode(map[string]string{
+		"status":    "error",
+		"errorType": "error",
+		"error":     msg,
+	})
 }
 
 func writeResponse(res *promql.Result, w http.ResponseWriter) error {
