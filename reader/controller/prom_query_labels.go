@@ -106,8 +106,8 @@ func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Requ
 	}
 
 	if p.MetadataService == nil {
-		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
 		w.Write([]byte(`{"status": "success", "data": {}}`))
 		return
 	}
