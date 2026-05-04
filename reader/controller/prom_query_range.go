@@ -3,12 +3,13 @@ package controller
 import (
 	encjson "encoding/json"
 	"fmt"
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
 
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
