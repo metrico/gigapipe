@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"html"
 	"sort"
 	"strings"
 
@@ -510,7 +511,7 @@ func (t *Tree) ToDot(sampleType string, profileName string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("digraph %q {\n", profileName))
+	sb.WriteString(fmt.Sprintf("digraph %q {\n", html.EscapeString(profileName)))
 	sb.WriteString("  node [shape=box fontsize=12];\n")
 	sb.WriteString("  edge [fontsize=10];\n")
 	rootSeq := assignID(0)
