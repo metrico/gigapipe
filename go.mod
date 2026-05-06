@@ -1,6 +1,6 @@
 module github.com/metrico/qryn/v4
 
-go 1.25.0
+go 1.26.2
 
 replace (
 	cloud.google.com/go/compute v0.2.0 => cloud.google.com/go/compute v1.7.0
