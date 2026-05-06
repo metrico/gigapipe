@@ -11,7 +11,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
 
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +86,7 @@ jobs:
           CURRENT_MM_ESC=$(printf '%s\n' "${CURRENT_MM}" | sed 's/[.[\*^$]/\\&/g')
           LATEST_MM_ESC=$(printf '%s\n' "${LATEST_MM}" | sed 's/[&/\]/\\&/g')
           sed -i "s/go-version: '${CURRENT_MM_ESC}'/go-version: '${LATEST_MM_ESC}'/g" .github/workflows/go.yml
-          sed -i "s/go-version: '${CURRENT_MM_ESC}'/go-version: '${LATEST_MM_ESC}'/g" .github/workflows/build_release.yml
+          sed -i "s/go-version: ${CURRENT_MM_ESC}$/go-version: ${LATEST_MM_ESC}/g" .github/workflows/build_release.yml
           echo "Updated workflow files: ${CURRENT_MM} -> ${LATEST_MM}"
 
       - name: Set up Go ${{ steps.go-latest.outputs.version }}
