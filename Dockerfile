@@ -1,4 +1,4 @@
-FROM golang:1.25.0-alpine as builder
+FROM golang:1.26.2-alpine as builder
 COPY . /src
 WORKDIR /src
 ARG VIEW
