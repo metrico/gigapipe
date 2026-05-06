@@ -78,17 +78,6 @@ jobs:
           sed -i "s/golang:${CURRENT_ESC}-alpine/golang:${LATEST_ESC}-alpine/g" scripts/deploy/docker/Dockerfile
           echo "Updated Dockerfiles: ${CURRENT} -> ${LATEST}"
 
-      - name: Update Go version in workflow files
-        if: steps.check.outputs.needed == 'true'
-        run: |
-          LATEST_MM="${{ steps.go-latest.outputs.version_mm }}"
-          CURRENT_MM="${{ steps.go-current.outputs.version_mm }}"
-          CURRENT_MM_ESC=$(printf '%s\n' "${CURRENT_MM}" | sed 's/[.[\*^$]/\\&/g')
-          LATEST_MM_ESC=$(printf '%s\n' "${LATEST_MM}" | sed 's/[&/\]/\\&/g')
-          sed -i "s/go-version: '${CURRENT_MM_ESC}'/go-version: '${LATEST_MM_ESC}'/g" .github/workflows/go.yml
-          sed -i "s/go-version: ${CURRENT_MM_ESC}$/go-version: ${LATEST_MM_ESC}/g" .github/workflows/build_release.yml
-          echo "Updated workflow files: ${CURRENT_MM} -> ${LATEST_MM}"
-
       - name: Set up Go ${{ steps.go-latest.outputs.version }}
         if: steps.check.outputs.needed == 'true'
         uses: actions/setup-go@v5
@@ -120,9 +109,9 @@ jobs:
             - `go.mod` — updated `go` directive
             - `Dockerfile` — updated `golang` builder image
             - `scripts/deploy/docker/Dockerfile` — updated `golang` builder image
-            - `.github/workflows/go.yml` — updated `go-version`
-            - `.github/workflows/build_release.yml` — updated `go-version`
             - `go.sum` — regenerated via `go mod tidy`
+
+            > **Manual step required:** Update `go-version` in `.github/workflows/go.yml` and `.github/workflows/build_release.yml` to `${{ steps.go-latest.outputs.version_mm }}` — these cannot be updated automatically due to GitHub token restrictions on workflow files.
 
             ---
             *Keeping the project up-to-date with Go releases ensures compatibility and security enhancements.*
