@@ -1,0 +1,133 @@
+name: Go Version Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Every Monday at midnight UTC
+  workflow_dispatch:      # Allow manual trigger
+
+jobs:
+  update-go-version:
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest stable Go version
+        id: go-latest
+        run: |
+          LATEST_RAW=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)
+          LATEST="${LATEST_RAW#go}"
+          LATEST_MM=$(echo "${LATEST}" | grep -oE '^[0-9]+\.[0-9]+')
+          if [ -z "${LATEST}" ] || [ -z "${LATEST_MM}" ]; then
+            echo "Failed to determine the latest Go version" >&2
+            exit 1
+          fi
+          echo "version=${LATEST}" >> $GITHUB_OUTPUT
+          echo "version_mm=${LATEST_MM}" >> $GITHUB_OUTPUT
+          echo "Latest stable Go version: ${LATEST}"
+
+      - name: Get current Go version from go.mod
+        id: go-current
+        run: |
+          CURRENT=$(grep '^go ' go.mod | awk '{print $2}')
+          CURRENT_MM=$(echo "${CURRENT}" | grep -oE '^[0-9]+\.[0-9]+')
+          echo "version=${CURRENT}" >> $GITHUB_OUTPUT
+          echo "version_mm=${CURRENT_MM}" >> $GITHUB_OUTPUT
+          echo "Current Go version: ${CURRENT}"
+
+      - name: Check if update is needed
+        id: check
+        run: |
+          LATEST="${{ steps.go-latest.outputs.version }}"
+          CURRENT="${{ steps.go-current.outputs.version }}"
+          if [ "${LATEST}" != "${CURRENT}" ]; then
+            NEWER=$(printf '%s\n%s\n' "${CURRENT}" "${LATEST}" | sort -V | tail -1)
+            if [ "${NEWER}" = "${LATEST}" ]; then
+              echo "needed=true" >> $GITHUB_OUTPUT
+              echo "Go update needed: ${CURRENT} -> ${LATEST}"
+            else
+              echo "needed=false" >> $GITHUB_OUTPUT
+              echo "Current version ${CURRENT} is already newer than ${LATEST}, no update needed"
+            fi
+          else
+            echo "needed=false" >> $GITHUB_OUTPUT
+            echo "Go version is already up to date: ${CURRENT}"
+          fi
+
+      - name: Update Go version in go.mod
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          LATEST="${{ steps.go-latest.outputs.version }}"
+          CURRENT="${{ steps.go-current.outputs.version }}"
+          CURRENT_ESC=$(printf '%s\n' "${CURRENT}" | sed 's/[.[\*^$]/\\&/g')
+          LATEST_ESC=$(printf '%s\n' "${LATEST}" | sed 's/[&/\]/\\&/g')
+          sed -i "s/^go ${CURRENT_ESC}$/go ${LATEST_ESC}/" go.mod
+          echo "Updated go.mod: ${CURRENT} -> ${LATEST}"
+
+      - name: Update Go version in Dockerfiles
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          LATEST="${{ steps.go-latest.outputs.version }}"
+          CURRENT="${{ steps.go-current.outputs.version }}"
+          CURRENT_ESC=$(printf '%s\n' "${CURRENT}" | sed 's/[.[\*^$]/\\&/g')
+          LATEST_ESC=$(printf '%s\n' "${LATEST}" | sed 's/[&/\]/\\&/g')
+          sed -i "s/golang:${CURRENT_ESC}-alpine/golang:${LATEST_ESC}-alpine/g" Dockerfile
+          sed -i "s/golang:${CURRENT_ESC}-alpine/golang:${LATEST_ESC}-alpine/g" scripts/deploy/docker/Dockerfile
+          echo "Updated Dockerfiles: ${CURRENT} -> ${LATEST}"
+
+      - name: Update Go version in workflow files
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          LATEST_MM="${{ steps.go-latest.outputs.version_mm }}"
+          CURRENT_MM="${{ steps.go-current.outputs.version_mm }}"
+          CURRENT_MM_ESC=$(printf '%s\n' "${CURRENT_MM}" | sed 's/[.[\*^$]/\\&/g')
+          LATEST_MM_ESC=$(printf '%s\n' "${LATEST_MM}" | sed 's/[&/\]/\\&/g')
+          sed -i "s/go-version: '${CURRENT_MM_ESC}'/go-version: '${LATEST_MM_ESC}'/g" .github/workflows/go.yml
+          sed -i "s/go-version: '${CURRENT_MM_ESC}'/go-version: '${LATEST_MM_ESC}'/g" .github/workflows/build_release.yml
+          echo "Updated workflow files: ${CURRENT_MM} -> ${LATEST_MM}"
+
+      - name: Set up Go ${{ steps.go-latest.outputs.version }}
+        if: steps.check.outputs.needed == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go-latest.outputs.version }}
+
+      - name: Run go mod tidy
+        if: steps.check.outputs.needed == 'true'
+        run: go mod tidy
+
+      - name: Create Pull Request
+        if: steps.check.outputs.needed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update Go version to ${{ steps.go-latest.outputs.version }}"
+          title: "chore: update Go version to ${{ steps.go-latest.outputs.version }}"
+          body: |
+            ## Go Version Update
+
+            This PR was automatically created by the [Go Version Sync](${{ github.server_url }}/${{ github.repository }}/actions/workflows/go-version-sync.yml) workflow.
+
+            | | Version |
+            |---|---|
+            | **Previous** | `${{ steps.go-current.outputs.version }}` |
+            | **Updated**  | `${{ steps.go-latest.outputs.version }}` |
+
+            ### Files Changed
+            - `go.mod` — updated `go` directive
+            - `Dockerfile` — updated `golang` builder image
+            - `scripts/deploy/docker/Dockerfile` — updated `golang` builder image
+            - `.github/workflows/go.yml` — updated `go-version`
+            - `.github/workflows/build_release.yml` — updated `go-version`
+            - `go.sum` — regenerated via `go mod tidy`
+
+            ---
+            *Keeping the project up-to-date with Go releases ensures compatibility and security enhancements.*
+          branch: chore/go-version-update
+          delete-branch: true
+          labels: |
+            dependencies
+            go
