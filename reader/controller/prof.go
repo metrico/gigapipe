@@ -221,13 +221,20 @@ func (pc *ProfController) Render(w http.ResponseWriter, r *http.Request) {
 			defaultError(w, 400, fmt.Sprintf("Invalid value for %s: %s", html.EscapeString(v[0].(string)), html.EscapeString(strVal)))
 			return
 		}
-		*(v[1].(*time.Time)) = time.Unix(iVal, 0)
+		*(v[1].(*time.Time)) = time.Unix(iVal/1000, 0)
+	}
+
+	var maxNodes int
+	if s := r.URL.Query().Get("maxNodes"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxNodes = n
+		}
 	}
 
 	format := r.URL.Query().Get("format")
 
 	if format == "dot" {
-		dot, err := pc.ProfService.RenderDot(r.Context(), query, from, to)
+		dot, err := pc.ProfService.RenderDot(r.Context(), query, from, to, maxNodes)
 		if err != nil {
 			defaultError(w, 500, err.Error())
 			return
