@@ -20,6 +20,7 @@ func RouteQueryRangeApis(app *mux.Router, dataSession model.IDBRegistry) {
 	app.HandleFunc("/loki/api/v1/query_range", qrCtrl.QueryRange).Methods("GET", "OPTIONS")
 	app.HandleFunc("/loki/api/v1/query", qrCtrl.Query).Methods("GET", "OPTIONS")
 	app.HandleFunc("/loki/api/v1/tail", qrCtrl.Tail).Methods("GET", "OPTIONS")
+	app.HandleFunc("/loki/api/v1/index/stats", qrCtrl.IndexStats).Methods("GET", "OPTIONS")
 
 	if config.Cloki.Setting.DRILLDOWN_SETTINGS.LogDrilldown {
 		vCtrl := &controllerv1.VolumeController{

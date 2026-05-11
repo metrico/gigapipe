@@ -33,7 +33,8 @@ type IQueryRangeService interface {
 		limit int64, forward bool) (chan QueryRangeOutput, error)
 	QueryInstant(ctx context.Context, query string, timeNs int64, stepMs int64,
 		limit int64) (chan QueryRangeOutput, error)
-	Tail(ctx context.Context, query string) (IWatcher, error)
+	Tail(ctx context.Context, query string, tailLimit uint64, startNs int64) (IWatcher, error)
+	QueryIndexStats(ctx context.Context, query string, fromNs, toNs int64) (*IndexStatsResult, error)
 }
 
 // Service : here you tell us what Salutation is
