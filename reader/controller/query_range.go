@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	tailDefaultLimit uint64 = 100  // lines returned when no ?limit= is supplied
-	tailMaxLimit     uint64 = 5000 // hard cap to prevent excessive memory use
+	tailDefaultLimit int64 = 100  // lines returned when no ?limit= is supplied
+	tailMaxLimit     int64 = 5000 // hard cap to prevent excessive memory use
 )
 
 type QueryRangeController struct {
@@ -170,7 +170,7 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 
 	tailLimit := tailDefaultLimit
 	if _tl := r.URL.Query().Get("limit"); _tl != "" {
-		if parsed, parseErr := strconv.ParseUint(_tl, 10, 64); parseErr == nil && parsed > 0 {
+		if parsed, parseErr := strconv.ParseInt(_tl, 10, 64); parseErr == nil && parsed > 0 {
 			tailLimit = parsed
 		}
 	}

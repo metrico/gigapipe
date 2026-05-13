@@ -667,7 +667,7 @@ func (q *QueryRangeService) QueryInstant(ctx context.Context, query string, time
 	return res, nil
 }
 
-func (q *QueryRangeService) Tail(ctx context.Context, query string, tailLimit uint64, startNs int64) (model.IWatcher, error) {
+func (q *QueryRangeService) Tail(ctx context.Context, query string, tailLimit int64, startNs int64) (model.IWatcher, error) {
 	if q.plugin != nil {
 		return q.plugin.Tail(ctx, query, tailLimit, startNs)
 	}
@@ -715,8 +715,8 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string, tailLimit ui
 			}
 
 			limit := int64(tailIncrementalLimit)
-			if tailLimit > 0 && tailLimit < uint64(limit) {
-				limit = int64(tailLimit)
+			if tailLimit > 0 && tailLimit < limit {
+				limit = tailLimit
 			}
 			out, err := sqlQuery[0].Process(tables.PopulateTableNames(&shared.PlannerContext{
 				IsCluster:  conn.Config.ClusterName != "",
