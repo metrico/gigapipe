@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/v4/writer/utils/errors"
@@ -127,6 +128,14 @@ func (z *zipkinDecoderV2) decodeSpan(rawSpan jx.Raw) error {
 		case "tags":
 			err := z.parseTags(d)
 			return err
+		case "kind":
+			kindStr, err := d.Str()
+			if err != nil {
+				return err
+			}
+			z.key = append(z.key, "kind")
+			z.val = append(z.val, strings.ToLower(kindStr))
+			return nil
 		default:
 			d.Skip()
 		}
@@ -137,6 +146,22 @@ func (z *zipkinDecoderV2) decodeSpan(rawSpan jx.Raw) error {
 	}
 	z.key = append(z.key, "service.name")
 	z.val = append(z.val, z.serviceName)
+	// Map otel.status_code (added by OTel Zipkin exporters) to the status attr
+	// that TraceQL {status=error/ok} queries against.
+	// Per OTel spec, UNSET status is never sent, so only ERROR and OK are handled.
+	for i, k := range z.key {
+		if k == "otel.status_code" {
+			switch z.val[i] {
+			case "ERROR":
+				z.key = append(z.key, "status")
+				z.val = append(z.val, "error")
+			case "OK":
+				z.key = append(z.key, "status")
+				z.val = append(z.val, "ok")
+			}
+			break
+		}
+	}
 	return z.onSpan(z.traceId, z.spanId, z.timestampNs, z.durationNs, z.parentId,
 		z.name, z.serviceName, z.payload, z.key, z.val)
 }

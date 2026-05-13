@@ -16,6 +16,8 @@ type ITempoService interface {
 		limit int, fromNS int64, toNS int64) (chan *TraceResponse, error)
 	SearchTraceQL(ctx context.Context, q string, limit int, from time.Time, to time.Time) (chan []TraceInfo, error)
 	TagsV2(ctx context.Context, query string, from time.Time, to time.Time, limit int) (chan string, error)
+	MetricsQueryRange(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryRangeResponse, error)
+	MetricsQueryInstant(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryInstantResponse, error)
 }
 
 type IQueryLabelsService interface {

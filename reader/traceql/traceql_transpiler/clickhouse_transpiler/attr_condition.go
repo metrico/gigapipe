@@ -30,7 +30,7 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	}
 	a.alias = "bsCond"
 
-	err = a.maybeCreateWhere()
+	err = a.maybeCreateWhere(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -76,12 +76,12 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	return res, nil
 }
 
-func (a *AttrConditionPlanner) maybeCreateWhere() error {
+func (a *AttrConditionPlanner) maybeCreateWhere(ctx *shared.PlannerContext) error {
 	if len(a.sqlConds) > 0 {
 		return nil
 	}
 	for _, t := range a.Terms {
-		sqlTerm, err := a.getTerm(t)
+		sqlTerm, err := a.getTerm(t, ctx)
 		if err != nil {
 			return err
 		}
@@ -148,8 +148,14 @@ func (a *AttrConditionPlanner) getCond(c *condition) (sql.SQLCondition, error) {
 	return sql.Neq(&bitAnd{left, sql.NewIntVal(int64(1) << c.simpleIdx)}, sql.NewIntVal(0)), nil
 }
 
-func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLCondition, error) {
+func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector, ctx *shared.PlannerContext) (sql.SQLCondition, error) {
 	key := t.Label
+	// Normalize span: colon-intrinsic aliases to their canonical names.
+	if key == "span:duration" {
+		key = "duration"
+	} else if key == "span:name" {
+		key = "name"
+	}
 	if strings.HasPrefix(key, "span.") {
 		key = key[5:]
 	} else if strings.HasPrefix(key, "resource.") {
@@ -162,9 +168,56 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLC
 			return a.getTermDuration(t)
 		case "name":
 			key = "name"
-		case "status":
-			key = "otel.status_code"
+		case "true":
+			return sql.Eq(sql.NewIntVal(1), sql.NewIntVal(1)), nil
+		case "false":
+			return sql.Eq(sql.NewIntVal(0), sql.NewIntVal(1)), nil
+		case "status", "kind":
+			// status and kind are stored as attributes in attrs_gin
+			// (key='status', val='error'/'ok'/'unset') or (key='kind', val='server'/etc.)
+			if t.Val.UnquotVal != "" {
+				var valCond sql.SQLCondition
+				switch t.Op {
+				case "=":
+					valCond = sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+				case "!=":
+					valCond = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+				default:
+					return nil, fmt.Errorf("unsupported operator %s for %s", t.Op, key)
+				}
+				return sql.And(
+					sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(key)),
+					valCond,
+				), nil
+			}
+			// Quoted values fall through to getTermStr
+		case "statusMessage":
+			// statusMessage falls through to getTermStr with unchanged key
+		case "rootServiceName", "rootName":
+			// Root-level intrinsics map to the root span's service/name.
+			// Our schema has no dedicated root columns, so we filter on the span-level column
+			// which is correct for root-span queries (nestedSetParent < 0).
+			if key == "rootServiceName" {
+				key = "service.name"
+			} else {
+				key = "name"
+			}
 		default:
+			if key == "nestedSetParent" {
+				// Only nestedSetParent < 0 has a meaningful mapping (root spans → parent_id = '').
+				// Other operators/values are not supported by our schema; treat as no-op.
+				if t.Op == "<" && t.Val.FVal == "0" {
+					if ctx != nil {
+						ctx.TracesIntrinsicWhere = append(ctx.TracesIntrinsicWhere,
+							sql.Eq(sql.NewRawObject("traces.parent_id"), sql.NewStringVal("")))
+					}
+				}
+				return sql.Eq(sql.NewIntVal(1), sql.NewIntVal(1)), nil
+			}
+			if strings.HasPrefix(key, "nestedSet") {
+				// nestedSetLeft, nestedSetRight — not stored in our schema.
+				return sql.Eq(sql.NewIntVal(1), sql.NewIntVal(1)), nil
+			}
 			return nil, fmt.Errorf("unsupported attribute %s", key)
 		}
 	}
@@ -173,6 +226,22 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector) (sql.SQLC
 		return a.getTermStr(t, key)
 	} else if t.Val.FVal != "" {
 		return a.getTermNum(t, key)
+	} else if t.Val.UnquotVal != "" {
+		// Unquoted enum values like: status = error, kind != server, span.foo = bar
+		// Respect the operator just like quoted strings.
+		var valCond sql.SQLCondition
+		switch t.Op {
+		case "=", "":
+			valCond = sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+		case "!=":
+			valCond = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+		default:
+			return nil, fmt.Errorf("unsupported operator %s for unquoted value", t.Op)
+		}
+		return sql.And(
+			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(key)),
+			valCond,
+		), nil
 	}
 	return nil, fmt.Errorf("unsupported statement `%s`", t.String())
 }
