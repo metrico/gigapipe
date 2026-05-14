@@ -34,11 +34,10 @@ func otlpGetServiceNames(attrs []*commonv1.KeyValue) (string, string) {
 		if val == nil {
 			continue
 		}
-		_val, ok := val.Value.Value.(*commonv1.AnyValue_StringValue)
-		if !ok {
+		local = val.Value.GetStringValue()
+		if local == "" {
 			continue
 		}
-		local = _val.StringValue
 		break
 	}
 	for _, attr := range []string{"service.name", "faas.name", "k8s.deployment.name", "process.executable.name"} {
@@ -46,11 +45,10 @@ func otlpGetServiceNames(attrs []*commonv1.KeyValue) (string, string) {
 		if val == nil {
 			continue
 		}
-		_val, ok := val.Value.Value.(*commonv1.AnyValue_StringValue)
-		if !ok {
+		remote = val.Value.GetStringValue()
+		if remote == "" {
 			continue
 		}
-		remote = _val.StringValue
 		break
 	}
 	if local == "" {
