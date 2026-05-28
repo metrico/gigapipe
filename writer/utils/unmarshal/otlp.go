@@ -34,22 +34,22 @@ func otlpGetServiceNames(attrs []*commonv1.KeyValue) (string, string) {
 		if val == nil {
 			continue
 		}
-		_val, ok := val.Value.Value.(*commonv1.AnyValue_StringValue)
-		if !ok {
+		local = val.Value.GetStringValue()
+		if local == "" {
 			continue
 		}
-		local = _val.StringValue
+		break
 	}
 	for _, attr := range []string{"service.name", "faas.name", "k8s.deployment.name", "process.executable.name"} {
 		val := getOtlpAttr(attrs, attr)
 		if val == nil {
 			continue
 		}
-		_val, ok := val.Value.Value.(*commonv1.AnyValue_StringValue)
-		if !ok {
+		remote = val.Value.GetStringValue()
+		if remote == "" {
 			continue
 		}
-		remote = _val.StringValue
+		break
 	}
 	if local == "" {
 		local = "OTLPResourceNoServiceName"
@@ -87,6 +87,26 @@ func (d *OTLPDecoder) Decode() error {
 					return errors.NewUnmarshalError(err)
 				}
 				attrsMap["name"] = span.Name
+				switch span.Status.GetCode() {
+				case tracev1.Status_STATUS_CODE_ERROR:
+					attrsMap["status"] = "error"
+				case tracev1.Status_STATUS_CODE_OK:
+					attrsMap["status"] = "ok"
+				default:
+					attrsMap["status"] = "unset"
+				}
+				switch span.Kind {
+				case tracev1.Span_SPAN_KIND_SERVER:
+					attrsMap["kind"] = "server"
+				case tracev1.Span_SPAN_KIND_CLIENT:
+					attrsMap["kind"] = "client"
+				case tracev1.Span_SPAN_KIND_PRODUCER:
+					attrsMap["kind"] = "producer"
+				case tracev1.Span_SPAN_KIND_CONSUMER:
+					attrsMap["kind"] = "consumer"
+				default:
+					attrsMap["kind"] = "internal"
+				}
 				keys := make([]string, len(attrsMap))
 				vals := make([]string, len(attrsMap))
 				i := 0

@@ -80,6 +80,10 @@ type PlannerContext struct {
 	RandomFilter   RandomFilter
 	CachedTraceIds []string
 	VersionInfo    dbversion.VersionInfo
+
+	// TracesIntrinsicWhere holds extra WHERE conditions for the tempo_traces table
+	// (e.g., nestedSetParent < 0 → parent_id = '').
+	TracesIntrinsicWhere []sql.SQLCondition
 }
 
 func (p *PlannerContext) Id() int {
