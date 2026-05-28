@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +12,11 @@ import (
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/service"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
+)
+
+const (
+	tailDefaultLimit int64 = 100  // lines returned when no ?limit= is supplied
+	tailMaxLimit     int64 = 5000 // hard cap to prevent excessive memory use
 )
 
 type QueryRangeController struct {
@@ -145,6 +151,7 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
@@ -157,14 +164,32 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query().Get("query")
 	if query == "" {
-		logger.Error("query parameter is required")
+		logger.Error("tail: query parameter is required")
 		return
 	}
-	defer cancel()
+
+	tailLimit := tailDefaultLimit
+	if _tl := r.URL.Query().Get("limit"); _tl != "" {
+		if parsed, parseErr := strconv.ParseInt(_tl, 10, 64); parseErr == nil && parsed > 0 {
+			tailLimit = parsed
+		}
+	}
+	if tailLimit > tailMaxLimit {
+		tailLimit = tailMaxLimit
+	}
+
+	var startNs int64
+	if _s := r.URL.Query().Get("start"); _s != "" {
+		if parsed, parseErr := strconv.ParseInt(_s, 10, 64); parseErr == nil && parsed > 0 {
+			startNs = parsed
+		}
+	}
+
 	var watcher model.IWatcher
-	watcher, err = q.QueryRangeService.Tail(internalCtx, query)
+	watcher, err = q.QueryRangeService.Tail(internalCtx, query, tailLimit, startNs)
 	if err != nil {
-		logger.Error(err)
+		logger.Error("tail: watcher create failed:", err)
+		cancel()
 		return
 	}
 	defer func() {
@@ -181,34 +206,80 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 	}
 	defer con.Close()
 	con.SetCloseHandler(func(code int, text string) error {
+		msg := websocket.FormatCloseMessage(code, "")
+		_ = con.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
 		watcher.Close()
 		cancel()
 		return nil
 	})
 	go func() {
-		_, _, err := con.ReadMessage()
-		for err == nil {
-			_, _, err = con.ReadMessage()
+		_, _, readErr := con.ReadMessage()
+		for readErr == nil {
+			_, _, readErr = con.ReadMessage()
 		}
+		watcher.Close()
+		cancel()
 	}()
-	pingTimer := time.NewTicker(time.Second)
-	defer pingTimer.Stop()
 	for {
 		select {
 		case <-watchCtx.Done():
 			return
-		case <-pingTimer.C:
-			err := con.WriteMessage(websocket.TextMessage, []byte(`{"streams":[]}`))
-			if err != nil {
-				logger.Error(err)
+		case str, ok := <-watcher.GetRes():
+			if !ok {
 				return
 			}
-		case str := <-watcher.GetRes():
-			err = con.WriteMessage(websocket.TextMessage, []byte(str.Str))
-			if err != nil {
-				logger.Error(err)
+			if str.Err != nil {
+				logger.Error("tail: ws stream error:", str.Err)
+				msg := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, str.Err.Error())
+				_ = con.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+				return
+			}
+			if err = con.WriteMessage(websocket.TextMessage, []byte(str.Str)); err != nil {
+				logger.Error("tail: data write failed:", err)
 				return
 			}
 		}
 	}
+}
+
+// IndexStats handles GET /loki/api/v1/index/stats.
+// Grafana Live tail calls this on activation to populate stream statistics.
+func (q *QueryRangeController) IndexStats(w http.ResponseWriter, r *http.Request) {
+	defer tamePanic(w, r)
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	query := r.URL.Query().Get("query")
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	var fromNs, toNs int64
+	if startStr != "" {
+		if parsed, parseErr := strconv.ParseInt(startStr, 10, 64); parseErr == nil {
+			fromNs = parsed
+		}
+	}
+	if endStr != "" {
+		if parsed, parseErr := strconv.ParseInt(endStr, 10, 64); parseErr == nil {
+			toNs = parsed
+		}
+	}
+	if toNs == 0 {
+		toNs = time.Now().UnixNano()
+	}
+	if fromNs == 0 {
+		fromNs = toNs - int64(time.Hour)
+	}
+
+	result, err := q.QueryRangeService.QueryIndexStats(internalCtx, query, fromNs, toNs)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

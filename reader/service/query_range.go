@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -15,10 +16,16 @@ import (
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/model"
 	"github.com/metrico/qryn/v4/reader/plugins"
-	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
+	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
+)
+
+const (
+	tailPollInterval     = time.Second // how often new entries are fetched from ClickHouse
+	tailIncrementalLimit = 1000        // max entries per poll tick
+	tailWatcherBufSize   = 10          // channel buffer between poller and WebSocket handler
 )
 
 type QueryRangeService struct {
@@ -47,7 +54,8 @@ func onErr(err error, res chan model.QueryRangeOutput) {
 }
 
 func (q *QueryRangeService) exportStreamsValue(out chan []shared.LogEntry,
-	res chan model.QueryRangeOutput) {
+	res chan model.QueryRangeOutput,
+) {
 	defer close(res)
 
 	json := jsoniter.ConfigFastest
@@ -156,7 +164,8 @@ type QueryVolumeResult struct {
 }
 
 func (q *QueryRangeService) QueryVolume(ctx context.Context, query string, fromNs int64, toNs int64,
-	stepMs int64, aggregateByLabels []string) ([]QueryVolumeResult, error) {
+	stepMs int64, aggregateByLabels []string,
+) ([]QueryVolumeResult, error) {
 	var err error
 	if len(aggregateByLabels) == 0 {
 		aggregateByLabels, err = q.getLabelsForVolume(query)
@@ -211,7 +220,8 @@ type QueryDetectedLabelsResult struct {
 }
 
 func (q *QueryRangeService) QueryDetectedLabels(ctx context.Context, query string, fromNs int64,
-	toNs int64) ([]QueryDetectedLabelsResult, error) {
+	toNs int64,
+) ([]QueryDetectedLabelsResult, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -287,7 +297,8 @@ type PatternsResult struct {
 }
 
 func (q *QueryRangeService) QueryPatterns(ctx context.Context, query string, fromNs int64, toNs int64,
-	stepMs int64, limit int64) ([]PatternsResult, error) {
+	stepMs int64, limit int64,
+) ([]PatternsResult, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
@@ -375,7 +386,8 @@ func (q *QueryRangeService) scan(rows *databaseSql.Rows) (PatternsResult, error)
 		for _, s := range samplesV1 {
 			res.Samples = append(res.Samples, [2]int32{
 				int32(s["timestamp_s"].(uint64)),
-				int32(s["count"].(uint64))})
+				int32(s["count"].(uint64)),
+			})
 		}
 		return res, nil
 	}
@@ -394,13 +406,15 @@ func (q *QueryRangeService) scan(rows *databaseSql.Rows) (PatternsResult, error)
 	for _, s := range samplesV2 {
 		res.Samples = append(res.Samples, [2]int32{
 			int32(s[0].(uint64)),
-			int32(s[1].(uint64))})
+			int32(s[1].(uint64)),
+		})
 	}
 	return res, nil
 }
 
 func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
-	limit int64, forward bool) (chan model.QueryRangeOutput, error) {
+	limit int64, forward bool,
+) (chan model.QueryRangeOutput, error) {
 	out, isMatrix, err := q.prepareOutput(ctx, query, fromNs, toNs, stepMs, limit, forward)
 	if err != nil {
 		return nil, err
@@ -514,7 +528,8 @@ func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs
 }
 
 func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
-	limit int64, forward bool) (chan []shared.LogEntry, bool, error) {
+	limit int64, forward bool,
+) (chan []shared.LogEntry, bool, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, false, err
@@ -550,8 +565,10 @@ func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fro
 	res, err := chain[0].Process(plannerCtx, nil)
 	return res, chain[0].IsMatrix(), err
 }
+
 func (q *QueryRangeService) QueryInstant(ctx context.Context, query string, timeNs int64, stepMs int64,
-	limit int64) (chan model.QueryRangeOutput, error) {
+	limit int64,
+) (chan model.QueryRangeOutput, error) {
 	out, isMatrix, err := q.prepareOutput(ctx, query, timeNs-300000000000, timeNs, stepMs, limit, false)
 	if err != nil {
 		return nil, err
@@ -650,9 +667,9 @@ func (q *QueryRangeService) QueryInstant(ctx context.Context, query string, time
 	return res, nil
 }
 
-func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatcher, error) {
+func (q *QueryRangeService) Tail(ctx context.Context, query string, tailLimit int64, startNs int64) (model.IWatcher, error) {
 	if q.plugin != nil {
-		return q.plugin.Tail(ctx, query)
+		return q.plugin.Tail(ctx, query, tailLimit, startNs)
 	}
 
 	conn, err := q.Session.GetDB(ctx)
@@ -664,14 +681,19 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 		return nil, err
 	}
 
-	res := NewWatcher(make(chan model.QueryRangeOutput))
+	res := NewWatcher(make(chan model.QueryRangeOutput, tailWatcherBufSize))
 
-	from := time.Now().Add(time.Minute * -5)
+	var from time.Time
+	if startNs > 0 {
+		from = time.Unix(0, startNs)
+	} else {
+		from = time.Now().Add(-1 * time.Hour)
+	}
 
 	_ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(tailPollInterval)
 		defer cancel()
 		defer close(res.GetRes())
 		defer ticker.Stop()
@@ -692,12 +714,16 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 			default:
 			}
 
+			limit := int64(tailIncrementalLimit)
+			if tailLimit > 0 && tailLimit < limit {
+				limit = tailLimit
+			}
 			out, err := sqlQuery[0].Process(tables.PopulateTableNames(&shared.PlannerContext{
 				IsCluster:  conn.Config.ClusterName != "",
 				From:       from,
 				To:         time.Now(),
 				OrderASC:   false,
-				Limit:      0,
+				Limit:      limit,
 				Ctx:        _ctx,
 				CHDb:       conn.Session,
 				CHFinalize: true,
@@ -763,6 +789,10 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 				stream.WriteObjectEnd()
 			}
 			stream.WriteArrayEnd()
+			stream.WriteMore()
+			stream.WriteObjectField("dropped_entries")
+			stream.WriteArrayStart()
+			stream.WriteArrayEnd()
 			stream.WriteObjectEnd()
 			res.GetRes() <- model.QueryRangeOutput{Str: string(stream.Buffer())}
 			stream.Reset(nil)
@@ -771,10 +801,102 @@ func (q *QueryRangeService) Tail(ctx context.Context, query string) (model.IWatc
 	return res, nil
 }
 
+// QueryIndexStats returns stream statistics for GET /loki/api/v1/index/stats.
+// streams = distinct fingerprints, entries = total log lines, bytes = uncompressed volume,
+// chunks = distinct (stream, day) pairs (proxy for object-storage chunk count).
+func (q *QueryRangeService) QueryIndexStats(ctx context.Context, query string, fromNs, toNs int64) (*model.IndexStatsResult, error) {
+	conn, err := q.Session.GetDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
+	if err != nil {
+		return nil, err
+	}
+
+	var script *logql_parser.LogQLScript
+	if query != "" {
+		script, err = logql_parser.Parse(query)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	plannerCtx := tables.PopulateTableNames(&shared.PlannerContext{
+		IsCluster:  conn.Config.ClusterName != "",
+		From:       time.Unix(0, fromNs),
+		To:         time.Unix(0, toNs),
+		Ctx:        _ctx,
+		CancelCtx:  cancel,
+		CHDb:       conn.Session,
+		CHFinalize: true,
+		CHSqlCtx: &sql.Ctx{
+			Params: map[string]sql.SQLObject{},
+			Result: map[string]sql.SQLObject{},
+		},
+		VersionInfo: versionInfo,
+	}, conn)
+
+	statsQuery := sql.NewSelect().
+		Select(
+			sql.NewRawObject("toInt64(uniqExact(fingerprint))"),
+			sql.NewRawObject("toInt64(COUNT(*))"),
+			sql.NewRawObject("toInt64(SUM(length(string)))"),
+			sql.NewRawObject("toInt64(uniqExact(fingerprint, toDate(toDateTime(intDiv(timestamp_ns, 1000000000)))))"),
+		).
+		From(sql.NewRawObject(plannerCtx.SamplesDistTableName)).
+		AndPreWhere(
+			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(fromNs)),
+			sql.Lt(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(toNs)),
+			sql.NewIn(sql.NewRawObject("type_v2"), sql.NewIntVal(0), sql.NewIntVal(1)),
+		)
+
+	if script != nil && script.StrSelector != nil && len(script.StrSelector.StrSelCmds) > 0 {
+		fpPlanner, err := logql_transpiler.PlanFingerprints(script)
+		if err != nil {
+			return nil, err
+		}
+		fpSelect, err := fpPlanner.Process(plannerCtx)
+		if err != nil {
+			return nil, err
+		}
+		fpWith := sql.NewWith(fpSelect, "fp_sel")
+		statsQuery = statsQuery.
+			With(fpWith).
+			AndWhere(sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(fpWith)))
+	}
+
+	var opts []int
+	if plannerCtx.IsCluster {
+		opts = append(opts, sql.STRING_OPT_INLINE_WITH)
+	}
+	strQuery, err := statsQuery.String(plannerCtx.CHSqlCtx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := conn.Session.QueryCtx(_ctx, strQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result model.IndexStatsResult
+	if rows.Next() {
+		if err = rows.Scan(&result.Streams, &result.Entries, &result.Bytes, &result.Chunks); err != nil {
+			return nil, err
+		}
+	}
+	return &result, nil
+}
+
 type Watcher struct {
-	res    chan model.QueryRangeOutput
-	ctx    context.Context
-	cancel context.CancelFunc
+	res       chan model.QueryRangeOutput
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
 }
 
 func NewWatcher(res chan model.QueryRangeOutput) model.IWatcher {
@@ -795,7 +917,7 @@ func (w *Watcher) GetRes() chan model.QueryRangeOutput {
 }
 
 func (w *Watcher) Close() {
-	w.cancel()
+	w.closeOnce.Do(w.cancel)
 }
 
 func writeMap(stream *jsoniter.Stream, m map[string]string) {
