@@ -22,7 +22,7 @@ require (
 	github.com/go-faster/city v1.0.1
 	github.com/go-faster/jx v1.1.0
 	github.com/go-kit/kit v0.13.0
-	github.com/go-logfmt/logfmt v0.6.0
+	github.com/go-logfmt/logfmt v0.6.1
 	github.com/gofiber/fiber/v3 v3.2.0
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc
