@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -134,7 +135,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]},
 			"instrumentationLibrarySpans": [{ "spans": [`))
 		for i, span := range spans {
-			res, err := json.Marshal(unmarshal.SpanToJSONSpan(span.Span))
+			res, err := json.Marshal(unmarshal.SpanToJSONSpan(span.Span, span.ServiceName))
 			if err != nil {
 				PromError(500, err.Error(), w)
 				return
@@ -227,14 +228,44 @@ func (t *TempoController) TagsV2(w http.ResponseWriter, r *http.Request) {
 		arrRes = append(arrRes, v)
 	}
 
-	res := map[string]any{
-		"scopes": []any{
-			map[string]any{
-				"name": "unscoped",
-				"tags": arrRes,
-			},
-		},
+	// Known OpenTelemetry resource attribute prefixes
+	resourcePrefixes := []string{
+		"service.", "telemetry.", "deployment.", "host.", "os.", "process.",
+		"container.", "k8s.", "cloud.", "faas.", "device.", "webengine.",
 	}
+	resourceExact := map[string]bool{
+		"instance": true, "local_endpoint_service_name": true,
+	}
+
+	var resourceTags, spanTags []string
+	for _, tag := range arrRes {
+		isResource := resourceExact[tag]
+		if !isResource {
+			for _, prefix := range resourcePrefixes {
+				if strings.HasPrefix(tag, prefix) {
+					isResource = true
+					break
+				}
+			}
+		}
+		if isResource {
+			resourceTags = append(resourceTags, tag)
+		} else {
+			spanTags = append(spanTags, tag)
+		}
+	}
+	intrinsicTags := []string{"duration", "name", "status", "statusMessage", "kind", "rootName", "rootServiceName", "traceDuration"}
+
+	scopes := []any{}
+	if len(resourceTags) > 0 {
+		scopes = append(scopes, map[string]any{"name": "resource", "tags": resourceTags})
+	}
+	if len(spanTags) > 0 {
+		scopes = append(scopes, map[string]any{"name": "span", "tags": spanTags})
+	}
+	scopes = append(scopes, map[string]any{"name": "intrinsic", "tags": intrinsicTags})
+
+	res := map[string]any{"scopes": scopes}
 
 	bRes, err := json.Marshal(res)
 	if err != nil {
@@ -441,23 +472,35 @@ func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	if err != nil {
 		return nil, fmt.Errorf("limit: %v", err)
 	}
-	startS, err := strconv.Atoi(orDefault(r.URL.Query().Get("start"), "0"))
+	startS, err := strconv.ParseInt(orDefault(r.URL.Query().Get("start"), "0"), 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("start: %v", err)
 	}
-	res.Start = time.Unix(int64(startS), 0)
+	res.Start = epochToTime(startS)
 	if startS == 0 {
 		res.Start = time.Now().Add(time.Hour * -6)
 	}
-	endS, err := strconv.Atoi(orDefault(r.URL.Query().Get("end"), "0"))
+	endS, err := strconv.ParseInt(orDefault(r.URL.Query().Get("end"), "0"), 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("end: %v", err)
 	}
-	res.End = time.Unix(int64(endS), 0)
+	res.End = epochToTime(endS)
 	if endS == 0 {
 		res.End = time.Now()
 	}
 	return &res, nil
+}
+
+// epochToTime converts an epoch timestamp to time.Time, handling seconds, milliseconds, and nanoseconds.
+func epochToTime(v int64) time.Time {
+	switch {
+	case v >= 1e18:
+		return time.Unix(0, v)
+	case v >= 1e12:
+		return time.Unix(0, v*int64(time.Millisecond))
+	default:
+		return time.Unix(v, 0)
+	}
 }
 
 func orDefault(str string, def string) string {
@@ -465,4 +508,206 @@ func orDefault(str string, def string) string {
 		return def
 	}
 	return str
+}
+
+// MetricsQueryRange handles /api/metrics/query_range and /tempo/api/metrics/query_range.
+func (t *TempoController) MetricsQueryRange(w http.ResponseWriter, r *http.Request) {
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	req, err := parseMetricsRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	resp, err := t.Service.MetricsQueryRange(internalCtx, req)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// MetricsQueryInstant handles /api/metrics/query and /tempo/api/metrics/query.
+func (t *TempoController) MetricsQueryInstant(w http.ResponseWriter, r *http.Request) {
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	req, err := parseMetricsRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	resp, err := t.Service.MetricsQueryInstant(internalCtx, req)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// parseMetricsRequest parses query parameters for metrics endpoints.
+func parseMetricsRequest(r *http.Request) (*model.MetricsQueryRequest, error) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		q = r.URL.Query().Get("query")
+	}
+	if q == "" {
+		return nil, fmt.Errorf("missing required parameter: q")
+	}
+
+	now := time.Now()
+	var from, to time.Time
+
+	sinceStr := r.URL.Query().Get("since")
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	if startStr != "" {
+		fromTS, err := parseTempoTimestamp(startStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid start: %w", err)
+		}
+		from = fromTS
+	}
+	if endStr != "" {
+		toTS, err := parseTempoTimestamp(endStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid end: %w", err)
+		}
+		to = toTS
+	}
+
+	if from.IsZero() && to.IsZero() {
+		if sinceStr == "" {
+			sinceStr = "1h"
+		}
+		sinceDur, err := parseMetricsDuration(sinceStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid since: %w", err)
+		}
+		to = now
+		from = now.Add(-sinceDur)
+	} else if from.IsZero() {
+		from = to.Add(-time.Hour)
+	} else if to.IsZero() {
+		to = now
+	}
+
+	var step time.Duration
+	stepStr := r.URL.Query().Get("step")
+	if stepStr != "" {
+		stepDur, err := parseMetricsDuration(stepStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid step: %w", err)
+		}
+		step = stepDur
+	}
+	if step == 0 {
+		step = autoStep(from, to)
+	}
+
+	return &model.MetricsQueryRequest{
+		Query: q,
+		From:  from,
+		To:    to,
+		Step:  step,
+	}, nil
+}
+
+// parseTempoTimestamp parses a Tempo-style timestamp (unix seconds, nanoseconds, or RFC3339).
+func parseTempoTimestamp(s string) (time.Time, error) {
+	if !strings.Contains(s, "T") && !strings.Contains(s, "-") {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err == nil {
+			if n > 1e15 {
+				return time.Unix(0, n), nil
+			}
+			return time.Unix(n, 0), nil
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err == nil {
+			sec := int64(f)
+			nsec := int64((f - float64(sec)) * 1e9)
+			return time.Unix(sec, nsec), nil
+		}
+		return time.Time{}, fmt.Errorf("cannot parse timestamp %q", s)
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("cannot parse timestamp %q: %w", s, err)
+	}
+	return t, nil
+}
+
+// parseMetricsDuration parses a duration string like "15s", "1m", "1h" or plain float seconds.
+func parseMetricsDuration(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err == nil {
+		return d, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err == nil {
+		ts := f * float64(time.Second)
+		if ts > float64(math.MaxInt64) || ts < float64(math.MinInt64) {
+			return 0, fmt.Errorf("duration %q overflows", s)
+		}
+		return time.Duration(ts), nil
+	}
+	return 0, fmt.Errorf("cannot parse duration %q", s)
+}
+
+const (
+	metricsMaxPoints  = 5000
+	metricsMinStepSec = 1
+)
+
+// autoStep computes a reasonable step for the given time range.
+func autoStep(from, to time.Time) time.Duration {
+	rangeSec := to.Sub(from).Seconds()
+	stepSec := rangeSec / float64(metricsMaxPoints)
+	if stepSec < metricsMinStepSec {
+		stepSec = metricsMinStepSec
+	}
+	switch {
+	case stepSec <= 1:
+		return time.Second
+	case stepSec <= 5:
+		return 5 * time.Second
+	case stepSec <= 10:
+		return 10 * time.Second
+	case stepSec <= 15:
+		return 15 * time.Second
+	case stepSec <= 30:
+		return 30 * time.Second
+	case stepSec <= 60:
+		return time.Minute
+	case stepSec <= 300:
+		return 5 * time.Minute
+	case stepSec <= 600:
+		return 10 * time.Minute
+	case stepSec <= 900:
+		return 15 * time.Minute
+	case stepSec <= 1800:
+		return 30 * time.Minute
+	case stepSec <= 3600:
+		return time.Hour
+	default:
+		hours := int(math.Ceil(stepSec / 3600))
+		return time.Duration(hours) * time.Hour
+	}
 }

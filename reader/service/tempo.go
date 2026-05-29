@@ -519,10 +519,8 @@ func parseZipkinJSON(payload *zipkinPayload, parser *fastjson.Parser, _ bool) (*
 			})
 		}
 	}
-	span.Attributes = append(span.Attributes, &common.KeyValue{
-		Key:   "service.name",
-		Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: serviceName}},
-	})
+	// service.name belongs in the resource (added by tempoController), not in span attributes.
+	// Adding it here would cause Grafana to emit duplicate service_name matchers in trace-to-logs queries.
 	for _, anno := range root.GetArray("annotations") {
 		ts := anno.GetUint64("timestamp") * 1000
 		if ts == 0 {

@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"regexp"
 	"strconv"
@@ -42,6 +43,13 @@ func (e *otlpLogDec) Decode() error {
 				// Extract severity_text and add as level label
 				if severityText := logRecord.SeverityText; severityText != "" {
 					attrsMap["level"] = severityText
+				}
+				// Extract first-class OTLP trace context fields (override any same-named attribute).
+				if tid := logRecord.TraceId; len(tid) == 16 && !isZeroBytes(tid) {
+					attrsMap["trace_id"] = hex.EncodeToString(tid)
+				}
+				if sid := logRecord.SpanId; len(sid) == 8 && !isZeroBytes(sid) {
+					attrsMap["span_id"] = hex.EncodeToString(sid)
 				}
 
 				for k, v := range attrsMap {
@@ -123,6 +131,15 @@ func SanitizeValue(value *otlpcommon.AnyValue) string {
 
 func (e *otlpLogDec) SetOnEntries(h onEntriesHandler) {
 	e.onEntries = h
+}
+
+func isZeroBytes(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 var UnmarshalOTLPLogsV2 = Build(

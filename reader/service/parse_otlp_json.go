@@ -30,50 +30,32 @@ func setInt64(val any) int64 {
 	return res
 }
 
-func getRawAttr(attrs []any, key string) map[string]any {
-	for _, attr := range attrs {
-		_attr := attr.(map[string]any)
-		if _attr["key"] == key {
-			return _attr
-		}
-	}
-	return nil
-}
-
-func getRawVal(attrs []any, key string) map[string]any {
-	attr := getRawAttr(attrs, key)
-	if attr == nil {
-		return nil
-	}
-	return attr["value"].(map[string]any)
-}
-
-func otlpGetServiceNames(attrs []any) (string, string) {
+func otlpGetServiceNames(attrs []*common.KeyValue) (string, string) {
 	local := ""
 	remote := ""
 	for _, attr := range []string{
 		"peer.service", "service.name", "faas.name", "k8s.deployment.name", "process.executable.name",
 	} {
-		val := getRawVal(attrs, attr)
+		val := getAttr(attrs, attr)
 		if val == nil {
 			continue
 		}
-		_val, ok := val["stringValue"]
-		if !ok {
+		local = val.Value.GetStringValue()
+		if local == "" {
 			continue
 		}
-		local = _val.(string)
+		break
 	}
 	for _, attr := range []string{"service.name", "faas.name", "k8s.deployment.name", "process.executable.name"} {
-		val := getRawVal(attrs, attr)
+		val := getAttr(attrs, attr)
 		if val == nil {
 			continue
 		}
-		_val, ok := val["stringValue"]
-		if !ok {
+		remote = val.Value.GetStringValue()
+		if remote == "" {
 			continue
 		}
-		remote = _val.(string)
+		break
 	}
 	if local == "" {
 		local = "OTLPResourceNoServiceName"
@@ -110,7 +92,6 @@ func setRawValue(rawVal map[string]any, val *common.AnyValue) {
 		}
 	}
 	if rawVal["intValue"] != nil {
-
 		val.Value = &common.AnyValue_IntValue{
 			IntValue: toInt64(rawVal["intValue"]),
 		}
@@ -194,7 +175,20 @@ func parseOTLPJson(payload *zipkinPayload) (*v1.Span, error) {
 	setTimestamps(rawSpan, span)
 
 	attributes := setTyped[[]any](rawSpan["attributes"])
-	localServiceName, remoteServiceName := otlpGetServiceNames(attributes)
+	for _, a := range attributes {
+		_a, ok := a.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		attr := getAttr(span.Attributes, _a["key"].(string))
+		if attr == nil {
+			continue
+		}
+		setRawValue(_a["value"].(map[string]any), attr.Value)
+	}
+
+	localServiceName, remoteServiceName := otlpGetServiceNames(span.Attributes)
 	attr := getAttr(span.Attributes, "service.name")
 	if attr != nil {
 		attr.Value.Value = &common.AnyValue_StringValue{
@@ -224,22 +218,6 @@ func parseOTLPJson(payload *zipkinPayload) (*v1.Span, error) {
 				},
 			},
 		})
-	}
-
-	for _, a := range attributes {
-		_a, ok := a.(map[string]any)
-		if !ok {
-			continue
-		}
-		if _a["key"] == "service.name" || _a["key"] == "remoteService.name" {
-			continue
-		}
-
-		attr := getAttr(span.Attributes, _a["key"].(string))
-		if attr == nil {
-			continue
-		}
-		setRawValue(_a["value"].(map[string]any), attr.Value)
 	}
 	return span, err
 }

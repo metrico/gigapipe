@@ -31,6 +31,14 @@ type planner struct {
 }
 
 func (p *planner) plan() (shared.SQLRequestPlanner, error) {
+	// Unwrap a single pure-wrapper paren: ({A}) → {A}.
+	// Do NOT unwrap when the outer has Op/Tail/MetricsFn — that would lose those nodes.
+	if p.script.ParenExpr != nil &&
+		p.script.Op == "" && p.script.Tail == nil &&
+		p.script.MetricsFn == nil && p.script.WithHints == nil && p.script.SecondStage == nil {
+		p.script = p.script.ParenExpr
+	}
+
 	var res shared.SQLRequestPlanner
 	var err error
 	if p.script.Tail == nil {
@@ -70,7 +78,30 @@ func (p *planner) getPrefix() string {
 
 func (p *planner) planComplex(root iExpressionPlanner, current iExpressionPlanner,
 	script *traceql_parser.TraceQLScript) {
-	switch script.AndOr {
+	// Unwrap parenthesized expressions
+	for script.ParenExpr != nil {
+		inner := script.ParenExpr
+		if inner.Tail == nil {
+			// Atomic inner: safe to promote outer Op/Tail into inner.
+			inner.Op = script.Op
+			inner.Tail = script.Tail
+			script = inner
+		} else if script.Op == "" && script.Tail == nil {
+			// Complex inner, no outer Op/Tail: pure wrapper, safe to substitute.
+			script = inner
+		} else {
+			// Complex inner with outer Op/Tail: can't safely flatten.
+			// Break and let the planner treat the paren group as an opaque selector.
+			break
+		}
+	}
+	// For structural operators (&>>, !>>, <<&, <<~, ~), treat as && (flatten structural hierarchy)
+	op := script.Op
+	switch op {
+	case "&>>", "!>>", "<<&", "<<~", "~":
+		op = "&&"
+	}
+	switch op {
 	case "":
 		current.addOp(&simpleExpressionPlanner{script: script, prefix: p.getPrefix()})
 	case "&&":
@@ -98,6 +129,13 @@ func (p *planner) planComplex(root iExpressionPlanner, current iExpressionPlanne
 }
 
 func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
+	// Unwrap a single pure-wrapper paren: ({A}) → {A}.
+	if p.script.ParenExpr != nil &&
+		p.script.Op == "" && p.script.Tail == nil &&
+		p.script.MetricsFn == nil && p.script.WithHints == nil && p.script.SecondStage == nil {
+		p.script = p.script.ParenExpr
+	}
+
 	var (
 		res shared.SQLRequestPlanner
 		err error
