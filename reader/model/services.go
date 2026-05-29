@@ -16,6 +16,8 @@ type ITempoService interface {
 		limit int, fromNS int64, toNS int64) (chan *TraceResponse, error)
 	SearchTraceQL(ctx context.Context, q string, limit int, from time.Time, to time.Time) (chan []TraceInfo, error)
 	TagsV2(ctx context.Context, query string, from time.Time, to time.Time, limit int) (chan string, error)
+	MetricsQueryRange(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryRangeResponse, error)
+	MetricsQueryInstant(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryInstantResponse, error)
 }
 
 type IQueryLabelsService interface {
@@ -33,7 +35,8 @@ type IQueryRangeService interface {
 		limit int64, forward bool) (chan QueryRangeOutput, error)
 	QueryInstant(ctx context.Context, query string, timeNs int64, stepMs int64,
 		limit int64) (chan QueryRangeOutput, error)
-	Tail(ctx context.Context, query string) (IWatcher, error)
+	Tail(ctx context.Context, query string, tailLimit int64, startNs int64) (IWatcher, error)
+	QueryIndexStats(ctx context.Context, query string, fromNs, toNs int64) (*IndexStatsResult, error)
 }
 
 // Service : here you tell us what Salutation is

@@ -11,7 +11,7 @@ import (
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-func SpanToJSONSpan(span *v1.Span) *model.JSONSpan {
+func SpanToJSONSpan(span *v1.Span, serviceName string) *model.JSONSpan {
 	res := &model.JSONSpan{
 		TraceID:           hex.EncodeToString(span.TraceId),
 		TraceId:           hex.EncodeToString(span.TraceId),
@@ -20,7 +20,7 @@ func SpanToJSONSpan(span *v1.Span) *model.JSONSpan {
 		Name:              span.Name,
 		StartTimeUnixNano: span.StartTimeUnixNano,
 		EndTimeUnixNano:   span.EndTimeUnixNano,
-		ServiceName:       "",
+		ServiceName:       serviceName,
 		Attributes:        make([]model.JSONSpanAttribute, len(span.Attributes)),
 		Events:            make([]model.JSONSpanEvent, len(span.Events)),
 		Status:            span.Status,
@@ -49,9 +49,29 @@ func SpanToJSONSpan(span *v1.Span) *model.JSONSpan {
 		}
 		res.Attributes[i] = _attr
 	}
+	// Prefer service.name from span attributes if already present
 	for _, attr := range span.Attributes {
 		if attr.Key == "service.name" && attr.Value.GetStringValue() != "" {
 			res.ServiceName = attr.Value.GetStringValue()
+		}
+	}
+	// If serviceName was provided externally (e.g. from DB) but not in span attributes, inject it
+	// to avoid duplicate service_name matchers in Grafana trace-to-logs correlation queries.
+	if res.ServiceName != "" {
+		hasServiceName := false
+		for _, a := range res.Attributes {
+			if a.Key == "service.name" {
+				hasServiceName = true
+				break
+			}
+		}
+		if !hasServiceName {
+			res.Attributes = append(res.Attributes, model.JSONSpanAttribute{
+				Key: "service.name",
+				Value: struct {
+					StringValue string `json:"stringValue"`
+				}{StringValue: res.ServiceName},
+			})
 		}
 	}
 	if len(span.ParentSpanId) > 0 && hex.EncodeToString(span.ParentSpanId) != "0000000000000000" {

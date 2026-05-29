@@ -3,7 +3,35 @@ package service
 import (
 	"fmt"
 	"testing"
+
+	common "go.opentelemetry.io/proto/otlp/common/v1"
 )
+
+func TestOtlpGetServiceNamesUsesFirstNonEmptyPreferredAttribute(t *testing.T) {
+	attrs := []*common.KeyValue{
+		otlpStringAttr("peer.service", ""),
+		otlpStringAttr("service.name", "svc"),
+		otlpStringAttr("faas.name", "fn"),
+		otlpStringAttr("process.executable.name", "proc"),
+	}
+
+	local, remote := otlpGetServiceNames(attrs)
+	if local != "svc" {
+		t.Fatalf("local service name = %q, want %q", local, "svc")
+	}
+	if remote != "svc" {
+		t.Fatalf("remote service name = %q, want %q", remote, "svc")
+	}
+}
+
+func otlpStringAttr(key, value string) *common.KeyValue {
+	return &common.KeyValue{
+		Key: key,
+		Value: &common.AnyValue{
+			Value: &common.AnyValue_StringValue{StringValue: value},
+		},
+	}
+}
 
 func TestOTLPToJSON(t *testing.T) {
 	str := `{

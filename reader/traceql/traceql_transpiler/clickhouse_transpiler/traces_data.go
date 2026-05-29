@@ -53,7 +53,7 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			AndWhere(sql.NewIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef)).
 			GroupBy(sql.NewRawObject("traces.trace_id")),
 		"traces_info")
-	return sql.NewSelect().
+	res := sql.NewSelect().
 		With(withMain, withTraceIds, withTraceIdsSpanIds, withTracesInfo).
 		Select(
 			sql.NewSimpleCol("lower(hex(traces.trace_id))", "trace_id"),
@@ -75,5 +75,12 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
 			sql.NewIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
 		GroupBy(sql.NewRawObject("traces.trace_id")).
-		OrderBy(sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC)), nil
+		OrderBy(sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC))
+
+	// Apply intrinsic filters (e.g., nestedSetParent<0 → parent_id = '')
+	for _, cond := range ctx.TracesIntrinsicWhere {
+		res.AndWhere(cond)
+	}
+
+	return res, nil
 }

@@ -1,6 +1,6 @@
 module github.com/metrico/qryn/v4
 
-go 1.26.2
+go 1.26.3
 
 replace (
 	cloud.google.com/go/compute v0.2.0 => cloud.google.com/go/compute v1.7.0
@@ -14,15 +14,15 @@ require (
 	github.com/ClickHouse/ch-go v0.71.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/Masterminds/sprig v2.22.0+incompatible
-	github.com/VictoriaMetrics/fastcache v1.12.2
+	github.com/VictoriaMetrics/fastcache v1.13.3
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
 	github.com/c2h5oh/datasize v0.0.0-20231215233829-aa82cc1e6500
 	github.com/go-faster/city v1.0.1
-	github.com/go-faster/jx v1.1.0
+	github.com/go-faster/jx v1.2.0
 	github.com/go-kit/kit v0.13.0
-	github.com/go-logfmt/logfmt v0.6.0
+	github.com/go-logfmt/logfmt v0.6.1
 	github.com/gofiber/fiber/v3 v3.2.0
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc
@@ -47,7 +47,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fastjson v1.6.4
 	go.opentelemetry.io/collector/pdata v1.57.0
-	go.opentelemetry.io/proto/otlp v1.9.0
+	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
 	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.81.0

@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"html"
 	"sort"
 	"strings"
 
@@ -461,10 +460,60 @@ func findNode(nodeID uint64, children []*TreeNodeV2) int {
 	return -1
 }
 
+// fmtValue formats a raw sample value into a human-readable string based on the unit.
+// nanoseconds → "1.23s", bytes → "1.23 MB", everything else → plain integer.
+func fmtValue(v int64, unit string) string {
+	switch unit {
+	case "nanoseconds":
+		return fmt.Sprintf("%.2fs", float64(v)/1e9)
+	case "microseconds":
+		return fmt.Sprintf("%.2fms", float64(v)/1e3)
+	case "milliseconds":
+		return fmt.Sprintf("%.2fs", float64(v)/1e3)
+	case "bytes":
+		switch {
+		case v >= 1<<30:
+			return fmt.Sprintf("%.2f GB", float64(v)/float64(1<<30))
+		case v >= 1<<20:
+			return fmt.Sprintf("%.2f MB", float64(v)/float64(1<<20))
+		case v >= 1<<10:
+			return fmt.Sprintf("%.2f KB", float64(v)/float64(1<<10))
+		default:
+			return fmt.Sprintf("%d B", v)
+		}
+	default:
+		return fmt.Sprintf("%d", v)
+	}
+}
+
+// dotTitle turns "process_cpu:cpu:nanoseconds:cpu:nanoseconds" into "process_cpu (cpu, nanoseconds)".
+func dotTitle(profileName string) string {
+	parts := strings.SplitN(profileName, ":", 3)
+	if len(parts) < 3 {
+		return profileName
+	}
+	sub := strings.SplitN(parts[2], ":", 2)
+	unit := sub[0]
+	return fmt.Sprintf("%s (%s, %s)", parts[0], parts[1], unit)
+}
+
+// nodeFontSize scales font size 8–24 based on self-sample percentage (hotter = bigger).
+func nodeFontSize(selfVal, totalVal int64) int {
+	if totalVal == 0 || selfVal == 0 {
+		return 8
+	}
+	ratio := float64(selfVal) / float64(totalVal)
+	if ratio > 1 {
+		ratio = 1
+	}
+	return 8 + int(ratio*16)
+}
+
 // ToDot converts the tree to Graphviz DOT format suitable for flamegraph visualization and AI analysis.
 // sampleType should be in "type:unit" form (e.g. "cpu:nanoseconds").
 // profileName is used as the graph title (e.g. "process_cpu:cpu:nanoseconds:cpu:nanoseconds").
-func (t *Tree) ToDot(sampleType string, profileName string) string {
+// maxNodes limits output to the top-N nodes by total sample count (0 = unlimited).
+func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string {
 	sampleTypeIndex := -1
 	for i, st := range t.SampleTypes {
 		if st == sampleType {
@@ -480,6 +529,34 @@ func (t *Tree) ToDot(sampleType string, profileName string) string {
 	var totalVal int64
 	if len(total) > sampleTypeIndex {
 		totalVal = total[sampleTypeIndex]
+	}
+
+	// unit is the second part of sampleType, e.g. "nanoseconds" from "cpu:nanoseconds"
+	unit := ""
+	if idx := strings.Index(sampleType, ":"); idx >= 0 {
+		unit = sampleType[idx+1:]
+	}
+
+	// Collect all node totals and compute a pruning threshold when maxNodes is set.
+	// We keep any node whose total >= threshold (top-N by total sample count).
+	var threshold int64
+	if maxNodes > 0 {
+		var allTotals []int64
+		for _, children := range t.Nodes {
+			for _, child := range children {
+				if len(child.Total) > sampleTypeIndex {
+					allTotals = append(allTotals, child.Total[sampleTypeIndex])
+				}
+			}
+		}
+		if len(allTotals) > maxNodes {
+			sort.Slice(allTotals, func(i, j int) bool { return allTotals[i] > allTotals[j] })
+			threshold = allTotals[maxNodes-1]
+		}
+	}
+
+	keep := func(nodeTotal int64) bool {
+		return threshold == 0 || nodeTotal >= threshold
 	}
 
 	pct := func(v int64) float64 {
@@ -510,13 +587,15 @@ func (t *Tree) ToDot(sampleType string, profileName string) string {
 		return nextID - 1
 	}
 
+	title := dotTitle(profileName)
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("digraph %q {\n", html.EscapeString(profileName)))
-	sb.WriteString("  node [shape=box fontsize=12];\n")
+	sb.WriteString(fmt.Sprintf("digraph %q {\n", title))
+	sb.WriteString(fmt.Sprintf("  // Profile: %s  Total: %s\n", profileName, fmtValue(totalVal, unit)))
+	sb.WriteString("  node [shape=box];\n")
 	sb.WriteString("  edge [fontsize=10];\n")
 	rootSeq := assignID(0)
-	sb.WriteString(fmt.Sprintf("  N%d [label=%q style=filled fillcolor=\"#eeeeee\"];\n",
-		rootSeq, fmt.Sprintf("total\nsamples: %d (100%%)", totalVal)))
+	sb.WriteString(fmt.Sprintf("  N%d [label=%q fontsize=12 style=filled fillcolor=\"#eeeeee\"];\n",
+		rootSeq, fmt.Sprintf("total\n%s (100%%)", fmtValue(totalVal, unit))))
 
 	visited := make(map[uint64]bool)
 	visited[0] = true
@@ -536,6 +615,10 @@ func (t *Tree) ToDot(sampleType string, profileName string) string {
 			if visited[child.NodeID] {
 				continue
 			}
+			childTotal := child.Total[sampleTypeIndex]
+			if !keep(childTotal) {
+				continue
+			}
 			visited[child.NodeID] = true
 			childSeq := assignID(child.NodeID)
 
@@ -545,14 +628,16 @@ func (t *Tree) ToDot(sampleType string, profileName string) string {
 			}
 
 			selfVal := child.Self[sampleTypeIndex]
-			childTotal := child.Total[sampleTypeIndex]
-			label := fmt.Sprintf("%s\ntotal: %d (%.1f%%) self: %d (%.1f%%)",
-				name, childTotal, pct(childTotal), selfVal, pct(selfVal))
+			label := fmt.Sprintf("%s\ntotal: %s (%.1f%%) self: %s (%.1f%%)",
+				name,
+				fmtValue(childTotal, unit), pct(childTotal),
+				fmtValue(selfVal, unit), pct(selfVal))
 
 			fillColor := heatColor(selfVal, totalVal)
+			fontSize := nodeFontSize(selfVal, totalVal)
 
-			sb.WriteString(fmt.Sprintf("  N%d [label=%q style=filled fillcolor=%q];\n",
-				childSeq, label, fillColor))
+			sb.WriteString(fmt.Sprintf("  N%d [label=%q fontsize=%d style=filled fillcolor=%q];\n",
+				childSeq, label, fontSize, fillColor))
 			sb.WriteString(fmt.Sprintf("  N%d -> N%d [label=%q weight=%d];\n",
 				parentSeq, childSeq,
 				fmt.Sprintf("%.1f%%", pct(childTotal)),
