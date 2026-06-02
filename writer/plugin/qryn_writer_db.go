@@ -219,10 +219,6 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		SplSvcs[node.Node].Init()
 		go SplSvcs[node.Node].Run()
 
-		table := "qryn_fingerprints"
-		if node.ClusterName != "" {
-			table += "_dist"
-		}
 	}
 
 	ServiceRegistry = registry.NewStaticServiceRegistry(registry.StaticServiceRegistryOpts{
