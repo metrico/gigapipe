@@ -35,7 +35,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/json-iterator/go v1.1.12
 	github.com/kr/logfmt v0.0.0-20210122060352-19f9bcb100e6
-	github.com/labstack/gommon v0.4.2
+	github.com/labstack/gommon v0.5.0
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/metrico/cloki-config v0.0.92
 	github.com/pkg/errors v0.9.1
