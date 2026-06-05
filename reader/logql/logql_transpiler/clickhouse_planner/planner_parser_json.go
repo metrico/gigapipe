@@ -79,10 +79,9 @@ func (s *sqlJsonParser) path2Sql(path []string, ctx *sql.Ctx, opts ...int) (stri
 			return "", err
 		}
 	}
-	partId := fmt.Sprintf("jp_%d", ctx.Id())
 
-	return fmt.Sprintf(`if(JSONType(%[3]s, %[1]s as %[2]s) == 'String', `+
-		`JSONExtractString(%[3]s, %[2]s), `+
-		`JSONExtractRaw(%[3]s, %[2]s)`+
-		`)`, strings.Join(res, ","), partId, colName), nil
+	return fmt.Sprintf(`if(JSONType(%[2]s, %[1]s) == 'String', `+
+		`JSONExtractString(%[2]s, %[1]s), `+
+		`JSONExtractRaw(%[2]s, %[1]s)`+
+		`)`, strings.Join(res, ","), colName), nil
 }
