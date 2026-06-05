@@ -45,7 +45,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/bytebufferpool v1.0.0
-	github.com/valyala/fastjson v1.6.4
+	github.com/valyala/fastjson v1.6.10
 	go.opentelemetry.io/collector/pdata v1.59.0
 	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
