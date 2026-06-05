@@ -11,7 +11,7 @@ replace (
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.71.0
+	github.com/ClickHouse/ch-go v0.72.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/VictoriaMetrics/fastcache v1.13.3
