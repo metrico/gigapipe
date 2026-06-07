@@ -198,9 +198,9 @@ func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 			match: rawParams.Match,
 		}, nil
 	}
-
 	return &promLabelsParams{
 		start: parserTimeString(r.URL.Query().Get("start"), time.Now().Add(time.Hour*-6)),
 		end:   parserTimeString(r.URL.Query().Get("end"), time.Now().Add(time.Hour*-6)),
+		match: r.URL.Query()["match[]"],
 	}, nil
 }
