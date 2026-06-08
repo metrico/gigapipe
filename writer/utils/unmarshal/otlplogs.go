@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/metrico/qryn/v4/writer/model"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
@@ -58,6 +59,13 @@ func (e *otlpLogDec) Decode() error {
 				// Extract other log record fields
 				message := logRecord.Body.GetStringValue()
 				timestamp := logRecord.TimeUnixNano
+
+				if timestamp == 0 {
+					timestamp = logRecord.ObservedTimeUnixNano
+				}
+				if timestamp == 0 {
+					timestamp = uint64(time.Now().UnixNano())
+				}
 				// Call onEntries with labels and other details
 				err := e.onEntries(
 					labels,
