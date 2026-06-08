@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"html"
 	"io"
 	"strings"
 	"time"
@@ -492,6 +493,8 @@ func (ps *ProfService) RenderDot(ctx context.Context, strQuery string, from, to 
 	}
 
 	sampleTypeUnit := fmt.Sprintf("%s:%s", typeId.SampleType, typeId.SampleUnit)
+	strTypeId = html.EscapeString(strTypeId)
+
 	return tree.ToDot(sampleTypeUnit, strTypeId, maxNodes), nil
 }
 
