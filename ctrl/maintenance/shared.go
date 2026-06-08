@@ -37,6 +37,10 @@ func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2
 	if dbObject.Secure {
 		opt.TLS = &tls.Config{InsecureSkipVerify: true}
 	}
+	if dbObject.HttpPort != 0 {
+		opt.Addr = []string{fmt.Sprintf("%s:%d", dbObject.Host, dbObject.HttpPort)}
+		opt.Protocol = clickhouse_v2.HTTP
+	}
 	return clickhouse_v2.Open(opt)
 }
 
