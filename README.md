@@ -26,9 +26,16 @@
 
 # 🚀 Get Started
 
-* Setup & Deploy **gigapipe** _opensource_ using the [documentation](https://gigapipe.com/docs/oss) and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
+* Setup & Deploy **gigapipe** _opensource_ and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
 * Looking for a quick test before installing? Signup for a free trial at [gigapipe.com](https://gigapipe.com)
-* Looking for documentation? Ask the [Gigapipe Deepwiki](https://deepwiki.com/metrico/gigapipe)
+
+## 📚 Documentation
+
+- [Configuration & Docker](docs/configuration.md) — environment variables, Docker quickstart, cross-cluster setup
+- [Profiling API](docs/profiling-api.md) — profiling endpoints, DOT format export, Graphviz visualization
+- [Contributing](docs/contributing.md) — development setup, testing, CLA requirement
+- [Full Documentation](https://gigapipe.com/docs/oss) — hosted docs at gigapipe.com
+- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
 
 ## Features
 💡 _**gigapipe** independently implements popular observability standards, protocols and query languages_
@@ -208,12 +215,9 @@ With **gigapipe** and **Grafana** everything _just works_ right out of the box:
 
 ------------
 
-### Got Questions?
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
-
 #### Contributions
 
-Whether it's code, documentation or grammar, we ❤️ all contributions. Not sure where to get started?
+Whether it's code, documentation or grammar, we ❤️ all contributions. See [docs/contributing.md](docs/contributing.md) to get started.
 
 - Join our [Matrix Channel](https://matrix.to/#/#qryn:matrix.org), and ask us any questions.
 - Have a PR or idea? Request a session / code walkthrough with our team for guidance.
