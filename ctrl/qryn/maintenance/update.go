@@ -244,7 +244,7 @@ ENGINE=Distributed('{{.CLUSTER}}','{{.DB}}', 'ver', rand())`)
 	var ver uint64 = 0
 	if k >= 0 {
 		rows, err := db.Query(context.Background(),
-			fmt.Sprintf("SELECT max(ver) as ver FROM %s WHERE k = $1 FORMAT JSON", verTable), k)
+			fmt.Sprintf("SELECT max(ver) as ver FROM %s WHERE k = $1", verTable), k)
 		if err != nil {
 			return err
 		}

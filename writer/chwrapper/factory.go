@@ -22,6 +22,15 @@ func NewGeneralPurposeClient(ctx context.Context, dbObject *config.ClokiBaseData
 		databaseName = dbObject.Name
 	}
 
+	if dbObject.HttpPort != 0 {
+		scheme := "http"
+		if dbObject.Secure {
+			scheme = "https"
+		}
+		dsn := fmt.Sprintf("%s://%s:%s@%s:%d/%s", scheme, dbObject.User, dbObject.Password, dbObject.Host, dbObject.HttpPort, databaseName)
+		return NewHttpChClientFactory(dsn)()
+	}
+
 	opt := &clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", dbObject.Host, dbObject.Port)},
 		Auth: clickhouse.Auth{
@@ -66,6 +75,9 @@ func NewGeneralPurposeClientWithXDSN(ctx context.Context, Xdsn string, database 
 	}
 	dsn := Xdsn[2:] // The rest is the actual ClickHouse DSN
 
+	if strings.HasPrefix(dsn, "http://") || strings.HasPrefix(dsn, "https://") {
+		return NewHttpChClientFactory(dsn)()
+	}
 	return NewGeneralPurposeClientWithDSN(ctx, dsn, database)
 }
 
@@ -111,6 +123,15 @@ func NewWriterClient(ctx context.Context, dbObject *config.ClokiBaseDataBase, da
 	if database {
 		db = dbObject.Name
 	}
+
+	if dbObject.HttpPort != 0 {
+		scheme := "http"
+		if dbObject.Secure {
+			scheme = "https"
+		}
+		dsn := fmt.Sprintf("%s://%s:%s@%s:%d/%s", scheme, dbObject.User, dbObject.Password, dbObject.Host, dbObject.HttpPort, db)
+		return NewHttpChClientFactory(dsn)()
+	}
 	opts := ch.Options{
 		Address:     fmt.Sprintf("%s:%d", dbObject.Host, dbObject.Port),
 		Database:    db,
@@ -155,6 +176,9 @@ func NewWriterClientWithXDSN(ctx context.Context, Xdsn string, database bool) (I
 	}
 	dsn := Xdsn[2:] // The rest is the actual ClickHouse DSN
 
+	if strings.HasPrefix(dsn, "http://") || strings.HasPrefix(dsn, "https://") {
+		return NewHttpChClientFactory(dsn)()
+	}
 	return NewWriterClientWithDSN(ctx, dsn, database)
 
 }

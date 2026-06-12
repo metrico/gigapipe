@@ -71,6 +71,10 @@ func createDataDBSessions() ([]model.ISqlxDB, []*model.DataDatabasesMap) {
 			if dbObject.Secure {
 				opts.TLS = &tls.Config{InsecureSkipVerify: true}
 			}
+			if dbObject.HttpPort != 0 {
+				opts.Addr = []string{fmt.Sprintf("%s:%d", dbObject.Host, dbObject.HttpPort)}
+				opts.Protocol = clickhouse.HTTP
+			}
 			conn := clickhouse.OpenDB(opts)
 			conn.SetMaxOpenConns(dbObject.MaxOpenConn)
 			conn.SetMaxIdleConns(dbObject.MaxIdleConn)
@@ -86,14 +90,24 @@ func createDataDBSessions() ([]model.ISqlxDB, []*model.DataDatabasesMap) {
 			GetDB: getDB,
 			Name:  _dbObject.Node,
 		})
-		chDsn := "n-clickhouse://"
+		prefix := "n-"
 		if dbObject.ClusterName != "" {
-			chDsn = "c-clickhouse://"
+			prefix = "c-"
 		}
-		chDsn += dbObject.User + ":" + dbObject.Password + "@" + dbObject.Host +
-			strconv.FormatInt(int64(dbObject.Port), 10) + "/" + dbObject.Name
-		if dbObject.Secure {
-			chDsn += "?secure=true"
+		var chDsn string
+		if dbObject.HttpPort != 0 {
+			scheme := "http"
+			if dbObject.Secure {
+				scheme = "https"
+			}
+			chDsn = prefix + scheme + "://" + dbObject.User + ":" + dbObject.Password + "@" +
+				dbObject.Host + ":" + strconv.FormatInt(int64(dbObject.HttpPort), 10) + "/" + dbObject.Name
+		} else {
+			chDsn = prefix + "clickhouse://" + dbObject.User + ":" + dbObject.Password + "@" +
+				dbObject.Host + ":" + strconv.FormatInt(int64(dbObject.Port), 10) + "/" + dbObject.Name
+			if dbObject.Secure {
+				chDsn += "?secure=true"
+			}
 		}
 		dbNodeMaps = append(dbNodeMaps, &model.DataDatabasesMap{
 			Config: &dbObject,
