@@ -133,11 +133,48 @@ func (s *StrSelectorPipeline) String() string {
 
 type LineFilter struct {
 	Fn  string       `@("|="|"!="|"|~"|"!~"|"|>")`
-	Val QuotedString `@@`
+	Exp LineFilterExp `@@`
 }
 
 func (l *LineFilter) String() string {
-	return fmt.Sprintf(" %s %s", l.Fn, l.Val.String())
+	return l.Fn + " " + l.Exp.String()
+}
+
+type LineFilterExp struct {
+	Head LineFilterHead `@@`
+	Op string `@("and"|"or")?`
+	Tail *LineFilterExp `@@?`
+}
+
+func (l *LineFilterExp) String() string {
+	res := l.Head.String()
+	if l.Op != "" {
+		res += " " + l.Op
+	}
+	if l.Tail != nil {
+		res += " " + l.Tail.String()
+	}
+	return res
+}
+
+type LineFilterHead struct {
+	Complex *LineFilterExp        `( "(" @@ ")" )`
+	Simple  *LineFilterSimple  `| @@`
+}
+
+func (h *LineFilterHead) String() string {
+	if h.Complex != nil {
+		return "(" + h.Complex.String() + ")"
+	}
+	return h.Simple.String()
+}
+
+type LineFilterSimple struct {
+	Val QuotedString `@@`
+}
+
+func (s *LineFilterSimple) String() string {
+	return fmt.Sprintf("%s", s.Val.String())
 }
 
 type LabelFilter struct {

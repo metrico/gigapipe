@@ -5,14 +5,14 @@ import (
 	"regexp/syntax"
 	"strings"
 
+	log_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
 type LineFilterPlanner struct {
-	Op   string
-	Val  string
-	Main shared.SQLRequestPlanner
+	Filter *log_parser.LineFilter
+	Main   shared.SQLRequestPlanner
 }
 
 func (l *LineFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -20,58 +20,94 @@ func (l *LineFilterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 	if err != nil {
 		return nil, err
 	}
-
-	var clause sql.SQLCondition
-	switch l.Op {
-	case "|=":
-		clause, err = l.doLike("like")
-	case "!=":
-		clause, err = l.doLike("notLike")
-	case "|~":
-		likeStr, isInsensitive, isLike := l.re2Like()
-		if isLike {
-			l.Val = likeStr
-			like := "like"
-			if isInsensitive {
-				like = "ilike"
-			}
-			clause, err = l.doLike(like)
-		} else {
-			clause = sql.Eq(&SqlMatch{
-				col:     sql.NewRawObject("string"),
-				pattern: l.Val,
-			}, sql.NewIntVal(1))
-		}
-	case "!~":
-		likeStr, isInsensitive, isLike := l.re2Like()
-		if isLike {
-			l.Val = likeStr
-			like := "notLike"
-			if isInsensitive {
-				like = "notILike"
-			}
-			clause, err = l.doLike(like)
-		} else {
-			clause = sql.Eq(&SqlMatch{
-				col:     sql.NewRawObject("string"),
-				pattern: l.Val,
-			}, sql.NewIntVal(1))
-		}
-	case "|>":
-		likeOp := l.patternMatch(l.Val)
-		clause = sql.BinaryLogicalOp("LIKE", sql.NewRawObject("string"), sql.NewStringVal(likeOp))
-	default:
-		err = &shared.NotSupportedError{Msg: fmt.Sprintf("%s not supported", l.Op)}
-	}
-
+	clause, err := l.buildExpCondition(l.Filter.Fn, &l.Filter.Exp)
 	if err != nil {
 		return nil, err
 	}
 	return req.AndWhere(clause), nil
 }
 
-func (l *LineFilterPlanner) doLike(likeOp string) (sql.SQLCondition, error) {
-	enqVal, err := l.enquoteStr(l.Val)
+func (l *LineFilterPlanner) buildExpCondition(fn string, exp *log_parser.LineFilterExp) (sql.SQLCondition, error) {
+	head, err := l.buildHeadCondition(fn, &exp.Head)
+	if err != nil {
+		return nil, err
+	}
+	if exp.Op == "" {
+		return head, nil
+	}
+	tail, err := l.buildExpCondition(fn, exp.Tail)
+	if err != nil {
+		return nil, err
+	}
+	if exp.Op == "or" {
+		return sql.Or(head, tail), nil
+	}
+	return sql.And(head, tail), nil
+}
+
+func (l *LineFilterPlanner) buildHeadCondition(fn string, head *log_parser.LineFilterHead) (sql.SQLCondition, error) {
+	if head.Complex != nil {
+		return l.buildExpCondition(fn, head.Complex)
+	}
+	return l.buildSimpleCondition(fn, head.Simple)
+}
+
+func (l *LineFilterPlanner) buildSimpleCondition(fn string, s *log_parser.LineFilterSimple) (sql.SQLCondition, error) {
+	val, err := s.Val.Unquote()
+	if err != nil {
+		return nil, err
+	}
+	tmp := &lineFilterOps{val: val}
+	switch fn {
+	case "|=":
+		return tmp.doLike("like")
+	case "!=":
+		return tmp.doLike("notLike")
+	case "|~":
+		likeStr, isInsensitive, isLike := tmp.re2Like()
+		if isLike {
+			tmp.val = likeStr
+			like := "like"
+			if isInsensitive {
+				like = "ilike"
+			}
+			return tmp.doLike(like)
+		}
+		return sql.Eq(&SqlMatch{
+			col:     sql.NewRawObject("string"),
+			pattern: val,
+		}, sql.NewIntVal(1)), nil
+	case "!~":
+		likeStr, isInsensitive, isLike := tmp.re2Like()
+		if isLike {
+			tmp.val = likeStr
+			like := "notLike"
+			if isInsensitive {
+				like = "notILike"
+			}
+			return tmp.doLike(like)
+		}
+		return sql.Eq(&SqlMatch{
+			col:     sql.NewRawObject("string"),
+			pattern: val,
+		}, sql.NewIntVal(1)), nil
+	case "|>":
+		likeOp := patternMatch(val)
+		return sql.BinaryLogicalOp("LIKE", sql.NewRawObject("string"), sql.NewStringVal(likeOp)), nil
+	}
+	return nil, &shared.NotSupportedError{Msg: fmt.Sprintf("%s not supported", fn)}
+}
+
+// lineFilterOps holds per-value helpers (extracted from the old LineFilterPlanner methods).
+type lineFilterOps struct {
+	val string
+}
+
+func (o *lineFilterOps) doLike(likeOp string) (sql.SQLCondition, error) {
+	enqVal, err := sql.NewStringVal(o.val).String(&sql.Ctx{
+		Params: map[string]sql.SQLObject{},
+		Result: map[string]sql.SQLObject{},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +119,18 @@ func (l *LineFilterPlanner) doLike(likeOp string) (sql.SQLCondition, error) {
 	), nil
 }
 
-func (l *LineFilterPlanner) patternMatch(match string) string {
+func (o *lineFilterOps) re2Like() (string, bool, bool) {
+	exp, err := syntax.Parse(o.val, syntax.PerlX)
+	if err != nil {
+		return "", false, false
+	}
+	if exp.Op != syntax.OpLiteral || exp.Flags& ^(syntax.PerlX|syntax.FoldCase) != 0 {
+		return "", false, false
+	}
+	return string(exp.Rune), exp.Flags&syntax.FoldCase != 0, true
+}
+
+func patternMatch(match string) string {
 	match = strings.Replace(match, "%", "%%", -1)
 	parts := strings.Split(match, "<_>")
 	for i := len(parts) - 2; i >= 0; i-- {
@@ -101,22 +148,4 @@ func (l *LineFilterPlanner) patternMatch(match string) string {
 		}
 	}
 	return strings.Join(parts, "%")
-}
-
-func (l *LineFilterPlanner) enquoteStr(str string) (string, error) {
-	return sql.NewStringVal(str).String(&sql.Ctx{
-		Params: map[string]sql.SQLObject{},
-		Result: map[string]sql.SQLObject{},
-	})
-}
-
-func (l *LineFilterPlanner) re2Like() (string, bool, bool) {
-	exp, err := syntax.Parse(l.Val, syntax.PerlX)
-	if err != nil {
-		return "", false, false
-	}
-	if exp.Op != syntax.OpLiteral || exp.Flags & ^(syntax.PerlX|syntax.FoldCase) != 0 {
-		return "", false, false
-	}
-	return string(exp.Rune), exp.Flags&syntax.FoldCase != 0, true
 }

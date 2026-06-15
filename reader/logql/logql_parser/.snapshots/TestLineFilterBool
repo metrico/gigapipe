@@ -1,0 +1,5 @@
+([]*logql_parser.LogQLScript) (len=3) {
+  (*logql_parser.LogQLScript)({app="x"}|~ "POST" or "GET"),
+  (*logql_parser.LogQLScript)({app="x"}|= "a" and "b"),
+  (*logql_parser.LogQLScript)({app="x"}|= ("foo" or "bar") and "baz")
+}

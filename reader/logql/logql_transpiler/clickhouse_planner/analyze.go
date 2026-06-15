@@ -118,14 +118,32 @@ func AnalyzeMetrics15sShortcut(script *logql_parser.LogQLScript) bool {
 		if ppl.Drop != nil {
 			return false
 		}
-		if ppl.LineFilter != nil {
-			str, err := ppl.LineFilter.Val.Unquote()
-			if str != "" || err != nil {
-				return false
-			}
+		if ppl.LineFilter != nil && lineFilterHasContent(ppl.LineFilter) {
+			return false
 		}
 	}
 	return true
+}
+
+func lineFilterHasContent(lf *logql_parser.LineFilter) bool {
+	return lineFilterExpHasContent(&lf.Exp)
+}
+
+func lineFilterExpHasContent(exp *logql_parser.LineFilterExp) bool {
+	head := &exp.Head
+	if head.Simple != nil {
+		val, err := head.Simple.Val.Unquote()
+		if val != "" || err != nil {
+			return true
+		}
+	}
+	if head.Complex != nil && lineFilterExpHasContent(head.Complex) {
+		return true
+	}
+	if exp.Tail != nil {
+		return lineFilterExpHasContent(exp.Tail)
+	}
+	return false
 }
 
 func (p *planner) getFunctionOrder(script any) {
