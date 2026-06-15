@@ -46,8 +46,14 @@ func FindFirst[T any](node any) *T {
 	}
 	switch _node := node.(type) {
 	case *LogQLScript:
-		return findFirstIn[T](_node.StrSelector, _node.LRAOrUnwrap, _node.AggOperator,
-			_node.TopK, _node.QuantileOverTime)
+		nodes := []any{&_node.Head}
+		for i := range _node.BinOps {
+			nodes = append(nodes, &_node.BinOps[i].Right)
+		}
+		return findFirstIn[T](nodes...)
+	case *AtomExpr:
+		return findFirstIn[T](_node.Paren, _node.StrSelector, _node.LRAOrUnwrap,
+			_node.AggOperator, _node.TopK, _node.QuantileOverTime)
 	case *StrSelector:
 		var children []any
 		for _, c := range _node.Pipelines {

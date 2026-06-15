@@ -148,11 +148,11 @@ func (q *QueryRangeService) getLabelsForVolume(query string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if script.StrSelector == nil {
+	if script.Head.StrSelector == nil {
 		return nil, fmt.Errorf("invalid query: %s", query)
 	}
-	labels := make([]string, len(script.StrSelector.StrSelCmds))
-	for i, cmd := range script.StrSelector.StrSelCmds {
+	labels := make([]string, len(script.Head.StrSelector.StrSelCmds))
+	for i, cmd := range script.Head.StrSelector.StrSelCmds {
 		labels[i] = cmd.Label.Name
 	}
 	return labels, nil
@@ -853,7 +853,7 @@ func (q *QueryRangeService) QueryIndexStats(ctx context.Context, query string, f
 			sql.NewIn(sql.NewRawObject("type_v2"), sql.NewIntVal(0), sql.NewIntVal(1)),
 		)
 
-	if script != nil && script.StrSelector != nil && len(script.StrSelector.StrSelCmds) > 0 {
+	if script != nil && script.Head.StrSelector != nil && len(script.Head.StrSelector.StrSelCmds) > 0 {
 		fpPlanner, err := logql_transpiler.PlanFingerprints(script)
 		if err != nil {
 			return nil, err

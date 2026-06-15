@@ -139,7 +139,7 @@ func (p *planner) getFunctionOrder(script any) {
 
 	switch script := script.(type) {
 	case *logql_parser.LogQLScript:
-		visit(p.getFunctionOrder, script.LRAOrUnwrap, script.AggOperator, script.TopK, script.QuantileOverTime)
+		visit(p.getFunctionOrder, script.Head.LRAOrUnwrap, script.Head.AggOperator, script.Head.TopK, script.Head.QuantileOverTime)
 	case *logql_parser.LRAOrUnwrap:
 		if len(script.StrSel.Pipelines) > 0 && script.StrSel.Pipelines[len(script.StrSel.Pipelines)-1].Unwrap != nil {
 			if p.matrixFunctionsLabelsIDX == -1 {
@@ -197,12 +197,13 @@ func findFirst[T any](nodes ...any) *T {
 		switch _n := n.(type) {
 		case *logql_parser.LogQLScript:
 			res = findFirst[T](
-				_n.LRAOrUnwrap,
-				_n.AggOperator,
-				_n.TopK,
-				_n.QuantileOverTime,
-				_n.StrSelector,
-				_n.Macros,
+				_n.Head.LRAOrUnwrap,
+				_n.Head.AggOperator,
+				_n.Head.TopK,
+				_n.Head.QuantileOverTime,
+				_n.Head.StrSelector,
+				_n.Head.Macros,
+				_n.Head.Paren,
 			)
 		case *logql_parser.StrSelector:
 			var children []any

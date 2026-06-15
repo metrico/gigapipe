@@ -8,6 +8,25 @@ import (
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
+// canonicalFPCol is a SQL expression that computes a fingerprint from a labels Map
+// expression using the same formula as the Go fingerprint() function in hash.go:
+// keys are sorted (ClickHouse Maps are key-sorted), joined as "k=v,..." and
+// hashed with CityHash64.
+type canonicalFPCol struct {
+	inner sql.SQLObject
+}
+
+func (c *canonicalFPCol) String(ctx *sql.Ctx, opts ...int) (string, error) {
+	inner, err := c.inner.String(ctx, opts...)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(
+		"cityHash64(arrayStringConcat(arrayMap((k,v)->concat(k,'=',v),mapKeys(%s),mapValues(%s)),','))",
+		inner, inner,
+	), nil
+}
+
 type ByWithoutPlanner struct {
 	NoStreamSelect     bool
 	Main               shared.SQLRequestPlanner
@@ -32,15 +51,16 @@ func (b *ByWithoutPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 func (b *ByWithoutPlanner) processSimple(ctx *shared.PlannerContext,
 	main sql.ISelect) (sql.ISelect, error) {
 	withMain := sql.NewWith(main, fmt.Sprintf("pre_by_without_%d", ctx.Id()))
+	filteredLabels := &byWithoutFilterCol{
+		labelsCol: sql.NewRawObject(withMain.GetAlias() + ".labels"),
+		labels:    b.Labels,
+		by:        b.By,
+	}
 	return sql.NewSelect().With(withMain).
 		Select(
 			sql.NewSimpleCol("timestamp_ns", "timestamp_ns"),
-			sql.NewSimpleCol("cityHash64(labels)", "fingerprint"),
-			sql.NewCol(&byWithoutFilterCol{
-				labelsCol: sql.NewRawObject(withMain.GetAlias() + ".labels"),
-				labels:    b.Labels,
-				by:        b.By,
-			}, "labels"),
+			sql.NewCol(&canonicalFPCol{inner: filteredLabels}, "fingerprint"),
+			sql.NewCol(filteredLabels, "labels"),
 			sql.NewSimpleCol("string", "string"),
 			sql.NewSimpleCol("value", "value")).
 		From(sql.NewWithRef(withMain)), nil
@@ -50,14 +70,15 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 	main sql.ISelect) (sql.ISelect, error) {
 	var labels sql.ISelect
 	if b.LabelsCache != nil && *b.LabelsCache != nil {
+		filteredLabels := &byWithoutFilterCol{
+			labelsCol: sql.NewRawObject("a.labels"),
+			labels:    b.Labels,
+			by:        b.By,
+		}
 		labels = sql.NewSelect().Select(
 			sql.NewRawObject("fingerprint"),
-			sql.NewSimpleCol("cityHash64(labels)", "new_fingerprint"),
-			sql.NewCol(&byWithoutFilterCol{
-				labelsCol: sql.NewRawObject("a.labels"),
-				labels:    b.Labels,
-				by:        b.By,
-			}, "labels"),
+			sql.NewCol(&canonicalFPCol{inner: filteredLabels}, "new_fingerprint"),
+			sql.NewCol(filteredLabels, "labels"),
 		).From(sql.NewCol(sql.NewWithRef(*b.LabelsCache), "a"))
 	} else {
 		var fpCache *sql.With
@@ -68,17 +89,20 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 		if err != nil {
 			return nil, err
 		}
+		var filteredObj sql.SQLObject
 		cols, err := patchCol(from.GetSelect(), "labels", func(object sql.SQLObject) (sql.SQLObject, error) {
-			return &byWithoutFilterCol{
+			fo := &byWithoutFilterCol{
 				labelsCol: object,
 				labels:    b.Labels,
 				by:        b.By,
-			}, nil
+			}
+			filteredObj = fo
+			return fo, nil
 		})
 		if err != nil {
 			return nil, err
 		}
-		labels = from.Select(append(cols, sql.NewSimpleCol("cityHash64(labels)", "new_fingerprint"))...)
+		labels = from.Select(append(cols, sql.NewCol(&canonicalFPCol{inner: filteredObj}, "new_fingerprint"))...)
 	}
 
 	withLabels := sql.NewWith(labels, fmt.Sprintf("labels_%d", ctx.Id()))
