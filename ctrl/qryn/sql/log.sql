@@ -191,3 +191,12 @@ ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.qryn_cluster_nodes {{.OnCluster}} (
+    key        String,
+    value      String,
+    updated_at DateTime,
+    ttl        DateTime
+) ENGINE = {{.ReplacingMergeTree}}(updated_at)
+ORDER BY (key)
+TTL ttl;

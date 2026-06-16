@@ -82,3 +82,10 @@ ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.qryn_cluster_nodes_dist {{.OnCluster}} (
+    key        String,
+    value      String,
+    updated_at DateTime,
+    ttl        DateTime
+) ENGINE = Distributed('{{.CLUSTER}}', '{{.DB}}', 'qryn_cluster_nodes', cityHash64(key));
