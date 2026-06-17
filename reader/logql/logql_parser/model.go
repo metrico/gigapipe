@@ -7,35 +7,68 @@ import (
 	"time"
 )
 
+// LogQLScript is the top-level expression, supporting binary arithmetic chains.
 type LogQLScript struct {
-	StrSelector      *StrSelector      `@@`
+	Head   AtomExpr    `@@`
+	BinOps []BinOpPart `@@*`
+}
+
+func (l LogQLScript) String() string {
+	if len(l.BinOps) == 0 {
+		return l.Head.String()
+	}
+	parts := make([]string, 0, 1+len(l.BinOps)*2)
+	parts = append(parts, l.Head.String())
+	for _, b := range l.BinOps {
+		parts = append(parts, b.Op, b.Right.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+func (l *LogQLScript) IsBinary() bool {
+	return len(l.BinOps) > 0
+}
+
+type BinOpPart struct {
+	Op    string   `@("/" | "*" | "+" | "-" | "%")`
+	Right AtomExpr `@@`
+}
+
+// AtomExpr is a single non-binary expression, optionally wrapped in parentheses.
+type AtomExpr struct {
+	Paren            *LogQLScript      `  "(" @@ ")"`
+	StrSelector      *StrSelector      `| @@`
 	LRAOrUnwrap      *LRAOrUnwrap      `| @@`
 	AggOperator      *AggOperator      `| @@`
 	Macros           *MacrosOp         `| @@`
 	TopK             *TopK             `| @@`
 	QuantileOverTime *QuantileOverTime `| @@`
+	Scalar           string            `| @(Integer ("." Integer?)?)`
 }
 
-func (l LogQLScript) String() string {
-	if l.StrSelector != nil {
-		return l.StrSelector.String()
+func (a AtomExpr) String() string {
+	if a.Paren != nil {
+		return "(" + a.Paren.String() + ")"
 	}
-	if l.LRAOrUnwrap != nil {
-		return l.LRAOrUnwrap.String()
+	if a.StrSelector != nil {
+		return a.StrSelector.String()
 	}
-	if l.AggOperator != nil {
-		return l.AggOperator.String()
+	if a.LRAOrUnwrap != nil {
+		return a.LRAOrUnwrap.String()
 	}
-	if l.Macros != nil {
-		return l.Macros.String()
+	if a.AggOperator != nil {
+		return a.AggOperator.String()
 	}
-	if l.TopK != nil {
-		return l.TopK.String()
+	if a.Macros != nil {
+		return a.Macros.String()
 	}
-	if l.QuantileOverTime != nil {
-		return l.QuantileOverTime.String()
+	if a.TopK != nil {
+		return a.TopK.String()
 	}
-	return ""
+	if a.QuantileOverTime != nil {
+		return a.QuantileOverTime.String()
+	}
+	return a.Scalar
 }
 
 type StrSelector struct {
