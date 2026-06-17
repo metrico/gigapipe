@@ -24,10 +24,14 @@ func (e *otlpLogDec) Decode() error {
 
 	for _, resLog := range logs.ResourceLogs {
 		resourceAttrs := map[string]string{}
-		e.initAttributesMap(resLog.Resource.Attributes, "", &resourceAttrs)
+		if resLog.Resource != nil {
+			e.initAttributesMap(resLog.Resource.Attributes, "", &resourceAttrs)
+		}
 		for _, scopeLog := range resLog.ScopeLogs {
 			scopeAttrs := map[string]string{}
-			e.initAttributesMap(scopeLog.Scope.Attributes, "", &scopeAttrs)
+			if scopeLog.Scope != nil {
+				e.initAttributesMap(scopeLog.Scope.Attributes, "", &scopeAttrs)
+			}
 			for _, logRecord := range scopeLog.LogRecords {
 				var labels [][]string
 				// Merge resource and scope attributes
@@ -57,7 +61,10 @@ func (e *otlpLogDec) Decode() error {
 					labels = append(labels, []string{k, v})
 				}
 				// Extract other log record fields
-				message := logRecord.Body.GetStringValue()
+				var message string
+				if logRecord.Body != nil {
+					message = SanitizeValue(logRecord.Body)
+				}
 				timestamp := logRecord.TimeUnixNano
 
 				if timestamp == 0 {
