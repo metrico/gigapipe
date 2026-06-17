@@ -15,10 +15,10 @@ func (a *LimitPlanner) Process(ctx *shared.PlannerContext,
 			return nil
 		},
 		OnAfterEntriesSlice: func(entries []shared.LogEntry, c chan []shared.LogEntry) error {
-			if sent >= limit {
+			if limit > 0 && sent >= limit {
 				return nil
 			}
-			if sent+len(entries) < limit {
+			if limit == 0 || sent+len(entries) < limit {
 				c <- entries
 				sent += len(entries)
 				return nil

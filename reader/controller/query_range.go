@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	tailDefaultLimit int64 = 100  // lines returned when no ?limit= is supplied
-	tailMaxLimit     int64 = 5000 // hard cap to prevent excessive memory use
+	tailDefaultLimit  int64 = 100  // lines returned when no ?limit= is supplied
+	tailMaxLimit      int64 = 5000 // hard cap to prevent excessive memory use
+	queryDefaultLimit int64 = 100  // matches Loki API default for /query and /query_range
 )
 
 type QueryRangeController struct {
@@ -45,7 +46,7 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 	//	direction = "backward"
 	//}
 	_limit := r.URL.Query().Get("limit")
-	limit := int64(0)
+	limit := queryDefaultLimit
 	if _limit != "" {
 		limit, _ = strconv.ParseInt(_limit, 10, 64)
 	}
@@ -131,7 +132,7 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 
 	step, err := getRequiredDuration(r, "step", "1", err)
 	_limit := r.URL.Query().Get("limit")
-	limit := int64(100)
+	limit := queryDefaultLimit
 	if _limit != "" {
 		limit, _ = strconv.ParseInt(_limit, 10, 64)
 	}
