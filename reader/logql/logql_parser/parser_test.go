@@ -79,6 +79,24 @@ func TestQuotedString_String(t *testing.T) {
 	}
 }
 
+func TestLineFilterBool(t *testing.T) {
+	tests := []string{
+		`{app="x"} |~ "POST" or "GET"`,
+		`{app="x"} |= "a" and "b"`,
+		`{app="x"} |= ("foo" or "bar") and "baz"`,
+	}
+	asts := make([]*LogQLScript, len(tests))
+	for i, str := range tests {
+		ast, err := Parse(str)
+		if err != nil {
+			fmt.Printf("[%d]: %s\n", i, str)
+			t.Fatal(err)
+		}
+		asts[i] = ast
+	}
+	cupaloy.SnapshotT(t, asts)
+}
+
 func TestParser2(t *testing.T) {
 	ast, err := Parse(`{sender="logtest"} |= "GET"`)
 	if err != nil {

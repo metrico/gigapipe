@@ -474,14 +474,9 @@ func (p *planner) planLabelFilter(ppl *logql_parser.StrSelectorPipeline, idx int
 }
 
 func (p *planner) planLineFilter(ppl *logql_parser.StrSelectorPipeline) error {
-	val, err := ppl.LineFilter.Val.Unquote()
-	if err != nil {
-		return err
-	}
 	p.samplesPlanner = &LineFilterPlanner{
-		Op:   ppl.LineFilter.Fn,
-		Val:  val,
-		Main: p.samplesPlanner,
+		Filter: ppl.LineFilter,
+		Main:   p.samplesPlanner,
 	}
 	return nil
 }
