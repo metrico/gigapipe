@@ -38,7 +38,7 @@ func NewPromEngine(maxSamples int) *promql.Engine {
 		NoStepSubqueryIntervalFn: func(int64) int64 {
 			return defaultSubqueryInterval.Milliseconds()
 		},
-		EnableAtModifier:     false,
+		EnableAtModifier:     true,
 		EnableNegativeOffset: false,
 	})
 }
