@@ -21,6 +21,7 @@ func RouteSelectPrometheusLabels(app *mux.Router, dataSession model.IDBRegistry)
 	app.HandleFunc("/api/v1/label/{name}/values", qrCtrl.LabelValues).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/v1/metadata", qrCtrl.Metadata).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/v1/query_exemplars", qrCtrl.Metadata).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/v1/rules", qrCtrl.Metadata).Methods("GET", "OPTIONS")
+	// /api/v1/rules is owned by the ruler module (recording rules), which
+	// registers it when enabled.
 	app.HandleFunc("/api/v1/series", qrCtrl.Series).Methods("GET", "POST", "OPTIONS")
 }

@@ -28,3 +28,9 @@ var ProfilesDistScript string
 
 //go:embed profiles_read_dist.sql
 var ProfilesReadDistScript string
+
+//go:embed rules.sql
+var RulesScript string
+
+//go:embed rules_dist.sql
+var RulesDistScript string

@@ -74,6 +74,20 @@ func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string
 		}
 	}
 
+	// Ruler rule-group storage (recording/alerting rule groups).
+	err = updateScripts(db, dbname, clusterName, 10, sql.RulesScript,
+		checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+	if err != nil {
+		return err
+	}
+	if checkMode(CLUST_MODE_DISTRIBUTED) {
+		err = updateScripts(db, dbname, clusterName, 11, sql.RulesDistScript,
+			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Cross-cluster read-path tables: when a separate read cluster is configured,
 	// create distributed tables that aggregate queries across multiple clusters.
 	if readCluster != "" && readCluster != clusterName && checkMode(CLUST_MODE_DISTRIBUTED) {
