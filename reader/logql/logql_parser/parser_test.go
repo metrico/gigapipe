@@ -49,6 +49,7 @@ func TestParser(t *testing.T) {
 		"{test_id=\"${testID}_json\"} | json | drop a, b, __C__, d=\"e\"",
 		"{k8s_object_kind=\"Node\", k8s_event_reason=\"ScaleDown\", signoz_component=\"otel-deployment\"} | keep k8s_object_kind",
 		"{test_id=\"${testID}_json\"} | json | keep level, method=\"GET\"",
+		"{k8s_object_kind=\"Node\"} | line_format `{{.k8s_object_name}} - {{__line__}}`",
 		"count_over_time({test_id=\"${testID}_json\"} [1m] offset 1m)",
 	}
 	asts := make([]*LogQLScript, len(tests))

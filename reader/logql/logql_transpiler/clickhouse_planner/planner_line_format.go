@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"text/template"
 	"text/template/parse"
+	"time"
 
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
@@ -41,7 +42,7 @@ func (l *LineFormatPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 }
 
 func (l *LineFormatPlanner) ProcessTpl(ctx *shared.PlannerContext) error {
-	tpl, err := template.New(fmt.Sprintf("tpl%d", ctx.Id())).Parse(l.Template)
+	tpl, err := template.New(fmt.Sprintf("tpl%d", ctx.Id())).Funcs(lineFormatParseFuncs()).Parse(l.Template)
 	if err != nil {
 		return err
 	}
@@ -50,7 +51,7 @@ func (l *LineFormatPlanner) ProcessTpl(ctx *shared.PlannerContext) error {
 }
 
 func (l *LineFormatPlanner) IsSupported() bool {
-	tpl, err := template.New("tpl1").Parse(l.Template)
+	tpl, err := template.New("tpl1").Funcs(lineFormatParseFuncs()).Parse(l.Template)
 	if err != nil {
 		return false
 	}
@@ -103,6 +104,8 @@ func (l *LineFormatPlanner) node(n parse.Node) error {
 		l.textNode(n)
 	case parse.NodeField:
 		l.fieldNode(n)
+	case parse.NodeAction:
+		l.actionNode(n)
 	}
 	return nil
 }
@@ -112,9 +115,56 @@ func (l *LineFormatPlanner) textNode(n parse.Node) {
 }
 
 func (l *LineFormatPlanner) fieldNode(n parse.Node) {
+	switch n.(*parse.FieldNode).Ident[0] {
+	case "__line__", "_entry":
+		l.appendLineArg()
+	case "__timestamp__":
+		l.appendTimestampArg()
+	default:
+		l.appendLabelArg(n.(*parse.FieldNode).Ident[0])
+	}
+}
+
+func (l *LineFormatPlanner) actionNode(n parse.Node) {
+	action := n.(*parse.ActionNode)
+	if len(action.Pipe.Cmds) != 1 {
+		return
+	}
+	cmd := action.Pipe.Cmds[0]
+	if len(cmd.Args) != 1 {
+		return
+	}
+	if ident, ok := cmd.Args[0].(*parse.IdentifierNode); ok {
+		switch ident.Ident {
+		case "__line__", "_entry":
+			l.appendLineArg()
+		case "__timestamp__":
+			l.appendTimestampArg()
+		}
+	}
+}
+
+func (l *LineFormatPlanner) appendLabelArg(label string) {
 	l.formatStr += fmt.Sprintf("{%d}", len(l.args))
 	l.args = append(l.args, sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-		lbl, err := sql.NewStringVal(n.(*parse.FieldNode).Ident[0]).String(ctx, options...)
+		lbl, err := sql.NewStringVal(label).String(ctx, options...)
 		return fmt.Sprintf("labels[%s]", lbl), err
 	}))
+}
+
+func (l *LineFormatPlanner) appendLineArg() {
+	l.formatStr += fmt.Sprintf("{%d}", len(l.args))
+	l.args = append(l.args, sql.NewRawObject("string"))
+}
+
+func (l *LineFormatPlanner) appendTimestampArg() {
+	l.formatStr += fmt.Sprintf("{%d}", len(l.args))
+	l.args = append(l.args, sql.NewRawObject("fromUnixTimestamp64Nano(timestamp_ns)"))
+}
+
+func lineFormatParseFuncs() template.FuncMap {
+	funcs := shared.BaseTemplateFuncs()
+	funcs["__line__"] = func() string { return "" }
+	funcs["__timestamp__"] = func() time.Time { return time.Time{} }
+	return funcs
 }

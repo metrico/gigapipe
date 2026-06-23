@@ -1,4 +1,4 @@
-([]*logql_parser.LogQLScript) (len=41) {
+([]*logql_parser.LogQLScript) (len=42) {
   (*logql_parser.LogQLScript)({test_id="${testID}"}),
   (*logql_parser.LogQLScript)({test_id="${testID}",freq="2"}),
   (*logql_parser.LogQLScript)({test_id="${testID}",freq="2"}|~ "2[0-9]$"),
@@ -39,5 +39,6 @@
   (*logql_parser.LogQLScript)({test_id="${testID}_json"}| json | drop a,b,__C__,d="e"),
   (*logql_parser.LogQLScript)({k8s_object_kind="Node",k8s_event_reason="ScaleDown",signoz_component="otel-deployment"}| keep k8s_object_kind),
   (*logql_parser.LogQLScript)({test_id="${testID}_json"}| json | keep level,method="GET"),
+  (*logql_parser.LogQLScript)({k8s_object_kind="Node"}| line_format `{{.k8s_object_name}} - {{__line__}}`),
   (*logql_parser.LogQLScript)(count_over_time ({test_id="${testID}_json"}[1m] offset 1m))
 }
