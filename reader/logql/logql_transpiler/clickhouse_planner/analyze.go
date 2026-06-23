@@ -50,6 +50,10 @@ func (p *planner) analyzeScript() {
 			p.labelsJoinIdx = i
 			break
 		}
+		if ppl.Keep != nil {
+			p.labelsJoinIdx = i
+			break
+		}
 	}
 
 	p.renewMainAfter = make([]bool, len(pipeline))
@@ -116,6 +120,9 @@ func AnalyzeMetrics15sShortcut(script *logql_parser.LogQLScript) bool {
 			return false
 		}
 		if ppl.Drop != nil {
+			return false
+		}
+		if ppl.Keep != nil {
 			return false
 		}
 		if ppl.LineFilter != nil && lineFilterHasContent(ppl.LineFilter) {
@@ -259,6 +266,7 @@ func findFirst[T any](nodes ...any) *T {
 				_n.LineFormat,
 				_n.LabelFormat,
 				_n.Drop,
+				_n.Keep,
 			)
 		case *logql_parser.ByOrWithout:
 			children := make([]any, len(_n.Labels))

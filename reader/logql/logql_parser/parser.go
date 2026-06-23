@@ -65,7 +65,7 @@ func FindFirst[T any](node any) *T {
 		return findFirstIn[T](children...)
 	case *StrSelectorPipeline:
 		return findFirstIn[T](_node.LineFilter, _node.LabelFilter,
-			_node.Parser, _node.LineFormat, _node.LabelFormat, _node.Unwrap, _node.Drop)
+			_node.Parser, _node.LineFormat, _node.LabelFormat, _node.Unwrap, _node.Drop, _node.Keep)
 	case *LabelFilter:
 		return findFirstIn[T](_node.Head, _node.Tail)
 	case *Head:
@@ -95,6 +95,14 @@ func FindFirst[T any](node any) *T {
 		}
 		return findFirstIn[T](children...)
 	case *DropParam:
+		return findFirstIn[T](_node.Val, &_node.Label)
+	case *Keep:
+		var children []any
+		for _, c := range _node.Params {
+			children = append(children, &c)
+		}
+		return findFirstIn[T](children...)
+	case *KeepParam:
 		return findFirstIn[T](_node.Val, &_node.Label)
 	case *LRAOrUnwrap:
 		return findFirstIn[T](&_node.StrSel, _node.ByOrWithoutPrefix, _node.ByOrWithoutSuffix)
