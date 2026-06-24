@@ -2,6 +2,7 @@ package ruler
 
 import (
 	"context"
+	"maps"
 
 	writerController "github.com/metrico/qryn/v4/writer/controller"
 	"github.com/metrico/qryn/v4/writer/utils/proto/prompb"
@@ -11,25 +12,25 @@ import (
 
 // vectorToWriteRequest turns an evaluated recording-rule vector into a
 // Prometheus remote-write request. Each sample becomes a single-point series
-// whose labels are the source sample's labels with __name__ overridden by the
-// record name and the rule's static labels merged in. Fingerprinting happens
-// downstream in the writer's metrics parser, so it is not done here.
+// whose labels are the source sample's labels with the rule's static labels
+// added on top and __name__ set to the record name. On a name collision the
+// rule label takes precedence over the sample label, and the record name takes
+// precedence over both. Fingerprinting happens downstream in the writer's
+// metrics parser and is order-independent, so labels are not sorted here.
 func vectorToWriteRequest(record string, ruleLabels map[string]string, v promql.Vector) *prompb.WriteRequest {
 	wr := &prompb.WriteRequest{}
 	for _, sample := range v {
-		lbls := []*prompb.Label{{Name: "__name__", Value: record}}
-		for k, val := range ruleLabels {
-			if k == "__name__" {
-				continue
-			}
+		merged := make(map[string]string)
+		sample.Metric.Range(func(l labels.Label) {
+			merged[l.Name] = l.Value
+		})
+		maps.Copy(merged, ruleLabels)
+		merged["__name__"] = record
+
+		lbls := make([]*prompb.Label, 0, len(merged))
+		for k, val := range merged {
 			lbls = append(lbls, &prompb.Label{Name: k, Value: val})
 		}
-		sample.Metric.Range(func(l labels.Label) {
-			if l.Name == "__name__" {
-				return
-			}
-			lbls = append(lbls, &prompb.Label{Name: l.Name, Value: l.Value})
-		})
 		wr.Timeseries = append(wr.Timeseries, &prompb.TimeSeries{
 			Labels:  lbls,
 			Samples: []*prompb.Sample{{Value: sample.F, Timestamp: sample.T}},

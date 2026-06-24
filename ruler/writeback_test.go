@@ -60,6 +60,43 @@ func TestVectorToWriteRequest_NamesSeriesAndMergesLabels(t *testing.T) {
 	}
 }
 
+func TestVectorToWriteRequest_RuleLabelsOverrideSampleLabels(t *testing.T) {
+	v := promql.Vector{
+		{
+			T:      1700000000000,
+			F:      1,
+			Metric: labels.FromStrings("__name__", "up", "job", "api", "instance", "a"),
+		},
+	}
+	ruleLabels := map[string]string{"job": "aggregator"}
+
+	wr := vectorToWriteRequest("job:up:count", ruleLabels, v)
+
+	ts := wr.GetTimeseries()[0]
+
+	// Each label name appears exactly once; a colliding key must not be emitted twice.
+	counts := make(map[string]int)
+	for _, l := range ts.GetLabels() {
+		counts[l.GetName()]++
+	}
+	for name, n := range counts {
+		if n != 1 {
+			t.Errorf("label %q emitted %d times, want 1", name, n)
+		}
+	}
+
+	got := labelMap(ts.GetLabels())
+	if got["job"] != "aggregator" {
+		t.Errorf("job = %q, want %q (rule label overrides sample label)", got["job"], "aggregator")
+	}
+	if got["__name__"] != "job:up:count" {
+		t.Errorf("__name__ = %q, want %q", got["__name__"], "job:up:count")
+	}
+	if got["instance"] != "a" {
+		t.Errorf("instance = %q, want %q (non-colliding sample label preserved)", got["instance"], "a")
+	}
+}
+
 func TestVectorToWriteRequest_EmptyVector(t *testing.T) {
 	wr := vectorToWriteRequest("r", nil, promql.Vector{})
 	if len(wr.GetTimeseries()) != 0 {
