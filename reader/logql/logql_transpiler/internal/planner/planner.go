@@ -93,6 +93,30 @@ func Plan(script *logql_parser.LogQLScript,
 				Labels:         names,
 				Values:         vals,
 			}
+			continue
+		}
+		if ppl.Keep != nil {
+			names := make([]string, len(ppl.Keep.Params))
+			vals := make([]string, len(ppl.Keep.Params))
+			for i, param := range ppl.Keep.Params {
+				names[i] = param.Label.Name
+				var (
+					err error
+					val string
+				)
+				if param.Val != nil {
+					val, err = param.Val.Unquote()
+					if err != nil {
+						return nil, err
+					}
+				}
+				vals[i] = val
+			}
+			in = &KeepPlanner{
+				GenericPlanner: GenericPlanner{in},
+				Labels:         names,
+				Values:         vals,
+			}
 		}
 	}
 	in, err := planAggregators(script, in)

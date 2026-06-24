@@ -134,6 +134,7 @@ type StrSelectorPipeline struct {
 	LabelFormat *LabelFormat `| "|" @@ `
 	Unwrap      *Unwrap      `| "|" @@ `
 	Drop        *Drop        `| "|" @@ `
+	Keep        *Keep        `| "|" @@ `
 }
 
 func (s *StrSelectorPipeline) String() string {
@@ -161,7 +162,11 @@ func (s *StrSelectorPipeline) String() string {
 		return s.Unwrap.String()
 	}
 
-	return s.Drop.String()
+	if s.Drop != nil {
+		return s.Drop.String()
+	}
+
+	return s.Keep.String()
 }
 
 type LineFilter struct {
@@ -359,6 +364,34 @@ func (d *DropParam) String() string {
 	if d.Val != nil {
 		bld.WriteString("=")
 		bld.WriteString(d.Val.String())
+	}
+	return bld.String()
+}
+
+type Keep struct {
+	Fn     string      `@("keep")`
+	Params []KeepParam `@@? ("," @@)*`
+}
+
+func (k *Keep) String() string {
+	params := make([]string, len(k.Params))
+	for i, param := range k.Params {
+		params[i] = param.String()
+	}
+	return fmt.Sprintf("| %s %s", k.Fn, strings.Join(params, ","))
+}
+
+type KeepParam struct {
+	Label LabelName     `@@`
+	Val   *QuotedString `("=" @@)?`
+}
+
+func (k *KeepParam) String() string {
+	bld := strings.Builder{}
+	bld.WriteString(k.Label.String())
+	if k.Val != nil {
+		bld.WriteString("=")
+		bld.WriteString(k.Val.String())
 	}
 	return bld.String()
 }
