@@ -75,7 +75,7 @@ func (c ColTupleTreeValueAdapter) Append(v model.ValuesArrTuple) {
 func (c ColTupleTreeValueAdapter) Row(i int) model.ValuesArrTuple {
 	return model.ValuesArrTuple{ValueStr: c.ColTuple[0].(*proto.ColStr).Row(i),
 		FirstValueInt64:  c.ColTuple[1].(*proto.ColInt64).Row(i),
-		SecondValueInt64: c.ColTuple[1].(*proto.ColInt64).Row(i),
+		SecondValueInt64: c.ColTuple[2].(*proto.ColInt64).Row(i),
 	}
 }
 

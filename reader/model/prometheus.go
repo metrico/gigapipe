@@ -142,6 +142,10 @@ func (s *seriesIt) AtT() int64 {
 	return s.samples[s.idx].TimestampMs
 }
 
+func (s *seriesIt) AtST() int64 {
+	return 0
+}
+
 func (s *seriesIt) Err() error {
 	return nil
 }
@@ -245,4 +249,9 @@ func (p *prolongSeriesIt) AtFloatHistogram(*histogram.FloatHistogram) (int64, *h
 // Before the iterator has advanced, the behaviour is unspecified.
 func (p *prolongSeriesIt) AtT() int64 {
 	return p.timestampMs
+}
+
+// AtST returns the current start timestamp.
+func (p *prolongSeriesIt) AtST() int64 {
+	return 0
 }

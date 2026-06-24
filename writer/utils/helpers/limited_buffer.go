@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/golang/snappy"
 	"github.com/metrico/qryn/v4/writer/utils/errors"
 	"github.com/metrico/qryn/v4/writer/utils/logger"
@@ -128,7 +128,7 @@ var pbPool = RateLimitedPool{
 	rateLimiter: semaphore.NewWeighted(50 * 1024 * 1024),
 }
 
-func getPayloadBuffer(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
+func getPayloadBuffer(ctx fiber.Ctx) (RateLimitedBuffer, error) {
 	var ctxLen int
 	if ctx.Get("content-length", "") == "" {
 		return nil, errors.New400Error("content-length is required")
@@ -140,7 +140,7 @@ func getPayloadBuffer(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = io.Copy(buf, ctx.Context().RequestBodyStream())
+	_, err = io.Copy(buf, ctx.RequestCtx().RequestBodyStream())
 	if err != nil {
 		buf.Release()
 		return nil, err
@@ -171,7 +171,7 @@ func decompressPayload(buf RateLimitedBuffer) (RateLimitedBuffer, error) {
 	return slice, nil
 }
 
-func GetRawBody(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
+func GetRawBody(ctx fiber.Ctx) (RateLimitedBuffer, error) {
 	buf, err := getPayloadBuffer(ctx)
 	if err != nil {
 		return nil, err
@@ -200,11 +200,11 @@ func GetRawBody(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
 	return slice, err
 }
 
-func GetRawCompressedBody(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
+func GetRawCompressedBody(ctx fiber.Ctx) (RateLimitedBuffer, error) {
 	return getPayloadBuffer(ctx)
 }
 
-func GetRawPB(ctx *fiber.Ctx) (RateLimitedBuffer, error) {
+func GetRawPB(ctx fiber.Ctx) (RateLimitedBuffer, error) {
 	buf, err := getPayloadBuffer(ctx)
 	if err != nil {
 		return nil, err

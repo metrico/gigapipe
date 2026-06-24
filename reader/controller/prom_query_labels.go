@@ -106,8 +106,8 @@ func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Requ
 	}
 
 	if p.MetadataService == nil {
-		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
 		w.Write([]byte(`{"status": "success", "data": {}}`))
 		return
 	}
@@ -198,9 +198,9 @@ func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 			match: rawParams.Match,
 		}, nil
 	}
-
 	return &promLabelsParams{
 		start: parserTimeString(r.URL.Query().Get("start"), time.Now().Add(time.Hour*-6)),
 		end:   parserTimeString(r.URL.Query().Get("end"), time.Now().Add(time.Hour*-6)),
+		match: r.URL.Query()["match[]"],
 	}, nil
 }

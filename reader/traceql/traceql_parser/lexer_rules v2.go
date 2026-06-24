@@ -5,37 +5,52 @@ import (
 )
 
 var TraceQLLexerRulesV2 = []lexer.SimpleRule{
-	{Name: "Ocb", Pattern: `\{`},
-	{Name: "Ccb", Pattern: `\}`},
+	{"Ocb", `\{`},
+	{"Ccb", `\}`},
 
-	{Name: "Ob", Pattern: `\(`},
-	{Name: "Cb", Pattern: `\)`},
+	{"Ob", `\(`},
+	{"Cb", `\)`},
 
-	{Name: "Ge", Pattern: `>=`},
-	{Name: "Le", Pattern: `<=`},
-	{Name: "Gt", Pattern: `>`},
-	{Name: "Lt", Pattern: `<`},
+	{"Comma", `,`},
 
-	{Name: "Neq", Pattern: `!=`},
-	{Name: "Re", Pattern: `=~`},
-	{Name: "Nre", Pattern: `!~`},
-	{Name: "Eq", Pattern: `=`},
+	{"Ge", `>=`},
+	{"Le", `<=`},
+	// Structural operators: <<& and <<~ must come before Lt (<) to avoid partial match
+	{"Ancestor", `<<&`},
+	{"NotAncestor", `<<~`},
+	{"Gt", `>`},
+	{"Lt", `<`},
 
-	{Name: "Label_name", Pattern: `(\.[a-zA-Z_][.a-zA-Z0-9_-]*|[a-zA-Z_][.a-zA-Z0-9_-]*)`},
-	{Name: "Dot", Pattern: `\.`},
+	// !>> must come before != to avoid partial match
+	{"NotDescendant", `!>>`},
+	{"Neq", `!=`},
+	{"Re", `=~`},
+	{"Nre", `!~`},
+	{"Eq", `=`},
 
-	{Name: "And", Pattern: `&&`},
-	{Name: "Or", Pattern: `\|\|`},
+	// &>> must come before && to avoid partial match
+	{"Descendant", `&>>`},
+	{"Sibling", `~`},
 
-	{Name: "Pipe", Pattern: `\|`},
+	// Label_name supports dotted names and colon intrinsics (span:duration).
+	// Keywords like true/false/nil are matched as Label_name and handled in the grammar.
+	{"Label_name", `(\.[a-zA-Z_][.:a-zA-Z0-9_-]*|[a-zA-Z_][.:a-zA-Z0-9_-]*)`},
+	{"Dot", `\.`},
 
-	{Name: "Quoted_string", Pattern: `"([^"\\]|\\.)*"`},
-	{Name: "Ticked_string", Pattern: "`([^`\\\\]|\\\\.)*`"},
+	{"And", `&&`},
+	{"Or", `\|\|`},
 
-	{Name: "Minus", Pattern: "-"},
-	{Name: "Integer", Pattern: "[0-9]+"},
+	{"Pipe", `\|`},
 
-	{Name: "space", Pattern: `\s+`},
+	{"Quoted_string", `"([^"\\]|\\.)*"`},
+	{"Ticked_string", "`([^`\\\\]|\\\\.)*`"},
+
+	{"Minus", "-"},
+	// Float must come before Integer to correctly lex 3.14 as a single token
+	{"Float", `[0-9]+\.[0-9]+`},
+	{"Integer", "[0-9]+"},
+
+	{"space", `\s+`},
 }
 
 var TraceQLLexerDefinition = lexer.MustSimple(TraceQLLexerRulesV2)

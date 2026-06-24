@@ -12,10 +12,10 @@ import (
 	"github.com/metrico/qryn/v4/reader"
 	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
-	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
 	"github.com/metrico/qryn/v4/shared/commonroutes"
+	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/view"
 	"github.com/metrico/qryn/v4/writer"
 	"log"
@@ -118,11 +118,17 @@ func portCHEnv(cfg *clconfig.ClokiConfig) error {
 		cfg.Setting.DATABASE_DATA[0].SamplesOrdering = os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	}
 	// TODO: add to readme
-	secure := false
-	if os.Getenv("CLICKHOUSE_PROTO") == "https" || os.Getenv("CLICKHOUSE_PROTO") == "tls" {
-		secure = true
+	switch os.Getenv("CLICKHOUSE_PROTO") {
+	case "http", "https":
+		httpPort := uint32(8123)
+		if os.Getenv("CLICKHOUSE_PORT") != "" {
+			httpPort = cfg.Setting.DATABASE_DATA[0].Port
+		}
+		cfg.Setting.DATABASE_DATA[0].HttpPort = httpPort
+		cfg.Setting.DATABASE_DATA[0].Port = 0
 	}
-	cfg.Setting.DATABASE_DATA[0].Secure = secure
+	cfg.Setting.DATABASE_DATA[0].Secure = os.Getenv("CLICKHOUSE_PROTO") == "https" ||
+		os.Getenv("CLICKHOUSE_PROTO") == "tls"
 	if os.Getenv("SELF_SIGNED_CERT") != "" {
 		insecureSkipVerify, err := boolEnv("SELF_SIGNED_CERT")
 		if err != nil {

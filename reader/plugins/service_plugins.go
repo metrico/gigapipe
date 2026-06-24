@@ -42,7 +42,7 @@ func GetQueryLabelsServicePlugin() *QueryLabelsServicePlugin {
 
 type QueryRangeServicePlugin interface {
 	SetServiceData(data *model.ServiceData)
-	Tail(ctx context.Context, query string) (model.IWatcher, error)
+	Tail(ctx context.Context, query string, tailLimit int64, startNs int64) (model.IWatcher, error)
 }
 
 var queryRangeServicePlugin *QueryRangeServicePlugin

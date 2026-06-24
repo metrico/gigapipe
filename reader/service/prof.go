@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"html"
 	"io"
 	"strings"
 	"time"
@@ -465,7 +466,7 @@ func (ps *ProfService) Render(ctx context.Context, strQuery string, from, to tim
 	return ps.flameGraphToFlameBearer(flameGraph, &typeId), nil
 }
 
-func (ps *ProfService) RenderDot(ctx context.Context, strQuery string, from, to time.Time) (string, error) {
+func (ps *ProfService) RenderDot(ctx context.Context, strQuery string, from, to time.Time, maxNodes int) (string, error) {
 	db, err := ps.DataSession.GetDB(ctx)
 	if err != nil {
 		return "", err
@@ -492,7 +493,9 @@ func (ps *ProfService) RenderDot(ctx context.Context, strQuery string, from, to 
 	}
 
 	sampleTypeUnit := fmt.Sprintf("%s:%s", typeId.SampleType, typeId.SampleUnit)
-	return tree.ToDot(sampleTypeUnit, strTypeId), nil
+	strTypeId = html.EscapeString(strTypeId)
+
+	return tree.ToDot(sampleTypeUnit, strTypeId, maxNodes), nil
 }
 
 func (ps *ProfService) RenderDiff(ctx context.Context,

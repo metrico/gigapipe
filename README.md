@@ -26,9 +26,16 @@
 
 # 🚀 Get Started
 
-* Setup & Deploy **gigapipe** _opensource_ using the [documentation](https://gigapipe.com/docs/oss) and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
+* Setup & Deploy **gigapipe** _opensource_ and get help in our [Matrix room](https://matrix.to/#/#qryn:matrix.org) :octocat:
 * Looking for a quick test before installing? Signup for a free trial at [gigapipe.com](https://gigapipe.com)
-* Looking for documentation? Ask the [Gigapipe Deepwiki](https://deepwiki.com/metrico/gigapipe)
+
+## 📚 Documentation
+
+- [Configuration & Docker](docs/configuration.md) — environment variables, Docker quickstart, cross-cluster setup
+- [Profiling API](docs/profiling-api.md) — profiling endpoints, DOT format export, Graphviz visualization
+- [Contributing](docs/contributing.md) — development setup, testing, CLA requirement
+- [Full Documentation](https://gigapipe.com/docs/oss) — hosted docs at gigapipe.com
+- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
 
 ## Features
 💡 _**gigapipe** independently implements popular observability standards, protocols and query languages_
@@ -67,6 +74,23 @@ The Grafana Loki datasource can be used to natively browse and query _logs_ and 
 > :eye: _No Grafana? No problem! Use View_
 
 
+#### Index Stats & Enhanced Tail
+
+**Index statistics**: Query stream metadata using `/loki/api/v1/index/stats` to retrieve stream count, entry count, byte volume, and chunk count. Supports LogQL stream selectors for filtering:
+
+```
+GET /loki/api/v1/index/stats?query={job="app"}&start=<ns>&end=<ns>
+```
+
+**Enhanced live-tail**: The Tail service now supports `limit` and `start` query parameters for controlling tail behavior. The `limit` parameter caps the number of entries returned, and `start` sets the starting timestamp (in nanoseconds). WebSocket responses include a `dropped_entries` field indicating when entries were dropped due to backpressure:
+
+```json
+{
+  "streams": [...],
+  "dropped_entries": []
+}
+```
+
 <br>
 
 ### 📈 Prometheus + PromQL
@@ -104,6 +128,28 @@ The Tempo datasource can be used to natively query _traces_ including _**TraceQL
 > :eye: _No Grafana? No problem! Use View_
 
 
+#### TraceQL Metrics
+
+**gigapipe** supports TraceQL metrics endpoints for calculating metrics from trace data. Calculate error rates, latency distributions, and throughput directly from traces using TraceQL queries.
+
+**Metrics endpoints**:
+- `/api/metrics/query_range` - range queries over a time window
+- `/api/metrics/query` - instant queries at a specific time
+
+**Parameters**:
+- `q` or `query` - TraceQL query string (required)
+- `start` - start timestamp (unix seconds, nanoseconds, or RFC3339)
+- `end` - end timestamp (same format as start)
+- `since` - relative time duration (e.g., "1h", "30m") - alternative to start/end
+- `step` - query resolution (e.g., "15s", "1m") - auto-calculated if not specified
+
+**Example**:
+```
+GET /api/metrics/query_range?q={span.http.status_code=200}&since=1h&step=1m
+```
+
+This query calculates span counts for successful HTTP requests over the last hour with 1-minute resolution.
+
 <br>
 
 ### 🔥 Pyroscope + Phlare
@@ -112,6 +158,18 @@ The Tempo datasource can be used to natively query _traces_ including _**TraceQL
 > Any Pyroscope SDK client or Pyroscope compatible agent can be used with gigapipe out of the box for **continuous profiling**
 
 <img src="https://github.com/metrico/qryn/assets/1423657/0bd11ca9-a2b4-41ee-9ea1-6f21fa4077b2" width=700>
+
+#### DOT Graph Rendering
+
+The Render endpoint (`/render?format=dot`) generates Graphviz DOT format graphs for profiling visualization with enhanced readability:
+
+**Features**:
+- **`maxNodes` parameter**: Limit the number of nodes displayed in DOT graphs (0 = unlimited). Use this to control graph complexity for large profiles.
+  ```
+  GET /render?query=...&from=...&until=...&format=dot&maxNodes=50
+  ```
+- **Human-readable values**: Automatically formats values based on unit type (e.g., "1.23s" for durations, "1.23 MB" for memory)
+- **Variable font sizes**: Node font size scales from 8pt to 24pt based on self-sample percentage, creating visual hierarchy where hotter code paths are more prominent
 
 <br>
 
@@ -157,12 +215,9 @@ With **gigapipe** and **Grafana** everything _just works_ right out of the box:
 
 ------------
 
-### Got Questions?
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
-
 #### Contributions
 
-Whether it's code, documentation or grammar, we ❤️ all contributions. Not sure where to get started?
+Whether it's code, documentation or grammar, we ❤️ all contributions. See [docs/contributing.md](docs/contributing.md) to get started.
 
 - Join our [Matrix Channel](https://matrix.to/#/#qryn:matrix.org), and ask us any questions.
 - Have a PR or idea? Request a session / code walkthrough with our team for guidance.

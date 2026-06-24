@@ -79,6 +79,24 @@ func TestQuotedString_String(t *testing.T) {
 	}
 }
 
+func TestLineFilterBool(t *testing.T) {
+	tests := []string{
+		`{app="x"} |~ "POST" or "GET"`,
+		`{app="x"} |= "a" and "b"`,
+		`{app="x"} |= ("foo" or "bar") and "baz"`,
+	}
+	asts := make([]*LogQLScript, len(tests))
+	for i, str := range tests {
+		ast, err := Parse(str)
+		if err != nil {
+			fmt.Printf("[%d]: %s\n", i, str)
+			t.Fatal(err)
+		}
+		asts[i] = ast
+	}
+	cupaloy.SnapshotT(t, asts)
+}
+
 func TestParser2(t *testing.T) {
 	ast, err := Parse(`{sender="logtest"} |= "GET"`)
 	if err != nil {
@@ -95,4 +113,92 @@ func TestFindFirst(t *testing.T) {
 	}
 	strSel := FindFirst[LineFilter](ast)
 	fmt.Println(strSel)
+}
+
+func TestParserBinary(t *testing.T) {
+	type testCase struct {
+		query      string
+		isBinary   bool
+		numBinOps  int
+		wantString string
+		headIsAtom func(a AtomExpr) bool // optional extra check on Head
+	}
+
+	tests := []testCase{
+		{
+			query:      `(rate({test_id="a"} [1s]))`,
+			isBinary:   false,
+			numBinOps:  0,
+			wantString: `(rate ({test_id="a"}[1s]))`,
+			headIsAtom: func(a AtomExpr) bool { return a.Paren != nil },
+		},
+		{
+			query:      `((sum by (test_id) (rate({test_id="a"} [1s]))))`,
+			isBinary:   false,
+			numBinOps:  0,
+			wantString: `((sum by (test_id) (rate ({test_id="a"}[1s]))))`,
+			headIsAtom: func(a AtomExpr) bool { return a.Paren != nil },
+		},
+		{
+			query:      `(sum by (test_id) (rate({test_id="a"} [1s])))`,
+			isBinary:   false,
+			numBinOps:  0,
+			wantString: `(sum by (test_id) (rate ({test_id="a"}[1s])))`,
+			headIsAtom: func(a AtomExpr) bool { return a.Paren != nil },
+		},
+		{
+			query:      `rate({test_id="a"} [1s]) / rate({test_id="b"} [1s])`,
+			isBinary:   true,
+			numBinOps:  1,
+			wantString: `rate ({test_id="a"}[1s]) / rate ({test_id="b"}[1s])`,
+			headIsAtom: func(a AtomExpr) bool { return a.LRAOrUnwrap != nil },
+		},
+		{
+			query:      `rate({test_id="a"} [1s]) * 100`,
+			isBinary:   true,
+			numBinOps:  1,
+			wantString: `rate ({test_id="a"}[1s]) * 100`,
+			headIsAtom: func(a AtomExpr) bool { return a.LRAOrUnwrap != nil },
+		},
+		{
+			query:      `sum by (test_id) (rate({test_id="a"} [1s])) / sum by (test_id) (rate({test_id="b"} [1s])) * 100`,
+			isBinary:   true,
+			numBinOps:  2,
+			wantString: `sum by (test_id) (rate ({test_id="a"}[1s])) / sum by (test_id) (rate ({test_id="b"}[1s])) * 100`,
+			headIsAtom: func(a AtomExpr) bool { return a.AggOperator != nil },
+		},
+		{
+			query:      `(sum by (test_id) (rate({test_id="a"} [1s]))) / (sum by (test_id) (rate({test_id="b"} [1s])))`,
+			isBinary:   true,
+			numBinOps:  1,
+			wantString: `(sum by (test_id) (rate ({test_id="a"}[1s]))) / (sum by (test_id) (rate ({test_id="b"}[1s])))`,
+			headIsAtom: func(a AtomExpr) bool { return a.Paren != nil },
+		},
+		{
+			query:      `rate({test_id="a"} [1s]) + rate({test_id="b"} [1s]) - rate({test_id="c"} [1s])`,
+			isBinary:   true,
+			numBinOps:  2,
+			wantString: `rate ({test_id="a"}[1s]) + rate ({test_id="b"}[1s]) - rate ({test_id="c"}[1s])`,
+		},
+	}
+
+	for _, tc := range tests {
+		ast, err := Parse(tc.query)
+		if err != nil {
+			t.Errorf("Parse(%q): unexpected error: %v", tc.query, err)
+			continue
+		}
+		if ast.IsBinary() != tc.isBinary {
+			t.Errorf("Parse(%q): IsBinary() = %v, want %v", tc.query, ast.IsBinary(), tc.isBinary)
+		}
+		if len(ast.BinOps) != tc.numBinOps {
+			t.Errorf("Parse(%q): len(BinOps) = %d, want %d", tc.query, len(ast.BinOps), tc.numBinOps)
+		}
+		if got := ast.String(); got != tc.wantString {
+			t.Errorf("Parse(%q).String() = %q, want %q", tc.query, got, tc.wantString)
+		}
+		if tc.headIsAtom != nil && !tc.headIsAtom(ast.Head) {
+			t.Errorf("Parse(%q): Head atom type check failed", tc.query)
+		}
+	}
 }

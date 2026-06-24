@@ -2,9 +2,11 @@ package unmarshal
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/metrico/qryn/v4/writer/model"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
@@ -22,10 +24,14 @@ func (e *otlpLogDec) Decode() error {
 
 	for _, resLog := range logs.ResourceLogs {
 		resourceAttrs := map[string]string{}
-		e.initAttributesMap(resLog.Resource.Attributes, "", &resourceAttrs)
+		if resLog.Resource != nil {
+			e.initAttributesMap(resLog.Resource.Attributes, "", &resourceAttrs)
+		}
 		for _, scopeLog := range resLog.ScopeLogs {
 			scopeAttrs := map[string]string{}
-			e.initAttributesMap(scopeLog.Scope.Attributes, "", &scopeAttrs)
+			if scopeLog.Scope != nil {
+				e.initAttributesMap(scopeLog.Scope.Attributes, "", &scopeAttrs)
+			}
 			for _, logRecord := range scopeLog.LogRecords {
 				var labels [][]string
 				// Merge resource and scope attributes
@@ -43,13 +49,30 @@ func (e *otlpLogDec) Decode() error {
 				if severityText := logRecord.SeverityText; severityText != "" {
 					attrsMap["level"] = severityText
 				}
+				// Extract first-class OTLP trace context fields (override any same-named attribute).
+				if tid := logRecord.TraceId; len(tid) == 16 && !isZeroBytes(tid) {
+					attrsMap["trace_id"] = hex.EncodeToString(tid)
+				}
+				if sid := logRecord.SpanId; len(sid) == 8 && !isZeroBytes(sid) {
+					attrsMap["span_id"] = hex.EncodeToString(sid)
+				}
 
 				for k, v := range attrsMap {
 					labels = append(labels, []string{k, v})
 				}
 				// Extract other log record fields
-				message := logRecord.Body.GetStringValue()
+				var message string
+				if logRecord.Body != nil {
+					message = SanitizeValue(logRecord.Body)
+				}
 				timestamp := logRecord.TimeUnixNano
+
+				if timestamp == 0 {
+					timestamp = logRecord.ObservedTimeUnixNano
+				}
+				if timestamp == 0 {
+					timestamp = uint64(time.Now().UnixNano())
+				}
 				// Call onEntries with labels and other details
 				err := e.onEntries(
 					labels,
@@ -123,6 +146,15 @@ func SanitizeValue(value *otlpcommon.AnyValue) string {
 
 func (e *otlpLogDec) SetOnEntries(h onEntriesHandler) {
 	e.onEntries = h
+}
+
+func isZeroBytes(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 var UnmarshalOTLPLogsV2 = Build(

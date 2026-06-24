@@ -28,14 +28,15 @@ func (d *PlannerDropSimple) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 	var labels sql.ISelect
 
 	if d.LabelsCache != nil && *d.LabelsCache != nil {
+		dropFilter := &mapDropFilter{
+			col:    sql.NewRawObject("a.labels"),
+			labels: d.Labels,
+			values: d.Vals,
+		}
 		labels = sql.NewSelect().Select(
 			sql.NewRawObject("fingerprint"),
-			sql.NewSimpleCol("cityHash64(labels)", "new_fingerprint"),
-			sql.NewCol(&mapDropFilter{
-				col:    sql.NewRawObject("a.labels"),
-				labels: d.Labels,
-				values: d.Vals,
-			}, "labels"),
+			sql.NewCol(&canonicalFPCol{inner: dropFilter}, "new_fingerprint"),
+			sql.NewCol(dropFilter, "labels"),
 		).From(sql.NewCol(sql.NewWithRef(withMain), "a"))
 	} else {
 		var fpCache *sql.With
@@ -46,17 +47,20 @@ func (d *PlannerDropSimple) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		if err != nil {
 			return nil, err
 		}
+		var filteredObj sql.SQLObject
 		sel, err := patchCol(labels.GetSelect(), "labels", func(c sql.SQLObject) (sql.SQLObject, error) {
-			return &mapDropFilter{
+			fo := &mapDropFilter{
 				col:    c,
 				labels: d.Labels,
 				values: d.Vals,
-			}, nil
+			}
+			filteredObj = fo
+			return fo, nil
 		})
 		if err != nil {
 			return nil, err
 		}
-		sel = append(sel, sql.NewSimpleCol("cityHash64(labels)", "new_fingerprint"))
+		sel = append(sel, sql.NewCol(&canonicalFPCol{inner: filteredObj}, "new_fingerprint"))
 		labels.Select(sel...)
 	}
 

@@ -31,6 +31,12 @@ var LogQLLexerRulesV2 = []lexer.SimpleRule{
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "Dot", Pattern: `\.`},
 
+	{Name: "Div", Pattern: `/`},
+	{Name: "Mul", Pattern: `\*`},
+	{Name: "Add", Pattern: `\+`},
+	{Name: "Sub", Pattern: `-`},
+	{Name: "Mod", Pattern: `%`},
+
 	{Name: "Macros_function", Pattern: `_[a-zA-Z0-9_]+`},
 	{Name: "Label_name", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
 	{Name: "Quoted_string", Pattern: `"([^"\\]|\\.)*"`},

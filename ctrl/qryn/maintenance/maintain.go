@@ -149,26 +149,33 @@ func ReindexDB(dbObject *config.ClokiBaseDataBase) error {
 	return UpdateLogsIndex(connDb, dbObject.ClusterName != "", dbObject.LogsIndex, int(dbObject.LogsIndexGranularity))
 }
 
+func effectivePort(db *config.ClokiBaseDataBase) uint32 {
+	if db.HttpPort != 0 {
+		return db.HttpPort
+	}
+	return db.Port
+}
+
 func UpgradeAll(config []config.ClokiBaseDataBase, logger logger.ILogger) error {
 	for _, dbObject := range config {
-		logger.Info(fmt.Sprintf("Upgrading %s:%d/%s", dbObject.Host, dbObject.Port, dbObject.Name))
+		logger.Info(fmt.Sprintf("Upgrading %s:%d/%s", dbObject.Host, effectivePort(&dbObject), dbObject.Name))
 		err := upgradeDB(&dbObject, logger)
 		if err != nil {
 			return err
 		}
-		logger.Info(fmt.Sprintf("Upgrading %s:%d/%s: OK", dbObject.Host, dbObject.Port, dbObject.Name))
+		logger.Info(fmt.Sprintf("Upgrading %s:%d/%s: OK", dbObject.Host, effectivePort(&dbObject), dbObject.Name))
 	}
 	return nil
 }
 
 func RotateAll(base []config.ClokiBaseDataBase, logger logger.ILogger) error {
 	for _, dbObject := range base {
-		logger.Info(fmt.Sprintf("Rotating %s:%d/%s", dbObject.Host, dbObject.Port, dbObject.Name))
+		logger.Info(fmt.Sprintf("Rotating %s:%d/%s", dbObject.Host, effectivePort(&dbObject), dbObject.Name))
 		err := rotateDB(&dbObject)
 		if err != nil {
 			return err
 		}
-		logger.Info(fmt.Sprintf("Rotating %s:%d/%s: OK", dbObject.Host, dbObject.Port, dbObject.Name))
+		logger.Info(fmt.Sprintf("Rotating %s:%d/%s: OK", dbObject.Host, effectivePort(&dbObject), dbObject.Name))
 	}
 
 	return nil

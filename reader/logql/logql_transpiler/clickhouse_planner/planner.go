@@ -85,14 +85,14 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 		}
 	}
 
-	if p.script.StrSelector != nil {
+	if p.script.Head.StrSelector != nil {
 		p.samplesPlanner = &MainOrderByPlanner{[]string{"timestamp_ns"}, p.samplesPlanner}
 		if p.finalize {
 			p.samplesPlanner = &MainLimitPlanner{p.samplesPlanner}
 		}
 	}
 
-	if p.script.StrSelector == nil {
+	if p.script.Head.StrSelector == nil {
 		duration, err := shared.GetDuration(p.script)
 		if err != nil {
 			return nil, err
@@ -115,7 +115,7 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 
 	p.samplesPlanner = &MainFinalizerPlanner{
 		Main:     p.samplesPlanner,
-		IsMatrix: p.script.StrSelector == nil,
+		IsMatrix: p.script.Head.StrSelector == nil,
 		IsFinal:  p.finalize,
 	}
 
@@ -137,7 +137,7 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 	}
 	switch script := script.(type) {
 	case *logql_parser.LogQLScript:
-		return dfs(script.TopK, script.AggOperator, script.LRAOrUnwrap)
+		return dfs(script.Head.TopK, script.Head.AggOperator, script.Head.LRAOrUnwrap)
 	case *logql_parser.TopK:
 		err := dfs(script.AggOperator, script.LRAOrUnwrap)
 		if err != nil {
@@ -183,7 +183,7 @@ func (p *planner) planDetectLabels() (shared.SQLRequestPlanner, error) {
 	if p.script == nil {
 		return &DetectLabelsPlanner{NoStreamSelect: p.noStreamSelect}, nil
 	}
-	if p.script.StrSelector == nil {
+	if p.script.Head.StrSelector == nil {
 		return nil, fmt.Errorf("unsupported query")
 	}
 	err := p.planTS()
@@ -197,7 +197,7 @@ func (p *planner) planPatterns() (shared.SQLRequestPlanner, error) {
 	if p.script == nil {
 		return nil, fmt.Errorf("unsupported query")
 	}
-	if p.script.StrSelector == nil {
+	if p.script.Head.StrSelector == nil {
 		return nil, fmt.Errorf("unsupported query")
 	}
 	err := p.planTS()
@@ -474,14 +474,9 @@ func (p *planner) planLabelFilter(ppl *logql_parser.StrSelectorPipeline, idx int
 }
 
 func (p *planner) planLineFilter(ppl *logql_parser.StrSelectorPipeline) error {
-	val, err := ppl.LineFilter.Val.Unquote()
-	if err != nil {
-		return err
-	}
 	p.samplesPlanner = &LineFilterPlanner{
-		Op:   ppl.LineFilter.Fn,
-		Val:  val,
-		Main: p.samplesPlanner,
+		Filter: ppl.LineFilter,
+		Main:   p.samplesPlanner,
 	}
 	return nil
 }
@@ -525,7 +520,7 @@ func (p *planner) planParser(ppl *logql_parser.StrSelectorPipeline) error {
 }
 
 func (p *planner) check() error {
-	if p.script.Macros != nil {
+	if p.script.Head.Macros != nil {
 		return &shared.NotSupportedError{Msg: "not implemented"}
 	}
 	return nil
@@ -536,26 +531,26 @@ func getPipeline(script *logql_parser.LogQLScript) []logql_parser.StrSelectorPip
 }
 
 func getStreamSelector(script *logql_parser.LogQLScript) *logql_parser.StrSelector {
-	if script.StrSelector != nil {
-		return script.StrSelector
+	if script.Head.StrSelector != nil {
+		return script.Head.StrSelector
 	}
-	if script.LRAOrUnwrap != nil {
-		return &script.LRAOrUnwrap.StrSel
+	if script.Head.LRAOrUnwrap != nil {
+		return &script.Head.LRAOrUnwrap.StrSel
 	}
-	if script.AggOperator != nil {
-		return &script.AggOperator.LRAOrUnwrap.StrSel
+	if script.Head.AggOperator != nil {
+		return &script.Head.AggOperator.LRAOrUnwrap.StrSel
 	}
-	if script.TopK != nil {
-		if script.TopK.LRAOrUnwrap != nil {
-			return &script.TopK.LRAOrUnwrap.StrSel
+	if script.Head.TopK != nil {
+		if script.Head.TopK.LRAOrUnwrap != nil {
+			return &script.Head.TopK.LRAOrUnwrap.StrSel
 		}
-		if script.TopK.AggOperator != nil {
-			return &script.TopK.AggOperator.LRAOrUnwrap.StrSel
+		if script.Head.TopK.AggOperator != nil {
+			return &script.Head.TopK.AggOperator.LRAOrUnwrap.StrSel
 		}
-		return &script.TopK.QuantileOverTime.StrSel
+		return &script.Head.TopK.QuantileOverTime.StrSel
 	}
-	if script.QuantileOverTime != nil {
-		return &script.QuantileOverTime.StrSel
+	if script.Head.QuantileOverTime != nil {
+		return &script.Head.QuantileOverTime.StrSel
 	}
 	return nil
 }

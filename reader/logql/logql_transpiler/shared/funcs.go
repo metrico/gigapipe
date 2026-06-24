@@ -25,7 +25,17 @@ func GetDuration(script any) (time.Duration, error) {
 
 	switch script := script.(type) {
 	case *logql_parser.LogQLScript:
-		return dfs(script.AggOperator, script.LRAOrUnwrap, script.TopK, script.QuantileOverTime)
+		res, err := dfs(script.Head.Paren, script.Head.AggOperator, script.Head.LRAOrUnwrap, script.Head.TopK, script.Head.QuantileOverTime)
+		if err != nil || res.Nanoseconds() != 0 {
+			return res, err
+		}
+		for _, binOp := range script.BinOps {
+			res, err = dfs(binOp.Right.Paren, binOp.Right.AggOperator, binOp.Right.LRAOrUnwrap, binOp.Right.TopK, binOp.Right.QuantileOverTime)
+			if err != nil || res.Nanoseconds() != 0 {
+				return res, err
+			}
+		}
+		return 0, nil
 	case *logql_parser.LRAOrUnwrap:
 		return time.ParseDuration(script.Time + script.TimeUnit)
 	case *logql_parser.AggOperator:
@@ -50,7 +60,7 @@ func GetStrSelector(script any) *logql_parser.StrSelector {
 
 	switch script := script.(type) {
 	case *logql_parser.LogQLScript:
-		return dfs(script.StrSelector, script.TopK, script.AggOperator, script.LRAOrUnwrap, script.QuantileOverTime)
+		return dfs(script.Head.StrSelector, script.Head.TopK, script.Head.AggOperator, script.Head.LRAOrUnwrap, script.Head.QuantileOverTime)
 	case *logql_parser.StrSelector:
 		return script
 	case *logql_parser.TopK:

@@ -8,7 +8,7 @@ func (p *planner) planFingerprints() (shared.SQLRequestPlanner, error) {
 		ops        []string
 		values     []string
 	)
-	for _, label := range p.script.StrSelector.StrSelCmds {
+	for _, label := range p.script.Head.StrSelector.StrSelCmds {
 		labelNames = append(labelNames, label.Label.Name)
 		ops = append(ops, label.Op)
 		val, err := label.Val.Unquote()

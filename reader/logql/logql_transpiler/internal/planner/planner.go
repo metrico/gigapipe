@@ -14,15 +14,9 @@ func Plan(script *logql_parser.LogQLScript,
 	strSelector := shared.GetStrSelector(script)
 	for _, ppl := range strSelector.Pipelines {
 		if ppl.LineFilter != nil {
-			str, err := ppl.LineFilter.Val.Unquote()
-			if err != nil {
-				return nil, err
-			}
 			in = &LineFilterPlanner{
 				GenericPlanner: GenericPlanner{in},
-				Op:             ppl.LineFilter.Fn,
-				Val:            str,
-				re:             nil,
+				Filter:         ppl.LineFilter,
 			}
 			continue
 		}
