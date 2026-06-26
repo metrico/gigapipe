@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"errors"
 	"regexp"
 	"strconv"
 
@@ -8,6 +9,10 @@ import (
 	"github.com/kr/logfmt"
 	"golang.org/x/exp/slices"
 )
+
+// errNotJSONObject is returned when a `json` parser is applied to a line whose
+// root value is not a JSON object, surfaced to the caller as a JSONParserErr.
+var errNotJSONObject = errors.New("expecting json object")
 
 type plainJsonParserHelper struct {
 	lbls *map[string]string
@@ -20,7 +25,7 @@ func (p *plainJsonParserHelper) setLabels(m *map[string]string) {
 func (p *plainJsonParserHelper) parse(line string) error {
 	dec := jx.DecodeStr(line)
 	if dec.Next() != jx.Object {
-		return nil
+		return errNotJSONObject
 	}
 	return dec.Obj(func(d *jx.Decoder, key string) error {
 		return p.dec(key, d)
@@ -71,7 +76,7 @@ func (p *parameterJsonHelper) setLabels(m *map[string]string) {
 func (p *parameterJsonHelper) parse(line string) error {
 	dec := jx.DecodeStr(line)
 	if dec.Next() != jx.Object {
-		return nil
+		return errNotJSONObject
 	}
 	return dec.Obj(func(d *jx.Decoder, key string) error {
 		return p.dec([]string{key}, d)

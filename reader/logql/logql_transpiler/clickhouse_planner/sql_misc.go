@@ -50,6 +50,37 @@ func (s *sqlMapUpdate) String(ctx *sql.Ctx, opts ...int) (string, error) {
 	return fmt.Sprintf("mapUpdate(%s, %s)", str1, str2), nil
 }
 
+// sqlParserError emits the success-case label map when col parses cleanly, and
+// otherwise a map carrying the synthetic __error__/__error_details__ labels.
+// The validity check is JSON-object specific, covering the only SQL-path parser
+// (json) that flags runtime errors.
+type sqlParserError struct {
+	col     sql.SQLObject
+	success sql.SQLObject
+	errType string
+	detail  string
+}
+
+func (s *sqlParserError) String(ctx *sql.Ctx, opts ...int) (string, error) {
+	col, err := s.col.String(ctx, opts...)
+	if err != nil {
+		return "", err
+	}
+	success, err := s.success.String(ctx, opts...)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, 4)
+	for i, v := range []string{shared.ErrorLabel, s.errType, shared.ErrorDetailsLabel, s.detail} {
+		parts[i], err = sql.NewStringVal(v).String(ctx, opts...)
+		if err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("if(JSONType(%s) = 'Object', %s, map(%s))",
+		col, success, strings.Join(parts, ", ")), nil
+}
+
 func patchCol(cols []sql.SQLObject, name string,
 	patch func(sql.SQLObject) (sql.SQLObject, error)) ([]sql.SQLObject, error) {
 	_cols := make([]sql.SQLObject, len(cols))
