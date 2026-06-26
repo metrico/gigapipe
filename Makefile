@@ -1,5 +1,9 @@
 docker-compose ?= docker-compose
 
+# Enable the recording-rules ruler for e2e: exported so both the gigapipe
+# server (via compose interpolation) and the test runner see the same value.
+export QRYN_RULER_ENABLED ?= true
+
 docker:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
 
@@ -22,6 +26,7 @@ e2e-test:
    	  -e CLOKI_EXT_URL="e2e.aio:9080" \
    	  -e QRYN_LOGIN=a \
    	  -e QRYN_PASSWORD=b \
+   	  -e QRYN_RULER_ENABLED \
    	  -e OTEL_COLL_URL="http://a:b@e2e.aio:9080" \
    	  node:18-alpine \
    	  sh -c 'cd /deps/e2e && npm install && npm test -- --forceExit'
