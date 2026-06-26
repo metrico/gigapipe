@@ -58,16 +58,23 @@ func (p *ParserPlanner) Process(ctx *shared.PlannerContext,
 		return nil, &shared.NotSupportedError{Msg: fmt.Sprintf("%s not supported", p.Op)}
 	}
 
+	errType := shared.ParserErrorType[p.Op]
+
 	return p.WrapProcess(ctx, in, GenericPlannerOps{
 		OnEntry: func(entry *shared.LogEntry) error {
 			if entry.Err != nil {
 				return nil
 			}
-			var err error
 			parser.setLabels(&entry.Labels)
-			err = parser.parse(entry.Message)
-			if err != nil {
-				return err
+			if err := parser.parse(entry.Message); err != nil {
+				// A failed parse does not abort the query: flag the entry with
+				// the synthetic error labels and keep whatever was extracted
+				// before the failure, matching Loki.
+				if entry.Labels == nil {
+					entry.Labels = map[string]string{}
+				}
+				entry.Labels[shared.ErrorLabel] = errType
+				entry.Labels[shared.ErrorDetailsLabel] = err.Error()
 			}
 			entry.Fingerprint = fingerprint(entry.Labels)
 			return nil

@@ -25,10 +25,15 @@ func (p *ParserPlanner) json(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	sel, err := patchCol(req.GetSelect(), "labels", func(object sql.SQLObject) (sql.SQLObject, error) {
 		return &sqlMapUpdate{
 			object,
-			&sqlJsonParser{
-				col:    sql.NewRawObject("string"),
-				labels: p.labels,
-				paths:  jsonPaths,
+			&sqlParserError{
+				col:     sql.NewRawObject("string"),
+				errType: shared.JSONParserErr,
+				detail:  "line is not a valid json object",
+				success: &sqlJsonParser{
+					col:    sql.NewRawObject("string"),
+					labels: p.labels,
+					paths:  jsonPaths,
+				},
 			},
 		}, nil
 	})
