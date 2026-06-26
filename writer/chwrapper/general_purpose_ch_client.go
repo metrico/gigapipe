@@ -119,7 +119,7 @@ func (c *Client) tableEmpty(ctx context.Context, name string) (bool, error) {
 func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
 
 	logger.Info("query Info", query)
-	return c.c.Exec(ctx, query, args)
+	return c.c.Exec(ctx, query, args...)
 }
 
 func (c *Client) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {

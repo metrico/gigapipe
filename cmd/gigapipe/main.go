@@ -10,6 +10,7 @@ import (
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v4/ctrl"
 	"github.com/metrico/qryn/v4/reader"
+	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
@@ -327,6 +328,13 @@ func start() {
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
 		reader.Init(cfg, app)
 		view.Init(cfg, app)
+	}
+	// The ruler composes both the writer (in-process write-back) and the reader
+	// (query evaluation), so it runs only in the combined modes and after both
+	// have initialized. It is a no-op unless QRYN_RULER_ENABLED is set.
+	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
+		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
+		rulerrouter.Init(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	httpStart(app, httpURL)

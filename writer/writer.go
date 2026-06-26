@@ -20,6 +20,11 @@ func Init(cfg *clconfig.ClokiConfig, router *mux.Router) {
 	qrynPlugin.StartPushStat() // internal goroutine
 	controllerv1.Registry = plugin.ServiceRegistry
 	controllerv1.FPCache = plugin.GoCache
+	// Expose a ClickHouse client for in-process consumers (e.g. the ruler's
+	// rule-group storage), which the HTTP write path does not otherwise need.
+	if len(qrynPlugin.ServicesObject.Dbv2Map) > 0 {
+		controllerv1.DbClient = qrynPlugin.ServicesObject.Dbv2Map[0]
+	}
 	proMiddlewareConfig := controllerv1.NewMiddlewareConfig(controllerv1.WithExtraMiddlewareDefault...)
 	tempoMiddlewareConfig := controllerv1.NewMiddlewareConfig(controllerv1.WithExtraMiddlewareTempo...)
 	qrynPlugin.RegisterRoutes(*config.Cloki.Setting, proMiddlewareConfig, tempoMiddlewareConfig, router)
