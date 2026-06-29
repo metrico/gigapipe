@@ -132,8 +132,6 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	}
 
 	m.routinesMtx.Lock()
-	defer m.routinesMtx.Unlock()
-
 	for interval, routine := range m.routines {
 		if !intervals[interval] {
 			routine.cancel()
@@ -156,6 +154,32 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 		m.wg.Add(1)
 		go m.runIntervalRoutine(routine)
 	}
+	m.routinesMtx.Unlock()
+
+	// Reconcile health with the live rule set so entries for rules that have
+	// been deleted or renamed do not accumulate in the map forever.
+	m.pruneHealth(groups)
+}
+
+// pruneHealth drops health entries whose rule no longer exists in groups,
+// bounding the health map to the current set of recording rules.
+func (m *RuleManager) pruneHealth(groups NamespaceRuleGroups) {
+	valid := make(map[string]struct{})
+	for namespace, gs := range groups {
+		for _, g := range gs {
+			for _, rule := range g.Rules {
+				if rule.IsRecording() {
+					valid[ruleHealthKey(namespace, g.Name, rule.Record)] = struct{}{}
+				}
+			}
+		}
+	}
+	m.health.Range(func(k, _ any) bool {
+		if _, ok := valid[k.(string)]; !ok {
+			m.health.Delete(k)
+		}
+		return true
+	})
 }
 
 func (m *RuleManager) runIntervalRoutine(routine *intervalRoutine) {

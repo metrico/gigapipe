@@ -129,6 +129,28 @@ func TestEvaluateRecordingRule_ErrorRecordsHealthAndSkipsWrite(t *testing.T) {
 	}
 }
 
+func TestPruneHealth_EvictsRemovedRulesKeepsLive(t *testing.T) {
+	m := NewRuleManager(nil, nil, nil, time.Minute)
+	m.setRuleHealth("ns", "g", "live", RuleHealth{Health: "ok"})
+	m.setRuleHealth("ns", "g", "stale", RuleHealth{Health: "ok"})
+	m.setRuleHealth("ns", "gone", "x", RuleHealth{Health: "ok"})
+
+	// Only ns/g/live still exists in the rule set.
+	m.pruneHealth(NamespaceRuleGroups{
+		"ns": {{Name: "g", Interval: "30s", Rules: []Rule{{Record: "live", Expr: "up"}}}},
+	})
+
+	if _, ok := m.getRuleHealth("ns", "g", "live"); !ok {
+		t.Errorf("live rule health was evicted")
+	}
+	if _, ok := m.getRuleHealth("ns", "g", "stale"); ok {
+		t.Errorf("stale rule health not evicted")
+	}
+	if _, ok := m.getRuleHealth("ns", "gone", "x"); ok {
+		t.Errorf("health for removed group not evicted")
+	}
+}
+
 func TestGetPrometheusRules_GroupEvaluationReflectsRealHealth(t *testing.T) {
 	reader := &fakeReader{groups: NamespaceRuleGroups{
 		"ns": {{
