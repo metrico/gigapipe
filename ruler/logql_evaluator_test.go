@@ -31,3 +31,16 @@ func TestParseInstantVector_Empty(t *testing.T) {
 		t.Fatalf("empty input should yield empty vector, got %v err=%v", v, err)
 	}
 }
+
+func TestNewLogQLEvaluator_MaxResultBytes(t *testing.T) {
+	// Non-positive values fall back to the default cap.
+	for _, n := range []int{0, -1} {
+		if got := NewLogQLEvaluator(nil, n).maxResultBytes; got != DefaultMaxLogQLResultBytes {
+			t.Errorf("maxResultBytes(%d) = %d, want default %d", n, got, DefaultMaxLogQLResultBytes)
+		}
+	}
+	// A positive override is kept.
+	if got := NewLogQLEvaluator(nil, 1234).maxResultBytes; got != 1234 {
+		t.Errorf("maxResultBytes(1234) = %d, want 1234", got)
+	}
+}

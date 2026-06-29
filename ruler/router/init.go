@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,18 @@ func pollInterval() time.Duration {
 	return defaultPollInterval
 }
 
+// maxLogQLResultBytes returns the per-evaluation LogQL result-size cap from
+// QRYN_RULER_MAX_LOGQL_RESULT_BYTES (in bytes), or 0 to use the evaluator's
+// default when the variable is unset or not a positive integer.
+func maxLogQLResultBytes() int {
+	if v := os.Getenv("QRYN_RULER_MAX_LOGQL_RESULT_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
 // Init wires the ruler into the unified binary: it builds the Loki and
 // Prometheus rule stores, evaluators, managers and HTTP routes, then starts the
 // managers. It is a no-op unless QRYN_RULER_ENABLED is set.
@@ -71,7 +84,7 @@ func Init(cfg *clconfig.ClokiConfig, app *mux.Router) {
 
 	// Loki rule set — evaluated via the reader's instant LogQL service.
 	lokiQRS := readerservice.NewQueryRangeService(&readermodel.ServiceData{Session: session})
-	lokiMgr := ruler.NewRuleManager(ruler.NewLogQLEvaluator(lokiQRS), lokiService, writeBack, poll)
+	lokiMgr := ruler.NewRuleManager(ruler.NewLogQLEvaluator(lokiQRS, maxLogQLResultBytes()), lokiService, writeBack, poll)
 
 	// Prometheus rule set — evaluated via the reader's PromQL engine + storage.
 	eng := promql.NewEngine(promql.EngineOpts{

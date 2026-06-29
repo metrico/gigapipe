@@ -17,17 +17,26 @@ import (
 
 var vectorRe = regexp.MustCompile(`(?i)^\s*vector\(\s*([0-9.]+)\s*\)\s*$`)
 
-const maxLogQLResultBytes = 10 * 1024 * 1024
+// DefaultMaxLogQLResultBytes caps the buffered LogQL instant-query response a
+// single recording-rule evaluation may hold before parsing, guarding against
+// unbounded memory from a rule that returns a very large result. It is the
+// fallback when QRYN_RULER_MAX_LOGQL_RESULT_BYTES is unset or non-positive.
+const DefaultMaxLogQLResultBytes = 10 * 1024 * 1024
 
 // LogQLEvaluator evaluates LogQL recording-rule expressions via the reader's
 // instant query service, converting the JSON response into a Prometheus vector.
 type LogQLEvaluator struct {
 	queryRangeService *service.QueryRangeService
+	maxResultBytes    int
 }
 
 // NewLogQLEvaluator builds a LogQL evaluator over the reader's query service.
-func NewLogQLEvaluator(queryRangeService *service.QueryRangeService) *LogQLEvaluator {
-	return &LogQLEvaluator{queryRangeService: queryRangeService}
+// A non-positive maxResultBytes falls back to DefaultMaxLogQLResultBytes.
+func NewLogQLEvaluator(queryRangeService *service.QueryRangeService, maxResultBytes int) *LogQLEvaluator {
+	if maxResultBytes <= 0 {
+		maxResultBytes = DefaultMaxLogQLResultBytes
+	}
+	return &LogQLEvaluator{queryRangeService: queryRangeService, maxResultBytes: maxResultBytes}
 }
 
 // Evaluate runs query as an instant LogQL query at t. The synthetic constant
@@ -58,8 +67,8 @@ func (e *LogQLEvaluator) Evaluate(ctx context.Context, query string, t time.Time
 		if output.Str == "" {
 			continue
 		}
-		if buf.Len()+len(output.Str) > maxLogQLResultBytes {
-			return nil, fmt.Errorf("query result exceeded %d bytes", maxLogQLResultBytes)
+		if buf.Len()+len(output.Str) > e.maxResultBytes {
+			return nil, fmt.Errorf("query result exceeded %d bytes", e.maxResultBytes)
 		}
 		buf.WriteString(output.Str)
 	}
