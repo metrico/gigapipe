@@ -129,6 +129,46 @@ func TestEvaluateRecordingRule_ErrorRecordsHealthAndSkipsWrite(t *testing.T) {
 	}
 }
 
+func TestGetPrometheusRules_GroupEvaluationReflectsRealHealth(t *testing.T) {
+	reader := &fakeReader{groups: NamespaceRuleGroups{
+		"ns": {{
+			Name:     "g",
+			Interval: "30s",
+			Rules: []Rule{
+				{Record: "a", Expr: "up"},
+				{Record: "b", Expr: "up"},
+			},
+		}},
+	}}
+	m := NewRuleManager(nil, reader, nil, time.Minute)
+
+	// Never-evaluated group: must report the zero time, not "now".
+	groups := m.GetPrometheusRules()
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+	if got := groups[0].LastEvaluation; got != (time.Time{}).UTC().Format(time.RFC3339Nano) {
+		t.Errorf("un-evaluated group LastEvaluation = %q, want zero time", got)
+	}
+	if groups[0].EvaluationTime != 0 {
+		t.Errorf("un-evaluated group EvaluationTime = %v, want 0", groups[0].EvaluationTime)
+	}
+
+	// After evaluation: group time is the latest rule time, eval time the sum.
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Minute)
+	m.setRuleHealth("ns", "g", "a", RuleHealth{Health: "ok", LastEvalTime: older, EvaluationTime: 0.2})
+	m.setRuleHealth("ns", "g", "b", RuleHealth{Health: "ok", LastEvalTime: newer, EvaluationTime: 0.3})
+
+	groups = m.GetPrometheusRules()
+	if got := groups[0].LastEvaluation; got != newer.Format(time.RFC3339Nano) {
+		t.Errorf("group LastEvaluation = %q, want latest rule time %q", got, newer.Format(time.RFC3339Nano))
+	}
+	if got := groups[0].EvaluationTime; got < 0.49 || got > 0.51 {
+		t.Errorf("group EvaluationTime = %v, want sum 0.5", got)
+	}
+}
+
 func TestGetPrometheusRules_RecordingOnlyWithHealth(t *testing.T) {
 	eval := &fakeEvaluator{vec: sampleVec()}
 	writer := &fakeWriter{}

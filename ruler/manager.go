@@ -235,6 +235,12 @@ func (m *RuleManager) GetPrometheusRules() []PrometheusGroup {
 	for namespace, gs := range groups {
 		for _, g := range gs {
 			promRules := []PrometheusRule{}
+			// Derive the group's evaluation status from its rules' actual
+			// health rather than reporting a synthetic "now": the group's last
+			// evaluation is the most recent evaluation among its rules (zero if
+			// none has run yet), and its evaluation time is the sum of theirs.
+			var groupLastEval time.Time
+			var groupEvalTime float64
 			for _, rule := range g.Rules {
 				if !rule.IsRecording() {
 					continue
@@ -243,6 +249,10 @@ func (m *RuleManager) GetPrometheusRules() []PrometheusGroup {
 				if h, ok := m.getRuleHealth(namespace, g.Name, rule.Record); ok {
 					health, lastErr, lastEval, evalTime = h.Health, h.LastError, h.LastEvalTime, h.EvaluationTime
 				}
+				if lastEval.After(groupLastEval) {
+					groupLastEval = lastEval
+				}
+				groupEvalTime += evalTime
 				promRules = append(promRules, PrometheusRule{
 					Name:           rule.Record,
 					Query:          rule.Expr,
@@ -266,7 +276,8 @@ func (m *RuleManager) GetPrometheusRules() []PrometheusGroup {
 				File:           namespace,
 				Rules:          promRules,
 				Interval:       intervalSeconds,
-				LastEvaluation: time.Now().UTC().Format(time.RFC3339Nano),
+				LastEvaluation: groupLastEval.UTC().Format(time.RFC3339Nano),
+				EvaluationTime: groupEvalTime,
 			})
 		}
 	}
