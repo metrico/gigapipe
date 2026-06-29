@@ -79,6 +79,17 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 - **`LOG_PATTERN_SIMILARITY`** - Similarity threshold for pattern grouping, range 0-1 (default: `0.7`). Higher values require more similarity.
 - **`LOG_PATTERN_READ_LIMIT`** - Maximum number of log patterns to read per request (default: `300`)
 
+## Recording Rules (Ruler)
+
+The ruler evaluates LogQL and PromQL recording rules on a schedule and writes
+the results back as new series. It is single-tenant and recording-only
+(alerting rules may be stored but are never evaluated). It runs only in modes
+`all`/`""`, after the writer and reader initialize.
+
+- **`QRYN_RULER_ENABLED`** - Enable the ruler (`1`, `true`, `yes`, `on`; default: disabled). When disabled, the rule endpoints (`/api/v1/rules`, `/loki/api/v1/rules`, `/api/prom/rules`) are **not** served and return `404`.
+- **`QRYN_RULER_POLL_INTERVAL`** - How often rule groups are reloaded from storage and rescheduled, as a Go duration (e.g. `15s`, `1m`; default: `30s`).
+- **`QRYN_RULER_MAX_LOGQL_RESULT_BYTES`** - Maximum size, in bytes, of a single LogQL recording-rule result buffered before parsing; a rule exceeding it fails that evaluation (default: `10485760`, i.e. 10 MiB).
+
 ## Self-Profiling
 
 - **`PYROSCOPE_SERVER_ADDRESS`** - Pyroscope server URL (e.g., `http://pyroscope:4040`)
