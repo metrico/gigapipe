@@ -87,3 +87,33 @@ func TestKeepPlannerFilterLabels(t *testing.T) {
 		t.Fatalf("expected path to be dropped")
 	}
 }
+
+func TestKeepPlannerPreservesErrorLabels(t *testing.T) {
+	planner := KeepPlanner{
+		Labels: []string{"level"},
+		Values: []string{""},
+	}
+
+	entry := shared.LogEntry{
+		Labels: map[string]string{
+			"level":                  "info",
+			"path":                   "/",
+			shared.ErrorLabel:        shared.JSONParserErr,
+			shared.ErrorDetailsLabel: "boom",
+		},
+	}
+
+	if err := planner.filterLabels(&entry); err != nil {
+		t.Fatalf("filterLabels() error = %v", err)
+	}
+
+	if _, ok := entry.Labels[shared.ErrorLabel]; !ok {
+		t.Fatalf("expected %s to survive keep", shared.ErrorLabel)
+	}
+	if _, ok := entry.Labels[shared.ErrorDetailsLabel]; !ok {
+		t.Fatalf("expected %s to survive keep", shared.ErrorDetailsLabel)
+	}
+	if _, ok := entry.Labels["path"]; ok {
+		t.Fatalf("expected path to be dropped")
+	}
+}

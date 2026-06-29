@@ -33,3 +33,24 @@ func TestMapKeepFilter(t *testing.T) {
 		t.Fatalf("expected OR-combined keep clauses, got %q", got)
 	}
 }
+
+func TestMapKeepFilterPreservesErrorLabels(t *testing.T) {
+	filter := mapKeepFilter{
+		col:    sql.NewRawObject("labels"),
+		labels: []string{"level"},
+		values: []string{""},
+	}
+
+	ctx := &sql.Ctx{Params: map[string]sql.SQLObject{}, Result: map[string]sql.SQLObject{}}
+	got, err := filter.String(ctx)
+	if err != nil {
+		t.Fatalf("String() error = %v", err)
+	}
+
+	if !strings.Contains(got, "k=='__error__'") {
+		t.Fatalf("expected __error__ to be preserved unconditionally, got %q", got)
+	}
+	if !strings.Contains(got, "k=='__error_details__'") {
+		t.Fatalf("expected __error_details__ to be preserved unconditionally, got %q", got)
+	}
+}

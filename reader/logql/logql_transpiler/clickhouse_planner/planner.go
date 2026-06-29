@@ -47,6 +47,7 @@ type planner struct {
 	metrics15Shortcut        bool
 	offsetModifier           *time.Duration
 	noStreamSelect           bool
+	jsonParserSeen           bool // a json parser has been planned, so __error__ may be set
 
 	//SQL Planners
 	fpPlanner      shared.SQLRequestPlanner
@@ -488,8 +489,9 @@ func (p *planner) planLabelFilter(ppl *logql_parser.StrSelectorPipeline, idx int
 		return nil
 	}
 	p.samplesPlanner = &LabelFilterPlanner{
-		Expr: ppl.LabelFilter,
-		Main: p.samplesPlanner,
+		Expr:           ppl.LabelFilter,
+		Main:           p.samplesPlanner,
+		JSONParserSeen: p.jsonParserSeen,
 	}
 	return nil
 }
@@ -530,6 +532,9 @@ func (p *planner) planParser(ppl *logql_parser.StrSelectorPipeline) error {
 			return err
 		}
 		vals = append(vals, val)
+	}
+	if ppl.Parser.Fn == "json" {
+		p.jsonParserSeen = true
 	}
 	p.samplesPlanner = &ParserPlanner{
 		Op:     ppl.Parser.Fn,
