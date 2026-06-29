@@ -99,6 +99,39 @@ func TestDeleteRuleGroup_WritesTombstone(t *testing.T) {
 	}
 }
 
+func TestDeleteNamespace_SingleAtomicTombstoneInsert(t *testing.T) {
+	c := &fakeClient{}
+	svc := newTestService(c, false, "prom")
+
+	if err := svc.DeleteNamespace(context.Background(), "ns1"); err != nil {
+		t.Fatalf("DeleteNamespace: %v", err)
+	}
+	// The whole namespace must be tombstoned in one statement, not a
+	// list-then-loop of separate inserts.
+	if len(c.execs) != 1 {
+		t.Fatalf("expected 1 exec (atomic), got %d", len(c.execs))
+	}
+	q := c.execs[0].query
+	if !containsAll(q, "INSERT INTO rules", "SELECT", "is_valid = 1", "0") {
+		t.Errorf("expected single INSERT ... SELECT tombstone statement: %s", q)
+	}
+	// Args carry namespace and rule type for the WHERE clause.
+	var foundNs, foundType bool
+	for _, a := range c.execs[0].args {
+		if s, ok := a.(string); ok {
+			if s == "ns1" {
+				foundNs = true
+			}
+			if s == "prom" {
+				foundType = true
+			}
+		}
+	}
+	if !foundNs || !foundType {
+		t.Errorf("namespace/type not in args: %v", c.execs[0].args)
+	}
+}
+
 func TestRulesTable_DistributedSwitch(t *testing.T) {
 	if got := newTestService(&fakeClient{}, true, "prom").rulesTable(); got != "rules_dist" {
 		t.Errorf("distributed table = %q, want rules_dist", got)

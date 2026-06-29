@@ -71,37 +71,21 @@ func (s *RulerService) DeleteRuleGroup(ctx context.Context, namespace, groupName
 	return s.getClient().Exec(ctx, query, namespace, groupName, s.ruleType)
 }
 
-// DeleteNamespace soft-deletes every group in a namespace by listing current
-// group names and writing a tombstone for each.
+// DeleteNamespace soft-deletes every group in a namespace in a single
+// statement: one INSERT ... SELECT writes an is_valid=0 tombstone for each
+// currently-valid group. Doing it as one statement keeps the delete atomic, so
+// no group survives because it was created between a separate list and loop,
+// and there is no partial state if a single tombstone fails. In distributed
+// mode this routes through rules_dist, which shards by group_name, so each
+// tombstone co-locates with its group for FINAL dedup.
 func (s *RulerService) DeleteNamespace(ctx context.Context, namespace string) error {
-	selectQ := fmt.Sprintf(
-		"SELECT DISTINCT group_name FROM %s FINAL WHERE namespace = ? AND type = ? AND is_valid = 1",
+	query := fmt.Sprintf(
+		"INSERT INTO %[1]s (namespace, group_name, config, updated_at, is_valid, type) "+
+			"SELECT namespace, group_name, '', now(), 0, type FROM %[1]s FINAL "+
+			"WHERE namespace = ? AND type = ? AND is_valid = 1",
 		s.rulesTable(),
 	)
-	rows, err := s.getClient().Query(ctx, selectQ, namespace, s.ruleType)
-	if err != nil {
-		return fmt.Errorf("ruler: list groups for namespace delete: %w", err)
-	}
-	defer rows.Close()
-
-	var names []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return fmt.Errorf("ruler: scan group name: %w", err)
-		}
-		names = append(names, name)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, name := range names {
-		if err := s.DeleteRuleGroup(ctx, namespace, name); err != nil {
-			return fmt.Errorf("ruler: tombstone group %q: %w", name, err)
-		}
-	}
-	return nil
+	return s.getClient().Exec(ctx, query, namespace, s.ruleType)
 }
 
 // GetRuleGroup returns a single group by namespace and name.
