@@ -370,7 +370,7 @@ func (d *DropParam) String() string {
 
 type Keep struct {
 	Fn     string      `@("keep")`
-	Params []KeepParam `@@? ("," @@)*`
+	Params []KeepParam `@@ ("," @@)*`
 }
 
 func (k *Keep) String() string {

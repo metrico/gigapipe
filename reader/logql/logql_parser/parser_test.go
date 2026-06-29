@@ -100,6 +100,12 @@ func TestLineFilterBool(t *testing.T) {
 	cupaloy.SnapshotT(t, asts)
 }
 
+func TestParserKeepRequiresParam(t *testing.T) {
+	if _, err := Parse(`{app="x"} | keep`); err == nil {
+		t.Fatal("expected error for `| keep` with no params")
+	}
+}
+
 func TestParser2(t *testing.T) {
 	ast, err := Parse(`{sender="logtest"} |= "GET"`)
 	if err != nil {
