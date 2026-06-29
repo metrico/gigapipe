@@ -283,6 +283,8 @@ func (p *planner) planSpl() error {
 			err = p.planUnwrap(&ppl)
 		} else if ppl.Drop != nil {
 			err = p.planDrop(i, &ppl)
+		} else if ppl.Keep != nil {
+			err = p.planKeep(i, &ppl)
 		}
 
 		if err != nil {
@@ -310,6 +312,25 @@ func (p *planner) planDrop(i int, ppl *logql_parser.StrSelectorPipeline) error {
 		return err
 	}
 	p.samplesPlanner = &PlannerDrop{
+		Labels:      labels,
+		Vals:        values,
+		LabelsCache: &p.labelsCache,
+		fpCache:     &p.fpCache,
+		Main:        p.samplesPlanner,
+	}
+	return nil
+}
+
+func (p *planner) planKeep(i int, ppl *logql_parser.StrSelectorPipeline) error {
+	if p.simpleLabelOperation[i] {
+		return nil
+	}
+
+	labels, values, err := getLabelsAndValuesFromKeep(ppl.Keep)
+	if err != nil {
+		return err
+	}
+	p.samplesPlanner = &PlannerKeep{
 		Labels:      labels,
 		Vals:        values,
 		LabelsCache: &p.labelsCache,
@@ -556,16 +577,30 @@ func getStreamSelector(script *logql_parser.LogQLScript) *logql_parser.StrSelect
 }
 
 func getLabelsAndValuesFromDrop(drop *logql_parser.Drop) ([]string, []string, error) {
-	labels := make([]string, len(drop.Params))
-	vals := make([]string, len(drop.Params))
-	for i, l := range drop.Params {
-		labels[i] = l.Label.Name
+	return getLabelsAndValuesFromLabelParams(len(drop.Params), func(i int) (logql_parser.LabelName, *logql_parser.QuotedString) {
+		return drop.Params[i].Label, drop.Params[i].Val
+	})
+}
+
+func getLabelsAndValuesFromKeep(keep *logql_parser.Keep) ([]string, []string, error) {
+	return getLabelsAndValuesFromLabelParams(len(keep.Params), func(i int) (logql_parser.LabelName, *logql_parser.QuotedString) {
+		return keep.Params[i].Label, keep.Params[i].Val
+	})
+}
+
+func getLabelsAndValuesFromLabelParams(count int,
+	getParam func(i int) (logql_parser.LabelName, *logql_parser.QuotedString)) ([]string, []string, error) {
+	labels := make([]string, count)
+	vals := make([]string, count)
+	for i := 0; i < count; i++ {
+		label, valParam := getParam(i)
+		labels[i] = label.Name
 		var (
 			err error
 			val string
 		)
-		if l.Val != nil {
-			val, err = l.Val.Unquote()
+		if valParam != nil {
+			val, err = valParam.Unquote()
 			if err != nil {
 				return nil, nil, err
 			}
