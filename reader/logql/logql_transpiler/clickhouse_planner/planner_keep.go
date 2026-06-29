@@ -54,21 +54,34 @@ func (m mapKeepFilter) String(ctx *sql.Ctx, options ...int) (string, error) {
 }
 
 func (m mapKeepFilter) genFilterFn(ctx *sql.Ctx, options ...int) (string, error) {
-	clauses := make([]string, len(m.labels))
+	clauses := make([]string, 0, len(m.labels)+2)
+
+	// Preserve synthetic parser-error labels regardless of the keep list,
+	// mirroring the in-memory KeepPlanner and Loki semantics. Otherwise a
+	// `| json | keep <label>` chain would silently strip the error context
+	// emitted by the parser on a failed line.
+	for _, name := range []string{shared.ErrorLabel, shared.ErrorDetailsLabel} {
+		q, err := sql.NewStringVal(name).String(ctx, options...)
+		if err != nil {
+			return "", err
+		}
+		clauses = append(clauses, fmt.Sprintf("k==%s", q))
+	}
+
 	for i, l := range m.labels {
 		quoteKey, err := sql.NewStringVal(l).String(ctx, options...)
 		if err != nil {
 			return "", err
 		}
 		if m.values[i] == "" {
-			clauses[i] = fmt.Sprintf("k==%s", quoteKey)
+			clauses = append(clauses, fmt.Sprintf("k==%s", quoteKey))
 			continue
 		}
 		quoteVal, err := sql.NewStringVal(m.values[i]).String(ctx, options...)
 		if err != nil {
 			return "", err
 		}
-		clauses[i] = fmt.Sprintf("(k, v)==(%s, %s)", quoteKey, quoteVal)
+		clauses = append(clauses, fmt.Sprintf("(k, v)==(%s, %s)", quoteKey, quoteVal))
 	}
 	return fmt.Sprintf("(k,v) -> %s",
 		strings.Join(clauses, " or ")), nil

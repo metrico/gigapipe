@@ -56,5 +56,5 @@ func shouldKeepLabel(k, v string, labels, values []string) bool {
 }
 
 func isSpecialKeepLabel(name string) bool {
-	return name == "__error__" || name == "__error_details__"
+	return name == shared.ErrorLabel || name == shared.ErrorDetailsLabel
 }
