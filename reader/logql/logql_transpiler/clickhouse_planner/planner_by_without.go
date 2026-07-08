@@ -68,6 +68,7 @@ func (b *ByWithoutPlanner) processSimple(ctx *shared.PlannerContext,
 
 func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 	main sql.ISelect) (sql.ISelect, error) {
+	withMain := sql.NewWith(main, fmt.Sprintf("pre_without_%d", ctx.Id()))
 	var labels sql.ISelect
 	if b.LabelsCache != nil && *b.LabelsCache != nil {
 		filteredLabels := &byWithoutFilterCol{
@@ -85,7 +86,7 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 		if !b.NoStreamSelect {
 			fpCache = *b.FPCache
 		}
-		from, err := labelsFromScratch(ctx, fpCache)
+		from, err := labelsFromScratch(ctx, fpCache, withMain)
 		if err != nil {
 			return nil, err
 		}
@@ -110,8 +111,6 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 	if b.LabelsCache != nil {
 		*b.LabelsCache = withLabels
 	}
-
-	withMain := sql.NewWith(main, fmt.Sprintf("pre_without_%d", ctx.Id()))
 
 	joinType := "ANY LEFT "
 	if ctx.IsCluster {

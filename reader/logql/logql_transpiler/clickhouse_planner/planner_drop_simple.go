@@ -43,7 +43,7 @@ func (d *PlannerDropSimple) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		if !d.NoStreamSelect {
 			fpCache = *d.FPCache
 		}
-		labels, err = labelsFromScratch(ctx, fpCache)
+		labels, err = labelsFromScratch(ctx, fpCache, withMain)
 		if err != nil {
 			return nil, err
 		}
