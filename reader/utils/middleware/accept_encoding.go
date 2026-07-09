@@ -57,6 +57,7 @@ func (gzw *gzipResponseWriter) WriteHeader(code int) {
 	}
 	gzw.codeSet = true
 	gzw.code = code
+	ensureSafeContentType(gzw.Header())
 	if gzw.code/100 == 2 {
 		gzw.Header().Set("Content-Encoding", "gzip")
 	} else {
@@ -82,6 +83,9 @@ func (gzw *gzipResponseWriter) Close() {
 	if gzw.code/100 != 2 {
 		return
 	}
+	// Covers the implicit-200 path where the handler wrote a body without ever
+	// calling WriteHeader: headers are only flushed here in Close.
+	ensureSafeContentType(gzw.Header())
 	gzw.Header().Set("Content-Length", strconv.Itoa(gzw.preBuffer.Len()))
 	gzw.ResponseWriter.WriteHeader(gzw.code)
 	gzw.ResponseWriter.Write(gzw.preBuffer.Bytes())
