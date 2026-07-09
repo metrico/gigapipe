@@ -7,6 +7,29 @@ import (
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 )
 
+// globalInCondition renders `left GLOBAL IN (subquery)`. Used in cluster mode
+// where a plain IN between two distributed tables is denied by ClickHouse.
+type globalInCondition struct {
+	left  sql.SQLObject
+	right sql.ISelect
+}
+
+func (g *globalInCondition) GetFunction() string { return "GLOBAL IN" }
+
+func (g *globalInCondition) GetEntity() []sql.SQLObject { return []sql.SQLObject{g.left} }
+
+func (g *globalInCondition) String(ctx *sql.Ctx, options ...int) (string, error) {
+	l, err := g.left.String(ctx, options...)
+	if err != nil {
+		return "", err
+	}
+	r, err := g.right.String(ctx, options...)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s GLOBAL IN (%s)", l, r), nil
+}
+
 type LabelsJoinPlanner struct {
 	NoStreamSelect bool
 	Main           shared.SQLRequestPlanner
@@ -44,6 +67,12 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		return nil, err
 	}
 	withMain := sql.NewWith(mainReq, "main")
+
+	// Bound label resolution to fingerprints that actually appear in the
+	// time-windowed `main` subquery, avoiding a huge map build for
+	// high-cardinality selectors. See issue #702.
+	boundTimeSeriesToWindow(ctx, tsReq, withMain)
+
 	withTS := sql.NewWith(tsReq, "_time_series")
 	if l.LabelsCache != nil {
 		*l.LabelsCache = withTS
