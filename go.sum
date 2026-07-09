@@ -701,8 +701,8 @@ github.com/mdlayher/socket v0.6.0 h1:ScZPaAGyO1icQnbFrhPM8mnXyMu9qukC1K4ZoM2IQKU
 github.com/mdlayher/socket v0.6.0/go.mod h1:q7vozUAnxSqnjHc12Fik5yUKIzfZ8ITCfMkhOtE9z18=
 github.com/mdlayher/vsock v1.3.0 h1:bqQfZ1OznI03y6YiXp2sze05RVdzLn/zsfjnjd4+ivI=
 github.com/mdlayher/vsock v1.3.0/go.mod h1:WsuksavOvwCnV5UqGHUkvAvCy+Dqy81y4goKQTzxxNY=
-github.com/metrico/cloki-config v0.0.92 h1:gjFl1LyLQXejpNXt04dsvGRga7blVtnW4/uY/XISqsM=
-github.com/metrico/cloki-config v0.0.92/go.mod h1:zjxnDFtbyI08jMKjy12sleeQZjbJM2Vpngf+8gwm/4I=
+github.com/metrico/cloki-config v0.0.93 h1:mIqj+RKh8PK3pr+Sed6bhSFleBogeJZhAPWIYdShvoY=
+github.com/metrico/cloki-config v0.0.93/go.mod h1:zjxnDFtbyI08jMKjy12sleeQZjbJM2Vpngf+8gwm/4I=
 github.com/microsoft/go-mssqldb v1.10.0 h1:pHEt+Qz6YFPWqREq10mqSE524QQo+/QremwTCQht7TY=
 github.com/microsoft/go-mssqldb v1.10.0/go.mod h1:mnG7lGa9iYJbzJqGCXyuQCegStKMr3kogDLD6+bmggg=
 github.com/miekg/dns v1.1.72 h1:vhmr+TF2A3tuoGNkLDFK9zi36F2LS+hKTRW0Uf8kbzI=
