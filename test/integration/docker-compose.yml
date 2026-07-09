@@ -1,0 +1,27 @@
+# Docker stack for the reflected-XSS / Content-Type regression tests.
+# Builds gigapipe from the current working tree so the tests run against local
+# changes. Driven by run.sh.
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.9.1
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  gigapipe:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_SERVER: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      PORT: "3100"
+      # Flush ingested spans quickly so the trace round-trip test stays fast.
+      BULK_MAX_AGE_MS: "100"
+    ports:
+      - "3100:3100"

@@ -21,3 +21,6 @@ jobs:
         go mod tidy
         CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
 
+    - name: Security regression tests (reflected XSS middleware)
+      run: go test ./reader/utils/middleware/...
+

@@ -1,0 +1,57 @@
+name: Integration (reflected-XSS / Content-Type)
+
+# Regression gate for the go/reflected-xss hardening: builds gigapipe from the
+# PR source, runs it against a real ClickHouse, and asserts the traces (Tempo
+# protobuf) and profiles (Connect) endpoints keep their correct negotiated
+# Content-Type while every response carries X-Content-Type-Options: nosniff.
+on:
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.9.1
+        ports:
+          - 9000:9000
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:8123/ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build gigapipe
+        run: go build -o gigapipe cmd/gigapipe/main.go
+
+      - name: Start gigapipe
+        run: |
+          CLICKHOUSE_SERVER=localhost CLICKHOUSE_PORT=9000 PORT=3100 BULK_MAX_AGE_MS=100 \
+            ./gigapipe > gigapipe.log 2>&1 &
+          echo $! > gigapipe.pid
+
+      - name: Wait for gigapipe
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3100/api/v1/status/buildinfo >/dev/null; then
+              echo "gigapipe ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "gigapipe never became ready; logs:"; cat gigapipe.log; exit 1
+
+      - name: Run integration tests
+        run: GIGAPIPE_URL=http://localhost:3100 go test -tags integration -count=1 -v ./test/integration/...
+
+      - name: gigapipe logs on failure
+        if: failure()
+        run: cat gigapipe.log || true

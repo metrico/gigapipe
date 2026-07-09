@@ -57,11 +57,26 @@ func (w *responseWriterWithCode) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func (w *responseWriterWithCode) WriteHeader(code int) {
+	ensureSafeContentType(w.Header())
 	w.statusCode = code
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *responseWriterWithCode) Write(b []byte) (int, error) {
+	ensureSafeContentType(w.Header())
 	w.length += len(b)
 	return w.ResponseWriter.Write(b)
+}
+
+// ensureSafeContentType mitigates MIME-sniffing based reflected XSS
+// (go/reflected-xss). Every response funnels through the global logging and
+// accept-encoding middleware wrappers, so enforcing this here guarantees that
+// no response body can be sniffed and executed as HTML, regardless of which
+// handler produced it. It sets X-Content-Type-Options: nosniff and, when a
+// handler left Content-Type unset, defaults it to a non-HTML type.
+func ensureSafeContentType(h http.Header) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	if h.Get("Content-Type") == "" {
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+	}
 }

@@ -120,6 +120,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 			PromError(500, err.Error(), w)
 			return
 		}
+		w.Header().Set("Content-Type", "application/protobuf")
 		w.Write(bTraceData)
 	default:
 		spans := make([]*model.SpanResponse, 0)
