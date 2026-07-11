@@ -4,20 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/grafana/pyroscope-go"
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/ctrl"
-	"github.com/metrico/qryn/v4/reader"
-	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
-	"github.com/metrico/qryn/v4/reader/utils/middleware"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
-	"github.com/metrico/qryn/v4/shared/commonroutes"
-	"github.com/metrico/qryn/v4/shared/distconfig"
-	"github.com/metrico/qryn/v4/view"
-	"github.com/metrico/qryn/v4/writer"
 	"log"
 	"net"
 	"net/http"
@@ -25,6 +11,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/gorilla/mux"
+	"github.com/grafana/pyroscope-go"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v4/ctrl"
+	"github.com/metrico/qryn/v4/reader"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
+	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
+	"github.com/metrico/qryn/v4/shared/commonroutes"
+	"github.com/metrico/qryn/v4/shared/distconfig"
+	"github.com/metrico/qryn/v4/view"
+	"github.com/metrico/qryn/v4/writer"
 )
 
 var appFlags CommandLineFlags
@@ -323,18 +324,20 @@ func start() {
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
 		writer.Init(cfg, app)
 	}
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "reader" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		reader.Init(cfg, app)
-		view.Init(cfg, app)
-	}
 	// The ruler composes both the writer (in-process write-back) and the reader
 	// (query evaluation), so it runs only in the combined modes and after both
 	// have initialized. It is a no-op unless QRYN_RULER_ENABLED is set.
 	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
 		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
 		rulerrouter.Init(cfg, app)
+	}
+
+	// This needs to come last since it adds a wildcard route to the mux.
+	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
+		cfg.Setting.SYSTEM_SETTINGS.Mode == "reader" ||
+		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
+		reader.Init(cfg, app)
+		view.Init(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	httpStart(app, httpURL)
