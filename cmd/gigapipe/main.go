@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,9 +23,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 var appFlags CommandLineFlags
@@ -337,7 +341,7 @@ func start() {
 		rulerrouter.Init(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
-	httpStart(app, httpURL)
+	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode)
 
 }
 
@@ -347,7 +351,11 @@ func stop() {
 	listener.Close()
 }
 
-func httpStart(server *mux.Router, httpURL string) {
+// shutdownTimeout is the maximum time we wait for in-flight requests and
+// background flushes to complete before forcibly exiting.
+const shutdownTimeout = 30 * time.Second
+
+func httpStart(server *mux.Router, httpURL string, mode string) {
 	logger.Info("Starting service")
 	var err error
 	listener, err = net.Listen("tcp", httpURL)
@@ -355,11 +363,48 @@ func httpStart(server *mux.Router, httpURL string) {
 		logger.Error("Error creating listener:", err)
 		panic(err)
 	}
+
+	httpServer := &http.Server{Handler: server}
+
+	// Start serving in a goroutine so we can block on the signal below.
+	go func() {
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("Error serving:", err)
+			panic(err)
+		}
+	}()
+
 	logger.Info("Server is listening on", httpURL)
-	if err := http.Serve(listener, server); err != nil && !errors.Is(err, net.ErrClosed) {
-		logger.Error("Error serving:", err)
-		panic(err)
+
+	// Block until SIGTERM or SIGINT.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	received := <-sig
+	logger.Info(fmt.Sprintf("Received signal %v, starting graceful shutdown...", received))
+
+	// 1. Stop accepting new connections and drain in-flight HTTP requests.
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		logger.Error("HTTP server shutdown error:", err)
 	}
+
+	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).
+	if mode == "all" || mode == "" {
+		rulerrouter.Stop()
+	}
+
+	// 3. Stop the writer (flushes batches to ClickHouse, closes connections).
+	if mode == "all" || mode == "writer" || mode == "" {
+		writer.Stop()
+	}
+
+	// 4. Stop the reader (watchdog + registry).
+	if mode == "all" || mode == "reader" || mode == "" {
+		reader.Stop()
+	}
+
+	logger.Info("Graceful shutdown complete")
 }
 
 func initPyro() {

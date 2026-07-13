@@ -12,4 +12,5 @@ FROM alpine:3.21
 COPY --from=builder /src/gigapipe /gigapipe
 ENV PORT 3100
 EXPOSE 3100
-CMD /gigapipe
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/gigapipe"]
