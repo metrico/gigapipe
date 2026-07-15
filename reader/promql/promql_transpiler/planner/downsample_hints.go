@@ -63,7 +63,7 @@ func (d *DownsampleHintsPlanner) getValueMerge(fn string) string {
 		"min_over_time":     "min(min)",
 		"max_over_time":     "max(max)",
 		"sum_over_time":     "sum(sum)",
-		"count_over_time":   "countMerge(count)",
+		"count_over_time":   "countMerge(count)::Float64",
 		"last_over_time":    "argMaxMerge(samples.last)",
 		"present_over_time": "1",
 		"avg_over_time":     "sum(sum) / countMerge(count)",
