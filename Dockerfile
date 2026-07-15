@@ -13,4 +13,4 @@ COPY --from=builder /src/gigapipe /gigapipe
 ENV PORT 3100
 EXPOSE 3100
 STOPSIGNAL SIGTERM
-ENTRYPOINT ["/gigapipe"]
+CMD ["/gigapipe"]

@@ -17,4 +17,4 @@ FROM alpine:3.21
 COPY --from=builder /src/gigapipe /gigapipe
 
 STOPSIGNAL SIGTERM
-ENTRYPOINT ["/gigapipe"]
+CMD ["/gigapipe"]
