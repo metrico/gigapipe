@@ -27,7 +27,7 @@ services:
       - -c
       - sleep 15 && /gigapipe
   e2e-clickhouse:
-    image: clickhouse/clickhouse-server:24.9.1
+    image: clickhouse/clickhouse-server:25.3
     container_name: e2e.clickhouse
     hostname: e2e.clickhouse
     volumes:
@@ -41,7 +41,7 @@ services:
       - "9444"
       - "9000"
   e2e-clickhouse2:
-    image: clickhouse/clickhouse-server:24.9.1
+    image: clickhouse/clickhouse-server:25.3
     container_name: e2e.clickhouse2
     hostname: e2e.clickhouse2
     volumes:

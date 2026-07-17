@@ -54,44 +54,27 @@ func windowOffset(d time.Duration) (int32, error) {
 	return int32(ms), nil
 }
 
-// bucketedValues builds the per-step value CTE over the 15s downsampled table.
-// cols are the bucket level partial aggregates to expose.
+// bucketedValues builds the per-step value CTE over the 15s downsampled table:
+// a BucketProducer read densified by FillGapsPlanner. cols are the bucket level
+// partial aggregates to expose.
 //
-// Steps with no underlying data are materialized by WITH FILL and are marked
-// with source = 0, so every aggregate layered on top of this CTE has to use an
-// -If(..., source = 1) form to keep the filled rows from contributing.
+// The fill materializes a row at every step so the window aggregate layered on
+// top is evaluated everywhere, not only where a real bucket lands; those filled
+// rows carry source = 0, so every such aggregate must use an -If(..., source = 1)
+// form to keep them from contributing as data.
 //
-// lookback extends the read window before ctx.From so that the first steps see
-// the samples their range frame reaches back into.
+// lookback is both how far back the read window extends before ctx.From and how
+// far forward a real row is filled. That is one quantity, not two: it is the
+// furthest a sample can influence a step, so it is exactly what the first steps
+// must be able to reach back to and exactly how long a sample stays relevant.
 func bucketedValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 	lookback time.Duration, cols ...sql.SQLObject) (sql.ISelect, error) {
-	fp, err := fpPlanner.Process(ctx)
-	if err != nil {
-		return nil, err
-	}
-	withFp := sql.NewWith(fp, "fp")
-
-	timestampCol := fmt.Sprintf("intDiv(timestamp_ns, %d) * %d",
-		ctx.Step.Nanoseconds(), ctx.Step.Milliseconds())
-
-	sel := []sql.SQLObject{
-		sql.NewSimpleCol("fingerprint", "fingerprint"),
-		sql.NewSimpleCol(timestampCol, "timestamp_ms"),
-	}
-	sel = append(sel, cols...)
-	sel = append(sel, sql.NewSimpleCol("1", "source"))
-
-	return sql.NewSelect().With(withFp).Select(sel...).
-		From(sql.NewRawObject(ctx.Metrics15sDistTableName)).
-		AndWhere(
-			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.Add(-lookback).UnixNano())),
-			sql.Le(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
-			sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp))).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ms")).
-		OrderBy(
-			sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
-			sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC).
-				WithFill(ctx.From.UnixMilli(), ctx.To.UnixMilli(), ctx.Step.Milliseconds())), nil
+	producer := &BucketProducer{Fp: fpPlanner, Lookback: lookback, Cols: cols}
+	return (&FillGapsPlanner{
+		Main:      producer,
+		Duration:  lookback,
+		ValueCols: producer.ColAliases(),
+	}).Process(ctx)
 }
 
 // rangeFrame is the frame covering (t-duration, t], the sample set a prometheus

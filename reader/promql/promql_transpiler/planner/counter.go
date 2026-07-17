@@ -148,6 +148,7 @@ func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 			sql.NewSimpleCol("end", "end"),
 			sql.NewSimpleCol("resets", "resets"),
+			sql.NewSimpleCol("open_cnt", "open_cnt"),
 			sql.NewSimpleCol("close_cnt", "close_cnt"),
 			sql.NewSimpleCol("if(open_cnt > 0, start_open, start_close)", "start")).
 			From(sql.NewWithRef(withRanges)),
@@ -158,7 +159,13 @@ func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 		sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 		sql.NewSimpleCol(val, "val")).
 		From(sql.NewWithRef(withStart)).
-		AndWhere(sql.Gt(sql.NewRawObject("close_cnt"), sql.NewIntVal(0))), nil
+		AndWhere(
+			// end has to come from inside the range,
+			sql.Gt(sql.NewRawObject("close_cnt"), sql.NewIntVal(0)),
+			// and start has to be a different sample than end: measuring a
+			// change needs two of them. A lone first sample of a series yields
+			// no point, as in prometheus.
+			sql.Gt(sql.NewRawObject("open_cnt + close_cnt"), sql.NewIntVal(1))), nil
 }
 
 // CounterFlagsPlanner accelerates the range functions that count transitions
