@@ -155,6 +155,52 @@ func TestBuildOTLPTreeSymbolized(t *testing.T) {
 	}
 }
 
+func TestSliceOTLPProfileRoundTrips(t *testing.T) {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds", "main")
+	f0 := dict.FunctionTable().AppendEmpty()
+	f0.SetNameStrindex(3)
+	l0 := dict.LocationTable().AppendEmpty()
+	l0.Lines().AppendEmpty().SetFunctionIndex(0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	rp.Resource().Attributes().PutStr("service.name", "svc")
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.Values().Append(3)
+
+	b, err := sliceOTLPProfile(p, dict)
+	if err != nil {
+		t.Fatalf("slice: %v", err)
+	}
+
+	req := pprofileotlp.NewExportRequest()
+	if err := req.UnmarshalProto(b); err != nil {
+		t.Fatalf("unmarshal slice: %v", err)
+	}
+	rps := req.Profiles().ResourceProfiles()
+	if rps.Len() != 1 {
+		t.Fatalf("resource profiles: %d", rps.Len())
+	}
+	gotP := rps.At(0).ScopeProfiles().At(0).Profiles().At(0)
+	if gotP.Samples().Len() != 1 || gotP.Samples().At(0).Values().At(0) != 3 {
+		t.Fatalf("sample not preserved")
+	}
+	// dictionary carried across so frame name resolves
+	name := strAt(req.Profiles().Dictionary().StringTable(),
+		req.Profiles().Dictionary().FunctionTable().At(0).NameStrindex())
+	if name != "main" {
+		t.Fatalf("dict not preserved, name=%q", name)
+	}
+}
+
 func TestBuildOTLPTreeUnsymbolizedFallback(t *testing.T) {
 	profs := pprofile.NewProfiles()
 	dict := profs.Dictionary()

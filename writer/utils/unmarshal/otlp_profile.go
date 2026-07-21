@@ -8,6 +8,7 @@ import (
 	"github.com/metrico/qryn/v4/writer/model"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
+	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
 )
 
 const otlpProfilePayloadType = "otel_v1development"
@@ -29,6 +30,18 @@ func strAt(st pcommon.StringSlice, idx int32) string {
 		return ""
 	}
 	return st.At(int(idx))
+}
+
+// sliceOTLPProfile builds a standalone ExportRequest with one profile + the
+// source dictionary, so the stored payload decodes independently at read time.
+func sliceOTLPProfile(p pprofile.Profile, dict pprofile.ProfilesDictionary) ([]byte, error) {
+	out := pprofile.NewProfiles()
+	dict.CopyTo(out.Dictionary())
+	rp := out.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p.CopyTo(sp.Profiles().AppendEmpty())
+
+	return pprofileotlp.NewExportRequestFromProfiles(out).MarshalProto()
 }
 
 func extractOTLPMeta(res pcommon.Resource, scope pcommon.InstrumentationScope,
