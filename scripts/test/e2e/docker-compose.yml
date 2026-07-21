@@ -17,6 +17,7 @@ services:
     environment:
       CLUSTER_NAME: "test_cluster_two_shards"
       CLICKHOUSE_SERVER: "e2e.clickhouse"
+      CLICKHOUSE_AUTH: "qryn:q1w2e3r4"
       QRYN_LOGIN: a
       QRYN_PASSWORD: b
       QRYN_RULER_ENABLED: "${QRYN_RULER_ENABLED:-true}"
@@ -32,6 +33,7 @@ services:
     hostname: e2e.clickhouse
     volumes:
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
     networks:
       common:
         aliases:
@@ -46,6 +48,7 @@ services:
     hostname: e2e.clickhouse2
     volumes:
       - ./clickhouse/config2.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
     networks:
       common:
         aliases:

@@ -111,6 +111,7 @@ func (v *VectorRange) substitute(p shared.SQLRequestPlanner) prom_parser.Expr {
 		Request:    p,
 		Notes: promql_parser.SubstituteNotes{
 			NeedsLabelsValues: true,
+			DropMetricName:    true,
 		},
 	}
 	return &prom_parser.VectorSelector{

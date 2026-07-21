@@ -18,7 +18,7 @@ func TranspileLabelMatchers(hints *storage.SelectHints,
 	ctx *logql_transpiler_shared.PlannerContext, matchers ...*labels.Matcher) (*TranspileResponse, error) {
 	var p logql_transpiler_shared.SQLRequestPlanner = &planner.ValuesPlanner{Fp: streamSelect(matchers...)}
 	p = &planner.HintsPlanner{Main: p, Hints: hints}
-	p = &planner.LabelsPlanner{p}
+	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
 	return &TranspileResponse{nil, query}, err
 }
@@ -31,7 +31,7 @@ func TranspileLabelMatchersDownsample(hints *storage.SelectHints,
 		},
 	}
 	p = &planner.DownsampleHintsPlanner{Main: p, Hints: hints}
-	p = &planner.LabelsPlanner{p}
+	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
 	return &TranspileResponse{nil, query}, err
 }
