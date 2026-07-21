@@ -24,12 +24,13 @@ require (
 	github.com/go-kit/kit v0.13.0
 	github.com/go-logfmt/logfmt v0.6.1
 	github.com/gofiber/fiber/v3 v3.4.0
+	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20260604005048-7023385849c0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/schema v1.4.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/grafana/pyroscope-go v1.4.0
+	github.com/grafana/pyroscope-go v1.4.1
 	github.com/grafana/regexp v0.0.0-20250905093917-f7b3be9d1853
 	github.com/influxdata/telegraf v1.39.1
 	github.com/jmoiron/sqlx v1.4.0
@@ -37,10 +38,10 @@ require (
 	github.com/kr/logfmt v0.0.0-20210122060352-19f9bcb100e6
 	github.com/labstack/gommon v0.5.0
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
-	github.com/metrico/cloki-config v0.0.93
+	github.com/metrico/cloki-config v0.0.94
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/common v0.69.0
+	github.com/prometheus/common v0.70.0
 	github.com/prometheus/prometheus v0.313.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
@@ -50,7 +51,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f
 	golang.org/x/sync v0.22.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -136,7 +137,6 @@ require (
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gofiber/schema v1.8.0 // indirect
 	github.com/gofiber/utils/v2 v2.1.1 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/cel-go v0.28.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -194,7 +194,7 @@ require (
 	github.com/prometheus/client_golang/exp v0.0.0-20260602051030-3537b20ac86b // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
-	github.com/prometheus/procfs v0.20.1 // indirect
+	github.com/prometheus/procfs v0.21.0 // indirect
 	github.com/prometheus/sigv4 v0.4.1 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.5.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
