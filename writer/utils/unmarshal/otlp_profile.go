@@ -7,12 +7,15 @@ import (
 
 	"github.com/go-faster/city"
 	"github.com/metrico/qryn/v4/writer/model"
+	sharedotlp "github.com/metrico/qryn/v4/shared/otlp"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
 )
 
-const otlpProfilePayloadType = "otel_v1development"
+// otlpProfilePayloadType is the storage payload_type for OTLP profile rows;
+// sourced from shared/otlp so writer and reader share one definition.
+const otlpProfilePayloadType = sharedotlp.ProfilePayloadType
 
 type otlpProfileMeta struct {
 	TimestampNs      uint64

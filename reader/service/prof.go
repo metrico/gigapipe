@@ -18,6 +18,7 @@ import (
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
 	"github.com/metrico/qryn/v4/shared/distconfig"
+	sharedotlp "github.com/metrico/qryn/v4/shared/otlp"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -256,7 +257,7 @@ func (ps *ProfService) MergeProfiles(ctx context.Context, strScript string, strT
 		if err != nil {
 			return err
 		}
-		if payloadType == "otel_v1development" {
+		if payloadType == sharedotlp.ProfilePayloadType {
 			op, err := otlpToPProf(data)
 			if err != nil {
 				return err
