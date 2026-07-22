@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/v4/reader/config"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
 	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
@@ -17,9 +15,6 @@ import (
 // is reported to support WITH FILL STALENESS (clickhouse >= 24.11), which picks
 // the fill path in bucketedValues.
 func rangeTestCtxCap(staleness bool) *shared.PlannerContext {
-	if config.Cloki == nil {
-		config.Cloki = clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	}
 	now := time.Unix(1700000000, 0)
 	var ver dbversion.VersionInfo
 	if staleness {

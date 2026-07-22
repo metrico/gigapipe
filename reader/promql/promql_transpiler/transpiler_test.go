@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/v4/reader/config"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
@@ -91,11 +89,6 @@ func TestTranspilerV1(t *testing.T) {
 }
 
 func TestCountOverTime_DoesNotGenerateRange(t *testing.T) {
-	// Initialize config to avoid nil pointer dereference in StreamSelectPlanner.
-	if config.Cloki == nil {
-		config.Cloki = clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	}
-
 	// Reproduces a bug where count_over_time with a large range (e.g. 14d)
 	// generates range(toInt64(val)) in ClickHouse SQL. ClickHouse's range(N)
 	// creates an array [0..N-1] which is then ARRAY JOINed to expand rows.
