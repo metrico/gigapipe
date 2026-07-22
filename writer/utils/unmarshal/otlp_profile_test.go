@@ -386,3 +386,258 @@ func TestBuildOTLPTreeUnsymbolizedFallback(t *testing.T) {
 		t.Fatalf("expected +0x1234 fallback, got %+v", functions)
 	}
 }
+
+// stackFuncNames resolves, per sample, the function names along its stack via
+// stack -> locations -> first line -> function -> name, through the given dict.
+func stackFuncNames(dict pprofile.ProfilesDictionary, p pprofile.Profile) [][]string {
+	st := dict.StringTable()
+	var res [][]string
+	for si := 0; si < p.Samples().Len(); si++ {
+		s := p.Samples().At(si)
+		var names []string
+		idx := s.StackIndex()
+		if idx >= 0 && int(idx) < dict.StackTable().Len() {
+			li := dict.StackTable().At(int(idx)).LocationIndices()
+			for k := 0; k < li.Len(); k++ {
+				loc := dict.LocationTable().At(int(li.At(k)))
+				if loc.Lines().Len() > 0 {
+					fi := loc.Lines().At(0).FunctionIndex()
+					names = append(names, strAt(st, dict.FunctionTable().At(int(fi)).NameStrindex()))
+				}
+			}
+		}
+		res = append(res, names)
+	}
+	return res
+}
+
+// validatePrunedIndices asserts every table index in the decoded request is
+// in-range for its (pruned) table — catches any dropped/mis-remapped reference.
+func validatePrunedIndices(t *testing.T, dict pprofile.ProfilesDictionary, p pprofile.Profile) {
+	t.Helper()
+	nStr, nFunc, nLoc, nMap := dict.StringTable().Len(), dict.FunctionTable().Len(), dict.LocationTable().Len(), dict.MappingTable().Len()
+	nStack, nAttr, nLink := dict.StackTable().Len(), dict.AttributeTable().Len(), dict.LinkTable().Len()
+	inStr := func(i int32) bool { return i >= 0 && int(i) < nStr }
+	for i := 0; i < dict.FunctionTable().Len(); i++ {
+		f := dict.FunctionTable().At(i)
+		if !inStr(f.NameStrindex()) || !inStr(f.SystemNameStrindex()) || !inStr(f.FilenameStrindex()) {
+			t.Fatalf("function %d strindex out of range (nStr=%d)", i, nStr)
+		}
+	}
+	for i := 0; i < dict.MappingTable().Len(); i++ {
+		m := dict.MappingTable().At(i)
+		if !inStr(m.FilenameStrindex()) {
+			t.Fatalf("mapping %d filename strindex out of range", i)
+		}
+		for k := 0; k < m.AttributeIndices().Len(); k++ {
+			if a := m.AttributeIndices().At(k); a < 0 || int(a) >= nAttr {
+				t.Fatalf("mapping %d attr idx %d out of range (nAttr=%d)", i, a, nAttr)
+			}
+		}
+	}
+	for i := 0; i < dict.LocationTable().Len(); i++ {
+		l := dict.LocationTable().At(i)
+		if mi := l.MappingIndex(); mi >= 0 && int(mi) >= nMap {
+			t.Fatalf("location %d mapping idx out of range (nMap=%d)", i, nMap)
+		}
+		for k := 0; k < l.Lines().Len(); k++ {
+			if fi := l.Lines().At(k).FunctionIndex(); fi < 0 || int(fi) >= nFunc {
+				t.Fatalf("location %d line func idx out of range (nFunc=%d)", i, nFunc)
+			}
+		}
+		for k := 0; k < l.AttributeIndices().Len(); k++ {
+			if a := l.AttributeIndices().At(k); a < 0 || int(a) >= nAttr {
+				t.Fatalf("location %d attr idx out of range", i)
+			}
+		}
+	}
+	for i := 0; i < dict.StackTable().Len(); i++ {
+		li := dict.StackTable().At(i).LocationIndices()
+		for k := 0; k < li.Len(); k++ {
+			if l := li.At(k); l < 0 || int(l) >= nLoc {
+				t.Fatalf("stack %d loc idx out of range (nLoc=%d)", i, nLoc)
+			}
+		}
+	}
+	for i := 0; i < dict.AttributeTable().Len(); i++ {
+		a := dict.AttributeTable().At(i)
+		if !inStr(a.KeyStrindex()) || !inStr(a.UnitStrindex()) {
+			t.Fatalf("attribute %d strindex out of range", i)
+		}
+	}
+	if !inStr(p.SampleType().TypeStrindex()) || !inStr(p.SampleType().UnitStrindex()) ||
+		!inStr(p.PeriodType().TypeStrindex()) || !inStr(p.PeriodType().UnitStrindex()) {
+		t.Fatalf("profile sample/period strindex out of range")
+	}
+	for k := 0; k < p.AttributeIndices().Len(); k++ {
+		if a := p.AttributeIndices().At(k); a < 0 || int(a) >= nAttr {
+			t.Fatalf("profile attr idx out of range")
+		}
+	}
+	for si := 0; si < p.Samples().Len(); si++ {
+		s := p.Samples().At(si)
+		if idx := s.StackIndex(); idx < 0 || int(idx) >= nStack {
+			t.Fatalf("sample %d stack idx out of range (nStack=%d)", si, nStack)
+		}
+		if idx := s.LinkIndex(); idx >= 0 && int(idx) >= nLink {
+			t.Fatalf("sample %d link idx out of range (nLink=%d)", si, nLink)
+		}
+		for k := 0; k < s.AttributeIndices().Len(); k++ {
+			if a := s.AttributeIndices().At(k); a < 0 || int(a) >= nAttr {
+				t.Fatalf("sample %d attr idx out of range", si)
+			}
+		}
+	}
+}
+
+func TestSliceOTLPProfilePrunesAndRoundTrips(t *testing.T) {
+	src := pprofile.NewProfiles()
+	dict := src.Dictionary()
+	// strings: 0="" 1=cpu 2=nanoseconds 3=main 4=app.go 5=worker 6=lib.so
+	// 7=thread 8=count 9=DECOY_STRING 10=decoyFunc
+	dict.StringTable().Append("", "cpu", "nanoseconds", "main", "app.go", "worker",
+		"lib.so", "thread", "count", "DECOY_STRING", "decoyFunc")
+
+	// functions: f0=main/app.go, f1=worker, f2=decoy (unreferenced)
+	f0 := dict.FunctionTable().AppendEmpty()
+	f0.SetNameStrindex(3)
+	f0.SetFilenameStrindex(4)
+	f1 := dict.FunctionTable().AppendEmpty()
+	f1.SetNameStrindex(5)
+	fDecoy := dict.FunctionTable().AppendEmpty()
+	fDecoy.SetNameStrindex(10)
+
+	// attributes: 0=loc,1=mapping,2=profile,3=sample,4=decoy
+	mkAttr := func(key, unit int32, val string) {
+		a := dict.AttributeTable().AppendEmpty()
+		a.SetKeyStrindex(key)
+		a.SetUnitStrindex(unit)
+		a.Value().SetStr(val)
+	}
+	mkAttr(7, 8, "loc-attr")     // 0
+	mkAttr(7, 8, "map-attr")     // 1
+	mkAttr(7, 8, "prof-attr")    // 2
+	mkAttr(7, 8, "sample-attr")  // 3
+	mkAttr(9, 9, "decoy-attr")   // 4 (unreferenced)
+
+	// mappings: m0=lib.so w/ attr1, m1=decoy
+	m0 := dict.MappingTable().AppendEmpty()
+	m0.SetFilenameStrindex(6)
+	m0.AttributeIndices().Append(1)
+	mDecoy := dict.MappingTable().AppendEmpty()
+	mDecoy.SetFilenameStrindex(9)
+
+	// locations: loc0=main(mapping0, attr0), loc1=worker, loc2=decoy
+	loc0 := dict.LocationTable().AppendEmpty()
+	loc0.SetMappingIndex(0)
+	loc0.Lines().AppendEmpty().SetFunctionIndex(0)
+	loc0.AttributeIndices().Append(0)
+	loc1 := dict.LocationTable().AppendEmpty()
+	loc1.Lines().AppendEmpty().SetFunctionIndex(1)
+	locDecoy := dict.LocationTable().AppendEmpty()
+	locDecoy.Lines().AppendEmpty().SetFunctionIndex(2)
+
+	// links: link0 referenced, link1 decoy
+	l0 := dict.LinkTable().AppendEmpty()
+	l0.SetTraceID(pcommon.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+	l0.SetSpanID(pcommon.SpanID{1, 2, 3, 4, 5, 6, 7, 8})
+	dict.LinkTable().AppendEmpty() // decoy
+
+	// stack: leaf worker(loc1) -> main(loc0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(1, 0)
+	dict.StackTable().AppendEmpty() // decoy stack
+
+	rp := src.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	p.PeriodType().SetTypeStrindex(1)
+	p.PeriodType().SetUnitStrindex(2)
+	p.AttributeIndices().Append(2) // profile attr
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.AttributeIndices().Append(3) // sample attr
+	s.SetLinkIndex(0)
+	s.Values().Append(42)
+
+	pruned, err := sliceOTLPProfile(p, dict)
+	if err != nil {
+		t.Fatalf("slice: %v", err)
+	}
+
+	// whole-dict slice (old behavior) for size comparison
+	whole := pprofile.NewProfiles()
+	dict.CopyTo(whole.Dictionary())
+	wrp := whole.ResourceProfiles().AppendEmpty()
+	wsp := wrp.ScopeProfiles().AppendEmpty()
+	p.CopyTo(wsp.Profiles().AppendEmpty())
+	wholeBytes, err := pprofileotlp.NewExportRequestFromProfiles(whole).MarshalProto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pruned) >= len(wholeBytes) {
+		t.Fatalf("pruned (%d) not smaller than whole (%d)", len(pruned), len(wholeBytes))
+	}
+
+	req := pprofileotlp.NewExportRequest()
+	if err := req.UnmarshalProto(pruned); err != nil {
+		t.Fatalf("unmarshal pruned: %v", err)
+	}
+	pd := req.Profiles().Dictionary()
+	pp := req.Profiles().ResourceProfiles().At(0).ScopeProfiles().At(0).Profiles().At(0)
+
+	// structural validity
+	validatePrunedIndices(t, pd, pp)
+
+	// decoy absence
+	for i := 0; i < pd.StringTable().Len(); i++ {
+		if str := pd.StringTable().At(i); str == "DECOY_STRING" || str == "decoyFunc" {
+			t.Fatalf("decoy string %q leaked into pruned dict", str)
+		}
+	}
+	if pd.FunctionTable().Len() != 2 {
+		t.Fatalf("pruned FunctionTable len=%d, want 2 (decoy dropped)", pd.FunctionTable().Len())
+	}
+	if pd.MappingTable().Len() != 1 {
+		t.Fatalf("pruned MappingTable len=%d, want 1 (decoy dropped)", pd.MappingTable().Len())
+	}
+	if pd.LinkTable().Len() != 1 {
+		t.Fatalf("pruned LinkTable len=%d, want 1", pd.LinkTable().Len())
+	}
+	if pd.AttributeTable().Len() != 4 {
+		t.Fatalf("pruned AttributeTable len=%d, want 4", pd.AttributeTable().Len())
+	}
+
+	// functional equivalence: stack function names identical source vs pruned
+	want := stackFuncNames(dict, p)
+	got := stackFuncNames(pd, pp)
+	if len(got) != len(want) || len(got[0]) != len(want[0]) {
+		t.Fatalf("stack shape differs: want %+v got %+v", want, got)
+	}
+	for i := range want[0] {
+		if got[0][i] != want[0][i] {
+			t.Fatalf("frame %d name: want %q got %q", i, want[0][i], got[0][i])
+		}
+	}
+	if got[0][0] != "worker" || got[0][1] != "main" {
+		t.Fatalf("resolved names wrong: %+v", got[0])
+	}
+
+	// sample value preserved
+	if pp.Samples().At(0).Values().At(0) != 42 {
+		t.Fatalf("sample value not preserved")
+	}
+
+	// mapping filename still resolves through pruned dict
+	mi := pd.LocationTable().At(int(pd.StackTable().At(int(pp.Samples().At(0).StackIndex())).LocationIndices().At(1))).MappingIndex()
+	if strAt(pd.StringTable(), pd.MappingTable().At(int(mi)).FilenameStrindex()) != "lib.so" {
+		t.Fatalf("mapping filename not preserved")
+	}
+
+	// a referenced attribute key resolves
+	if strAt(pd.StringTable(), pd.AttributeTable().At(int(pp.AttributeIndices().At(0))).KeyStrindex()) != "thread" {
+		t.Fatalf("profile attribute key not preserved")
+	}
+}

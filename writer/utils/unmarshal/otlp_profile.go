@@ -36,14 +36,221 @@ func strAt(st pcommon.StringSlice, idx int32) string {
 	return st.At(int(idx))
 }
 
-// sliceOTLPProfile builds a standalone ExportRequest with one profile + the
-// source dictionary, so the stored payload decodes independently at read time.
+// sortedInt32Keys returns the keys of a set sorted ascending (deterministic remap).
+func sortedInt32Keys(m map[int32]struct{}) []int32 {
+	out := make([]int32, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// buildRemap maps each old index (in ascending order) to its new compact index.
+func buildRemap(keys []int32) map[int32]int32 {
+	r := make(map[int32]int32, len(keys))
+	for newI, oldI := range keys {
+		r[oldI] = int32(newI)
+	}
+	return r
+}
+
+// sliceOTLPProfile builds a standalone ExportRequest carrying exactly one profile
+// plus ONLY the dictionary entries that profile transitively references, compacted
+// and index-remapped. The stored payload decodes independently at read time without
+// dragging along the whole shared dictionary (which otherwise dominates payload size
+// and write/read CPU on batched exports).
 func sliceOTLPProfile(p pprofile.Profile, dict pprofile.ProfilesDictionary) ([]byte, error) {
+	srcStr := dict.StringTable()
+	srcFunc := dict.FunctionTable()
+	srcLoc := dict.LocationTable()
+	srcMap := dict.MappingTable()
+	srcStack := dict.StackTable()
+	srcAttr := dict.AttributeTable()
+	srcLink := dict.LinkTable()
+
+	refStr := map[int32]struct{}{}
+	refFunc := map[int32]struct{}{}
+	refLoc := map[int32]struct{}{}
+	refMap := map[int32]struct{}{}
+	refStack := map[int32]struct{}{}
+	refAttr := map[int32]struct{}{}
+	refLink := map[int32]struct{}{}
+
+	addStr := func(i int32) {
+		if i >= 0 && int(i) < srcStr.Len() {
+			refStr[i] = struct{}{}
+		}
+	}
+	addAttrIdxs := func(s pcommon.Int32Slice) {
+		for k := 0; k < s.Len(); k++ {
+			if i := s.At(k); i >= 0 && int(i) < srcAttr.Len() {
+				refAttr[i] = struct{}{}
+			}
+		}
+	}
+
+	// 1. Seed from the profile itself (sample/period types, profile + sample
+	//    attributes, referenced stacks and links). Order 1..6 below is a single
+	//    ordered pass: the graph is acyclic toward strings (leaves), and every
+	//    contributor to a set runs before that set is expanded.
+	addStr(p.SampleType().TypeStrindex())
+	addStr(p.SampleType().UnitStrindex())
+	addStr(p.PeriodType().TypeStrindex())
+	addStr(p.PeriodType().UnitStrindex())
+	addAttrIdxs(p.AttributeIndices())
+	for si := 0; si < p.Samples().Len(); si++ {
+		s := p.Samples().At(si)
+		if idx := s.StackIndex(); idx >= 0 && int(idx) < srcStack.Len() {
+			refStack[idx] = struct{}{}
+		}
+		addAttrIdxs(s.AttributeIndices())
+		if idx := s.LinkIndex(); idx >= 0 && int(idx) < srcLink.Len() {
+			refLink[idx] = struct{}{}
+		}
+	}
+	// 2. Stacks -> locations.
+	for idx := range refStack {
+		li := srcStack.At(int(idx)).LocationIndices()
+		for k := 0; k < li.Len(); k++ {
+			if l := li.At(k); l >= 0 && int(l) < srcLoc.Len() {
+				refLoc[l] = struct{}{}
+			}
+		}
+	}
+	// 3. Locations -> mappings, functions, attributes.
+	for idx := range refLoc {
+		loc := srcLoc.At(int(idx))
+		if m := loc.MappingIndex(); m >= 0 && int(m) < srcMap.Len() {
+			refMap[m] = struct{}{}
+		}
+		lines := loc.Lines()
+		for k := 0; k < lines.Len(); k++ {
+			if f := lines.At(k).FunctionIndex(); f >= 0 && int(f) < srcFunc.Len() {
+				refFunc[f] = struct{}{}
+			}
+		}
+		addAttrIdxs(loc.AttributeIndices())
+	}
+	// 4. Mappings -> strings, attributes.
+	for idx := range refMap {
+		m := srcMap.At(int(idx))
+		addStr(m.FilenameStrindex())
+		addAttrIdxs(m.AttributeIndices())
+	}
+	// 5. Functions -> strings.
+	for idx := range refFunc {
+		f := srcFunc.At(int(idx))
+		addStr(f.NameStrindex())
+		addStr(f.SystemNameStrindex())
+		addStr(f.FilenameStrindex())
+	}
+	// 6. Attributes -> strings.
+	for idx := range refAttr {
+		a := srcAttr.At(int(idx))
+		addStr(a.KeyStrindex())
+		addStr(a.UnitStrindex())
+	}
+
+	strKeys := sortedInt32Keys(refStr)
+	funcKeys := sortedInt32Keys(refFunc)
+	locKeys := sortedInt32Keys(refLoc)
+	mapKeys := sortedInt32Keys(refMap)
+	stackKeys := sortedInt32Keys(refStack)
+	attrKeys := sortedInt32Keys(refAttr)
+	linkKeys := sortedInt32Keys(refLink)
+
+	remapStr := buildRemap(strKeys)
+	remapFunc := buildRemap(funcKeys)
+	remapLoc := buildRemap(locKeys)
+	remapMap := buildRemap(mapKeys)
+	remapStack := buildRemap(stackKeys)
+	remapAttr := buildRemap(attrKeys)
+	remapLink := buildRemap(linkKeys)
+
+	// remapIdx returns the new index for old, preserving unset/negative or any
+	// index outside the referenced set (e.g. -1) as-is.
+	remapIdx := func(old int32, remap map[int32]int32) int32 {
+		if nv, ok := remap[old]; ok {
+			return nv
+		}
+		return old
+	}
+	remapIdxSlice := func(s pcommon.Int32Slice, remap map[int32]int32) []int32 {
+		out := make([]int32, 0, s.Len())
+		for k := 0; k < s.Len(); k++ {
+			if nv, ok := remap[s.At(k)]; ok {
+				out = append(out, nv)
+			}
+		}
+		return out
+	}
+
 	out := pprofile.NewProfiles()
-	dict.CopyTo(out.Dictionary())
+	dst := out.Dictionary()
+
+	dstStr := dst.StringTable()
+	for _, old := range strKeys {
+		dstStr.Append(srcStr.At(int(old)))
+	}
+	for _, old := range funcKeys {
+		f := srcFunc.At(int(old))
+		nf := dst.FunctionTable().AppendEmpty()
+		nf.SetNameStrindex(remapIdx(f.NameStrindex(), remapStr))
+		nf.SetSystemNameStrindex(remapIdx(f.SystemNameStrindex(), remapStr))
+		nf.SetFilenameStrindex(remapIdx(f.FilenameStrindex(), remapStr))
+		nf.SetStartLine(f.StartLine())
+	}
+	for _, old := range mapKeys {
+		m := srcMap.At(int(old))
+		nm := dst.MappingTable().AppendEmpty()
+		m.CopyTo(nm)
+		nm.SetFilenameStrindex(remapIdx(m.FilenameStrindex(), remapStr))
+		nm.AttributeIndices().FromRaw(remapIdxSlice(m.AttributeIndices(), remapAttr))
+	}
+	for _, old := range locKeys {
+		l := srcLoc.At(int(old))
+		nl := dst.LocationTable().AppendEmpty()
+		l.CopyTo(nl)
+		nl.SetMappingIndex(remapIdx(l.MappingIndex(), remapMap))
+		lines := nl.Lines()
+		for k := 0; k < lines.Len(); k++ {
+			ln := lines.At(k)
+			ln.SetFunctionIndex(remapIdx(ln.FunctionIndex(), remapFunc))
+		}
+		nl.AttributeIndices().FromRaw(remapIdxSlice(l.AttributeIndices(), remapAttr))
+	}
+	for _, old := range stackKeys {
+		s := srcStack.At(int(old))
+		ns := dst.StackTable().AppendEmpty()
+		ns.LocationIndices().FromRaw(remapIdxSlice(s.LocationIndices(), remapLoc))
+	}
+	for _, old := range attrKeys {
+		a := srcAttr.At(int(old))
+		na := dst.AttributeTable().AppendEmpty()
+		a.CopyTo(na)
+		na.SetKeyStrindex(remapIdx(a.KeyStrindex(), remapStr))
+		na.SetUnitStrindex(remapIdx(a.UnitStrindex(), remapStr))
+	}
+	for _, old := range linkKeys {
+		srcLink.At(int(old)).CopyTo(dst.LinkTable().AppendEmpty())
+	}
+
 	rp := out.ResourceProfiles().AppendEmpty()
 	sp := rp.ScopeProfiles().AppendEmpty()
-	p.CopyTo(sp.Profiles().AppendEmpty())
+	np := sp.Profiles().AppendEmpty()
+	p.CopyTo(np)
+	np.SampleType().SetTypeStrindex(remapIdx(np.SampleType().TypeStrindex(), remapStr))
+	np.SampleType().SetUnitStrindex(remapIdx(np.SampleType().UnitStrindex(), remapStr))
+	np.PeriodType().SetTypeStrindex(remapIdx(np.PeriodType().TypeStrindex(), remapStr))
+	np.PeriodType().SetUnitStrindex(remapIdx(np.PeriodType().UnitStrindex(), remapStr))
+	np.AttributeIndices().FromRaw(remapIdxSlice(np.AttributeIndices(), remapAttr))
+	for si := 0; si < np.Samples().Len(); si++ {
+		s := np.Samples().At(si)
+		s.SetStackIndex(remapIdx(s.StackIndex(), remapStack))
+		s.AttributeIndices().FromRaw(remapIdxSlice(s.AttributeIndices(), remapAttr))
+		s.SetLinkIndex(remapIdx(s.LinkIndex(), remapLink))
+	}
 
 	return pprofileotlp.NewExportRequestFromProfiles(out).MarshalProto()
 }
