@@ -245,23 +245,31 @@ func (ps *ProfService) MergeProfiles(ctx context.Context, strScript string, strT
 	}
 
 	var (
-		payload []byte
-		merger  = NewProfileMergeV2()
-		p       prof.Profile
+		payload     []byte
+		payloadType string
+		merger      = NewProfileMergeV2()
+		p           prof.Profile
 	)
 
 	err = ps.queryCols(ctx, db, sel, func() error {
-		p.Reset()
 		data, err := decompressPayload(payload)
 		if err != nil {
 			return err
 		}
+		if payloadType == "otel_v1development" {
+			op, err := otlpToPProf(data)
+			if err != nil {
+				return err
+			}
+			return merger.Merge(op)
+		}
+		p.Reset()
 		err = proto.Unmarshal(data, &p)
 		if err != nil {
 			return err
 		}
 		return merger.Merge(&p)
-	}, []any{&payload})
+	}, []any{&payload, &payloadType})
 	if err != nil {
 		return nil, err
 	}
