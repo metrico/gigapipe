@@ -132,10 +132,6 @@ func (p *parserDoer) doParseProfile() {
 			close(p.res)
 			return
 		}
-		p.res <- &model.ParserResponse{
-			ProfileRequest: p.profile,
-		}
-
 		close(p.res)
 	}()
 }
@@ -238,16 +234,10 @@ func (p *parserDoer) onProfile(timestampNs uint64,
 
 	p.profile.Size = p.calculateProfileSize()
 
-	if p.profile.Size > 1*1024*1024 {
-		p.res <- &model.ParserResponse{
-			SpansRequest:      p.spans,
-			SpansAttrsRequest: p.attrs,
-		}
-		p.resetProfile()
+	p.res <- &model.ParserResponse{
+		ProfileRequest: p.profile,
 	}
-	//p.res <- &model.ParserResponse{
-	//	ProfileRequest: p.profile,
-	//}
+	p.resetProfile()
 
 	return nil
 }

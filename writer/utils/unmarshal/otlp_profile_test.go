@@ -75,6 +75,94 @@ func TestOTLPProfilesDecEmitsProfile(t *testing.T) {
 	}
 }
 
+func TestOTLPProfilesMultiProfilePerRowFlush(t *testing.T) {
+	// Two profiles that differ: service "a" value 10, service "b" value 99.
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds", "main")
+	f0 := dict.FunctionTable().AppendEmpty()
+	f0.SetNameStrindex(3)
+	l0 := dict.LocationTable().AppendEmpty()
+	l0.Lines().AppendEmpty().SetFunctionIndex(0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+
+	addProfile := func(svc string, val int64) {
+		rp := profs.ResourceProfiles().AppendEmpty()
+		rp.Resource().Attributes().PutStr("service.name", svc)
+		sp := rp.ScopeProfiles().AppendEmpty()
+		p := sp.Profiles().AppendEmpty()
+		p.SetTime(pcommon.Timestamp(1_700_000_000_000_000_000))
+		p.SetDurationNano(1_000_000_000)
+		p.SampleType().SetTypeStrindex(1)
+		p.SampleType().SetUnitStrindex(2)
+		p.PeriodType().SetTypeStrindex(1)
+		p.PeriodType().SetUnitStrindex(2)
+		s := p.Samples().AppendEmpty()
+		s.SetStackIndex(0)
+		s.Values().Append(val)
+	}
+	addProfile("a", 10)
+	addProfile("b", 99)
+
+	body, err := pprofileotlp.NewExportRequestFromProfiles(profs).MarshalProto()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Drive the REAL parserDoer profile-parse path (onProfile + doParseProfile),
+	// mirroring how the controller consumes the res channel.
+	doer := &parserDoer{
+		ProfileParser: &otlpProfilesDec{ctx: &ParserCtx{
+			bodyReader: bytes.NewReader(body),
+			ctx:        context.Background(),
+		}},
+		ctx: &ParserCtx{ctx: context.Background()},
+	}
+	res := doer.Do()
+
+	var profileResponses []*model.ProfileData
+	for response := range res {
+		if response.Error != nil {
+			t.Fatalf("parser error: %v", response.Error)
+		}
+		if response.ProfileRequest == nil {
+			continue
+		}
+		pd, ok := response.ProfileRequest.(*model.ProfileData)
+		if !ok {
+			t.Fatalf("ProfileRequest is %T, want *model.ProfileData", response.ProfileRequest)
+		}
+		profileResponses = append(profileResponses, pd)
+	}
+
+	if len(profileResponses) != 2 {
+		t.Fatalf("want exactly 2 profile responses, got %d", len(profileResponses))
+	}
+
+	svcToAgg := map[string]int64{}
+	for i, pd := range profileResponses {
+		if len(pd.TimestampNs) != 1 {
+			t.Fatalf("response %d: want single-row TimestampNs (len 1), got %d", i, len(pd.TimestampNs))
+		}
+		if len(pd.ValuesAgg) == 0 {
+			t.Fatalf("response %d: empty ValuesAgg", i)
+		}
+		if len(pd.ServiceName) != 1 {
+			t.Fatalf("response %d: want single ServiceName, got %v", i, pd.ServiceName)
+		}
+		svcToAgg[pd.ServiceName[0]] = pd.ValuesAgg[0].ValueInt64
+	}
+
+	// Arrays are per-profile, not collapsed to the last profile.
+	if svcToAgg["a"] != 10 {
+		t.Fatalf("service a ValuesAgg = %d, want 10 (arrays collapsed?)", svcToAgg["a"])
+	}
+	if svcToAgg["b"] != 99 {
+		t.Fatalf("service b ValuesAgg = %d, want 99 (arrays collapsed?)", svcToAgg["b"])
+	}
+}
+
 func TestPprofileDepDecodes(t *testing.T) {
 	// Build a request with one resource/scope/profile, marshal, unmarshal.
 	src := pprofile.NewProfiles()
