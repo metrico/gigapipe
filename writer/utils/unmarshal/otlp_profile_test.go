@@ -1,13 +1,79 @@
 package unmarshal
 
 import (
+	"bytes"
+	"context"
 	"testing"
 
 	"github.com/go-faster/city"
+	"github.com/metrico/qryn/v4/writer/model"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
 )
+
+func TestOTLPProfilesDecEmitsProfile(t *testing.T) {
+	// Build a request with one symbolized profile.
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds", "main")
+	f0 := dict.FunctionTable().AppendEmpty()
+	f0.SetNameStrindex(3)
+	l0 := dict.LocationTable().AppendEmpty()
+	l0.Lines().AppendEmpty().SetFunctionIndex(0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+	rp := profs.ResourceProfiles().AppendEmpty()
+	rp.Resource().Attributes().PutStr("service.name", "svc")
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SetTime(pcommon.Timestamp(1_700_000_000_000_000_000))
+	p.SetDurationNano(1_000_000_000)
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	p.PeriodType().SetTypeStrindex(1)
+	p.PeriodType().SetUnitStrindex(2)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.Values().Append(42)
+
+	body, err := pprofileotlp.NewExportRequestFromProfiles(profs).MarshalProto()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dec := &otlpProfilesDec{ctx: &ParserCtx{bodyReader: bytes.NewReader(body), ctx: context.Background()}}
+	var gotType, gotSvc, gotPayloadType string
+	var gotTs, gotDur uint64
+	var gotAgg []model.ValuesAgg
+	var gotPayloadLen int
+	dec.SetOnProfile(func(timestampNs uint64, Type, serviceName string,
+		stu []model.StrStr, pt, pu string, tags []model.StrStr, durationNs uint64,
+		payloadType string, payload []byte, agg []model.ValuesAgg,
+		tree []model.TreeRootStructure, fns []model.Function) error {
+		gotType, gotSvc, gotPayloadType = Type, serviceName, payloadType
+		gotTs, gotDur = timestampNs, durationNs
+		gotAgg = agg
+		gotPayloadLen = len(payload)
+		return nil
+	})
+
+	if err := dec.Decode(); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if gotType != "cpu" || gotSvc != "svc" || gotPayloadType != otlpProfilePayloadType {
+		t.Fatalf("meta: type=%q svc=%q ptype=%q", gotType, gotSvc, gotPayloadType)
+	}
+	if gotTs != 1_700_000_000_000_000_000 || gotDur != 1_000_000_000 {
+		t.Fatalf("ts/dur: %d/%d", gotTs, gotDur)
+	}
+	if len(gotAgg) != 1 || gotAgg[0].ValueInt64 != 42 {
+		t.Fatalf("agg: %+v", gotAgg)
+	}
+	if gotPayloadLen == 0 {
+		t.Fatalf("empty payload")
+	}
+}
 
 func TestPprofileDepDecodes(t *testing.T) {
 	// Build a request with one resource/scope/profile, marshal, unmarshal.

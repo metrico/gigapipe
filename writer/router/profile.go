@@ -9,4 +9,6 @@ func RouteProfileDataApis(router *mux.Router, cfg controllerv1.MiddlewareConfig)
 
 	router.HandleFunc("/ingest", controllerv1.PushProfileV2(cfg)).Methods("POST")
 
+	router.HandleFunc("/v1development/profiles", controllerv1.OTLPProfilesV2(cfg)).Methods("POST")
+
 }

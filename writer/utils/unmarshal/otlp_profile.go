@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"fmt"
+	"io"
 	"sort"
 
 	"github.com/go-faster/city"
@@ -188,3 +189,60 @@ func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
 	valuesAgg := []model.ValuesAgg{{ValueStr: valueName, ValueInt64: totalSum, ValueInt32: sampleCount}}
 	return functions, treeRes, valuesAgg
 }
+
+// otlpProfilesDec decodes an OTLP profiles ExportRequest and emits one
+// onProfiles call per profile in the request.
+type otlpProfilesDec struct {
+	ctx        *ParserCtx
+	onProfiles onProfileHandler
+}
+
+func (d *otlpProfilesDec) SetOnProfile(h onProfileHandler) { d.onProfiles = h }
+
+func (d *otlpProfilesDec) Decode() error {
+	data, err := io.ReadAll(d.ctx.bodyReader)
+	if err != nil {
+		return fmt.Errorf("failed to read body: %w", err)
+	}
+	req := pprofileotlp.NewExportRequest()
+	if err := req.UnmarshalProto(data); err != nil {
+		return fmt.Errorf("failed to unmarshal OTLP profiles: %w", err)
+	}
+	profs := req.Profiles()
+	dict := profs.Dictionary()
+
+	rps := profs.ResourceProfiles()
+	for i := 0; i < rps.Len(); i++ {
+		rp := rps.At(i)
+		sps := rp.ScopeProfiles()
+		for j := 0; j < sps.Len(); j++ {
+			sp := sps.At(j)
+			ps := sp.Profiles()
+			for k := 0; k < ps.Len(); k++ {
+				p := ps.At(k)
+
+				meta := extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict)
+				functions, tree, valuesAgg := buildOTLPTree(p, dict)
+				payload, err := sliceOTLPProfile(p, dict)
+				if err != nil {
+					return fmt.Errorf("failed to slice OTLP profile: %w", err)
+				}
+
+				if err := d.onProfiles(
+					meta.TimestampNs, meta.Type, meta.ServiceName,
+					meta.SampleTypesUnits, meta.PeriodType, meta.PeriodUnit,
+					meta.Tags, meta.DurationNs, otlpProfilePayloadType, payload,
+					valuesAgg, tree, functions,
+				); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+var UnmarshalOTLPProfilesProtoV2 = Build(
+	withProfileParser(func(ctx *ParserCtx) iProfilesParser {
+		return &otlpProfilesDec{ctx: ctx}
+	}))
