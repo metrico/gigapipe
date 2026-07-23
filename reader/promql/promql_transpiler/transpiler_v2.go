@@ -30,7 +30,7 @@ func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error
 		if !s.Notes.NeedsLabelsValues {
 			continue
 		}
-		s.Request = &planner.LabelsPlanner{Main: s.Request}
+		s.Request = &planner.LabelsPlanner{Main: s.Request, DropMetricName: s.Notes.DropMetricName}
 	}
 	return expr, nil
 }

@@ -93,8 +93,15 @@ func (s *AggPlanner) getLabels(withFp *sql.With, ctx *shared.PlannerContext) sql
 }
 
 func (s *AggPlanner) patchLabels() sql.SQLObject {
-	sqlLabels := make([]sql.SQLObject, len(s.Labels))
-	for i, label := range s.Labels {
+	labels := s.Labels
+	if !s.By {
+		// Every aggregation drops __name__. For `by` it falls away because only
+		// the listed labels are kept; for `without` it has to be dropped
+		// explicitly, since it is never in the user's label list.
+		labels = append(append([]string{}, s.Labels...), "__name__")
+	}
+	sqlLabels := make([]sql.SQLObject, len(labels))
+	for i, label := range labels {
 		sqlLabels[i] = sql.NewStringVal(label)
 	}
 
@@ -115,6 +122,24 @@ func (s *AggPlanner) patchVal() (sql.SQLObject, error) {
 	switch s.Fn {
 	case "sum":
 		return sql.NewRawObject("sum(val)"), nil
+	case "min":
+		return sql.NewRawObject("min(val)"), nil
+	case "max":
+		return sql.NewRawObject("max(val)"), nil
+	case "avg":
+		// A plain mean over the aligned per-series rows: the fill gives exactly
+		// one row per series per step, so this is the mean across series, not a
+		// sample weighted one (unlike avg_over_time).
+		return sql.NewRawObject("avg(val)"), nil
+	case "count":
+		// One row per live series per step, so counting rows counts series.
+		return sql.NewRawObject("toFloat64(count(val))"), nil
+	case "group":
+		return sql.NewRawObject("toFloat64(1)"), nil
+	case "stddev":
+		return sql.NewRawObject("stddevPop(val)"), nil
+	case "stdvar":
+		return sql.NewRawObject("varPop(val)"), nil
 	}
 	return nil, fmt.Errorf("unknown function: %s", s.Fn)
 }

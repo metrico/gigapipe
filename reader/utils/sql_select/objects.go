@@ -27,10 +27,11 @@ type OrderBy struct {
 	col       SQLObject
 	direction int
 
-	withFill     bool
-	withFillFrom int64
-	withFillTo   int64
-	withFillStep int64
+	withFill          bool
+	withFillFrom      *int64
+	withFillTo        int64
+	withFillStep      int64
+	withFillStaleness *int64
 }
 
 func (o *OrderBy) String(ctx *Ctx, options ...int) (string, error) {
@@ -42,17 +43,47 @@ func (o *OrderBy) String(ctx *Ctx, options ...int) (string, error) {
 
 	var withFillStr string
 	if o.withFill {
-		withFillStr = fmt.Sprintf(" WITH FILL FROM %d TO %d STEP %d ", o.withFillFrom, o.withFillTo, o.withFillStep)
+		withFillStr = " WITH FILL"
+		if o.withFillFrom != nil {
+			withFillStr += fmt.Sprintf(" FROM %d", *o.withFillFrom)
+		}
+		withFillStr += fmt.Sprintf(" TO %d STEP %d", o.withFillTo, o.withFillStep)
+		if o.withFillStaleness != nil {
+			withFillStr += fmt.Sprintf(" STALENESS %d", *o.withFillStaleness)
+		}
+		withFillStr += " "
 	}
 
 	return fmt.Sprintf("%s %s %s", str, order, withFillStr), err
 }
 
+// WithFill pads the whole [from, to) window for every fill group, regardless of
+// whether a group has any data near a given point.
 func (o *OrderBy) WithFill(from int64, to int64, step int64) *OrderBy {
 	o.withFill = true
-	o.withFillFrom = from
+	o.withFillFrom = &from
 	o.withFillTo = to
 	o.withFillStep = step
+	return o
+}
+
+// WithFillStaleness fills forward from each real row and stops once the distance
+// from it reaches staleness, instead of padding the whole window. Rows are
+// generated while `generated - last_real < staleness`, so a real row at v covers
+// [v, v+staleness) -- the same half open interval as a (t-staleness, t] frame.
+//
+// FROM is absent by necessity, not by choice: clickhouse rejects it alongside
+// STALENESS with INVALID_WITH_FILL_EXPRESSION. The window still gets covered at
+// its leading edge because callers read from before ctx.From, which leaves a real
+// row ahead of the first step for the fill to carry forward from.
+//
+// Requires clickhouse >= 24.11.
+func (o *OrderBy) WithFillStaleness(to int64, step int64, staleness int64) *OrderBy {
+	o.withFill = true
+	o.withFillFrom = nil
+	o.withFillTo = to
+	o.withFillStep = step
+	o.withFillStaleness = &staleness
 	return o
 }
 
