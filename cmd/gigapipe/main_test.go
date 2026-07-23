@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -15,41 +16,88 @@ func stepNames(mode string) []string {
 	return names
 }
 
-// TestBootSequenceOrder pins the subsystem init ordering start() depends on.
+// orderViolations reports every init-ordering invariant start() depends on that
+// the given sequence breaks. Empty result means the order is safe.
 //
-// It is a regression detector, not a description of the current code: reorder
-// reader after ruler (the exact change that shipped on the alpha branch) and
-// this test fails, because the ruler then initializes before the reader
-// registry it evaluates rules through exists -- and refuses to start / runs
-// against a nil session. view moving off the end fails it too, since view's
-// catch-all "/" route would shadow anything registered after it.
+// Two independent constraints pull in opposite directions, so both must hold at
+// once:
+//
+//   - reader BEFORE ruler: reader.Init populates the reader registry the ruler
+//     binds its rule sessions to; ordering reader after ruler yields a nil
+//     session (the regression that shipped on alpha via #864).
+//   - view LAST: view registers a wildcard "/" catch-all route that shadows any
+//     route registered after it; ordering view before ruler hides the ruler's
+//     HTTP routes (the regression that lived on master).
+//
+// The safe order writer -> reader -> ruler -> view is the only one that
+// satisfies both: reader ahead of ruler, view still dead last.
+func orderViolations(names []string) []string {
+	writer := slices.Index(names, "writer")
+	reader := slices.Index(names, "reader")
+	ruler := slices.Index(names, "ruler")
+	view := slices.Index(names, "view")
+
+	// Constraints below only apply to subsystems actually present in the mode.
+	var v []string
+	// The ruler's write-back uses the writer's ClickHouse client.
+	if writer != -1 && ruler != -1 && writer > ruler {
+		v = append(v, "writer must init before ruler")
+	}
+	// reader.Init populates the reader registry the ruler binds rule sessions to.
+	if reader != -1 && ruler != -1 && reader > ruler {
+		v = append(v, "reader must init before ruler (else the ruler binds a nil session)")
+	}
+	// view's wildcard "/" route must be registered after everything else.
+	if view != -1 && view != len(names)-1 {
+		v = append(v, "view must init last (its catch-all route shadows anything after it)")
+	}
+	return v
+}
+
+// TestBootSequenceOrder pins the subsystem init ordering start() depends on: the
+// real sequence for every combined mode must break none of the invariants.
 func TestBootSequenceOrder(t *testing.T) {
 	for _, mode := range []string{"all", ""} {
 		t.Run("mode="+mode, func(t *testing.T) {
 			names := stepNames(mode)
-
-			writer := slices.Index(names, "writer")
-			reader := slices.Index(names, "reader")
-			ruler := slices.Index(names, "ruler")
-			view := slices.Index(names, "view")
-
-			if writer == -1 || reader == -1 || ruler == -1 || view == -1 {
-				t.Fatalf("mode %q missing a subsystem, got %v", mode, names)
+			if len(names) != 4 {
+				t.Fatalf("mode %q expected 4 subsystems, got %v", mode, names)
 			}
+			if got := orderViolations(names); len(got) != 0 {
+				t.Errorf("mode %q order %v violates: %v", mode, names, got)
+			}
+		})
+	}
+}
 
-			// The ruler's write-back uses the writer's ClickHouse client.
-			if writer > ruler {
-				t.Errorf("writer must init before ruler, got %v", names)
+// TestBootSequenceOrderCatchesKnownRegressions guards the guard: it feeds the two
+// historical bad orderings through the same invariant check and asserts each is
+// still detected, so neither regression can silently return.
+func TestBootSequenceOrderCatchesKnownRegressions(t *testing.T) {
+	cases := []struct {
+		name  string
+		order []string
+		want  string // substring the matching violation must contain
+	}{
+		{
+			name:  "reader-after-ruler (alpha #864 nil session)",
+			order: []string{"writer", "ruler", "reader", "view"},
+			want:  "reader must init before ruler",
+		},
+		{
+			name:  "view-before-ruler (master wildcard shadows routes)",
+			order: []string{"writer", "reader", "view", "ruler"},
+			want:  "view must init last",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := orderViolations(c.order)
+			if len(got) == 0 {
+				t.Fatalf("order %v should have been rejected, got no violations", c.order)
 			}
-			// reader.Init populates the reader registry the ruler binds its rule
-			// sessions to; ordering it after the ruler yields a nil session.
-			if reader > ruler {
-				t.Errorf("reader must init before ruler so the ruler binds a live "+
-					"reader session, got %v", names)
-			}
-			// view registers a wildcard "/" route and must be last.
-			if view != len(names)-1 {
-				t.Errorf("view must init last (it adds a catch-all route), got %v", names)
+			if !slices.ContainsFunc(got, func(s string) bool { return strings.Contains(s, c.want) }) {
+				t.Errorf("order %v: expected a violation containing %q, got %v", c.order, c.want, got)
 			}
 		})
 	}
