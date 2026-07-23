@@ -20,6 +20,10 @@ type Substitute struct {
 
 type SubstituteNotes struct {
 	NeedsLabelsValues bool
+	// DropMetricName mirrors prometheus: range functions (rate, increase,
+	// *_over_time, ...) return an instant vector without __name__, whereas a
+	// bare selector keeps it. Only set for the range-function path.
+	DropMetricName bool
 }
 
 const (

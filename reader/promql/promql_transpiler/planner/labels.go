@@ -10,6 +10,10 @@ import (
 
 type LabelsPlanner struct {
 	Main shared.SQLRequestPlanner
+	// DropMetricName strips __name__, as prometheus does for range functions
+	// (rate, increase, *_over_time, ...). A bare selector leaves it false and
+	// keeps the metric name.
+	DropMetricName bool
 }
 
 func (l *LabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -28,6 +32,17 @@ func (l *LabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 	if withFp == nil {
 		return nil, fmt.Errorf("could not find fingerprint with alias 'fp'")
 	}
+	labelsCol := sql.NewSimpleCol("labels", "labels")
+	if l.DropMetricName {
+		// Range functions produce an instant vector and drop __name__, exactly
+		// like prometheus. The aggregation path strips it in
+		// AggPlanner.patchLabels; the bare range path passes through here.
+		labelsCol = sql.NewSimpleCol("toJSONString("+
+			"mapFromArrays("+
+			"arrayMap(x -> x.1, arrayFilter(x -> x.1 != '__name__', "+
+			"JSONExtractKeysAndValues(labels, 'String')) as a), "+
+			"arrayMap(x -> x.2, a)))", "labels")
+	}
 	values := sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("1", "type"),
@@ -43,7 +58,7 @@ func (l *LabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
 			sql.NewSimpleCol("0", "timestamp_ms"),
 			sql.NewSimpleCol("toFloat64(0)", "val"),
-			sql.NewSimpleCol("labels", "labels")).
+			labelsCol).
 		From(sql.NewRawObject(ctx.TimeSeriesDistTableName)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),

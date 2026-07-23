@@ -5,20 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/grafana/pyroscope-go"
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/ctrl"
-	"github.com/metrico/qryn/v4/reader"
-	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
-	"github.com/metrico/qryn/v4/reader/utils/middleware"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
-	"github.com/metrico/qryn/v4/shared/commonroutes"
-	"github.com/metrico/qryn/v4/shared/distconfig"
-	"github.com/metrico/qryn/v4/view"
-	"github.com/metrico/qryn/v4/writer"
 	"log"
 	"net"
 	"net/http"
@@ -29,6 +15,21 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/grafana/pyroscope-go"
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v4/ctrl"
+	"github.com/metrico/qryn/v4/reader"
+	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/reader/utils/middleware"
+	"github.com/metrico/qryn/v4/reader/utils/tables"
+	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
+	"github.com/metrico/qryn/v4/shared/commonroutes"
+	"github.com/metrico/qryn/v4/shared/distconfig"
+	"github.com/metrico/qryn/v4/view"
+	"github.com/metrico/qryn/v4/writer"
 )
 
 var appFlags CommandLineFlags
@@ -322,27 +323,47 @@ func start() {
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
 	cfg.Setting.LOG_SETTINGS.Stdout = true
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		writer.Init(cfg, app)
-	}
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "reader" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		reader.Init(cfg, app)
-		view.Init(cfg, app)
-	}
-	// The ruler composes both the writer (in-process write-back) and the reader
-	// (query evaluation), so it runs only in the combined modes and after both
-	// have initialized. It is a no-op unless QRYN_RULER_ENABLED is set.
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		rulerrouter.Init(cfg, app)
+	for _, step := range bootSequence(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		step.run(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode)
 
+}
+
+// bootStep is one subsystem initializer in the HTTP boot sequence.
+type bootStep struct {
+	name string
+	run  func(cfg *clconfig.ClokiConfig, app *mux.Router)
+}
+
+// bootSequence returns the subsystem initializers to run, in order, for a mode.
+// The ordering is split out of start() so it can be asserted directly, because
+// the order is a correctness constraint and has silently regressed before:
+//
+//   - writer before ruler: the ruler's in-process write-back uses the writer's
+//     ClickHouse client, set by writer.Init.
+//   - reader before ruler: the ruler evaluates rules through the reader registry
+//     that reader.Init populates; a ruler built before it captures a nil session
+//     and fails only later, when a rule is evaluated.
+//   - view last: it registers a catch-all "/" route that would otherwise shadow
+//     any API route registered after it.
+func bootSequence(mode string) []bootStep {
+	in := func(modes ...string) bool { return slices.Contains(modes, mode) }
+	var steps []bootStep
+	if in("all", "writer", "") {
+		steps = append(steps, bootStep{"writer", func(cfg *clconfig.ClokiConfig, app *mux.Router) { writer.Init(cfg, app) }})
+	}
+	if in("all", "reader", "") {
+		steps = append(steps, bootStep{"reader", func(cfg *clconfig.ClokiConfig, app *mux.Router) { reader.Init(cfg, app) }})
+	}
+	if in("all", "") {
+		steps = append(steps, bootStep{"ruler", func(cfg *clconfig.ClokiConfig, app *mux.Router) { rulerrouter.Init(cfg, app) }})
+	}
+	if in("all", "reader", "") {
+		steps = append(steps, bootStep{"view", func(cfg *clconfig.ClokiConfig, app *mux.Router) { view.Init(cfg, app) }})
+	}
+	return steps
 }
 
 var listener net.Listener
