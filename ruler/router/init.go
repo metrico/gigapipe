@@ -10,12 +10,12 @@ import (
 
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/v4/ruler"
-	"github.com/metrico/qryn/v4/ruler/controller"
 	readermodel "github.com/metrico/qryn/v4/reader/model"
 	readerregistry "github.com/metrico/qryn/v4/reader/registry"
 	readerservice "github.com/metrico/qryn/v4/reader/service"
 	readerlogger "github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v4/ruler"
+	"github.com/metrico/qryn/v4/ruler/controller"
 	writercontroller "github.com/metrico/qryn/v4/writer/controller"
 	"github.com/prometheus/prometheus/promql"
 )
@@ -69,6 +69,10 @@ func Init(cfg *clconfig.ClokiConfig, app *mux.Router) {
 	}
 	if writercontroller.DbClient == nil {
 		readerlogger.Error("Ruler enabled but writer ClickHouse client is not initialized; ruler not started")
+		return
+	}
+	if readerregistry.Registry == nil {
+		readerlogger.Error("Ruler enabled but reader registry is not initialized; ruler not started")
 		return
 	}
 
