@@ -477,7 +477,7 @@ func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start: %v", err)
 	}
-	res.Start = epochToTime(startS)
+	res.Start = epochToTime(startS, 0)
 	if startS == 0 {
 		res.Start = time.Now().Add(time.Hour * -6)
 	}
@@ -485,23 +485,11 @@ func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	if err != nil {
 		return nil, fmt.Errorf("end: %v", err)
 	}
-	res.End = epochToTime(endS)
+	res.End = epochToTime(endS, 0)
 	if endS == 0 {
 		res.End = time.Now()
 	}
 	return &res, nil
-}
-
-// epochToTime converts an epoch timestamp to time.Time, handling seconds, milliseconds, and nanoseconds.
-func epochToTime(v int64) time.Time {
-	switch {
-	case v >= 1e18:
-		return time.Unix(0, v)
-	case v >= 1e12:
-		return time.Unix(0, v*int64(time.Millisecond))
-	default:
-		return time.Unix(v, 0)
-	}
 }
 
 func orDefault(str string, def string) string {
