@@ -18,7 +18,33 @@ on:
     types: [created]
 
 jobs:
+  validate_module_path:
+    runs-on: ubuntu-latest
+    name: 'Validate go.mod major version'
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
+      - name: Check module path matches release major
+        run: |
+          VERSION="${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.ref_name || github.ref_name }}"
+          MAJOR=$(echo "$VERSION" | sed -E 's|^v?([0-9]+).*|\1|')
+          MOD=$(awk 'NR==1{print $2}' go.mod)
+          echo "release=$VERSION major=$MAJOR module=$MOD"
+          if [ "$MAJOR" -ge 2 ]; then
+            case "$MOD" in
+              */v$MAJOR) echo "OK: module has /v$MAJOR suffix" ;;
+              *) echo "::error::go.mod module path '$MOD' must end with /v$MAJOR for release $VERSION. Update the module path and all internal imports before tagging."; exit 1 ;;
+            esac
+          else
+            case "$MOD" in
+              */v[0-9]*) echo "::error::go.mod module path '$MOD' has a version suffix but release is v$MAJOR (no suffix expected)."; exit 1 ;;
+              *) echo "OK: no version suffix expected for v$MAJOR" ;;
+            esac
+          fi
+
   go_arm64:
+    needs: validate_module_path
     strategy:
       matrix:
         os: [ubuntu-22.04-arm]
@@ -81,6 +107,7 @@ jobs:
           overwrite: true
           
   go_amd64:
+    needs: validate_module_path
     strategy:
       matrix:
         os: [ubuntu-latest]
@@ -150,6 +177,7 @@ jobs:
           overwrite: true
           
   docker:
+    needs: validate_module_path
     strategy:
       matrix:
         os: [ubuntu-latest]
