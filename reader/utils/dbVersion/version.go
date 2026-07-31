@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,46 @@ func (v VersionInfo) IsVersionSupported(ver string, fromNS int64, toNS int64) bo
 	time, ok := v[ver]
 	fmt.Printf("Checking %d - %d", fromNS, time)
 	return ok && (fromNS >= (time * 1000000000))
+}
+
+// CapStaleness is the server capability key for ORDER BY ... WITH FILL STALENESS,
+// which clickhouse added in 24.11. Below that the clause is a parse error, so it
+// must never be emitted; callers fall back to arrayJoin range expansion instead.
+const CapStaleness = "ch_staleness"
+
+// HasCapability reports a server capability, as opposed to IsVersionSupported,
+// which reports whether a qryn migration was applied before a data range. A
+// capability is not scoped to a time range: it is a property of the running
+// server, present or absent, so it carries no timestamp comparison.
+func (v VersionInfo) HasCapability(name string) bool {
+	_, ok := v[name]
+	return ok
+}
+
+// chStalenessMinMajor / chStalenessMinMinor is the first clickhouse release that
+// parses WITH FILL STALENESS (24.11).
+const chStalenessMinMajor = 24
+const chStalenessMinMinor = 11
+
+// supportsStaleness parses a clickhouse version() string like "24.9.1.3278" or
+// "25.3.14.14" and reports whether it is at least 24.11.
+func supportsStaleness(version string) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	if major != chStalenessMinMajor {
+		return major > chStalenessMinMajor
+	}
+	return minor >= chStalenessMinMinor
 }
 
 var versions = make(map[string]VersionInfo, 10)
@@ -86,6 +127,20 @@ FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, tableName))
 	if !metrics15sV1 {
 		_versions["v5"] = 0
 	}
+
+	// Probe the server for optional SQL features. A failed probe leaves the
+	// capability absent, which degrades to the compatible path rather than an
+	// error, so a transient error here is not fatal to the query.
+	if verRows, err := db.QueryCtx(ctx, `SELECT version()`); err == nil {
+		var serverVersion string
+		if verRows.Next() {
+			if err := verRows.Scan(&serverVersion); err == nil && supportsStaleness(serverVersion) {
+				_versions[CapStaleness] = 0
+			}
+		}
+		verRows.Close()
+	}
+
 	mtx.Lock()
 	versions[db.GetName()] = _versions
 	mtx.Unlock()

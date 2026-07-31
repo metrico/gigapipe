@@ -1,30 +1,35 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/grafana/pyroscope-go"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v4/ctrl"
 	"github.com/metrico/qryn/v4/reader"
-	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
 	"github.com/metrico/qryn/v4/reader/utils/logger"
 	"github.com/metrico/qryn/v4/reader/utils/middleware"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
+	rulerrouter "github.com/metrico/qryn/v4/ruler/router"
 	"github.com/metrico/qryn/v4/shared/commonroutes"
 	"github.com/metrico/qryn/v4/shared/distconfig"
 	"github.com/metrico/qryn/v4/view"
 	"github.com/metrico/qryn/v4/writer"
-	"log"
-	"net"
-	"net/http"
-	"os"
-	"slices"
-	"strconv"
-	"strings"
 )
 
 var appFlags CommandLineFlags
@@ -318,27 +323,47 @@ func start() {
 			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
 	cfg.Setting.LOG_SETTINGS.Stdout = true
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		writer.Init(cfg, app)
-	}
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "reader" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		reader.Init(cfg, app)
-		view.Init(cfg, app)
-	}
-	// The ruler composes both the writer (in-process write-back) and the reader
-	// (query evaluation), so it runs only in the combined modes and after both
-	// have initialized. It is a no-op unless QRYN_RULER_ENABLED is set.
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "" {
-		rulerrouter.Init(cfg, app)
+	for _, step := range bootSequence(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		step.run(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
-	httpStart(app, httpURL)
+	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode)
 
+}
+
+// bootStep is one subsystem initializer in the HTTP boot sequence.
+type bootStep struct {
+	name string
+	run  func(cfg *clconfig.ClokiConfig, app *mux.Router)
+}
+
+// bootSequence returns the subsystem initializers to run, in order, for a mode.
+// The ordering is split out of start() so it can be asserted directly, because
+// the order is a correctness constraint and has silently regressed before:
+//
+//   - writer before ruler: the ruler's in-process write-back uses the writer's
+//     ClickHouse client, set by writer.Init.
+//   - reader before ruler: the ruler evaluates rules through the reader registry
+//     that reader.Init populates; a ruler built before it captures a nil session
+//     and fails only later, when a rule is evaluated.
+//   - view last: it registers a catch-all "/" route that would otherwise shadow
+//     any API route registered after it.
+func bootSequence(mode string) []bootStep {
+	in := func(modes ...string) bool { return slices.Contains(modes, mode) }
+	var steps []bootStep
+	if in("all", "writer", "") {
+		steps = append(steps, bootStep{"writer", func(cfg *clconfig.ClokiConfig, app *mux.Router) { writer.Init(cfg, app) }})
+	}
+	if in("all", "reader", "") {
+		steps = append(steps, bootStep{"reader", func(cfg *clconfig.ClokiConfig, app *mux.Router) { reader.Init(cfg, app) }})
+	}
+	if in("all", "") {
+		steps = append(steps, bootStep{"ruler", func(cfg *clconfig.ClokiConfig, app *mux.Router) { rulerrouter.Init(cfg, app) }})
+	}
+	if in("all", "reader", "") {
+		steps = append(steps, bootStep{"view", func(cfg *clconfig.ClokiConfig, app *mux.Router) { view.Init(cfg, app) }})
+	}
+	return steps
 }
 
 var listener net.Listener
@@ -347,7 +372,11 @@ func stop() {
 	listener.Close()
 }
 
-func httpStart(server *mux.Router, httpURL string) {
+// shutdownTimeout is the maximum time we wait for in-flight requests and
+// background flushes to complete before forcibly exiting.
+const shutdownTimeout = 30 * time.Second
+
+func httpStart(server *mux.Router, httpURL string, mode string) {
 	logger.Info("Starting service")
 	var err error
 	listener, err = net.Listen("tcp", httpURL)
@@ -355,11 +384,48 @@ func httpStart(server *mux.Router, httpURL string) {
 		logger.Error("Error creating listener:", err)
 		panic(err)
 	}
+
+	httpServer := &http.Server{Handler: server}
+
+	// Start serving in a goroutine so we can block on the signal below.
+	go func() {
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("Error serving:", err)
+			panic(err)
+		}
+	}()
+
 	logger.Info("Server is listening on", httpURL)
-	if err := http.Serve(listener, server); err != nil && !errors.Is(err, net.ErrClosed) {
-		logger.Error("Error serving:", err)
-		panic(err)
+
+	// Block until SIGTERM or SIGINT.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	received := <-sig
+	logger.Info(fmt.Sprintf("Received signal %v, starting graceful shutdown...", received))
+
+	// 1. Stop accepting new connections and drain in-flight HTTP requests.
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		logger.Error("HTTP server shutdown error:", err)
 	}
+
+	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).
+	if mode == "all" || mode == "" {
+		rulerrouter.Stop()
+	}
+
+	// 3. Stop the writer (flushes batches to ClickHouse, closes connections).
+	if mode == "all" || mode == "writer" || mode == "" {
+		writer.Stop()
+	}
+
+	// 4. Stop the reader (watchdog + registry).
+	if mode == "all" || mode == "reader" || mode == "" {
+		reader.Stop()
+	}
+
+	logger.Info("Graceful shutdown complete")
 }
 
 func initPyro() {

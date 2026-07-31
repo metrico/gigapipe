@@ -1,4 +1,4 @@
-FROM golang:1.26.4-alpine as builder
+FROM golang:1.26.5-alpine as builder
 COPY . /src
 WORKDIR /src
 ARG VIEW
@@ -12,4 +12,5 @@ FROM alpine:3.21
 COPY --from=builder /src/gigapipe /gigapipe
 ENV PORT 3100
 EXPOSE 3100
-CMD /gigapipe
+STOPSIGNAL SIGTERM
+CMD ["/gigapipe"]

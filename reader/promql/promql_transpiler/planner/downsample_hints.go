@@ -2,6 +2,7 @@ package planner
 
 import (
 	"fmt"
+
 	"github.com/metrico/qryn/v4/reader/config"
 	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
@@ -30,7 +31,7 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 		"present_over_time": true, "delta": true, "increase": true, "avg_over_time": true,
 	}
 
-	patchField(query, "value",
+	patchField(query, "val",
 		sql.NewSimpleCol(d.getValueMerge(hints.Func), "val").(sql.Aliased))
 	if rangeVectors[hints.Func] && hints.Step > hints.Range {
 		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns + %d * 1000000, %d * 1000000) * %d",
@@ -52,25 +53,8 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
 	}
-	if d.Hints.Func == "count_over_time" {
-		query = d.countOverTime(query)
-	}
 
 	return query, nil
-}
-
-func (d *DownsampleHintsPlanner) countOverTime(query sql.ISelect) sql.ISelect {
-	query.Select(append(query.GetSelect(), sql.NewSimpleCol("range(toInt64(val))", "arr"))...)
-	withQuery := sql.NewWith(query, "pre_count_over_time")
-	res := sql.NewSelect().
-		With(withQuery).
-		Select(
-			sql.NewSimpleCol("fingerprint", "fingerprint"),
-			sql.NewSimpleCol("1", "val"),
-			sql.NewSimpleCol("timestamp_ms", "timestamp_ms")).
-		From(sql.NewWithRef(withQuery)).
-		Join(sql.NewJoin("array", sql.NewSimpleCol("arr", "arr"), nil))
-	return res
 }
 
 func (d *DownsampleHintsPlanner) getValueMerge(fn string) string {
@@ -79,7 +63,7 @@ func (d *DownsampleHintsPlanner) getValueMerge(fn string) string {
 		"min_over_time":     "min(min)",
 		"max_over_time":     "max(max)",
 		"sum_over_time":     "sum(sum)",
-		"count_over_time":   "countMerge(count)",
+		"count_over_time":   "countMerge(count)::Float64",
 		"last_over_time":    "argMaxMerge(samples.last)",
 		"present_over_time": "1",
 		"avg_over_time":     "sum(sum) / countMerge(count)",

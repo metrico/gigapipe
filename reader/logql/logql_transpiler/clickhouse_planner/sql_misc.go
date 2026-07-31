@@ -169,7 +169,12 @@ func getCol(req sql.ISelect, alias string) sql.SQLObject {
 	return nil
 }
 
-func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With) (sql.ISelect, error) {
+// labelsFromScratch builds a time_series label-resolution subquery. When
+// windowMain is non-nil, resolution is bounded to fingerprints that actually
+// appear in the time-windowed `windowMain` subquery — without this a
+// high-cardinality selector resolves labels for every fingerprint that ever
+// matched it, causing the OOM in issue #702.
+func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With, windowMain *sql.With) (sql.ISelect, error) {
 	//TODO: offset?
 	_from, err := NewTimeSeriesInitPlanner(nil).Process(ctx)
 	if err != nil {
@@ -178,7 +183,31 @@ func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With) (sql.ISele
 	if fpCache != nil {
 		_from.AndPreWhere(sql.NewIn(sql.NewRawObject("time_series.fingerprint"), sql.NewWithRef(fpCache)))
 	}
+	if windowMain != nil {
+		boundTimeSeriesToWindow(ctx, _from, windowMain)
+	}
 	return _from, nil
+}
+
+// boundTimeSeriesToWindow restricts a time_series label-resolution query
+// (`tsReq`, whose table is aliased `time_series`) to the fingerprints present in
+// the time-windowed `windowMain` subquery. See issue #702.
+//
+// Cluster mode must use GLOBAL IN: `windowMain` reads samples_v3_dist and
+// `tsReq` reads time_series_dist — both distributed, so a plain IN is a
+// double-distributed subquery that ClickHouse denies (distributed_product_mode=
+// 'deny', error 288). GLOBAL IN resolves the (small) window fingerprint set on
+// the initiator and broadcasts it.
+func boundTimeSeriesToWindow(ctx *shared.PlannerContext, tsReq sql.ISelect, windowMain *sql.With) {
+	fpSub := sql.NewSelect().
+		Select(sql.NewSimpleCol("fingerprint", "")).
+		From(sql.NewWithRef(windowMain))
+	col := sql.NewRawObject("time_series.fingerprint")
+	if ctx.IsCluster {
+		tsReq.AndWhere(&globalInCondition{left: col, right: fpSub})
+	} else {
+		tsReq.AndWhere(sql.NewIn(col, fpSub))
+	}
 }
 
 func GetTypes(ctx *shared.PlannerContext) *sql.In {

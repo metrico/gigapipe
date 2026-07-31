@@ -321,7 +321,15 @@ func (pc *ProfController) writeResponse(w http.ResponseWriter, r *http.Request, 
 		defaultError(w, 500, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", contentType)
+	// These are Connect-protocol endpoints, whose only valid unary media types
+	// are application/json and application/proto. defaultMarshaller emits
+	// protobuf unless the request asked for JSON, so mirror that here instead of
+	// reflecting an arbitrary (attacker-controlled) request Content-Type back.
+	if contentType == "application/json" {
+		w.Header().Set("Content-Type", "application/json")
+	} else {
+		w.Header().Set("Content-Type", "application/proto")
+	}
 	w.Write(bData)
 }
 

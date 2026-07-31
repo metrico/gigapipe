@@ -709,12 +709,16 @@
                 <replica>
                     <host>e2e.clickhouse</host>
                     <port>9000</port>
+                    <user>qryn</user>
+                    <password>q1w2e3r4</password>
                 </replica>
             </shard>
             <shard>
                 <replica>
                     <host>e2e.clickhouse2</host>
                     <port>9000</port>
+                    <user>qryn</user>
+                    <password>q1w2e3r4</password>
                 </replica>
             </shard>
         </test_cluster_two_shards>

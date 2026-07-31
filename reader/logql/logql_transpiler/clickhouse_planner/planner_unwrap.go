@@ -72,7 +72,7 @@ func (u *UnwrapPlanner) processTimeSeries(ctx *shared.PlannerContext, main sql.I
 		from = sql.NewWithRef(*u.labelsCache)
 	} else {
 		var err error
-		from, err = labelsFromScratch(ctx, *u.fpCache)
+		from, err = labelsFromScratch(ctx, *u.fpCache, nil)
 		if err != nil {
 			return nil, err
 		}

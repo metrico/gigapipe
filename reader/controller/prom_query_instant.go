@@ -37,13 +37,11 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 		PromError(400, err.Error(), w)
 		return
 	}
-	if r.Header.Get("X-Experimental") == "1" {
-		expr, err = promql_transpiler.TranspileExpressionV2(expr)
-		if err != nil {
-			logger.Error("[PQRC005] " + err.Error())
-			PromError(500, err.Error(), w)
-			return
-		}
+	expr, err = promql_transpiler.TranspileExpressionV2(expr)
+	if err != nil {
+		logger.Error("[PQRC005] " + err.Error())
+		PromError(500, err.Error(), w)
+		return
 	}
 	promQuery, err := q.Api.QueryEngine.NewInstantQuery(ctx, q.Storage.SetOidAndDB(ctx, expr), nil,
 		expr.Expr.String(), req.Time)
