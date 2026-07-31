@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	querierv1 "github.com/metrico/qryn/v4/reader/prof"
+	querierv1 "github.com/metrico/qryn/v5/reader/prof"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"

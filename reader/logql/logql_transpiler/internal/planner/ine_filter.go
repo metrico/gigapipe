@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	logql_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	logql_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 )
 
 type LineFilterPlanner struct {

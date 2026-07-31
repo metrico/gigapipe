@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/v4/writer/utils/errors"
+	"github.com/metrico/qryn/v5/writer/utils/errors"
 )
 
 func jsonParseError(err error) error {

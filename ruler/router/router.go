@@ -5,7 +5,7 @@ package router
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/metrico/qryn/v4/ruler/controller"
+	"github.com/metrico/qryn/v5/ruler/controller"
 )
 
 // Route registers all ruler endpoints. lokiCtrl serves the Loki rule set

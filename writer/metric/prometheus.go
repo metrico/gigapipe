@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"github.com/metrico/qryn/v4/writer/config"
-	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/config"
+	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 const (

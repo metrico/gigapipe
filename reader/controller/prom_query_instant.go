@@ -2,9 +2,9 @@ package controller
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"net/http"
 	"time"
 

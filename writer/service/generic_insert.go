@@ -10,12 +10,12 @@ import (
 
 	fch "github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/v4/writer/chwrapper"
-	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/utils/helpers"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
-	"github.com/metrico/qryn/v4/writer/utils/promise"
-	"github.com/metrico/qryn/v4/writer/utils/stat"
+	"github.com/metrico/qryn/v5/writer/chwrapper"
+	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/utils/helpers"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/promise"
+	"github.com/metrico/qryn/v5/writer/utils/stat"
 )
 
 const (

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/reader/plugins"
-	"github.com/metrico/qryn/v4/shared/distconfig"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/plugins"
+	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 var tableNames = func() map[string]string {

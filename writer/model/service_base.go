@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/chwrapper"
+	"github.com/metrico/qryn/v5/writer/chwrapper"
 )
 
 type InsertServiceOpts struct {

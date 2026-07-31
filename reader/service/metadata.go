@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
-	"github.com/metrico/qryn/v4/writer/utils/metadata"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/utils/tables"
+	"github.com/metrico/qryn/v5/writer/utils/metadata"
 )
 
 type MetadataService struct {

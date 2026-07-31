@@ -3,7 +3,7 @@ package service
 import (
 	"fmt"
 
-	"github.com/metrico/qryn/v4/reader/prof"
+	"github.com/metrico/qryn/v5/reader/prof"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
 )

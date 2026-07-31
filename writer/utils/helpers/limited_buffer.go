@@ -11,8 +11,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang/snappy"
-	"github.com/metrico/qryn/v4/writer/utils/errors"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/errors"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 	"github.com/valyala/bytebufferpool"
 	"golang.org/x/sync/semaphore"
 )

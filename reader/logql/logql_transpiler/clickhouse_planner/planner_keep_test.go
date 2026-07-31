@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 func TestMapKeepFilter(t *testing.T) {

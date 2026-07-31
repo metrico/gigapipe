@@ -5,10 +5,10 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/clickhouse_planner"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler/planner"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
 )
 

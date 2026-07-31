@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
-	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/plugins"
-	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/plugins"
+	"github.com/metrico/qryn/v5/writer/service"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 type TimeSeriesAcquirer struct {

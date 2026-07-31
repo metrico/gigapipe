@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/metric"
-	"github.com/metrico/qryn/v4/writer/utils/proto/prompb"
+	"github.com/metrico/qryn/v5/writer/metric"
+	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 )
 
 var metricsMtx = sync.Mutex{}

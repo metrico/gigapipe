@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/reader/tempo"
-	traceql_parser "github.com/metrico/qryn/v4/reader/traceql/traceql_parser"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/tempo"
+	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/utils/tables"
 )
 
 // MetricsQueryRange executes a TraceQL metrics range query and returns time series.

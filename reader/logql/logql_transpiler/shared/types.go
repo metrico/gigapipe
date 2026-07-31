@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/reader/utils/dbVersion"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/utils/dbVersion"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 const SAMPLES_TYPE_LOGS = 1

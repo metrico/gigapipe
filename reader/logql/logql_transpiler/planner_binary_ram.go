@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strconv"
 
-	log_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/internal/planner"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
+	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/internal/planner"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 )
 
 // BinaryExprProcessor merges two independently-run RequestProcessorChains in memory,

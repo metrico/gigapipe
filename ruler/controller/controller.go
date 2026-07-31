@@ -10,7 +10,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/metrico/qryn/v4/ruler"
+	"github.com/metrico/qryn/v5/ruler"
 	"gopkg.in/yaml.v3"
 )
 

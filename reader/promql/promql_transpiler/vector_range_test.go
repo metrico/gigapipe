@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 // rangeTestCtxCap builds a planner context. staleness selects whether the server

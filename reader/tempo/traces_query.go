@@ -3,9 +3,9 @@ package tempo
 import (
 	"context"
 
-	"github.com/metrico/qryn/v4/reader/plugins"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v5/reader/plugins"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/utils/tables"
 )
 
 func GetTracesQuery(ctx context.Context, idx *SQLIndexQuery, limit int, fromNS int64, toNS int64,

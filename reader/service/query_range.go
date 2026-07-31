@@ -11,15 +11,15 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/v4/reader/logql/logql_parser"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/reader/plugins"
-	dbversion "github.com/metrico/qryn/v4/reader/utils/dbVersion"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
-	"github.com/metrico/qryn/v4/reader/utils/tables"
+	"github.com/metrico/qryn/v5/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/plugins"
+	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/utils/tables"
 )
 
 const (

@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
-	"github.com/metrico/qryn/v4/writer/utils/stat"
+	"github.com/metrico/qryn/v5/writer/service"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/stat"
 )
 
 var (

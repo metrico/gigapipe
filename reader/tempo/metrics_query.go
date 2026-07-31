@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	model "github.com/metrico/qryn/v4/reader/model"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	model "github.com/metrico/qryn/v5/reader/model"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 // IntrinsicAttr maps TraceQL intrinsic attribute names to tempo_traces columns.
