@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/metrico/qryn/v4/writer/utils/proto/prompb"
+	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 )
 
 // TestPromMetricsFlushLimitTypesLength verifies that when a time series has more

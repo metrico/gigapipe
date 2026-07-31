@@ -4,8 +4,8 @@ import (
 	"context"
 	"maps"
 
-	writerController "github.com/metrico/qryn/v4/writer/controller"
-	"github.com/metrico/qryn/v4/writer/utils/proto/prompb"
+	writerController "github.com/metrico/qryn/v5/writer/controller"
+	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 )

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/v4/reader/service"
-	"github.com/metrico/qryn/v4/writer/config"
+	"github.com/metrico/qryn/v5/reader/service"
+	"github.com/metrico/qryn/v5/writer/config"
 )
 
 type VolumeController struct {

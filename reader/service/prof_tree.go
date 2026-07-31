@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/metrico/qryn/v4/reader/prof"
+	"github.com/metrico/qryn/v5/reader/prof"
 )
 
 type Tree struct {

@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/metrico/qryn/v4/writer/utils"
-	customErrors "github.com/metrico/qryn/v4/writer/utils/errors"
-	"github.com/metrico/qryn/v4/writer/utils/unmarshal"
+	"github.com/metrico/qryn/v5/writer/utils"
+	customErrors "github.com/metrico/qryn/v5/writer/utils/errors"
+	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
 )
 
 func PushProfileV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {

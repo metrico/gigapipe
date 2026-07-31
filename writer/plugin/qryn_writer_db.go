@@ -8,16 +8,16 @@ import (
 
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v4/writer/chwrapper"
-	config2 "github.com/metrico/qryn/v4/writer/config"
-	"github.com/metrico/qryn/v4/writer/model"
-	patternCtrl "github.com/metrico/qryn/v4/writer/pattern/controller"
-	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/service/insert"
-	"github.com/metrico/qryn/v4/writer/service/registry"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
-	"github.com/metrico/qryn/v4/writer/utils/numbercache"
-	"github.com/metrico/qryn/v4/writer/watchdog"
+	"github.com/metrico/qryn/v5/writer/chwrapper"
+	config2 "github.com/metrico/qryn/v5/writer/config"
+	"github.com/metrico/qryn/v5/writer/model"
+	patternCtrl "github.com/metrico/qryn/v5/writer/pattern/controller"
+	"github.com/metrico/qryn/v5/writer/service"
+	"github.com/metrico/qryn/v5/writer/service/insert"
+	"github.com/metrico/qryn/v5/writer/service/registry"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/numbercache"
+	"github.com/metrico/qryn/v5/writer/watchdog"
 )
 
 var MainNode string

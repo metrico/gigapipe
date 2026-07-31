@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
-	"github.com/metrico/qryn/v4/reader/service"
+	"github.com/metrico/qryn/v5/reader/service"
 )
 
 type PromQueryLabelsController struct {

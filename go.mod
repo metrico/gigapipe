@@ -1,4 +1,4 @@
-module github.com/metrico/qryn/v4
+module github.com/metrico/qryn/v5
 
 go 1.26.5
 

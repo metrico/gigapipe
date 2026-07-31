@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"reflect"
 
-	log_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/clickhouse_planner"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/internal/planner"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v4/reader/plugins"
+	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/internal/planner"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/plugins"
 )
 
 const (

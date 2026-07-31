@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/metrico/qryn/v4/ctrl/logger"
-	"github.com/metrico/qryn/v4/ctrl/qryn/sql"
-	"github.com/metrico/qryn/v4/shared/distconfig"
+	"github.com/metrico/qryn/v5/ctrl/logger"
+	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
+	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 const (

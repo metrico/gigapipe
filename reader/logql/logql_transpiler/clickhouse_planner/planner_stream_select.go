@@ -2,12 +2,12 @@ package clickhouse_planner
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/v4/reader/config"
+	"github.com/metrico/qryn/v5/reader/config"
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 type StreamSelectPlanner struct {

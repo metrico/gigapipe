@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-logfmt/logfmt"
 	"github.com/influxdata/telegraf/plugins/parsers/influx"
-	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/utils"
-	"github.com/metrico/qryn/v4/writer/utils/errors"
+	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/utils"
+	"github.com/metrico/qryn/v5/writer/utils/errors"
 )
 
 func getMessage(fields map[string]any) (string, error) {

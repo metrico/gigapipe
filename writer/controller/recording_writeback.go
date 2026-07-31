@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/utils/promise"
-	"github.com/metrico/qryn/v4/writer/utils/proto/prompb"
-	"github.com/metrico/qryn/v4/writer/utils/unmarshal"
+	"github.com/metrico/qryn/v5/writer/service"
+	"github.com/metrico/qryn/v5/writer/utils/promise"
+	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
+	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
 	"google.golang.org/protobuf/proto"
 )
 

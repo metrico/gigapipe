@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 type PushRequest struct {

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/metrico/qryn/v4/reader/watchdog"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/reader/watchdog"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 func Ready(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 )
 
 // TestCrossSeriesAggregatesAccelerate renders every accelerated cross-series

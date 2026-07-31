@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	controllerv1 "github.com/metrico/qryn/v5/writer/controller"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 type MiddlewareFunc func(w http.ResponseWriter, r *http.Request) error

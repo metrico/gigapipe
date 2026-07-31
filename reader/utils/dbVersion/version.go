@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/shared/distconfig"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 type VersionInfo map[string]int64

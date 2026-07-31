@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-faster/city"
-	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v5/writer/model"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"

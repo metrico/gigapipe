@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v5/reader/model"
 	v12 "go.opentelemetry.io/proto/otlp/common/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )

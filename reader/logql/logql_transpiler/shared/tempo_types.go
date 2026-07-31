@@ -1,6 +1,6 @@
 package shared
 
-import "github.com/metrico/qryn/v4/reader/model"
+import "github.com/metrico/qryn/v5/reader/model"
 
 type GenericTraceRequestProcessor[T any] interface {
 	Process(*PlannerContext) (chan []T, error)

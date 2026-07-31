@@ -5,9 +5,9 @@ import (
 	"regexp/syntax"
 	"strings"
 
-	log_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
+	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 type LineFilterPlanner struct {

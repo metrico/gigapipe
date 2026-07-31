@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	helputils "github.com/metrico/qryn/v4/writer/utils"
-	"github.com/metrico/qryn/v4/writer/utils/errors"
-	"github.com/metrico/qryn/v4/writer/utils/unmarshal"
+	helputils "github.com/metrico/qryn/v5/writer/utils"
+	"github.com/metrico/qryn/v5/writer/utils/errors"
+	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
 )
 
 // swagger:route GET /push Data PushData

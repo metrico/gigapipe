@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	"github.com/metrico/qryn/v4/reader/promql/promql_transpiler"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/v4/reader/service"
-	"github.com/metrico/qryn/v4/reader/utils/logger"
+	"github.com/metrico/qryn/v5/reader/service"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"

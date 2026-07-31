@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/v4/reader/config"
+	"github.com/metrico/qryn/v5/reader/config"
 )
 
 // TestMain initializes the package-global config.Cloki once before any test in

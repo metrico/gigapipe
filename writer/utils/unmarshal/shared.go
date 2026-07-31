@@ -3,7 +3,7 @@ package unmarshal
 import (
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/model"
+	"github.com/metrico/qryn/v5/writer/model"
 )
 
 type timeSeriesAndSamples struct {

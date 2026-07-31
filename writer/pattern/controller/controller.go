@@ -8,13 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/metrico/qryn/v4/writer/chwrapper"
-	config "github.com/metrico/qryn/v4/writer/config"
-	"github.com/metrico/qryn/v4/writer/model"
-	"github.com/metrico/qryn/v4/writer/pattern/clustering"
-	"github.com/metrico/qryn/v4/writer/service"
-	"github.com/metrico/qryn/v4/writer/service/registry"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/chwrapper"
+	config "github.com/metrico/qryn/v5/writer/config"
+	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/pattern/clustering"
+	"github.com/metrico/qryn/v5/writer/service"
+	"github.com/metrico/qryn/v5/writer/service/registry"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 var (

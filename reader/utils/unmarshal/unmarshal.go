@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/v4/reader/model"
+	"github.com/metrico/qryn/v5/reader/model"
 )
 
 var jsonApi = jsoniter.ConfigCompatibleWithStandardLibrary

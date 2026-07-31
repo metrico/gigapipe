@@ -6,8 +6,8 @@ import (
 	"sort"
 
 	"github.com/go-faster/city"
-	"github.com/metrico/qryn/v4/writer/model"
-	sharedotlp "github.com/metrico/qryn/v4/shared/otlp"
+	"github.com/metrico/qryn/v5/writer/model"
+	sharedotlp "github.com/metrico/qryn/v5/shared/otlp"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"

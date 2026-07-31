@@ -10,13 +10,13 @@ import (
 
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
-	readermodel "github.com/metrico/qryn/v4/reader/model"
-	readerregistry "github.com/metrico/qryn/v4/reader/registry"
-	readerservice "github.com/metrico/qryn/v4/reader/service"
-	readerlogger "github.com/metrico/qryn/v4/reader/utils/logger"
-	"github.com/metrico/qryn/v4/ruler"
-	"github.com/metrico/qryn/v4/ruler/controller"
-	writercontroller "github.com/metrico/qryn/v4/writer/controller"
+	readermodel "github.com/metrico/qryn/v5/reader/model"
+	readerregistry "github.com/metrico/qryn/v5/reader/registry"
+	readerservice "github.com/metrico/qryn/v5/reader/service"
+	readerlogger "github.com/metrico/qryn/v5/reader/utils/logger"
+	"github.com/metrico/qryn/v5/ruler"
+	"github.com/metrico/qryn/v5/ruler/controller"
+	writercontroller "github.com/metrico/qryn/v5/writer/controller"
 	"github.com/prometheus/prometheus/promql"
 )
 

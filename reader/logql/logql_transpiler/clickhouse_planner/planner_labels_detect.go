@@ -1,9 +1,9 @@
 package clickhouse_planner
 
 import (
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
-	"github.com/metrico/qryn/v4/shared/distconfig"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 type DetectLabelsPlanner struct {

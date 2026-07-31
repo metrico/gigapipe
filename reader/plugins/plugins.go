@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	logql_parser "github.com/metrico/qryn/v4/reader/logql/logql_parser"
-	"github.com/metrico/qryn/v4/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v4/reader/model"
+	logql_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
 )
 
 var ErrPluginNotApplicable = errors.New("plugin not applicable")

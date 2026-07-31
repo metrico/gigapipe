@@ -3,10 +3,10 @@ package writer
 import (
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/v4/writer/config"
-	controllerv1 "github.com/metrico/qryn/v4/writer/controller"
-	"github.com/metrico/qryn/v4/writer/plugin"
-	"github.com/metrico/qryn/v4/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/config"
+	controllerv1 "github.com/metrico/qryn/v5/writer/controller"
+	"github.com/metrico/qryn/v5/writer/plugin"
+	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
 var qrynPlugin *plugin.QrynWriterPlugin

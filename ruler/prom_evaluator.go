@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/metrico/qryn/v4/reader/promql/promql_parser"
-	"github.com/metrico/qryn/v4/reader/service"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 )

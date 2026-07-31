@@ -2,9 +2,9 @@ package router
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/metrico/qryn/v4/reader/model"
-	"github.com/metrico/qryn/v4/reader/plugins"
-	"github.com/metrico/qryn/v4/reader/service"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/plugins"
+	"github.com/metrico/qryn/v5/reader/service"
 )
 
 func PluggableRoutes(app *mux.Router, dataSession model.IDBRegistry) {
