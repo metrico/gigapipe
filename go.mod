@@ -11,7 +11,7 @@ replace (
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.73.0
+	github.com/ClickHouse/ch-go v0.74.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/VictoriaMetrics/fastcache v1.13.3
@@ -156,7 +156,7 @@ require (
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
-	github.com/klauspost/compress v1.19.0 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/knadh/koanf/providers/confmap v1.0.0 // indirect
