@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/metrico/qryn/v4/writer/utils"
+	customErrors "github.com/metrico/qryn/v4/writer/utils/errors"
 	"github.com/metrico/qryn/v4/writer/utils/unmarshal"
 )
 
@@ -41,5 +43,24 @@ func PushProfileV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Req
 			// Register parser for binary/octet-stream content type
 			withSimpleParser("binary/octet-stream", Parser(unmarshal.UnmarshalBinaryStreamProfileProtoV2)),
 			//withSimpleParser("*", Parser(unmarshal.UnmarshalProfileProtoV2)),
+			withOkStatusAndBody(200, []byte("{}")))...)
+}
+
+func OTLPProfilesV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {
+	return Build(
+		append(cfg.ExtraMiddleware,
+			withTSAndSampleService,
+			// Reject JSON payloads with 415; only protobuf is supported.
+			withParserContext(func(w http.ResponseWriter, req *http.Request, parserCtx context.Context) (context.Context, error) {
+				if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
+					return nil, &customErrors.QrynError{
+						Code:    http.StatusUnsupportedMediaType,
+						Message: "OTLP profiles: JSON not supported, use application/x-protobuf",
+					}
+				}
+				return parserCtx, nil
+			}),
+			withSimpleParser("application/x-protobuf", Parser(unmarshal.UnmarshalOTLPProfilesProtoV2)),
+			withSimpleParser("*", Parser(unmarshal.UnmarshalOTLPProfilesProtoV2)),
 			withOkStatusAndBody(200, []byte("{}")))...)
 }

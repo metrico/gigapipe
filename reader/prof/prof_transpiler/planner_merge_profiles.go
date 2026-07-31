@@ -25,7 +25,7 @@ func (m *MergeProfilesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	withFpSel := sql.NewWith(fp, "fp")
 	main := sql.NewSelect().
 		With(withFpSel).
-		Select(sql.NewRawObject("payload")).
+		Select(sql.NewRawObject("payload"), sql.NewRawObject("payload_type")).
 		From(sql.NewRawObject(ctx.ProfilesDistTable)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),

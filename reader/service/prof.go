@@ -18,6 +18,7 @@ import (
 	sql "github.com/metrico/qryn/v4/reader/utils/sql_select"
 	"github.com/metrico/qryn/v4/reader/utils/tables"
 	"github.com/metrico/qryn/v4/shared/distconfig"
+	sharedotlp "github.com/metrico/qryn/v4/shared/otlp"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -245,23 +246,31 @@ func (ps *ProfService) MergeProfiles(ctx context.Context, strScript string, strT
 	}
 
 	var (
-		payload []byte
-		merger  = NewProfileMergeV2()
-		p       prof.Profile
+		payload     []byte
+		payloadType string
+		merger      = NewProfileMergeV2()
+		p           prof.Profile
 	)
 
 	err = ps.queryCols(ctx, db, sel, func() error {
-		p.Reset()
 		data, err := decompressPayload(payload)
 		if err != nil {
 			return err
 		}
+		if payloadType == sharedotlp.ProfilePayloadType {
+			op, err := otlpToPProf(data)
+			if err != nil {
+				return err
+			}
+			return merger.Merge(op)
+		}
+		p.Reset()
 		err = proto.Unmarshal(data, &p)
 		if err != nil {
 			return err
 		}
 		return merger.Merge(&p)
-	}, []any{&payload})
+	}, []any{&payload, &payloadType})
 	if err != nil {
 		return nil, err
 	}
