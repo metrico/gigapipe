@@ -111,7 +111,7 @@ func AnalyzeMetrics15sShortcut(script *logql_parser.LogQLScript) bool {
 	if duration.Seconds() < 15 {
 		return false
 	}
-	if lraOrUnwrap.StrSel.Pipelines != nil &&
+	if len(lraOrUnwrap.StrSel.Pipelines) > 0 &&
 		lraOrUnwrap.StrSel.Pipelines[len(lraOrUnwrap.StrSel.Pipelines)-1].Unwrap != nil {
 		return false
 	}

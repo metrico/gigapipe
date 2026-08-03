@@ -124,7 +124,13 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 		return planBinaryExprRAM(script)
 	}
 
+	// cancelJsonAndLogFmt mutates the pipeline list, so the plan mode decided
+	// above may no longer hold: dropping a `json | logfmt` pair can remove the
+	// only stage that forced internal (Go-side) evaluation. Re-derive it, or
+	// breakScript would hand internal/planner.Plan a nil script.
 	cancelJsonAndLogFmt(script)
+	mode = decidePlanMode(script)
+
 	for _, plugin := range plugins.GetLogQLPlannerPlugins() {
 		res, err := plugin.Plan(script)
 		if err == nil {
