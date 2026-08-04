@@ -33,6 +33,7 @@
 
 - [Configuration & Docker](docs/configuration.md) — environment variables, Docker quickstart, cross-cluster setup
 - [Profiling API](docs/profiling-api.md) — profiling endpoints, DOT format export, Graphviz visualization
+- [OTLP Profiles Ingestion](docs/otlp-profiles.md) — OpenTelemetry profiles signal ingestion via `/v1development/profiles`
 - [Contributing](docs/contributing.md) — development setup, testing, CLA requirement
 - [Full Documentation](https://gigapipe.com/docs/oss) — hosted docs at gigapipe.com
 - [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)
@@ -158,6 +159,18 @@ This query calculates span counts for successful HTTP requests over the last hou
 > Any Pyroscope SDK client or Pyroscope compatible agent can be used with gigapipe out of the box for **continuous profiling**
 
 <img src="https://github.com/metrico/qryn/assets/1423657/0bd11ca9-a2b4-41ee-9ea1-6f21fa4077b2" width=700>
+
+#### OTLP Profiles Ingestion
+
+⚡ **gigapipe** also ingests the **OpenTelemetry profiles signal** (`profiles/v1development`) directly from OpenTelemetry collectors:
+
+```
+POST /v1development/profiles      Content-Type: application/x-protobuf
+```
+
+> 💡 _No collector code changes required — point an `otlphttp` exporter at gigapipe and profiles flow in._
+
+OTLP profiles land in the same ClickHouse `profiles` tables as Pyroscope data and are queryable through the existing Pyroscope-compatible API (flamegraph, series, stacktraces). See [docs/otlp-profiles.md](docs/otlp-profiles.md) for details.
 
 #### DOT Graph Rendering
 

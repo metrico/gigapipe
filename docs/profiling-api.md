@@ -2,6 +2,8 @@
 
 Gigapipe implements the Pyroscope API for continuous profiling with support for querying, rendering, and exporting profile data.
 
+Profiles ingested via the [OpenTelemetry profiles signal](otlp-profiles.md) are queryable through these same endpoints — see [OTLP Profiles](#otlp-profiles) below.
+
 ## Profile Endpoints
 
 ### Profile Types
@@ -175,6 +177,43 @@ name:sample_type:sample_unit:period_type:period_unit
 ```
 process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name="my-app", env="prod"}
 ```
+
+## OTLP Profiles
+
+Beyond Pyroscope SDK clients, gigapipe ingests the OpenTelemetry profiles signal
+(`profiles/v1development`) over HTTP protobuf at `POST /v1development/profiles`.
+See [OTLP Profiles Ingestion](otlp-profiles.md) for the ingestion path and
+collector configuration. On the query side, OTLP profiles work through the same
+Pyroscope-compatible endpoints described above.
+
+### Storage
+
+OTLP profiles land in the same ClickHouse `profiles` tables as Pyroscope
+profiles. Ingested rows carry the `otel_v1development` payload type internally so
+the reader can distinguish them from native Pyroscope payloads.
+
+### Coexistence with Pyroscope profiles
+
+Because both signals share the same tables, a single query can return data
+sourced from both Pyroscope SDKs and OTLP collectors. No separate endpoint,
+datasource, or query syntax is needed — the `SelectSeries`,
+`SelectMergeStacktraces`, and `/pyroscope/render` endpoints all operate over the
+combined data.
+
+### OTLP → pprof conversion on read
+
+OTLP profiles are stored in their native OTLP encoding and converted to pprof
+on read, at query time. This keeps ingestion cheap and lets the existing
+flamegraph / series / stacktrace code paths consume OTLP and Pyroscope profiles
+identically.
+
+### Type namespace differences
+
+The `type` label for an OTLP profile is derived from the OTLP `sample_type` type
+string (e.g. `cpu`, `samples`), whereas Pyroscope profiles use their mapped
+profile types (e.g. `process_cpu`, `memory`). When querying OTLP-sourced
+profiles, match on the OTLP-derived type in the profile type ID rather than the
+Pyroscope name.
 
 ## Use Cases
 
