@@ -215,27 +215,16 @@ var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.
 
 	ctx := r.Context()
 	dsn := ctx.Value(utils.ContextKeyDSN)
-	//// Assuming Registry functions are available and compatible with net/http
-	svc, err := Registry.GetSamplesService(dsn.(string))
+
+	svcs, err := ResolveInsertServices(dsn.(string))
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(r.Context(), utils.ContextKeySplService, svc)
 
-	svc, err = Registry.GetTimeSeriesService(dsn.(string))
-	if err != nil {
-		return err
-	}
-	ctx = context.WithValue(ctx, utils.ContextKeyTsService, svc)
-
-	svc, err = Registry.GetProfileInsertService(dsn.(string))
-	if err != nil {
-		return err
-	}
-	ctx = context.WithValue(ctx, utils.ContextKeyProfileService, svc)
-
-	nodeName := svc.GetNodeName()
-	ctx = context.WithValue(ctx, utils.ContextKeyNode, nodeName)
+	ctx = context.WithValue(ctx, utils.ContextKeySplService, svcs.Spl)
+	ctx = context.WithValue(ctx, utils.ContextKeyTsService, svcs.Ts)
+	ctx = context.WithValue(ctx, utils.ContextKeyProfileService, svcs.Profile)
+	ctx = context.WithValue(ctx, utils.ContextKeyNode, svcs.Profile.GetNodeName())
 	*r = *r.WithContext(ctx)
 	return nil
 })
@@ -243,23 +232,16 @@ var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.
 var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
 	dsn := r.Context().Value(utils.ContextKeyDSN)
 
-	// Get spans attributes service
-	spanAttrsSvc, err := Registry.GetSpansSeriesService(dsn.(string))
+	svcs, err := ResolveInsertServices(dsn.(string))
 	if err != nil {
-		return fmt.Errorf("failed to get spans attributes service: %v", err)
-	}
-
-	// Get spans service
-	spansSvc, err := Registry.GetSpansService(dsn.(string))
-	if err != nil {
-		return fmt.Errorf("failed to get spans service: %v", err)
+		return fmt.Errorf("failed to resolve insert services: %v", err)
 	}
 
 	// Update context with both services
 	ctx := r.Context()
-	ctx = context.WithValue(ctx, utils.ContextKeySpanAttrsService, spanAttrsSvc)
-	ctx = context.WithValue(ctx, utils.ContextKeySpansService, spansSvc)
-	ctx = context.WithValue(ctx, utils.ContextKeyNode, spansSvc.GetNodeName())
+	ctx = context.WithValue(ctx, utils.ContextKeySpanAttrsService, svcs.SpanAttrs)
+	ctx = context.WithValue(ctx, utils.ContextKeySpansService, svcs.Spans)
+	ctx = context.WithValue(ctx, utils.ContextKeyNode, svcs.Spans.GetNodeName())
 
 	// Update request context
 	*r = *r.WithContext(ctx)
