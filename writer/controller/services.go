@@ -6,9 +6,10 @@ import (
 	"github.com/metrico/qryn/v5/writer/service"
 )
 
-// InsertServices bundles the per-tenant insert services the OTLP write path
-// needs. It is the single source of these lookups for both the HTTP
-// middleware and the gRPC receiver.
+// InsertServices bundles per-tenant insert services. Only the fields a given
+// signal needs are populated; the rest stay nil (IngestParsed/doPush are
+// nil-safe). SIGNAL ISOLATION: each signal resolves ONLY its own services —
+// logs never resolve spans services, traces never resolve samples, etc.
 type InsertServices struct {
 	Ts        service.IInsertServiceV2
 	Spl       service.IInsertServiceV2
@@ -18,8 +19,25 @@ type InsertServices struct {
 	Node      string
 }
 
-// ResolveInsertServices looks up all insert services for a tenant DSN.
-func ResolveInsertServices(dsn string) (InsertServices, error) {
+// ResolveTraceServices resolves only the trace insert services for a tenant.
+func ResolveTraceServices(dsn string) (InsertServices, error) {
+	var s InsertServices
+	if Registry == nil {
+		return s, fmt.Errorf("service registry not initialized")
+	}
+	var err error
+	if s.SpanAttrs, err = Registry.GetSpansSeriesService(dsn); err != nil {
+		return s, err
+	}
+	if s.Spans, err = Registry.GetSpansService(dsn); err != nil {
+		return s, err
+	}
+	s.Node = s.Spans.GetNodeName()
+	return s, nil
+}
+
+// ResolveLogServices resolves only the log insert services for a tenant.
+func ResolveLogServices(dsn string) (InsertServices, error) {
 	var s InsertServices
 	if Registry == nil {
 		return s, fmt.Errorf("service registry not initialized")
@@ -31,15 +49,20 @@ func ResolveInsertServices(dsn string) (InsertServices, error) {
 	if s.Ts, err = Registry.GetTimeSeriesService(dsn); err != nil {
 		return s, err
 	}
+	s.Node = s.Spl.GetNodeName()
+	return s, nil
+}
+
+// ResolveProfileServices resolves only the profile insert service for a tenant.
+func ResolveProfileServices(dsn string) (InsertServices, error) {
+	var s InsertServices
+	if Registry == nil {
+		return s, fmt.Errorf("service registry not initialized")
+	}
+	var err error
 	if s.Profile, err = Registry.GetProfileInsertService(dsn); err != nil {
 		return s, err
 	}
-	if s.SpanAttrs, err = Registry.GetSpansSeriesService(dsn); err != nil {
-		return s, err
-	}
-	if s.Spans, err = Registry.GetSpansService(dsn); err != nil {
-		return s, err
-	}
-	s.Node = s.Spans.GetNodeName()
+	s.Node = s.Profile.GetNodeName()
 	return s, nil
 }
