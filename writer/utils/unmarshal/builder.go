@@ -514,6 +514,19 @@ func withParsedBody(fn func() proto.Message) buildOption {
 	}
 }
 
+// withPreParsedBody injects an already-decoded proto object as the body,
+// bypassing body buffering and proto.Unmarshal. Used by the gRPC receiver,
+// where the framework has already decoded the wire bytes.
+func withPreParsedBody(obj any) buildOption {
+	return func(builder *parserBuilder) *parserBuilder {
+		builder.PreParse = append(builder.PreParse, func(ctx *ParserCtx) error {
+			ctx.bodyObject = obj
+			return nil
+		})
+		return builder
+	}
+}
+
 func withPayloadType(tp int8) buildOption {
 	return func(builder *parserBuilder) *parserBuilder {
 		builder.payloadType = tp
