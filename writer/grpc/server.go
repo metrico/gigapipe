@@ -7,10 +7,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-// NewServer builds a gRPC server. In this task it registers no services yet;
-// Task 9 will add registerServices(s) here once all three OTLP handlers exist.
+// NewServer builds a gRPC server with all three OTLP signal handlers
+// (traces, logs, profiles) registered.
 func NewServer() *grpc.Server {
 	s := grpc.NewServer()
+	registerServices(s)
 	return s
 }
 
