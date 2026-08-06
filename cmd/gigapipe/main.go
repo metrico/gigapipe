@@ -30,6 +30,7 @@ import (
 	"github.com/metrico/qryn/v5/shared/distconfig"
 	"github.com/metrico/qryn/v5/view"
 	"github.com/metrico/qryn/v5/writer"
+	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
 
 var appFlags CommandLineFlags
@@ -397,6 +398,14 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 
 	logger.Info("Server is listening on", httpURL)
 
+	// Start the OTLP gRPC receiver. Returns (nil, nil) when OTLP_GRPC_ADDR is
+	// empty, leaving existing behavior unchanged (no listener opened).
+	grpcServer, err := writergrpc.Start(os.Getenv("OTLP_GRPC_ADDR"))
+	if err != nil {
+		logger.Error("Error starting OTLP gRPC receiver:", err)
+		panic(err)
+	}
+
 	// Block until SIGTERM or SIGINT.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
@@ -408,6 +417,9 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error:", err)
+	}
+	if grpcServer != nil {
+		grpcServer.GracefulStop()
 	}
 
 	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).
