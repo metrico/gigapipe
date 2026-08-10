@@ -35,7 +35,6 @@ equivalent OTLP/HTTP headers:
 | `x-ch-dsn`        | `X-CH-DSN`        | Selects the tenant (ClickHouse DSN)              |
 | `x-scope-meta`    | `X-Scope-Meta`    | Scope metadata                                   |
 | `x-ttl-days`      | `X-Ttl-Days`      | Per-request TTL in days                          |
-| `x-async-insert`  | `X-Async-Insert`  | Insert mode: `1` async, `0` sync, otherwise default |
 
 ## Routing via an OpenTelemetry Collector
 

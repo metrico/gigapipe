@@ -419,7 +419,13 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 		logger.Error("HTTP server shutdown error:", err)
 	}
 	if grpcServer != nil {
-		grpcServer.GracefulStop()
+		stopped := make(chan struct{})
+		go func() { grpcServer.GracefulStop(); close(stopped) }()
+		select {
+		case <-stopped:
+		case <-time.After(shutdownTimeout):
+			grpcServer.Stop()
+		}
 	}
 
 	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).

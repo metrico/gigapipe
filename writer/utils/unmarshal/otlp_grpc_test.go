@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -29,15 +30,34 @@ func TestOTLPTracesFromData_EmitsSpans(t *testing.T) {
 	defer cache.Stop()
 	ch := OTLPTracesFromData(td)(context.Background(), nil, cache)
 	var spans int
+	var sawName, sawTraceID bool
 	for resp := range ch {
 		if resp.Error != nil {
 			t.Fatalf("unexpected error: %v", resp.Error)
 		}
-		if resp.SpansRequest != nil {
-			spans++
+		ts, ok := resp.SpansRequest.(*model.TempoSamples)
+		if !ok || ts == nil {
+			continue
 		}
+		for _, name := range ts.MName {
+			if strings.Contains(name, "op") {
+				sawName = true
+			}
+		}
+		for _, tid := range ts.MTraceId {
+			if len(tid) > 0 {
+				sawTraceID = true
+			}
+		}
+		spans += len(ts.MName)
 	}
 	if spans == 0 {
-		t.Fatal("expected at least one spans request")
+		t.Fatal("expected at least one span in the emitted TempoSamples")
+	}
+	if !sawName {
+		t.Fatal("expected an emitted span with Name containing \"op\"")
+	}
+	if !sawTraceID {
+		t.Fatal("expected an emitted span with a non-empty TraceId")
 	}
 }
