@@ -328,7 +328,11 @@ func start() {
 		step.run(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
-	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode)
+	grpcOpts := writergrpc.Options{
+		BasicAuthUser: cfg.Setting.AUTH_SETTINGS.BASIC.Username,
+		BasicAuthPass: cfg.Setting.AUTH_SETTINGS.BASIC.Password,
+	}
+	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
 
 }
 
@@ -377,7 +381,7 @@ func stop() {
 // background flushes to complete before forcibly exiting.
 const shutdownTimeout = 30 * time.Second
 
-func httpStart(server *mux.Router, httpURL string, mode string) {
+func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writergrpc.Options) {
 	logger.Info("Starting service")
 	var err error
 	listener, err = net.Listen("tcp", httpURL)
@@ -390,7 +394,7 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 	// so only wrap with the OTLP/gRPC dispatcher when this node writes.
 	var root http.Handler = server
 	if mode == "all" || mode == "writer" || mode == "" {
-		root = writergrpc.Mux(server)
+		root = writergrpc.Mux(server, grpcOpts)
 	}
 	httpServer := &http.Server{Handler: root, Protocols: writergrpc.Protocols()}
 

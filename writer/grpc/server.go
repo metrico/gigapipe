@@ -47,11 +47,39 @@ func recoveryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInf
 	return handler(ctx, req)
 }
 
+// Options carries the gRPC server's runtime configuration. It is an explicit
+// struct rather than positional arguments so future additions (e.g. TLS)
+// don't churn NewServer's and Mux's signatures again.
+type Options struct {
+	// BasicAuthUser and BasicAuthPass gate the auth interceptor (see auth.go).
+	// Auth is enabled only when BOTH are non-empty, mirroring the gate on
+	// BasicAuthMiddleware at cmd/gigapipe/main.go's start().
+	BasicAuthUser string
+	BasicAuthPass string
+}
+
 // NewServer builds a gRPC server with all three OTLP signal handlers
 // (traces, logs, profiles) registered.
-func NewServer() *grpc.Server {
+//
+// Interceptor chain, outermost first:
+//
+//	loggingInterceptor, recoveryInterceptor, authInterceptor (auth optional)
+//
+// Order rationale:
+//   - logging outermost, so a request rejected by auth still appears in the
+//     access log;
+//   - recovery inside logging but outside auth, so a panic anywhere below it
+//     — auth included — becomes codes.Internal instead of killing the
+//     process, and is still logged by the outer logging interceptor;
+//   - auth innermost, so no business handler ever runs for an unauthenticated
+//     request.
+func NewServer(opts Options) *grpc.Server {
+	interceptors := []grpc.UnaryServerInterceptor{loggingInterceptor, recoveryInterceptor}
+	if opts.BasicAuthUser != "" && opts.BasicAuthPass != "" {
+		interceptors = append(interceptors, newAuthInterceptor(opts.BasicAuthUser, opts.BasicAuthPass))
+	}
 	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(recoveryInterceptor),
+		grpc.ChainUnaryInterceptor(interceptors...),
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	)
 	registerServices(s)

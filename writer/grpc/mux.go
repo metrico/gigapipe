@@ -12,20 +12,19 @@ import (
 // and "application/grpc-web") go to the gRPC server; everything else goes to
 // next unchanged.
 //
-// Two limitations are accepted here, not fixed:
+// gRPC requests bypass the mux middleware chain entirely. Of the four HTTP
+// middlewares that would otherwise apply, two are ported as gRPC unary
+// interceptors inside NewServer (logging, basic auth via opts); CORS and
+// response gzip are deliberately not ported — see NewServer/auth.go/logging.go
+// and the package docs for why.
 //
-//  1. gRPC requests bypass the mux middleware chain entirely (logging, CORS,
-//     AcceptEncodingMiddleware and, notably, BasicAuthMiddleware). If
-//     AUTH_SETTINGS.BASIC is configured, OTLP/HTTP is authenticated but
-//     OTLP/gRPC is not. This is a known gap; adding a gRPC auth interceptor
-//     is deliberately left as follow-up work, not addressed here.
-//  2. grpc-go's Server.GracefulStop does not drain RPCs served through
-//     ServeHTTP (as used here) — it only affects connections accepted via
-//     Server.Serve. When gRPC is multiplexed onto the shared http.Server like
-//     this, draining in-flight gRPC requests is the responsibility of
-//     http.Server.Shutdown alone.
-func Mux(next http.Handler) http.Handler {
-	g := NewServer()
+// One limitation is accepted here, not fixed: grpc-go's Server.GracefulStop
+// does not drain RPCs served through ServeHTTP (as used here) — it only
+// affects connections accepted via Server.Serve. When gRPC is multiplexed
+// onto the shared http.Server like this, draining in-flight gRPC requests is
+// the responsibility of http.Server.Shutdown alone.
+func Mux(next http.Handler, opts Options) http.Handler {
+	g := NewServer(opts)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 			g.ServeHTTP(w, r)

@@ -41,7 +41,7 @@ func TestGRPCTraces_EndToEnd_Gzip(t *testing.T) {
 
 	lis := bufconn.Listen(1 << 20)
 	sentinel := &sentinelHandler{}
-	httpServer := &http.Server{Handler: Mux(sentinel), Protocols: Protocols()}
+	httpServer := &http.Server{Handler: Mux(sentinel, Options{}), Protocols: Protocols()}
 	go func() { _ = httpServer.Serve(lis) }()
 	defer httpServer.Close()
 
@@ -126,7 +126,7 @@ func TestGRPCTraces_EndToEnd_LargeMessage(t *testing.T) {
 
 	lis := bufconn.Listen(1 << 20)
 	sentinel := &sentinelHandler{}
-	httpServer := &http.Server{Handler: Mux(sentinel), Protocols: Protocols()}
+	httpServer := &http.Server{Handler: Mux(sentinel, Options{}), Protocols: Protocols()}
 	go func() { _ = httpServer.Serve(lis) }()
 	defer httpServer.Close()
 

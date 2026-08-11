@@ -70,15 +70,69 @@ OTLP/HTTP. Batches larger than that are rejected with a `ResourceExhausted`
 error; if you hit it, tune the collector's `batch` processor to emit smaller
 batches rather than raising the limit on the gigapipe side.
 
+## Authentication
+
+OTLP/gRPC requests bypass the HTTP mux's middleware chain, but two of its
+middlewares are ported as gRPC unary interceptors: basic auth and access
+logging. (CORS and response gzip are not — see [Limitations](#limitations).)
+
+Auth is off by default. It turns on exactly when it does on the HTTP side:
+when both `AUTH_SETTINGS.BASIC.Username` and `AUTH_SETTINGS.BASIC.Password`
+are set. When it's on, every gRPC request must carry an `authorization`
+metadata key with value `Basic <base64(user:pass)>`. A missing key, a
+malformed value, or wrong credentials are all rejected with gRPC status code
+`Unauthenticated` (16).
+
+**Warning:** the gRPC port is cleartext HTTP/2 — there is no TLS on this
+path (see [Where it listens](#where-it-listens)). Basic-auth credentials are
+base64, not encryption, so they travel in the clear. Only enable
+`AUTH_SETTINGS.BASIC` for gRPC over a trusted network, or put a TLS-terminating
+proxy capable of HTTP/2 prior-knowledge in front of gigapipe.
+
+An OpenTelemetry Collector authenticates with the `basicauth` extension,
+wired to the `otlp` exporter via `auth:`:
+
+```yaml
+extensions:
+  basicauth:
+    client_auth:
+      username: <user>
+      password: <pass>
+
+exporters:
+  otlp:
+    endpoint: <gigapipe-host>:3100
+    tls:
+      insecure: true
+    auth:
+      authenticator: basicauth
+
+service:
+  extensions: [basicauth]
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      exporters:  [otlp]
+    logs:
+      receivers:  [otlp]
+      exporters:  [otlp]
+```
+
+gRPC requests also now appear in the access log, in the same line format as
+HTTP requests, with the gRPC status code and the full method name (e.g.
+`/opentelemetry.proto.collector.trace.v1.TraceService/Export`) standing in
+for the HTTP status and URL.
+
 ## Limitations
 
-- **gRPC requests bypass the HTTP middleware chain.** OTLP/gRPC requests are
-  dispatched straight to the gRPC server and never pass through the mux's
-  logging, CORS, `AcceptEncodingMiddleware`, or `BasicAuthMiddleware`. If
-  `AUTH_SETTINGS.BASIC` is configured, OTLP/HTTP requests are authenticated
-  but OTLP/gRPC requests are not. This is a known gap; a gRPC auth
-  interceptor that checks the `authorization` metadata key against the same
-  credentials is planned follow-up work, not yet implemented.
+- **CORS and response gzip do not apply to gRPC.** CORS is a browser
+  preflight mechanism — gRPC clients never send `Origin` and never issue
+  `OPTIONS` preflights, and a browser cannot make an `application/grpc`
+  HTTP/2 request at all (that's what grpc-web is for, and grpc-web isn't
+  supported here). Response gzip compresses based on `Accept-Encoding`;
+  gRPC negotiates per-message compression itself via `grpc-encoding` /
+  `grpc-accept-encoding`, which already works, and OTLP export responses are
+  empty messages anyway.
 - **`grpc.Server.GracefulStop` does not apply here.** Because the gRPC server
   is served through `ServeHTTP` on the shared `http.Server` rather than its
   own listener, grpc-go's own `GracefulStop` has no effect on it. Draining is
