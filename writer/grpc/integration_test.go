@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -156,18 +157,43 @@ func sampleTraceRequest() *coltracepb.ExportTraceServiceRequest {
 	}
 }
 
+// sentinelHandler is a plain http.Handler that records whether it was
+// invoked, used to prove gRPC requests never reach the non-gRPC fallback
+// handler (and that non-gRPC requests do).
+type sentinelHandler struct {
+	mu     sync.Mutex
+	called bool
+}
+
+func (s *sentinelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.called = true
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *sentinelHandler) wasCalled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.called
+}
+
 // TestGRPCTraces_EndToEnd drives the OTLP gRPC TraceService over an in-memory
-// bufconn connection and asserts a span row reaches the insert layer (the Spans
-// recorder receives at least one pushed request).
+// bufconn connection, served through the same production stack used in
+// production (Mux + Protocols on a shared http.Server, not a bare
+// grpc.Server), and asserts a span row reaches the insert layer (the Spans
+// recorder receives at least one pushed request). It also asserts the gRPC
+// request never falls through to the sentinel non-gRPC handler.
 func TestGRPCTraces_EndToEnd(t *testing.T) {
 	spans := installFakeRegistry(t)
 	installFPCache(t, "n")
 	installConfig(t)
 
 	lis := bufconn.Listen(1 << 20)
-	srv := NewServer()
-	go func() { _ = srv.Serve(lis) }()
-	defer srv.Stop()
+	sentinel := &sentinelHandler{}
+	httpServer := &http.Server{Handler: Mux(sentinel), Protocols: Protocols()}
+	go func() { _ = httpServer.Serve(lis) }()
+	defer httpServer.Close()
 
 	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
@@ -209,5 +235,40 @@ func TestGRPCTraces_EndToEnd(t *testing.T) {
 	}
 	if ts.MName[0] != "op" {
 		t.Fatalf("span name did not flow through: got %q, want %q", ts.MName[0], "op")
+	}
+
+	if sentinel.wasCalled() {
+		t.Fatalf("sentinel non-gRPC handler was called for a gRPC request; Mux dispatch is broken")
+	}
+}
+
+// TestMux_HTTPPassthrough proves that plain HTTP/1.1 requests are routed to
+// next unchanged — Mux's gRPC dispatch does not swallow ordinary routes.
+func TestMux_HTTPPassthrough(t *testing.T) {
+	lis := bufconn.Listen(1 << 20)
+	sentinel := &sentinelHandler{}
+	httpServer := &http.Server{Handler: Mux(sentinel), Protocols: Protocols()}
+	go func() { _ = httpServer.Serve(lis) }()
+	defer httpServer.Close()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return lis.Dial()
+			},
+		},
+	}
+
+	resp, err := client.Get("http://bufnet/")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if !sentinel.wasCalled() {
+		t.Fatalf("sentinel handler was not called for a plain HTTP/1.1 request")
 	}
 }

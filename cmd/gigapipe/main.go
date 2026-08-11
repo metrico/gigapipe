@@ -386,7 +386,13 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 		panic(err)
 	}
 
-	httpServer := &http.Server{Handler: server}
+	// Reader-only nodes have no write path (controller.Registry is nil there),
+	// so only wrap with the OTLP/gRPC dispatcher when this node writes.
+	var root http.Handler = server
+	if mode == "all" || mode == "writer" || mode == "" {
+		root = writergrpc.Mux(server)
+	}
+	httpServer := &http.Server{Handler: root, Protocols: writergrpc.Protocols()}
 
 	// Start serving in a goroutine so we can block on the signal below.
 	go func() {
@@ -398,14 +404,6 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 
 	logger.Info("Server is listening on", httpURL)
 
-	// Start the OTLP gRPC receiver. Returns (nil, nil) when OTLP_GRPC_ADDR is
-	// empty, leaving existing behavior unchanged (no listener opened).
-	grpcServer, err := writergrpc.Start(os.Getenv("OTLP_GRPC_ADDR"))
-	if err != nil {
-		logger.Error("Error starting OTLP gRPC receiver:", err)
-		panic(err)
-	}
-
 	// Block until SIGTERM or SIGINT.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
@@ -413,19 +411,13 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 	logger.Info(fmt.Sprintf("Received signal %v, starting graceful shutdown...", received))
 
 	// 1. Stop accepting new connections and drain in-flight HTTP requests.
+	// gRPC is served through this same http.Server (see writergrpc.Mux), and
+	// grpc.Server.GracefulStop has no effect on RPCs served via ServeHTTP, so
+	// this Shutdown call is what drains in-flight gRPC requests too.
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error:", err)
-	}
-	if grpcServer != nil {
-		stopped := make(chan struct{})
-		go func() { grpcServer.GracefulStop(); close(stopped) }()
-		select {
-		case <-stopped:
-		case <-time.After(shutdownTimeout):
-			grpcServer.Stop()
-		}
 	}
 
 	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).
