@@ -58,6 +58,18 @@ server's shutdown, alongside in-flight HTTP requests. See the second bullet
 under [Limitations](#limitations) for why grpc-go's own `GracefulStop` plays no
 part in this.
 
+## Request compression and size limits
+
+Requests compressed with **gzip** are supported and decompressed
+transparently — this is what the OpenTelemetry Collector's OTLP gRPC
+exporter sends by default, so no exporter configuration is needed to get
+compression working.
+
+The maximum accepted request size is **10 MB**, matching the limit on
+OTLP/HTTP. Batches larger than that are rejected with a `ResourceExhausted`
+error; if you hit it, tune the collector's `batch` processor to emit smaller
+batches rather than raising the limit on the gigapipe side.
+
 ## Limitations
 
 - **gRPC requests bypass the HTTP middleware chain.** OTLP/gRPC requests are
