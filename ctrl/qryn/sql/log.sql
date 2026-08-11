@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3 {{.OnCluster}} (
   value Float64 CODEC(Gorilla),
   string String
 ) ENGINE = {{.MergeTree}}
-PARTITION BY toStartOfDay(toDateTime(timestamp_ns / 1000000000))
+PARTITION BY toYYYYMM(toDateTime(timestamp_ns / 1000000000))
 ORDER BY ({{.SAMPLES_ORDER_RUL}}) {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.settings {{.OnCluster}} (
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s {{.OnCluster}} (
     sum SimpleAggregateFunction(sum, Float64),
     bytes SimpleAggregateFunction(sum, Float64)
 ) ENGINE = {{.AggregatingMergeTree}}
-PARTITION BY toDate(toDateTime(intDiv(timestamp_ns, 1000000000)))
+PARTITION BY toYYYYMM(toDateTime(intDiv(timestamp_ns, 1000000000)))
 ORDER BY (fingerprint, timestamp_ns) {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_15s_mv {{.OnCluster}} TO metrics_15s
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.patterns {{.OnCluster}}(
     pattern_id UInt64,
     iteration_id UInt64
 ) ENGINE = {{.MergeTree}}
-PARTITION BY toDate(fromUnixTimestamp(timestamp_10m*600))
+PARTITION BY toYYYYMM(fromUnixTimestamp(timestamp_10m*600))
 ORDER BY (timestamp_10m, fingerprint) {{.CREATE_SETTINGS}};
 
 ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
