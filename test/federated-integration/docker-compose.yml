@@ -16,8 +16,8 @@
 #
 # Run with:  docker compose up --build
 
-x-clickhouse-env: &clickhouse-env
-  # Ephemeral in-stack ClickHouse (the `clickhouse` service below).
+x-clickhouse-env:
+  &clickhouse-env # Ephemeral in-stack ClickHouse (the `clickhouse` service below).
   CLICKHOUSE_SERVER: clickhouse
   CLICKHOUSE_PORT: "9000"
   CLICKHOUSE_PROTO: tcp
@@ -29,15 +29,14 @@ x-clickhouse-env: &clickhouse-env
   QRYN_RULER_POLL_INTERVAL: "1m"
   # Multi-tenant mode.
   FEDERATED: "1"
-  # Bind to all interfaces so the API is reachable via localhost and remotely.
-  HOST: 0.0.0.0
 
 networks:
   federated:
     driver: bridge
 
 volumes:
-  applogs: {}
+  applogs-platform: {}
+  applogs-data: {}
   alloydata: {}
   clickhousedata: {}
 
@@ -48,6 +47,8 @@ services:
     image: clickhouse/clickhouse-server:25.3.14.14
     container_name: clickhouse
     hostname: clickhouse
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: 1
     ulimits:
       nofile:
         soft: 262144
@@ -112,16 +113,16 @@ services:
       - "3101:3100"
     restart: unless-stopped
 
-  # 3. Dummy application: appends structured log lines to a shared volume that
+  # 3. Dummy application for a platform team app: appends structured log lines to a shared volume that
   #    Alloy tails. Levels rotate info/warn/error so queries have variety.
   #    $$ escapes the $ so Docker Compose does not interpolate it; the container
   #    shell sees a single $.
-  dummy-app:
+  dummy-app-platform:
     image: alpine:3.21
-    container_name: dummy-app
+    container_name: dummy-app-platform
     networks: [federated]
     volumes:
-      - applogs:/var/log/app
+      - applogs-platform:/var/log/app
     command:
       - sh
       - -c
@@ -132,27 +133,75 @@ services:
           i=$$((i+1))
           lvl=info
           if [ $$((i % 5)) -eq 0 ]; then lvl=error; elif [ $$((i % 3)) -eq 0 ]; then lvl=warn; fi
-          echo "ts=$$(date -u +%Y-%m-%dT%H:%M:%SZ) level=$$lvl service=dummy-app msg=\"request handled\" iter=$$i" >> /var/log/app/app.log
+          echo "ts=$$(date -u +%Y-%m-%dT%H:%M:%SZ) level=$$lvl service=dummy-app msg=\"request handled for platform service\" iter=$$i" >> /var/log/app/app.log
           sleep 1
         done
     restart: unless-stopped
 
-  # 4. Grafana Alloy: tails the dummy app's log file and ships to the writer's
+  # 4. Dummy application for a data team app: appends structured log lines to a shared volume that
+  #    Alloy tails. Levels rotate info/warn/error so queries have variety.
+  #    $$ escapes the $ so Docker Compose does not interpolate it; the container
+  #    shell sees a single $.
+  dummy-app-data:
+    image: alpine:3.21
+    container_name: dummy-app-data
+    networks: [federated]
+    volumes:
+      - applogs-data:/var/log/app
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /var/log/app
+        i=0
+        while true; do
+          i=$$((i+1))
+          lvl=info
+          if [ $$((i % 5)) -eq 0 ]; then lvl=error; elif [ $$((i % 3)) -eq 0 ]; then lvl=warn; fi
+          echo "ts=$$(date -u +%Y-%m-%dT%H:%M:%SZ) level=$$lvl service=dummy-app msg=\"request handled for data service\" iter=$$i" >> /var/log/app/app.log
+          sleep 1
+        done
+    restart: unless-stopped
+
+  # 5. Grafana Alloy for platform team: tails the dummy app's log file and ships to the writer's
   #    Loki push endpoint, tagged with tenant "platform" (X-Scope-OrgID).
-  alloy:
+  alloy-platform:
     image: grafana/alloy:latest
-    container_name: alloy
+    container_name: alloy-logs-platform
     depends_on:
       gigapipe-writer:
         condition: service_started
     networks: [federated]
     volumes:
-      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - applogs:/var/log/app:ro
+      - ./alloy/config-platform.alloy:/etc/alloy/config.alloy:ro
+      - applogs-platform:/var/log/app:ro
       - alloydata:/var/lib/alloy/data
     ports:
       # Alloy's own debug UI on host 0.0.0.0:12345.
       - "12345:12345"
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    restart: unless-stopped
+
+  # 6. Grafana Alloy for data team: tails the dummy app's log file and ships to the writer's
+  #    Loki push endpoint, tagged with tenant "data" (X-Scope-OrgID).
+  alloy-data:
+    image: grafana/alloy:latest
+    container_name: alloy-logs-data
+    depends_on:
+      gigapipe-writer:
+        condition: service_started
+    networks: [federated]
+    volumes:
+      - ./alloy/config-data.alloy:/etc/alloy/config.alloy:ro
+      - applogs-data:/var/log/app:ro
+      - alloydata:/var/lib/alloy/data
+    ports:
+      # Alloy's own debug UI on host 0.0.0.0:12345.
+      - "12346:12345"
     command:
       - run
       - /etc/alloy/config.alloy

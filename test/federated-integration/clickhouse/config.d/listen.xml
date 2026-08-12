@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!--
+  Override the server's listen hosts so ClickHouse binds on all interfaces
+  (both IPv4 and IPv6). Dropped into /etc/clickhouse-server/config.d so it
+  merges over the image's default config.
+-->
+<clickhouse>
+    <listen_host>0.0.0.0</listen_host>
+</clickhouse>

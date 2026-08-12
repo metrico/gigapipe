@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.time_series {{.OnCluster}} (
     labels String,
     name String
 ) ENGINE = {{.ReplacingMergeTree}}(date)
-PARTITION BY date
+PARTITION BY toStartOfMonth(date)
 ORDER BY ({{.OID_KEY}}fingerprint) {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3 {{.OnCluster}} (
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.time_series_gin {{.OnCluster}} (
     val String,
     fingerprint UInt64
 ) ENGINE = {{.ReplacingMergeTree}}()
-PARTITION BY date
+PARTITION BY toStartOfMonth(date)
 ORDER BY ({{.OID_KEY}}key, val, fingerprint) {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.time_series_gin_view {{.OnCluster}} TO time_series_gin

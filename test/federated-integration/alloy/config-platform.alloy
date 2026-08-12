@@ -9,8 +9,8 @@ local.file_match "app" {
   path_targets = [{
     __path__ = "/var/log/app/*.log",
     // Stream labels attached to every line (these become queryable labels).
-    job      = "dummy-app",
-    service  = "dummy-app",
+    job      = "dummy-app-platform",
+    service  = "dummy-app-platform",
   }]
 }
 

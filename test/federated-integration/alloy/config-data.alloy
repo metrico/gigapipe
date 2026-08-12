@@ -1,0 +1,43 @@
+// Grafana Alloy: tail the dummy app's log file and ship to the gigapipe writer
+// via the Loki push API, tagged with a tenant (X-Scope-OrgID).
+//
+// Under FEDERATED=1 the writer REQUIRES X-Scope-OrgID, so tenant_id below is
+// what makes ingestion succeed and what the reader must match to query it back.
+
+// Discover the dummy app's log file.
+local.file_match "app" {
+  path_targets = [{
+    __path__ = "/var/log/app/*.log",
+    // Stream labels attached to every line (these become queryable labels).
+    job      = "dummy-app-data",
+    service  = "dummy-app-data",
+  }]
+}
+
+// Tail matched files.
+loki.source.file "app" {
+  targets    = local.file_match.app.targets
+  forward_to = [loki.process.app.receiver]
+}
+
+// Extract the level=... field into a label so you can query {level="error"}.
+loki.process "app" {
+  stage.logfmt {
+    mapping = { "level" = "" }
+  }
+  stage.labels {
+    values = { "level" = "" }
+  }
+  forward_to = [loki.write.gigapipe.receiver]
+}
+
+// Write to the gigapipe writer's Loki push endpoint, tagged with the tenant.
+loki.write "gigapipe" {
+  endpoint {
+    url       = "http://gigapipe-writer:3100/loki/api/v1/push"
+    tenant_id = "data"
+  }
+  external_labels = {
+    collector = "alloy",
+  }
+}
