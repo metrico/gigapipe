@@ -164,6 +164,9 @@ type TimeSeriesData struct {
 	MType        []uint8
 	MMeta        string
 	MMetadata    []string // JSON metadata strings for each timeseries entry
+	// MOid is the tenant (X-Scope-OrgID) for this request, constant across all
+	// rows. Empty unless federation is enabled. See shared/federation.
+	MOid string
 }
 
 func (t *TimeSeriesData) GetSize() int64 {
@@ -178,6 +181,9 @@ type TimeSamplesData struct {
 	MTTLDays     []uint16
 	Size         int
 	MType        []uint8
+	// MOid is the tenant (X-Scope-OrgID) for this request, constant across all
+	// rows. Empty unless federation is enabled. See shared/federation.
+	MOid string
 }
 
 func (t *TimeSamplesData) GetSize() int64 {

@@ -84,6 +84,12 @@ type PlannerContext struct {
 	// TracesIntrinsicWhere holds extra WHERE conditions for the tempo_traces table
 	// (e.g., nestedSetParent < 0 → parent_id = '').
 	TracesIntrinsicWhere []sql.SQLCondition
+
+	// Federated is set when multi-tenant mode is on. OidFilter carries the
+	// resolved tenant scoping for this request (regex, or a deny marker). Leaf
+	// planners inject GetOidFilter(ctx, alias) next to their type predicate.
+	Federated bool
+	OidFilter OidFilter
 }
 
 func (p *PlannerContext) Id() int {

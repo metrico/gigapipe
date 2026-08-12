@@ -37,7 +37,7 @@ func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.
 		to = to.Add(*m.Offset)
 		offsetNsStr = fmt.Sprintf(" + %d", m.Offset.Nanoseconds())
 	}
-	return sql.NewSelect().
+	res := sql.NewSelect().
 		Select(
 			sql.NewSimpleCol(
 				fmt.Sprintf("intDiv(samples.timestamp_ns%s, %d) * %[2]d",
@@ -56,6 +56,10 @@ func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.
 				sql.NewIntVal((to.UnixNano()/15000000000)*15000000000)),
 			GetTypes(ctx)).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ns"))
+	if f := GetOidFilter(ctx, "samples"); f != nil {
+		res.AndWhere(f)
+	}
+	return res
 }
 
 func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {

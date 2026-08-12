@@ -219,6 +219,32 @@ func GetTypes(ctx *shared.PlannerContext) *sql.In {
 		sql.NewIntVal(shared.SAMPLES_TYPE_BOTH))
 }
 
+// GetOidFilter returns the tenant-scoping WHERE condition for a federated read,
+// or nil when federation is off (so callers can add it unconditionally and it
+// no-ops). tableAlias qualifies the column (e.g. "samples" -> samples.oid); pass
+// "" for an unqualified `oid`.
+//
+//   - deny (empty/invalid X-Scope-OrgID): a hard-false 1=0 predicate, so the
+//     query returns nothing. This is the safety net behind the controller-level
+//     instant-empty short-circuit; every row has a non-empty oid by invariant,
+//     so "no tenant" correctly means "no rows".
+//   - regex present: match(<oid>, '^(<regex>)$'), anchored so "platform" never
+//     matches "platform-staging". The regex is pre-sanitized by SanitizeOid.
+func GetOidFilter(ctx *shared.PlannerContext, tableAlias string) sql.SQLCondition {
+	if !ctx.Federated {
+		return nil
+	}
+	if ctx.OidFilter.Deny || ctx.OidFilter.Regex == "" {
+		return sql.Eq(sql.NewIntVal(1), sql.NewIntVal(0))
+	}
+	col := "oid"
+	if tableAlias != "" {
+		col = tableAlias + ".oid"
+	}
+	return sql.Eq(&SqlMatch{col: sql.NewRawObject(col), pattern: "^(" + ctx.OidFilter.Regex + ")$"},
+		sql.NewIntVal(1))
+}
+
 type UnionAll struct {
 	sql.ISelect
 	Anothers []sql.ISelect

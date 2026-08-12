@@ -41,7 +41,7 @@ func TestSetRuleGroup_InsertsSerializedConfig(t *testing.T) {
 		Interval: "30s",
 		Rules:    []Rule{{Record: "job:rate", Expr: "rate(x[5m])"}},
 	}
-	if err := svc.SetRuleGroup(context.Background(), "ns1", group); err != nil {
+	if err := svc.SetRuleGroup(context.Background(), "", "ns1", group); err != nil {
 		t.Fatalf("SetRuleGroup: %v", err)
 	}
 
@@ -87,7 +87,7 @@ func TestDeleteRuleGroup_WritesTombstone(t *testing.T) {
 	c := &fakeClient{}
 	svc := newTestService(c, false, "loki")
 
-	if err := svc.DeleteRuleGroup(context.Background(), "ns1", "g1"); err != nil {
+	if err := svc.DeleteRuleGroup(context.Background(), "", "ns1", "g1"); err != nil {
 		t.Fatalf("DeleteRuleGroup: %v", err)
 	}
 	if len(c.execs) != 1 {
@@ -103,7 +103,7 @@ func TestDeleteNamespace_SingleAtomicTombstoneInsert(t *testing.T) {
 	c := &fakeClient{}
 	svc := newTestService(c, false, "prom")
 
-	if err := svc.DeleteNamespace(context.Background(), "ns1"); err != nil {
+	if err := svc.DeleteNamespace(context.Background(), "", "ns1"); err != nil {
 		t.Fatalf("DeleteNamespace: %v", err)
 	}
 	// The whole namespace must be tombstoned in one statement, not a

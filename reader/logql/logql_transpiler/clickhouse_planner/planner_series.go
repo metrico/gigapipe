@@ -37,6 +37,9 @@ func (s *SeriesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
 			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(to.Format("2006-01-02"))),
 			GetTypes(ctx))
+	if f := GetOidFilter(ctx, "time_series"); f != nil {
+		req.AndWhere(f)
+	}
 	if ctx.Limit > 0 {
 		req.Limit(sql.NewIntVal(ctx.Limit))
 	}

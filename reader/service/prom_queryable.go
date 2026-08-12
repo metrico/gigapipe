@@ -472,6 +472,9 @@ func (l *labelsGetter) getFetchRequest(fingerprints map[uint64]bool) sql.ISelect
 			sql.NewIn(sql.NewRawObject("fingerprint"), fps...),
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(l.DateFrom))),
 			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(l.DateTo.Format("2006-01-02"))))
+	if f := shared.OidConditionFromContext(l.Ctx, ""); f != nil {
+		req.AndWhere(f)
+	}
 	return req
 }
 

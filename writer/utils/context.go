@@ -22,4 +22,7 @@ const (
 	ContextKeyFrom             ContextKey = "from"
 	ContextKeyName             ContextKey = "name"
 	ContextKeyUntil            ContextKey = "until"
+	// ContextKeyOid carries the tenant (X-Scope-OrgID) through the write path
+	// when federation is enabled. See shared/federation.
+	ContextKeyOid ContextKey = "oid"
 )

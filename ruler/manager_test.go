@@ -36,7 +36,7 @@ type fakeWriter struct {
 	writes []writeCall
 }
 
-func (f *fakeWriter) Write(record string, ruleLabels map[string]string, v promql.Vector) error {
+func (f *fakeWriter) Write(oid, record string, ruleLabels map[string]string, v promql.Vector) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.writes = append(f.writes, writeCall{record, ruleLabels, v})
@@ -47,10 +47,10 @@ type fakeReader struct {
 	groups NamespaceRuleGroups
 }
 
-func (f *fakeReader) GetRuleGroup(ctx context.Context, namespace, groupName string) (RuleGroup, error) {
+func (f *fakeReader) GetRuleGroup(ctx context.Context, oid, namespace, groupName string) (RuleGroup, error) {
 	return RuleGroup{}, errors.New("not used")
 }
-func (f *fakeReader) ListRuleGroups(ctx context.Context, namespace string) ([]RuleGroup, error) {
+func (f *fakeReader) ListRuleGroups(ctx context.Context, oid, namespace string) ([]RuleGroup, error) {
 	return nil, errors.New("not used")
 }
 func (f *fakeReader) GetAllRuleGroups(ctx context.Context) (NamespaceRuleGroups, error) {
@@ -118,12 +118,12 @@ func TestEvaluateRecordingRule_ErrorRecordsHealthAndSkipsWrite(t *testing.T) {
 	m.ctx = context.Background()
 
 	rule := Rule{Record: "rec", Expr: "up"}
-	m.evaluateRecordingRule("ns", "g", rule, time.Now())
+	m.evaluateRecordingRule("", "ns", "g", rule, time.Now())
 
 	if len(writer.writes) != 0 {
 		t.Errorf("failed evaluation must not write, got %v", writer.writes)
 	}
-	h, ok := m.getRuleHealth("ns", "g", "rec")
+	h, ok := m.getRuleHealth("", "ns", "g", "rec")
 	if !ok || h.Health != "err" || h.LastError != "boom" {
 		t.Errorf("health not recorded as err: %+v ok=%v", h, ok)
 	}
@@ -131,22 +131,22 @@ func TestEvaluateRecordingRule_ErrorRecordsHealthAndSkipsWrite(t *testing.T) {
 
 func TestPruneHealth_EvictsRemovedRulesKeepsLive(t *testing.T) {
 	m := NewRuleManager(nil, nil, nil, time.Minute)
-	m.setRuleHealth("ns", "g", "live", RuleHealth{Health: "ok"})
-	m.setRuleHealth("ns", "g", "stale", RuleHealth{Health: "ok"})
-	m.setRuleHealth("ns", "gone", "x", RuleHealth{Health: "ok"})
+	m.setRuleHealth("", "ns", "g", "live", RuleHealth{Health: "ok"})
+	m.setRuleHealth("", "ns", "g", "stale", RuleHealth{Health: "ok"})
+	m.setRuleHealth("", "ns", "gone", "x", RuleHealth{Health: "ok"})
 
 	// Only ns/g/live still exists in the rule set.
 	m.pruneHealth(NamespaceRuleGroups{
 		"ns": {{Name: "g", Interval: "30s", Rules: []Rule{{Record: "live", Expr: "up"}}}},
 	})
 
-	if _, ok := m.getRuleHealth("ns", "g", "live"); !ok {
+	if _, ok := m.getRuleHealth("", "ns", "g", "live"); !ok {
 		t.Errorf("live rule health was evicted")
 	}
-	if _, ok := m.getRuleHealth("ns", "g", "stale"); ok {
+	if _, ok := m.getRuleHealth("", "ns", "g", "stale"); ok {
 		t.Errorf("stale rule health not evicted")
 	}
-	if _, ok := m.getRuleHealth("ns", "gone", "x"); ok {
+	if _, ok := m.getRuleHealth("", "ns", "gone", "x"); ok {
 		t.Errorf("health for removed group not evicted")
 	}
 }
@@ -179,8 +179,8 @@ func TestGetPrometheusRules_GroupEvaluationReflectsRealHealth(t *testing.T) {
 	// After evaluation: group time is the latest rule time, eval time the sum.
 	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	newer := older.Add(time.Minute)
-	m.setRuleHealth("ns", "g", "a", RuleHealth{Health: "ok", LastEvalTime: older, EvaluationTime: 0.2})
-	m.setRuleHealth("ns", "g", "b", RuleHealth{Health: "ok", LastEvalTime: newer, EvaluationTime: 0.3})
+	m.setRuleHealth("", "ns", "g", "a", RuleHealth{Health: "ok", LastEvalTime: older, EvaluationTime: 0.2})
+	m.setRuleHealth("", "ns", "g", "b", RuleHealth{Health: "ok", LastEvalTime: newer, EvaluationTime: 0.3})
 
 	groups = m.GetPrometheusRules()
 	if got := groups[0].LastEvaluation; got != newer.Format(time.RFC3339Nano) {

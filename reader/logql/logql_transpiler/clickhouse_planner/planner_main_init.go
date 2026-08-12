@@ -32,7 +32,7 @@ func (s *SqlMainInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, e
 		to = to.Add(*s.offset)
 		offsetNsStr = fmt.Sprintf(" + %d", s.offset.Nanoseconds())
 	}
-	return sql.NewSelect().
+	res := sql.NewSelect().
 		Select(
 			sql.NewSimpleCol(fmt.Sprintf("samples.timestamp_ns%s", offsetNsStr), "timestamp_ns"),
 			sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
@@ -42,5 +42,9 @@ func (s *SqlMainInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, e
 		AndPreWhere(
 			sql.Ge(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(from.UnixNano())),
 			sql.Lt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(to.UnixNano())),
-			GetTypes(ctx)), nil
+			GetTypes(ctx))
+	if f := GetOidFilter(ctx, "samples"); f != nil {
+		res.AndPreWhere(f)
+	}
+	return res, nil
 }

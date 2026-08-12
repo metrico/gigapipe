@@ -28,6 +28,9 @@ func (l *LabelNamesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.Le(sql.NewRawObject("date"),
 				sql.NewStringVal(ctx.To.Format("2006-01-02"))),
 		)
+	if f := GetOidFilter(ctx, "keys"); f != nil {
+		sel.AndWhere(f)
+	}
 
 	if len(fpSelects) > 0 {
 		fpUnion := UnionAll{

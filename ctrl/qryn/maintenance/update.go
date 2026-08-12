@@ -15,6 +15,7 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/federation"
 )
 
 const (
@@ -144,6 +145,15 @@ func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger)
 			return err
 		}
 		req := buf.String()
+		// A statement guarded by {{if .Federated}}...{{end}} renders to empty when
+		// the guard is false. Because statements are split on ";\n\n", the trailing
+		// ";" stays outside the guard, so a skipped statement renders to just ";"
+		// (or whitespace). Skip anything with no actual SQL rather than sending an
+		// empty query to ClickHouse; the caller still advances the ver counter so
+		// migration numbering stays stable across federated/non-federated builds.
+		if strings.Trim(req, " \n\t;") == "" {
+			return nil
+		}
 		err = db.Exec(context.Background(), req)
 		if err != nil {
 			logger.Error(req)
@@ -165,6 +175,14 @@ func updateReadDistScripts(db clickhouse.Conn, dbname string, clusterName string
 		"OnCluster":    "ON CLUSTER `" + clusterName + "`",
 		"READ_CLUSTER": readCluster,
 		"READ_SUFFIX":  readSuffix,
+		"OID_COL":      "",
+		"Federated":    "",
+	}
+	// Read-path distributed tables must carry `oid` too so cross-cluster reads
+	// can filter by tenant. See shared/federation.
+	if federation.Enabled() {
+		env["Federated"] = "1"
+		env["OID_COL"] = "oid LowCardinality(String),"
 	}
 	exec := getDBExec(db, env, logger)
 	verTable := "ver" + distconfig.Suffix()
@@ -213,6 +231,11 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 		"CREATE_SETTINGS":      "",
 		"SAMPLES_ORDER_RUL":    "timestamp_ns",
 		"DIST_CREATE_SETTINGS": "",
+		// Federation (multi-tenant) tokens: empty when off so rendered DDL is
+		// byte-identical to single-tenant. See shared/federation.
+		"OID_COL":        "",
+		"OID_KEY":        "",
+		"OID_ADD_COLUMN": "",
 	}
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)
@@ -220,6 +243,21 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 	//TODO: move to the config package as it should be: os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	if advancedSamplesOrdering != "" {
 		env["SAMPLES_ORDER_RUL"] = advancedSamplesOrdering
+	}
+	// When federated, every table gains a non-empty `oid` tenancy column with no
+	// DEFAULT, and fresh tables prepend `oid` to the sorting key. Existing tables
+	// only get the column (ClickHouse cannot add a new key column to a populated
+	// table's ORDER BY), which is acceptable: read filtering still works.
+	// Federated drives whole-statement {{if .Federated}}...{{end}} guards (e.g.
+	// the appended existing-table ADD COLUMN migrations). Empty string is falsey
+	// in text/template, so OFF renders those statements to nothing.
+	env["Federated"] = ""
+	if federation.Enabled() {
+		env["Federated"] = "1"
+		env["OID_COL"] = "oid LowCardinality(String),"
+		env["OID_KEY"] = "oid, "
+		env["OID_ADD_COLUMN"] = "ADD COLUMN IF NOT EXISTS oid LowCardinality(String)"
+		env["SAMPLES_ORDER_RUL"] = "oid, " + env["SAMPLES_ORDER_RUL"]
 	}
 	//TODO: move to the config package
 	if skipUnavailableShards {

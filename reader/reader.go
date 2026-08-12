@@ -10,7 +10,9 @@ import (
 	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/reader/config"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/plugins"
 	"github.com/metrico/qryn/v5/reader/registry"
 	"github.com/metrico/qryn/v5/reader/router"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -22,6 +24,12 @@ var ownHttpServer bool = false
 
 func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
 	config.Cloki = cnf
+
+	// Federation: resolve X-Scope-OrgID into a tenant filter for every query.
+	// No-op when federation is disabled. Registered for both regular and
+	// WebSocket (tail) query paths.
+	plugins.RegisterPreRequestPlugin("federation-oid", shared.ReadOidPreRequestPlugin)
+	plugins.RegisterPreWSRequestPlugin("federation-oid", shared.ReadOidPreRequestPlugin)
 
 	// Set to max cpu if the value is equals 0
 	if config.Cloki.Setting.SYSTEM_SETTINGS.CPUMaxProcs == 0 {

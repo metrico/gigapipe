@@ -28,6 +28,7 @@ import (
 	rulerrouter "github.com/metrico/qryn/v5/ruler/router"
 	"github.com/metrico/qryn/v5/shared/commonroutes"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"github.com/metrico/qryn/v5/view"
 	"github.com/metrico/qryn/v5/writer"
 )
@@ -285,6 +286,7 @@ func main() {
 
 func start() {
 	distconfig.Init()
+	federation.Init()
 	tables.InitDistTableNames()
 	var configPaths []string
 	if _, err := os.Stat(*appFlags.ConfigPath); err == nil {

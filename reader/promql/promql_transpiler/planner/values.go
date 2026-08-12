@@ -27,6 +27,9 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		clickhouse_planner.GetTypes(ctx),
 	).OrderBy(sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
 		sql.NewOrderBy(sql.NewRawObject("timestamp_ns"), sql.ORDER_BY_DIRECTION_ASC))
+	if f := clickhouse_planner.GetOidFilter(ctx, "samples"); f != nil {
+		res.AndWhere(f)
+	}
 	if ctx.Limit > 0 {
 		res.Limit(sql.NewIntVal(ctx.Limit))
 	}

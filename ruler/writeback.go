@@ -5,6 +5,7 @@ import (
 	"maps"
 
 	writerController "github.com/metrico/qryn/v5/writer/controller"
+	writerutils "github.com/metrico/qryn/v5/writer/utils"
 	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
@@ -51,9 +52,13 @@ func NewInProcessWriter() RecordingRuleWriter {
 	return inProcessWriter{}
 }
 
-func (inProcessWriter) Write(record string, ruleLabels map[string]string, v promql.Vector) error {
+func (inProcessWriter) Write(oid, record string, ruleLabels map[string]string, v promql.Vector) error {
 	if len(v) == 0 {
 		return nil
 	}
-	return writerController.PushPromWriteRequest(context.Background(), vectorToWriteRequest(record, ruleLabels, v))
+	// Tag the write-back with the owning tenant so recorded series land under the
+	// right oid. The writer's unmarshal layer reads ContextKeyOid; the value is
+	// "" (ignored) when federation is off.
+	ctx := context.WithValue(context.Background(), writerutils.ContextKeyOid, oid)
+	return writerController.PushPromWriteRequest(ctx, vectorToWriteRequest(record, ruleLabels, v))
 }

@@ -78,6 +78,9 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 			sql.Or(clauses...)).
 		GroupBy(sql.NewRawObject("fingerprint")).
 		AndHaving(sql.Eq(&SqlBitSetAnd{clauses}, sql.NewIntVal((1<<len(clauses))-1)))
+	if f := GetOidFilter(ctx, ""); f != nil {
+		fpRequest.AndWhere(f)
+	}
 	return s.processEmptyLabels(ctx, fpRequest, emptyLabels)
 }
 
@@ -108,6 +111,9 @@ func (s *StreamSelectPlanner) processEmptyLabels(ctx *shared.PlannerContext,
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(ctx.From))),
 			sql.And(emptyClauses...))
+	if f := GetOidFilter(ctx, ""); f != nil {
+		res.AndWhere(f)
+	}
 	if len(s.LabelNames) > 0 {
 		res = res.
 			With(withFpPreRequest).

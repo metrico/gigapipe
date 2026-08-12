@@ -63,6 +63,9 @@ func (l *LabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
 			sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp)))
+	if f := clickhouse_planner.GetOidFilter(ctx, ""); f != nil {
+		labels.AndWhere(f)
+	}
 	res := sql.NewSelect().
 		With(withMain).
 		Select(sql.NewRawObject("*")).

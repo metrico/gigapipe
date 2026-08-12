@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/plugins"
 	"github.com/metrico/qryn/v5/writer/service"
@@ -16,11 +17,17 @@ type SamplesAcquirer struct {
 	TimestampNS *service.PooledColumn[proto.ColInt64]
 	String      *service.PooledColumn[*proto.ColStr]
 	Value       *service.PooledColumn[proto.ColFloat64]
+	// Oid is populated only when federation is enabled; it maps to the leading
+	// `oid` column of samples_v3. See shared/federation.
+	Oid *service.PooledColumn[*proto.ColStr]
 }
 
 func (a *SamplesAcquirer) acq() *SamplesAcquirer {
 	service.StartAcq()
 	defer service.FinishAcq()
+	if federation.Enabled() {
+		a.Oid = service.StrPool.Acquire("oid")
+	}
 	a.Type = service.UInt8Pool.Acquire("type")
 	a.Fingerprint = service.UInt64Pool.Acquire("fingerprint")
 	a.TimestampNS = service.Int64Pool.Acquire("timestamp_ns")
@@ -30,10 +37,17 @@ func (a *SamplesAcquirer) acq() *SamplesAcquirer {
 }
 
 func (a *SamplesAcquirer) serialize() []service.IColPoolRes {
+	if federation.Enabled() {
+		return []service.IColPoolRes{a.Oid, a.Type, a.Fingerprint, a.TimestampNS, a.String, a.Value}
+	}
 	return []service.IColPoolRes{a.Type, a.Fingerprint, a.TimestampNS, a.String, a.Value}
 }
 
 func (a *SamplesAcquirer) deserialize(res []service.IColPoolRes) *SamplesAcquirer {
+	if federation.Enabled() {
+		a.Oid = res[0].(*service.PooledColumn[*proto.ColStr])
+		res = res[1:]
+	}
 	a.Type, a.Fingerprint, a.TimestampNS, a.String, a.Value =
 
 		res[0].(*service.PooledColumn[proto.ColUInt8]),
@@ -57,8 +71,11 @@ func NewSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServic
 	if opts.Node.ClusterName != "" {
 		table += "_dist"
 	}
-	insertReq := fmt.Sprintf("INSERT INTO %s (type,fingerprint, timestamp_ns, string, value)",
-		table)
+	cols := "type,fingerprint, timestamp_ns, string, value"
+	if federation.Enabled() {
+		cols = "oid, " + cols
+	}
+	insertReq := fmt.Sprintf("INSERT INTO %s (%s)", table, cols)
 	return &service.InsertServiceV2Multimodal{
 		ServiceData:    service.ServiceData{},
 		V3Session:      opts.Session,
@@ -81,6 +98,14 @@ func NewSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServic
 			}
 			samples := (&SamplesAcquirer{}).deserialize(res)
 			_len := len(samples.Fingerprint.Data)
+
+			if federation.Enabled() {
+				// MOid is a single per-request tenant; replicate it per row so the
+				// oid column stays aligned with the positional insert.
+				for range timeSeriesData.MTimestampNS {
+					samples.Oid.Data.Append(timeSeriesData.MOid)
+				}
+			}
 
 			for _, timeNs := range timeSeriesData.MTimestampNS {
 				samples.TimestampNS.Data.Append(timeNs)

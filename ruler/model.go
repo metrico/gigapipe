@@ -27,9 +27,15 @@ type RuleGroup struct {
 	Name     string `yaml:"name" json:"name"`
 	Interval string `yaml:"interval,omitempty" json:"interval,omitempty"`
 	Rules    []Rule `yaml:"rules" json:"rules"`
+	// Oid is the owning tenant, populated from the rules table's oid column when
+	// federation is enabled (empty otherwise). It is yaml:"-" because it is a
+	// separate column, not part of the serialized config, and is carried on the
+	// group so the background evaluation loop knows which tenant to scope reads
+	// and write-back to.
+	Oid string `yaml:"-" json:"-"`
 }
 
 // NamespaceRuleGroups maps a namespace to its rule groups. It is the shape the
-// read API and the manager consume; gigapipe is single-tenant, so there is no
-// enclosing org dimension.
+// read API and the manager consume. Under federation each group carries its
+// owning tenant in RuleGroup.Oid.
 type NamespaceRuleGroups map[string][]RuleGroup

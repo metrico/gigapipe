@@ -3,6 +3,7 @@
 ## APPEND ONLY!!!!!
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s{{.READ_SUFFIX}} {{.OnCluster}} (
+    {{.OID_COL}}
     `fingerprint` UInt64,
     `timestamp_ns` Int64 CODEC(DoubleDelta),
     `last` AggregateFunction(argMax, Float64, Int64),
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s{{.READ_SUFFIX}} {{.OnCluster}} (
 ) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metrics_15s', fingerprint) SETTINGS skip_unavailable_shards = 1;
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3{{.READ_SUFFIX}} {{.OnCluster}} (
+    {{.OID_COL}}
     `fingerprint` UInt64,
     `timestamp_ns` Int64 CODEC(DoubleDelta),
     `value` Float64 CODEC(Gorilla),
@@ -21,6 +23,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3{{.READ_SUFFIX}} {{.OnCluster}} (
 ) ENGINE = Distributed('{{.READ_CLUSTER}}','{{.DB}}', 'samples_v3', fingerprint) SETTINGS skip_unavailable_shards = 1;
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.time_series{{.READ_SUFFIX}} {{.OnCluster}} (
+    {{.OID_COL}}
     `date` Date,
     `fingerprint` UInt64,
     `labels` String,
@@ -36,6 +39,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.settings{{.READ_SUFFIX}} {{.OnCluster}} (
 ) ENGINE = Distributed('{{.READ_CLUSTER}}','{{.DB}}', 'settings', rand()) SETTINGS skip_unavailable_shards = 1;
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.time_series_gin{{.READ_SUFFIX}} {{.OnCluster}} (
+    {{.OID_COL}}
     date Date,
     key String,
     val String,
@@ -73,3 +77,16 @@ ALTER TABLE {{.DB}}.time_series{{.READ_SUFFIX}} {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series{{.READ_SUFFIX}} {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+## Federation (FEDERATED=1): best-effort oid column on already-existing read-dist tables.
+{{if .Federated}}ALTER TABLE {{.DB}}.metrics_15s{{.READ_SUFFIX}} {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.samples_v3{{.READ_SUFFIX}} {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.time_series{{.READ_SUFFIX}} {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.time_series_gin{{.READ_SUFFIX}} {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};

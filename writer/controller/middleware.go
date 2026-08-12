@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/golang/snappy"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"github.com/metrico/qryn/v5/writer/chwrapper"
 	"github.com/metrico/qryn/v5/writer/service"
 	"github.com/metrico/qryn/v5/writer/utils"
@@ -166,6 +167,17 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 	meta := strings.Clone(r.Header.Get("X-Scope-Meta"))
 	strTTLDays := strings.Clone(r.Header.Get("X-Ttl-Days"))
 	async := getAsyncMode(r)
+
+	// Federation: the tenant is mandatory on every write so no row is ever
+	// admitted with an empty oid (the core invariant). Returning an IQrynError
+	// short-circuits the pipeline and is rendered as a 400 JSON to the client.
+	oid := ""
+	if federation.Enabled() {
+		oid = strings.TrimSpace(strings.Clone(r.Header.Get("X-Scope-OrgID")))
+		if oid == "" {
+			return errors.New400Error("X-Scope-OrgID header is required when federation is enabled")
+		}
+	}
 	TTLDays := uint16(0)
 	if strTTLDays != "" {
 		iTTLDays, err := strconv.ParseUint(strTTLDays, 10, 16)
@@ -202,7 +214,7 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 	ctx := r.Context()
 	// Modify context as needed
 	ctx = context.WithValue(ctx, utils.ContextKeyDSN, dsn)
-	//ctx = context.WithValue(ctx, "oid", oid)
+	ctx = context.WithValue(ctx, utils.ContextKeyOid, oid)
 	ctx = context.WithValue(ctx, utils.ContextKeyMeta, meta)
 	ctx = context.WithValue(ctx, utils.ContextKeyTTLDays, TTLDays)
 	ctx = context.WithValue(ctx, utils.ContextKeyAsync, async)

@@ -39,6 +39,9 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(v.Key)),
 			GetTypes(ctx),
 		)
+	if f := GetOidFilter(ctx, ""); f != nil {
+		res.AndWhere(f)
+	}
 	if !v.NoStreamSelect && v.FingerprintsPlanner != nil {
 		fp, err := v.FingerprintsPlanner.Process(ctx)
 		if err != nil {

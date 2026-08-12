@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
@@ -169,7 +171,7 @@ func (m *RuleManager) pruneHealth(groups NamespaceRuleGroups) {
 		for _, g := range gs {
 			for _, rule := range g.Rules {
 				if rule.IsRecording() {
-					valid[ruleHealthKey(namespace, g.Name, rule.Record)] = struct{}{}
+					valid[ruleHealthKey(g.Oid, namespace, g.Name, rule.Record)] = struct{}{}
 				}
 			}
 		}
@@ -211,7 +213,7 @@ func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Durati
 			}
 			for _, rule := range g.Rules {
 				if rule.IsRecording() {
-					m.evaluateRecordingRule(namespace, g.Name, rule, now)
+					m.evaluateRecordingRule(g.Oid, namespace, g.Name, rule, now)
 				}
 			}
 		}
@@ -221,12 +223,18 @@ func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Durati
 // evaluateRecordingRule evaluates one recording rule, records its health, and
 // writes the result back. A failed evaluation records an error and writes
 // nothing.
-func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Rule, now time.Time) {
+func (m *RuleManager) evaluateRecordingRule(oid, namespace, groupName string, rule Rule, now time.Time) {
 	start := time.Now()
-	result, err := m.evaluator.Evaluate(m.ctx, rule.Expr, now)
+	// Scope the evaluation's reads to the owning tenant. No-op when federation is
+	// off (oid is ""); the reader ignores the filter unless federation.Enabled().
+	evalCtx := m.ctx
+	if federation.Enabled() {
+		evalCtx = shared.WithOidFilter(m.ctx, shared.OidFilter{Regex: oid})
+	}
+	result, err := m.evaluator.Evaluate(evalCtx, rule.Expr, now)
 	dur := time.Since(start)
 	if err != nil {
-		m.setRuleHealth(namespace, groupName, rule.Record, RuleHealth{
+		m.setRuleHealth(oid, namespace, groupName, rule.Record, RuleHealth{
 			Health:         "err",
 			LastError:      err.Error(),
 			LastEvalTime:   now,
@@ -235,13 +243,13 @@ func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Ru
 		logger.Error("RuleManager: evaluate recording rule ", rule.Record, ": ", err.Error())
 		return
 	}
-	m.setRuleHealth(namespace, groupName, rule.Record, RuleHealth{
+	m.setRuleHealth(oid, namespace, groupName, rule.Record, RuleHealth{
 		Health:         "ok",
 		LastEvalTime:   now,
 		EvaluationTime: dur.Seconds(),
 	})
 
-	if err := m.writer.Write(rule.Record, rule.Labels, result); err != nil {
+	if err := m.writer.Write(oid, rule.Record, rule.Labels, result); err != nil {
 		logger.Error("RuleManager: write back recording rule ", rule.Record, ": ", err.Error())
 	}
 }
@@ -270,7 +278,7 @@ func (m *RuleManager) GetPrometheusRules() []PrometheusGroup {
 					continue
 				}
 				health, lastErr, lastEval, evalTime := "unknown", "", time.Time{}, 0.0
-				if h, ok := m.getRuleHealth(namespace, g.Name, rule.Record); ok {
+				if h, ok := m.getRuleHealth(g.Oid, namespace, g.Name, rule.Record); ok {
 					health, lastErr, lastEval, evalTime = h.Health, h.LastError, h.LastEvalTime, h.EvaluationTime
 				}
 				if lastEval.After(groupLastEval) {
@@ -327,16 +335,16 @@ func (m *RuleManager) pollForChanges() {
 	}
 }
 
-func ruleHealthKey(namespace, groupName, ruleName string) string {
-	return namespace + ":" + groupName + ":" + ruleName
+func ruleHealthKey(oid, namespace, groupName, ruleName string) string {
+	return oid + ":" + namespace + ":" + groupName + ":" + ruleName
 }
 
-func (m *RuleManager) setRuleHealth(namespace, groupName, ruleName string, h RuleHealth) {
-	m.health.Store(ruleHealthKey(namespace, groupName, ruleName), h)
+func (m *RuleManager) setRuleHealth(oid, namespace, groupName, ruleName string, h RuleHealth) {
+	m.health.Store(ruleHealthKey(oid, namespace, groupName, ruleName), h)
 }
 
-func (m *RuleManager) getRuleHealth(namespace, groupName, ruleName string) (RuleHealth, bool) {
-	v, ok := m.health.Load(ruleHealthKey(namespace, groupName, ruleName))
+func (m *RuleManager) getRuleHealth(oid, namespace, groupName, ruleName string) (RuleHealth, bool) {
+	v, ok := m.health.Load(ruleHealthKey(oid, namespace, groupName, ruleName))
 	if !ok {
 		return RuleHealth{}, false
 	}

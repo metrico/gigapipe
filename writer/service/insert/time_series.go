@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/plugins"
 	"github.com/metrico/qryn/v5/writer/service"
@@ -16,11 +17,17 @@ type TimeSeriesAcquirer struct {
 	Fingerprint *service.PooledColumn[proto.ColUInt64]
 	Labels      *service.PooledColumn[*proto.ColStr]
 	Metadata    *service.PooledColumn[*proto.ColStr]
+	// Oid is populated only when federation is enabled; maps to the leading
+	// `oid` column of time_series. See shared/federation.
+	Oid *service.PooledColumn[*proto.ColStr]
 }
 
 func (a *TimeSeriesAcquirer) acq() *TimeSeriesAcquirer {
 	service.StartAcq()
 	defer service.FinishAcq()
+	if federation.Enabled() {
+		a.Oid = service.StrPool.Acquire("oid")
+	}
 	a.Type = service.UInt8Pool.Acquire("type")
 	a.Date = service.DatePool.Acquire("date")
 	a.Fingerprint = service.UInt64Pool.Acquire("fingerprint")
@@ -30,10 +37,17 @@ func (a *TimeSeriesAcquirer) acq() *TimeSeriesAcquirer {
 }
 
 func (a *TimeSeriesAcquirer) serialize() []service.IColPoolRes {
+	if federation.Enabled() {
+		return []service.IColPoolRes{a.Oid, a.Type, a.Date, a.Fingerprint, a.Labels, a.Metadata}
+	}
 	return []service.IColPoolRes{a.Type, a.Date, a.Fingerprint, a.Labels, a.Metadata}
 }
 
 func (a *TimeSeriesAcquirer) deserialize(res []service.IColPoolRes) *TimeSeriesAcquirer {
+	if federation.Enabled() {
+		a.Oid = res[0].(*service.PooledColumn[*proto.ColStr])
+		res = res[1:]
+	}
 	a.Type, a.Date, a.Fingerprint, a.Labels, a.Metadata = res[0].(*service.PooledColumn[proto.ColUInt8]),
 		res[1].(*service.PooledColumn[proto.ColDate]),
 		res[2].(*service.PooledColumn[proto.ColUInt64]),
@@ -54,8 +68,11 @@ func NewTimeSeriesInsertService(opts model.InsertServiceOpts) service.IInsertSer
 	if opts.Node.ClusterName != "" {
 		table += "_dist"
 	}
-	insertReq := fmt.Sprintf("INSERT INTO %s (type, date, fingerprint, labels, metadata)",
-		table)
+	cols := "type, date, fingerprint, labels, metadata"
+	if federation.Enabled() {
+		cols = "oid, " + cols
+	}
+	insertReq := fmt.Sprintf("INSERT INTO %s (%s)", table, cols)
 	return &service.InsertServiceV2Multimodal{
 		ServiceData:    service.ServiceData{},
 		V3Session:      opts.Session,
@@ -78,6 +95,12 @@ func NewTimeSeriesInsertService(opts model.InsertServiceOpts) service.IInsertSer
 			}
 			acquirer := (&TimeSeriesAcquirer{}).deserialize(res)
 			_len := len(acquirer.Date.Data)
+
+			if federation.Enabled() {
+				for range timeSeriesData.MDate {
+					acquirer.Oid.Data.Append(timeSeriesData.MOid)
+				}
+			}
 
 			for i, d := range timeSeriesData.MDate {
 				acquirer.Date.Data.Append(d)

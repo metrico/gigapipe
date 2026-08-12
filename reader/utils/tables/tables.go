@@ -8,6 +8,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/plugins"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/federation"
 )
 
 var tableNames = func() map[string]string {
@@ -70,6 +71,15 @@ func GetTableName(name string) string {
 }
 
 func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) *shared.PlannerContext {
+	// Federation: thread the tenant filter (resolved by the read-path
+	// pre-request plugin, or stamped explicitly by the ruler) from the Go
+	// context into the planner context. Every PlannerContext-based path funnels
+	// through here, so this single read covers LogQL, PromQL and Pyroscope.
+	if federation.Enabled() {
+		ctx.Federated = true
+		ctx.OidFilter = shared.OidFilterFromContext(ctx.Ctx)
+	}
+
 	ctx.SamplesTableName = GetTableName("samples_v3")
 	ctx.SamplesDistTableName = GetTableName("samples_v3")
 	ctx.TimeSeriesTableName = GetTableName("time_series")

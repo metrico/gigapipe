@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/plugins"
 	"github.com/metrico/qryn/v5/writer/service"
@@ -15,11 +16,17 @@ type MetricsAcquirer struct {
 	Fingerprint *service.PooledColumn[proto.ColUInt64]
 	TimestampNS *service.PooledColumn[proto.ColInt64]
 	Value       *service.PooledColumn[proto.ColFloat64]
+	// Oid is populated only when federation is enabled; maps to the leading
+	// `oid` column of samples_v3. See shared/federation.
+	Oid *service.PooledColumn[*proto.ColStr]
 }
 
 func (a *MetricsAcquirer) acq() *MetricsAcquirer {
 	service.StartAcq()
 	defer service.FinishAcq()
+	if federation.Enabled() {
+		a.Oid = service.StrPool.Acquire("oid")
+	}
 	a.Type = service.UInt8Pool.Acquire("type")
 	a.Fingerprint = service.UInt64Pool.Acquire("fingerprint")
 	a.TimestampNS = service.Int64Pool.Acquire("timestamp_ns")
@@ -28,10 +35,17 @@ func (a *MetricsAcquirer) acq() *MetricsAcquirer {
 }
 
 func (a *MetricsAcquirer) serialize() []service.IColPoolRes {
+	if federation.Enabled() {
+		return []service.IColPoolRes{a.Oid, a.Type, a.Fingerprint, a.TimestampNS, a.Value}
+	}
 	return []service.IColPoolRes{a.Type, a.Fingerprint, a.TimestampNS, a.Value}
 }
 
 func (a *MetricsAcquirer) deserialize(res []service.IColPoolRes) *MetricsAcquirer {
+	if federation.Enabled() {
+		a.Oid = res[0].(*service.PooledColumn[*proto.ColStr])
+		res = res[1:]
+	}
 	a.Type, a.Fingerprint, a.TimestampNS, a.Value =
 		res[0].(*service.PooledColumn[proto.ColUInt8]),
 		res[1].(*service.PooledColumn[proto.ColUInt64]),
@@ -54,8 +68,11 @@ func NewMetricsInsertService(opts model.InsertServiceOpts) service.IInsertServic
 	if opts.Node.ClusterName != "" {
 		tableName += "_dist"
 	}
-	insertReq := fmt.Sprintf("INSERT INTO %s (`type`, fingerprint, timestamp_ns, value)",
-		tableName)
+	cols := "`type`, fingerprint, timestamp_ns, value"
+	if federation.Enabled() {
+		cols = "oid, " + cols
+	}
+	insertReq := fmt.Sprintf("INSERT INTO %s (%s)", tableName, cols)
 
 	return &service.InsertServiceV2Multimodal{
 		ServiceData:    service.ServiceData{},
@@ -79,6 +96,11 @@ func NewMetricsInsertService(opts model.InsertServiceOpts) service.IInsertServic
 			}
 			metrics := (&MetricsAcquirer{}).deserialize(res)
 			_len := len(metrics.Fingerprint.Data)
+			if federation.Enabled() {
+				for range metricData.MType {
+					metrics.Oid.Data.Append(metricData.MOid)
+				}
+			}
 			for _, tn := range metricData.MType {
 				metrics.Type.Data.Append(tn)
 			}

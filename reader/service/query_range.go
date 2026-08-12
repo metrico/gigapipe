@@ -13,6 +13,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v5/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/plugins"
@@ -852,6 +853,9 @@ func (q *QueryRangeService) QueryIndexStats(ctx context.Context, query string, f
 			sql.Lt(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(toNs)),
 			sql.NewIn(sql.NewRawObject("type_v2"), sql.NewIntVal(0), sql.NewIntVal(1)),
 		)
+	if f := clickhouse_planner.GetOidFilter(plannerCtx, ""); f != nil {
+		statsQuery.AndPreWhere(f)
+	}
 
 	if script != nil && script.Head.StrSelector != nil && len(script.Head.StrSelector.StrSelCmds) > 0 {
 		fpPlanner, err := logql_transpiler.PlanFingerprints(script)

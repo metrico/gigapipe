@@ -32,6 +32,9 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		PromError(500, err.Error(), w)
 		return
 	}
+	if writeEmptyIfDenied(w, internalCtx, "streams") {
+		return
+	}
 	query := r.URL.Query().Get("query")
 	if query == "" {
 		PromError(400, "query parameter is required", w)

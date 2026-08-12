@@ -14,15 +14,17 @@
 ##   {{.SAMPLES_ORDER_RUL}} - samples ordering rule configurable //TODO
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.time_series {{.OnCluster}} (
+    {{.OID_COL}}
     date Date,
     fingerprint UInt64,
     labels String,
     name String
 ) ENGINE = {{.ReplacingMergeTree}}(date)
 PARTITION BY date
-ORDER BY fingerprint {{.CREATE_SETTINGS}};
+ORDER BY ({{.OID_KEY}}fingerprint) {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3 {{.OnCluster}} (
+  {{.OID_COL}}
   fingerprint UInt64,
   timestamp_ns Int64 CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla),
@@ -60,27 +62,29 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.samples_read_v2_2 {{.OnCluster}} (
 ) ENGINE=Merge('{{.DB}}', '^(samples_read_v2_1|samples_v3)$');
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.time_series_gin {{.OnCluster}} (
+    {{.OID_COL}}
     date Date,
     key String,
     val String,
     fingerprint UInt64
 ) ENGINE = {{.ReplacingMergeTree}}()
 PARTITION BY date
-ORDER BY (key, val, fingerprint) {{.CREATE_SETTINGS}};
+ORDER BY ({{.OID_KEY}}key, val, fingerprint) {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.time_series_gin_view {{.OnCluster}} TO time_series_gin
 AS SELECT
-    date,
+    {{.OID_KEY}}date,
     pairs.1 as key,
     pairs.2 as val,
     fingerprint
 FROM time_series
 ARRAY JOIN JSONExtractKeysAndValues(time_series.labels, 'String') as pairs;
 
-INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at) 
+INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 VALUES (cityHash64('update_v3_5'), 'update', 'v3_1', toString(toUnixTimestamp(NOW())), NOW());
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s {{.OnCluster}} (
+    {{.OID_COL}}
     fingerprint UInt64,
     timestamp_ns Int64 CODEC(DoubleDelta),
     last AggregateFunction(argMax, Float64, Int64),
@@ -91,11 +95,11 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s {{.OnCluster}} (
     bytes SimpleAggregateFunction(sum, Float64)
 ) ENGINE = {{.AggregatingMergeTree}}
 PARTITION BY toStartOfMonth(toDateTime(intDiv(timestamp_ns, 1000000000)))
-ORDER BY (fingerprint, timestamp_ns) {{.CREATE_SETTINGS}};
+ORDER BY ({{.OID_KEY}}fingerprint, timestamp_ns) {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_15s_mv {{.OnCluster}} TO metrics_15s
 AS SELECT
-    fingerprint,
+    {{.OID_KEY}}fingerprint,
     intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
     argMaxState(value, samples.timestamp_ns) as last,
     maxSimpleState(value) as max,
@@ -104,7 +108,7 @@ AS SELECT
     sumSimpleState(value) as sum,
     sumSimpleState(length(string)) as bytes
 FROM {{.DB}}.samples_v3 as samples
-GROUP BY fingerprint, timestamp_ns;
+GROUP BY {{.OID_KEY}}fingerprint, timestamp_ns;
 
 INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 VALUES (cityHash64('update_v3_2'), 'update', 'v3_2', toString(toUnixTimestamp(NOW())), NOW());
@@ -114,24 +118,24 @@ VALUES (cityHash64('update_v3_2'), 'update', 'v3_2', toString(toUnixTimestamp(NO
 
 ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS type UInt8,
-    MODIFY ORDER BY (fingerprint, type);
+    MODIFY ORDER BY ({{.OID_KEY}}fingerprint, type);
 
 ALTER TABLE {{.DB}}.samples_v3 {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS type UInt8;
 
 ALTER TABLE {{.DB}}.time_series_gin {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS type UInt8,
-    MODIFY ORDER BY (key, val, fingerprint, type);
+    MODIFY ORDER BY ({{.OID_KEY}}key, val, fingerprint, type);
 
 ALTER TABLE {{.DB}}.metrics_15s {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS type UInt8,
-    MODIFY ORDER BY (fingerprint, timestamp_ns, type);
+    MODIFY ORDER BY ({{.OID_KEY}}fingerprint, timestamp_ns, type);
 
 RENAME TABLE {{.DB}}.time_series_gin_view TO time_series_gin_view_bak {{.OnCluster}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.time_series_gin_view {{.OnCluster}} TO time_series_gin
 AS SELECT
-    date,
+    {{.OID_KEY}}date,
     pairs.1 as key,
     pairs.2 as val,
     fingerprint,
@@ -145,7 +149,7 @@ RENAME TABLE {{.DB}}.metrics_15s_mv TO metrics_15s_mv_bak {{.OnCluster}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_15s_mv {{.OnCluster}} TO metrics_15s
 AS SELECT
-    fingerprint,
+    {{.OID_KEY}}fingerprint,
     intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
     argMaxState(value, samples.timestamp_ns) as last,
     maxSimpleState(value) as max,
@@ -155,7 +159,7 @@ AS SELECT
     sumSimpleState(length(string)) as bytes,
     type
 FROM samples_v3 as samples
-GROUP BY fingerprint, timestamp_ns, type;
+GROUP BY {{.OID_KEY}}fingerprint, timestamp_ns, type;
 
 DROP TABLE IF EXISTS {{.DB}}.metrics_15s_mv_bak {{.OnCluster}};
 
@@ -191,3 +195,20 @@ ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+## Federation (FEDERATED=1): best-effort oid column on already-existing tables.
+## Guarded so the whole statement disappears when federation is off (an empty
+## OID token alone would leave an invalid "ALTER TABLE x ;"). ClickHouse cannot
+## MODIFY ORDER BY to prepend oid on a populated table, so existing tables get
+## the column but keep their old sorting key; only fresh deploys get oid in PK.
+{{if .Federated}}ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.samples_v3 {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.time_series_gin {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.metrics_15s {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};

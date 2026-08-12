@@ -25,7 +25,7 @@ func (t *TimeSeriesInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect
 	if t.Offset != nil {
 		from = from.Add(*t.Offset)
 	}
-	return sql.NewSelect().
+	res := sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("time_series.fingerprint", "fingerprint"),
 			sql.NewSimpleCol("mapFromArrays("+
@@ -35,5 +35,9 @@ func (t *TimeSeriesInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect
 		AndPreWhere(
 			sql.Ge(sql.NewRawObject("time_series.date"), sql.NewStringVal(FormatFromDate(from))),
 			GetTypes(ctx),
-		), nil
+		)
+	if f := GetOidFilter(ctx, "time_series"); f != nil {
+		res.AndPreWhere(f)
+	}
+	return res, nil
 }

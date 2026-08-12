@@ -5,6 +5,7 @@
 ## Templating tokens: see log.sql
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s_dist {{.OnCluster}} (
+    {{.OID_COL}}
     `fingerprint` UInt64,
     `timestamp_ns` Int64 CODEC(DoubleDelta),
     `last` AggregateFunction(argMax, Float64, Int64),
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s_dist {{.OnCluster}} (
 ) ENGINE = Distributed('{{.CLUSTER}}', '{{.DB}}', 'metrics_15s', fingerprint) {{.DIST_CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3_dist {{.OnCluster}} (
+    {{.OID_COL}}
     `fingerprint` UInt64,
     `timestamp_ns` Int64 CODEC(DoubleDelta),
     `value` Float64 CODEC(Gorilla),
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3_dist {{.OnCluster}} (
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'samples_v3', fingerprint);
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.time_series_dist {{.OnCluster}} (
+    {{.OID_COL}}
     `date` Date,
     `fingerprint` UInt64,
     `labels` String,
@@ -38,6 +41,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.settings_dist {{.OnCluster}} (
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'settings', rand()) {{.DIST_CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.time_series_gin_dist {{.OnCluster}} (
+    {{.OID_COL}}
     date Date,
     key String,
     val String,
@@ -82,3 +86,17 @@ ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+## Federation (FEDERATED=1): best-effort oid column on already-existing dist tables.
+## Guarded so the whole statement disappears when federation is off.
+{{if .Federated}}ALTER TABLE {{.DB}}.metrics_15s_dist {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.samples_v3_dist {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};
+
+{{if .Federated}}ALTER TABLE {{.DB}}.time_series_gin_dist {{.OnCluster}}
+    {{.OID_ADD_COLUMN}}{{end}};

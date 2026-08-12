@@ -24,23 +24,23 @@ type fakeStore struct {
 	listGroups []ruler.RuleGroup
 }
 
-func (f *fakeStore) SetRuleGroup(ctx context.Context, namespace string, group ruler.RuleGroup) error {
+func (f *fakeStore) SetRuleGroup(ctx context.Context, oid, namespace string, group ruler.RuleGroup) error {
 	f.setNs = append(f.setNs, namespace)
 	f.set = append(f.set, group)
 	return nil
 }
-func (f *fakeStore) DeleteRuleGroup(ctx context.Context, namespace, groupName string) error {
+func (f *fakeStore) DeleteRuleGroup(ctx context.Context, oid, namespace, groupName string) error {
 	f.deleted = append(f.deleted, [2]string{namespace, groupName})
 	return nil
 }
-func (f *fakeStore) DeleteNamespace(ctx context.Context, namespace string) error {
+func (f *fakeStore) DeleteNamespace(ctx context.Context, oid, namespace string) error {
 	f.deletedNs = append(f.deletedNs, namespace)
 	return nil
 }
-func (f *fakeStore) GetRuleGroup(ctx context.Context, namespace, groupName string) (ruler.RuleGroup, error) {
+func (f *fakeStore) GetRuleGroup(ctx context.Context, oid, namespace, groupName string) (ruler.RuleGroup, error) {
 	return f.getGroup, f.getErr
 }
-func (f *fakeStore) ListRuleGroups(ctx context.Context, namespace string) ([]ruler.RuleGroup, error) {
+func (f *fakeStore) ListRuleGroups(ctx context.Context, oid, namespace string) ([]ruler.RuleGroup, error) {
 	return f.listGroups, nil
 }
 func (f *fakeStore) GetAllRuleGroups(ctx context.Context) (ruler.NamespaceRuleGroups, error) {

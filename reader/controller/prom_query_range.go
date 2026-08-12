@@ -47,6 +47,9 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(500, err.Error(), w)
 		return
 	}
+	if writeEmptyIfDenied(w, internalCtx, "matrix") {
+		return
+	}
 	req, err := parseQueryRangePropsV2(r)
 	if err != nil {
 		PromError(400, err.Error(), w)

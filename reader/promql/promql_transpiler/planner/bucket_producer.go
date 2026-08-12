@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -48,11 +49,15 @@ func (b *BucketProducer) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 	}
 	sel = append(sel, b.Cols...)
 
-	return sql.NewSelect().With(withFp).Select(sel...).
+	res := sql.NewSelect().With(withFp).Select(sel...).
 		From(sql.NewRawObject(ctx.Metrics15sDistTableName)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.Add(-b.Lookback).UnixNano())),
 			sql.Le(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
 			sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp))).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ms")), nil
+		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ms"))
+	if f := clickhouse_planner.GetOidFilter(ctx, ""); f != nil {
+		res.AndWhere(f)
+	}
+	return res, nil
 }

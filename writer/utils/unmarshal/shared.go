@@ -12,6 +12,7 @@ type timeSeriesAndSamples struct {
 	size int
 	c    chan *model.ParserResponse
 	meta string
+	oid  string
 }
 
 func (t *timeSeriesAndSamples) reset() {
@@ -23,12 +24,14 @@ func (t *timeSeriesAndSamples) reset() {
 		MType:        make([]uint8, 0, 100),
 		MMeta:        t.meta,
 		MMetadata:    make([]string, 0, 100),
+		MOid:         t.oid,
 	}
 	t.spl = &model.TimeSamplesData{
 		MTimestampNS: make([]int64, 0, 1000),
 		MFingerprint: make([]uint64, 0, 1000),
 		MMessage:     make([]string, 0, 1000),
 		MValue:       make([]float64, 0, 1000),
+		MOid:         t.oid,
 	}
 }
 
@@ -40,10 +43,11 @@ func (t *timeSeriesAndSamples) flush() {
 }
 
 func newTimeSeriesAndSamples(c chan *model.ParserResponse,
-	meta string) *timeSeriesAndSamples {
+	meta string, oid string) *timeSeriesAndSamples {
 	res := &timeSeriesAndSamples{
 		c:    c,
 		meta: meta,
+		oid:  oid,
 	}
 	res.reset()
 	return res

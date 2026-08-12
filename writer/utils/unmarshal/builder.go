@@ -154,7 +154,12 @@ func (p *parserDoer) doParseLogs() {
 		p.ttlDays = ttlDays.(uint16)
 	}
 
-	p.tsSpl = newTimeSeriesAndSamples(p.res, meta)
+	oid := ""
+	if _oid := p.ctx.ctx.Value(utils.ContextKeyOid); _oid != nil {
+		oid, _ = _oid.(string)
+	}
+
+	p.tsSpl = newTimeSeriesAndSamples(p.res, meta, oid)
 
 	parser.SetOnEntries(p.onEntries)
 	p.tsSpl.reset()

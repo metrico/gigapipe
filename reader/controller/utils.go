@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/plugins"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -124,6 +125,28 @@ func tamePanic(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Internal Server Error"))
 		recover()
 	}
+}
+
+// writeEmptyIfDenied short-circuits federated reads whose tenant is
+// absent/invalid: since every stored row has a non-empty oid, such a request
+// can only match nothing, so we return the language's canonical empty payload
+// without touching ClickHouse. Returns true when it handled the response.
+//
+// resultType is the Prometheus/Loki resultType for the empty data envelope
+// ("streams", "matrix", "vector"); pass "" for the labels/series/values shape
+// whose data is a bare empty array.
+func writeEmptyIfDenied(w http.ResponseWriter, ctx context.Context, resultType string) bool {
+	if !shared.OidFilterFromContext(ctx).Deny {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if resultType == "" {
+		w.Write([]byte(`{"status":"success","data":[]}`))
+		return true
+	}
+	w.Write([]byte(`{"status":"success","data":{"resultType":"` + resultType + `","result":[]}}`))
+	return true
 }
 
 func RunPreRequestPlugins(r *http.Request) (context.Context, error) {

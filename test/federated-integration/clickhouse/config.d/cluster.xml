@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<!--
+  Ephemeral single-node "cluster" for the federated integration stack.
+
+  gigapipe is configured with CLUSTER_NAME=default, so it issues
+  `CREATE TABLE ... ON CLUSTER default` DDL and creates Distributed tables. For
+  that to work on one node we provide, all pointing at this same container:
+    - a `default` cluster (one shard, one replica),
+    - embedded ClickHouse Keeper (the distributed-DDL queue lives there),
+    - macros for the Replicated/Distributed engines,
+    - a `tiered_nvme_s3` storage policy so the migrations' storage_policy
+      setting resolves (here it is just the default disk — no real S3 tiering,
+      which keeps the stack self-contained).
+
+  Dropped into /etc/clickhouse-server/config.d so it merges over the image's
+  stock config (HTTP 8123 / native 9000 stay as-is).
+-->
+<clickhouse>
+    <!-- Single-node ClickHouse Keeper: required for ON CLUSTER DDL. -->
+    <keeper_server>
+        <tcp_port>9181</tcp_port>
+        <server_id>1</server_id>
+        <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+        <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+        <coordination_settings>
+            <operation_timeout_ms>10000</operation_timeout_ms>
+            <session_timeout_ms>30000</session_timeout_ms>
+            <raft_logs_level>warning</raft_logs_level>
+        </coordination_settings>
+        <raft_configuration>
+            <server>
+                <id>1</id>
+                <hostname>localhost</hostname>
+                <port>9234</port>
+            </server>
+        </raft_configuration>
+    </keeper_server>
+
+    <!-- Point ClickHouse at its own embedded Keeper. -->
+    <zookeeper>
+        <node>
+            <host>localhost</host>
+            <port>9181</port>
+        </node>
+    </zookeeper>
+
+    <!-- Macros referenced by Replicated engine ZK paths and ON CLUSTER DDL. -->
+    <macros>
+        <cluster>default</cluster>
+        <shard>01</shard>
+        <replica>replica-01</replica>
+    </macros>
+
+    <!-- The `default` cluster: one shard, one replica = this node. -->
+    <remote_servers replace="replace">
+        <default>
+            <shard>
+                <internal_replication>true</internal_replication>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </default>
+    </remote_servers>
+
+    <!-- Storage policy named to match the writer's STORAGE_POLICY env. Backed by
+         the default disk only (no S3), so it works without extra infrastructure. -->
+    <storage_configuration>
+        <policies>
+            <tiered_nvme_s3>
+                <volumes>
+                    <main>
+                        <disk>default</disk>
+                    </main>
+                </volumes>
+            </tiered_nvme_s3>
+        </policies>
+    </storage_configuration>
+</clickhouse>

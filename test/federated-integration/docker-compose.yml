@@ -1,0 +1,161 @@
+# Federated (multi-tenant) integration stack.
+#
+# Fully self-contained: spins up its OWN ephemeral ClickHouse (a single-node
+# "cluster" named `default` with embedded Keeper), a split writer/reader
+# gigapipe, a dummy app that continuously produces logs, and a Grafana Alloy
+# collector that ships those logs to the writer tagged with a tenant
+# (X-Scope-OrgID).
+#
+# FEDERATED=1 is on, so:
+#   - the writer creates the federated schema (oid column + oid in the PK) and
+#     rejects any push without X-Scope-OrgID;
+#   - the reader only returns rows whose oid matches the query's X-Scope-OrgID.
+#
+# Nothing external is required — no pre-existing ClickHouse. Everything is torn
+# down with `docker compose down -v`. See README.md.
+#
+# Run with:  docker compose up --build
+
+x-clickhouse-env: &clickhouse-env
+  # Ephemeral in-stack ClickHouse (the `clickhouse` service below).
+  CLICKHOUSE_SERVER: clickhouse
+  CLICKHOUSE_PORT: "9000"
+  CLICKHOUSE_PROTO: tcp
+  CLICKHOUSE_DB: gigapipe
+  CLUSTER_NAME: default
+  STORAGE_POLICY: tiered_nvme_s3
+  # Ruler (only actually boots in MODE=all; harmless in writer/reader).
+  QRYN_RULER_ENABLED: "true"
+  QRYN_RULER_POLL_INTERVAL: "1m"
+  # Multi-tenant mode.
+  FEDERATED: "1"
+  # Bind to all interfaces so the API is reachable via localhost and remotely.
+  HOST: 0.0.0.0
+
+networks:
+  federated:
+    driver: bridge
+
+volumes:
+  applogs: {}
+  alloydata: {}
+  clickhousedata: {}
+
+services:
+  # 0. Ephemeral ClickHouse: single-node cluster `default` with embedded Keeper.
+  #    Data lives in a named volume that `down -v` removes.
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3.14.14
+    container_name: clickhouse
+    hostname: clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      - clickhousedata:/var/lib/clickhouse
+    networks: [federated]
+    ports:
+      # Native + HTTP exposed on the host for direct inspection (clickhouse-client
+      # / curl :8124/ping). Container ports stay 9000/8123.
+      - "9000:9000"
+      - "8124:8123"
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 20s
+    restart: unless-stopped
+
+  # 1. Ingestion layer (writer). Runs schema migrations, accepts pushes.
+  gigapipe-writer:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: gigapipe:federated-integration
+    container_name: gigapipe-writer
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: *clickhouse-env
+      MODE: writer
+      PORT: "3100"
+      # Flush ingested logs quickly so queries see data within ~1s.
+      BULK_MAX_AGE_MS: "1000"
+    networks: [federated]
+    ports:
+      # host:container — 0.0.0.0:3100 on the host (ingestion API).
+      - "3100:3100"
+    restart: unless-stopped
+
+  # 2. Query layer (reader). Shares the image built by the writer; starts after
+  #    the writer so the schema already exists (the reader does not migrate).
+  gigapipe-reader:
+    image: gigapipe:federated-integration
+    pull_policy: never
+    container_name: gigapipe-reader
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      gigapipe-writer:
+        condition: service_started
+    environment:
+      <<: *clickhouse-env
+      MODE: reader
+      PORT: "3100"
+    networks: [federated]
+    ports:
+      # Reader query API on host 0.0.0.0:3101.
+      - "3101:3100"
+    restart: unless-stopped
+
+  # 3. Dummy application: appends structured log lines to a shared volume that
+  #    Alloy tails. Levels rotate info/warn/error so queries have variety.
+  #    $$ escapes the $ so Docker Compose does not interpolate it; the container
+  #    shell sees a single $.
+  dummy-app:
+    image: alpine:3.21
+    container_name: dummy-app
+    networks: [federated]
+    volumes:
+      - applogs:/var/log/app
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /var/log/app
+        i=0
+        while true; do
+          i=$$((i+1))
+          lvl=info
+          if [ $$((i % 5)) -eq 0 ]; then lvl=error; elif [ $$((i % 3)) -eq 0 ]; then lvl=warn; fi
+          echo "ts=$$(date -u +%Y-%m-%dT%H:%M:%SZ) level=$$lvl service=dummy-app msg=\"request handled\" iter=$$i" >> /var/log/app/app.log
+          sleep 1
+        done
+    restart: unless-stopped
+
+  # 4. Grafana Alloy: tails the dummy app's log file and ships to the writer's
+  #    Loki push endpoint, tagged with tenant "platform" (X-Scope-OrgID).
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    depends_on:
+      gigapipe-writer:
+        condition: service_started
+    networks: [federated]
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - applogs:/var/log/app:ro
+      - alloydata:/var/lib/alloy/data
+    ports:
+      # Alloy's own debug UI on host 0.0.0.0:12345.
+      - "12345:12345"
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    restart: unless-stopped

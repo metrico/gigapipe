@@ -1,6 +1,7 @@
 // Package controller serves the ruler HTTP API: rule-group CRUD and the
-// Prometheus-format read endpoint. It is recording-rule focused and
-// single-tenant — no X-Scope-OrgID is read.
+// Prometheus-format read endpoint. It is recording-rule focused. Under
+// federation (shared/federation) the tenant is taken from X-Scope-OrgID: writes
+// without a tenant fail, reads without a tenant return empty.
 package controller
 
 import (
@@ -8,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/ruler"
+	"github.com/metrico/qryn/v5/shared/federation"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,6 +22,17 @@ import (
 type Controller struct {
 	Store   ruler.RuleStore
 	Manager *ruler.RuleManager
+}
+
+// reqOid resolves the tenant for a request. When federation is off it returns
+// "" and ok=true (single-tenant). When on, a missing/empty X-Scope-OrgID makes
+// ok=false so the caller can fail writes / empty reads.
+func reqOid(r *http.Request) (oid string, ok bool) {
+	if !federation.Enabled() {
+		return "", true
+	}
+	oid = strings.TrimSpace(r.Header.Get("X-Scope-OrgID"))
+	return oid, oid != ""
 }
 
 func writeYAML(w http.ResponseWriter, status int, body []byte) {
@@ -36,6 +50,11 @@ func writeSuccessJSON(w http.ResponseWriter, status int) {
 // SetRuleGroup handles POST /rules/{namespace}: it parses a YAML rule group and
 // stores it.
 func (c *Controller) SetRuleGroup(w http.ResponseWriter, r *http.Request) {
+	oid, ok := reqOid(r)
+	if !ok {
+		writeYAML(w, http.StatusBadRequest, []byte("error: X-Scope-OrgID header is required when federation is enabled"))
+		return
+	}
 	namespace := mux.Vars(r)["namespace"]
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -47,7 +66,7 @@ func (c *Controller) SetRuleGroup(w http.ResponseWriter, r *http.Request) {
 		writeYAML(w, http.StatusBadRequest, []byte("error: failed to parse rule group yaml"))
 		return
 	}
-	if err := c.Store.SetRuleGroup(r.Context(), namespace, group); err != nil {
+	if err := c.Store.SetRuleGroup(r.Context(), oid, namespace, group); err != nil {
 		writeYAML(w, http.StatusInternalServerError, fmt.Appendf(nil, "error: %s", err.Error()))
 		return
 	}
@@ -58,7 +77,14 @@ func (c *Controller) SetRuleGroup(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) GetRuleGroup(w http.ResponseWriter, r *http.Request) {
 	namespace := mux.Vars(r)["namespace"]
 	groupName := mux.Vars(r)["group"]
-	group, err := c.Store.GetRuleGroup(r.Context(), namespace, groupName)
+	oid, ok := reqOid(r)
+	if !ok {
+		// No tenant under federation: the group is not visible.
+		writeYAML(w, http.StatusNotFound, fmt.Appendf(nil,
+			`message: "group does not exist: namespace=%q, name=%q"`, namespace, groupName))
+		return
+	}
+	group, err := c.Store.GetRuleGroup(r.Context(), oid, namespace, groupName)
 	if err != nil {
 		writeYAML(w, http.StatusNotFound, fmt.Appendf(nil,
 			`message: "group does not exist: namespace=%q, name=%q"`, namespace, groupName))
@@ -75,7 +101,12 @@ func (c *Controller) GetRuleGroup(w http.ResponseWriter, r *http.Request) {
 // RulesByNamespace handles GET /rules/{namespace}: all groups in a namespace as YAML.
 func (c *Controller) RulesByNamespace(w http.ResponseWriter, r *http.Request) {
 	namespace := mux.Vars(r)["namespace"]
-	groups, err := c.Store.ListRuleGroups(r.Context(), namespace)
+	oid, ok := reqOid(r)
+	if !ok {
+		writeYAML(w, http.StatusNotFound, []byte(`message: "no rule groups found"`))
+		return
+	}
+	groups, err := c.Store.ListRuleGroups(r.Context(), oid, namespace)
 	if err != nil {
 		writeYAML(w, http.StatusInternalServerError, []byte(`message: "failed to fetch rules"`))
 		return
@@ -92,12 +123,21 @@ func (c *Controller) RulesByNamespace(w http.ResponseWriter, r *http.Request) {
 	writeYAML(w, http.StatusOK, yamlData)
 }
 
-// AllRules handles GET /rules: all groups across namespaces as YAML.
+// AllRules handles GET /rules: all groups across namespaces as YAML. Under
+// federation the cross-tenant store result is filtered to the requesting tenant.
 func (c *Controller) AllRules(w http.ResponseWriter, r *http.Request) {
+	oid, ok := reqOid(r)
+	if !ok {
+		writeYAML(w, http.StatusNotFound, []byte("no rule groups found"))
+		return
+	}
 	groups, err := c.Store.GetAllRuleGroups(r.Context())
 	if err != nil {
 		writeYAML(w, http.StatusInternalServerError, []byte(`message: "failed to fetch rules"`))
 		return
+	}
+	if federation.Enabled() {
+		groups = filterByOid(groups, oid)
 	}
 	if len(groups) == 0 {
 		writeYAML(w, http.StatusNotFound, []byte("no rule groups found"))
@@ -111,11 +151,35 @@ func (c *Controller) AllRules(w http.ResponseWriter, r *http.Request) {
 	writeYAML(w, http.StatusOK, yamlData)
 }
 
+// filterByOid keeps only the groups owned by oid, dropping now-empty namespaces.
+func filterByOid(groups ruler.NamespaceRuleGroups, oid string) ruler.NamespaceRuleGroups {
+	out := make(ruler.NamespaceRuleGroups)
+	for ns, gs := range groups {
+		var kept []ruler.RuleGroup
+		for _, g := range gs {
+			if g.Oid == oid {
+				kept = append(kept, g)
+			}
+		}
+		if len(kept) > 0 {
+			out[ns] = kept
+		}
+	}
+	return out
+}
+
 // DeleteRuleGroup handles DELETE /rules/{namespace}/{group}.
 func (c *Controller) DeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
 	namespace := mux.Vars(r)["namespace"]
 	groupName := mux.Vars(r)["group"]
-	if err := c.Store.DeleteRuleGroup(r.Context(), namespace, groupName); err != nil {
+	oid, ok := reqOid(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": "X-Scope-OrgID header is required when federation is enabled"})
+		return
+	}
+	if err := c.Store.DeleteRuleGroup(r.Context(), oid, namespace, groupName); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": err.Error()})
@@ -127,7 +191,14 @@ func (c *Controller) DeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
 // DeleteNamespace handles DELETE /rules/{namespace}.
 func (c *Controller) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	namespace := mux.Vars(r)["namespace"]
-	if err := c.Store.DeleteNamespace(r.Context(), namespace); err != nil {
+	oid, ok := reqOid(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": "X-Scope-OrgID header is required when federation is enabled"})
+		return
+	}
+	if err := c.Store.DeleteNamespace(r.Context(), oid, namespace); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": err.Error()})
