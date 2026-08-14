@@ -26,7 +26,12 @@ before it, and forward OTLP/HTTP separately) if you need one in the path.
 |-----------|-----------|-----------|
 | Traces    | ✅        | ✅        |
 | Logs      | ✅        | ✅        |
+| Metrics   | ✅        | ✅ (`/v1/metrics`, protobuf + JSON) |
 | Profiles  | ✅        | ✅ (`/v1development/profiles`) |
+
+Metrics ingestion semantics (translation to Prometheus-style series,
+partial-success reporting, supported data point types) are transport
+independent and documented in [otlp-metrics.md](otlp-metrics.md).
 
 ## Routing via an OpenTelemetry Collector
 
