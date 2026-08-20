@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"strings"
@@ -36,6 +37,13 @@ const invalidCredentialsMsg = "invalid credentials"
 // credentials, so the auth failure path also protects against a
 // misconfigured empty user or pass.
 func newAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
+	// Hash the configured credentials once, not per request. Comparing
+	// SHA-256 digests rather than the raw strings keeps both operands a
+	// fixed 32 bytes, so the comparison below cannot leak credential length
+	// (subtle.ConstantTimeCompare returns early when lengths differ).
+	expectedUser := sha256.Sum256([]byte(user))
+	expectedPass := sha256.Sum256([]byte(pass))
+
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md, _ := metadata.FromIncomingContext(ctx)
 		auth := mdFirst(md, "authorization")
@@ -43,8 +51,9 @@ func newAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
+		// The auth-scheme token is case-insensitive (RFC 7235 §2.1).
 		parts := strings.SplitN(auth, " ", 2)
-		if len(parts) != 2 || parts[0] != "Basic" {
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Basic") {
 			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
@@ -58,11 +67,13 @@ func newAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
-		// crypto/subtle.ConstantTimeCompare, not ==: unlike the HTTP
-		// reference, comparisons here must not leak timing information about
-		// how many leading bytes matched.
-		userOK := subtle.ConstantTimeCompare([]byte(pair[0]), []byte(user)) == 1
-		passOK := subtle.ConstantTimeCompare([]byte(pair[1]), []byte(pass)) == 1
+		// Both comparisons are evaluated before branching: folding them
+		// into one short-circuiting condition would leak, by timing,
+		// whether the user alone was correct.
+		gotUser := sha256.Sum256([]byte(pair[0]))
+		gotPass := sha256.Sum256([]byte(pair[1]))
+		userOK := subtle.ConstantTimeCompare(gotUser[:], expectedUser[:]) == 1
+		passOK := subtle.ConstantTimeCompare(gotPass[:], expectedPass[:]) == 1
 		if !userOK || !passOK {
 			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}

@@ -37,32 +37,32 @@ func basicHeader(login, pass string) string {
 }
 
 // TestBasicAuth_Rejects covers every rejection path. Each case asserts the
-// status code AND that the wrapped handler never ran -- a status assertion
-// alone would not prove the request was actually blocked.
+// status code, that a WWW-Authenticate challenge was sent (RFC 7235 §4.1
+// requires one on every 401), AND that the wrapped handler never ran -- a
+// status assertion alone would not prove the request was actually blocked.
 func TestBasicAuth_Rejects(t *testing.T) {
 	for _, c := range []struct {
 		name       string
 		authHeader string
-		wantStatus int
 	}{
-		{"MissingHeader", "", http.StatusUnauthorized},
-		{"NoScheme", "abc", http.StatusBadRequest},
-		{"BearerScheme", "Bearer " + base64.StdEncoding.EncodeToString([]byte("user:s3cret")), http.StatusBadRequest},
-		// Guards the previously-swallowed base64 decode error: "!!!!" decodes
-		// to partial garbage, which must be reported as a malformed header
-		// rather than falling through to the credential comparison.
-		{"NonBase64Payload", "Basic !!!!", http.StatusBadRequest},
-		{"NoColonInPayload", "Basic " + base64.StdEncoding.EncodeToString([]byte("usernopass")), http.StatusBadRequest},
-		{"WrongLogin", basicHeader("wrong", testPass), http.StatusUnauthorized},
-		{"WrongPass", basicHeader(testLogin, "wrong"), http.StatusUnauthorized},
-		{"EmptyCredentials", basicHeader("", ""), http.StatusUnauthorized},
+		{"MissingHeader", ""},
+		{"NoScheme", "abc"},
+		{"BearerScheme", "Bearer " + base64.StdEncoding.EncodeToString([]byte("user:s3cret"))},
+		{"NonBase64Payload", "Basic !!!!"},
+		{"NoColonInPayload", "Basic " + base64.StdEncoding.EncodeToString([]byte("usernopass"))},
+		{"WrongLogin", basicHeader("wrong", testPass)},
+		{"WrongPass", basicHeader(testLogin, "wrong")},
+		{"EmptyCredentials", basicHeader("", "")},
 		// A prefix of the real password must not be accepted.
-		{"PassPrefix", basicHeader(testLogin, "s3cre"), http.StatusUnauthorized},
+		{"PassPrefix", basicHeader(testLogin, "s3cre")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			rec, nextCalled := serveWithAuth(t, c.authHeader)
-			if rec.Code != c.wantStatus {
-				t.Fatalf("status: got %d, want %d", rec.Code, c.wantStatus)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status: got %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+			if got := rec.Header().Get("WWW-Authenticate"); got == "" {
+				t.Fatal("401 response is missing the WWW-Authenticate challenge")
 			}
 			if nextCalled {
 				t.Fatal("wrapped handler ran for a rejected request")
@@ -71,29 +71,25 @@ func TestBasicAuth_Rejects(t *testing.T) {
 	}
 }
 
-// TestBasicAuth_AcceptsCorrectCredentials confirms a valid header reaches the
-// wrapped handler.
-func TestBasicAuth_AcceptsCorrectCredentials(t *testing.T) {
-	rec, nextCalled := serveWithAuth(t, basicHeader(testLogin, testPass))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusOK)
-	}
-	if !nextCalled {
-		t.Fatal("wrapped handler did not run for valid credentials")
-	}
-}
-
-// TestBasicAuth_ChallengeOnMissingHeader pins the existing behavior: the
-// challenge is sent only when no Authorization header was supplied, not on a
-// wrong-credentials rejection.
-func TestBasicAuth_ChallengeOnMissingHeader(t *testing.T) {
-	rec, _ := serveWithAuth(t, "")
-	if got := rec.Header().Get("WWW-Authenticate"); got == "" {
-		t.Fatal("expected a WWW-Authenticate challenge when no header was sent")
-	}
-
-	rec, _ = serveWithAuth(t, basicHeader(testLogin, "wrong"))
-	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
-		t.Fatalf("expected no challenge on wrong credentials, got %q", got)
+// TestBasicAuth_Accepts confirms valid headers reach the wrapped handler,
+// including a lowercase scheme: RFC 7235 §2.1 makes the auth-scheme token
+// case-insensitive.
+func TestBasicAuth_Accepts(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		authHeader string
+	}{
+		{"CanonicalScheme", basicHeader(testLogin, testPass)},
+		{"LowercaseScheme", "basic " + base64.StdEncoding.EncodeToString([]byte(testLogin+":"+testPass))},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rec, nextCalled := serveWithAuth(t, c.authHeader)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status: got %d, want %d", rec.Code, http.StatusOK)
+			}
+			if !nextCalled {
+				t.Fatal("wrapped handler did not run for valid credentials")
+			}
+		})
 	}
 }

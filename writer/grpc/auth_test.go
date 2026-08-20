@@ -140,6 +140,21 @@ func TestAuthInterceptor_CorrectCredentials(t *testing.T) {
 	}
 }
 
+// TestAuthInterceptor_LowercaseScheme: the auth-scheme token is
+// case-insensitive (RFC 7235 §2.1), so a "basic" header must authenticate.
+// A successful Export is proof by itself that the interceptor passed the
+// request through.
+func TestAuthInterceptor_LowercaseScheme(t *testing.T) {
+	client, _ := startAuthTestServer(t, authTestOpts)
+	ctx := metadata.AppendToOutgoingContext(context.Background(),
+		"authorization", "basic "+base64.StdEncoding.EncodeToString([]byte("user:pass")),
+		"x-ch-dsn", "test-dsn")
+
+	if _, err := client.Export(ctx, sampleTraceRequest()); err != nil {
+		t.Fatalf("export with lowercase scheme failed: %v", err)
+	}
+}
+
 // TestAuthInterceptor_Disabled covers plan Task E case 5: with Options{}
 // (empty user/pass), auth is disabled entirely and export succeeds with no
 // metadata at all. TestGRPCTraces_EndToEnd in integration_test.go already
