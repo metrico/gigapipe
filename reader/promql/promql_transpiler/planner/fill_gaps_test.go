@@ -56,7 +56,7 @@ func renderFill(t *testing.T, staleness bool) string {
 // densification on a capable server.
 func TestFillGapsPlannerStaleness(t *testing.T) {
 	got := renderFill(t, true)
-	if !strings.Contains(got, "WITH FILL TO 1700000000000 STEP 60000 STALENESS 300000") {
+	if !strings.Contains(got, "WITH FILL TO 1700000000001 STEP 60000 STALENESS 300000") {
 		t.Errorf("missing staleness fill:\n%s", got)
 	}
 	if !strings.Contains(got, "1 as source") {
@@ -73,11 +73,28 @@ func TestFillGapsPlannerArrayJoin(t *testing.T) {
 	}
 	for _, w := range []string{
 		"leadInFrame(toInt64(timestamp_ms), 1, toInt64(timestamp_ms) + toInt64(300000))",
-		"arrayJoin(range(bucket_ms, least(bucket_ms + toInt64(300000), next_ms, toInt64(1700000000000)), toInt64(60000)))",
+		"arrayJoin(range(bucket_ms, least(bucket_ms + toInt64(300000), next_ms, toInt64(1700000000001)), toInt64(60000)))",
 		"toUInt8(timestamp_ms = bucket_ms) as source",
 	} {
 		if !strings.Contains(got, w) {
 			t.Errorf("missing %q in arrayJoin fill:\n%s", w, got)
+		}
+	}
+}
+
+// TestFillGapsCoversLastStep guards the final step on both paths: a bound of
+// ctx.To leaves it with no evaluation rows, so only series holding a real bucket
+// exactly there survive it and cross-series aggregations lose the rest. A bound
+// of ctx.To + step would overshoot the query window instead.
+func TestFillGapsCoversLastStep(t *testing.T) {
+	for _, staleness := range []bool{true, false} {
+		got := renderFill(t, staleness)
+		if strings.Contains(got, "1700000000000") {
+			t.Errorf("staleness=%v: grid stops at ctx.To, so the last step gets no evaluation row:\n%s",
+				staleness, got)
+		}
+		if strings.Contains(got, "1700000060001") {
+			t.Errorf("staleness=%v: grid overshoots ctx.To by a step:\n%s", staleness, got)
 		}
 	}
 }

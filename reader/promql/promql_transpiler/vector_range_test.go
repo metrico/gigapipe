@@ -154,7 +154,7 @@ func TestCounterStartsFromSampleBeforeRange(t *testing.T) {
 func TestFillIsBoundedByStaleness(t *testing.T) {
 	// 5m lookback, rendered in ms, matching sum_over_time's own range.
 	got := transpileRange(t, `sum_over_time(x{job="j"}[5m])`)
-	if !strings.Contains(got, "WITH FILL TO 1700000000000 STEP 60000 STALENESS 300000") {
+	if !strings.Contains(got, "WITH FILL TO 1700000000001 STEP 60000 STALENESS 300000") {
 		t.Errorf("fill must be bounded by staleness, not by the query window:\n%s", got)
 	}
 	if strings.Contains(got, "WITH FILL FROM") {
@@ -172,7 +172,7 @@ func TestFillArrayJoinOnOldClickHouse(t *testing.T) {
 	}
 	for _, w := range []string{
 		"leadInFrame(toInt64(timestamp_ms), 1, toInt64(timestamp_ms) + toInt64(300000))",
-		"arrayJoin(range(bucket_ms, least(bucket_ms + toInt64(300000), next_ms, toInt64(1700000000000)), toInt64(60000)))",
+		"arrayJoin(range(bucket_ms, least(bucket_ms + toInt64(300000), next_ms, toInt64(1700000000001)), toInt64(60000)))",
 		"toUInt8(timestamp_ms = bucket_ms) as source",
 	} {
 		if !strings.Contains(got, w) {
