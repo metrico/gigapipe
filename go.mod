@@ -46,7 +46,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fastjson v1.6.10
-	go.opentelemetry.io/collector/pdata v1.64.0
+	go.opentelemetry.io/collector/pdata v1.65.0
 	go.opentelemetry.io/collector/pdata/pprofile v0.158.0
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/exp v0.0.0-20260709172345-9ea1abe57597
@@ -221,7 +221,7 @@ require (
 	go.opentelemetry.io/collector/confmap v1.60.0 // indirect
 	go.opentelemetry.io/collector/confmap/xconfmap v0.154.0 // indirect
 	go.opentelemetry.io/collector/consumer v1.60.0 // indirect
-	go.opentelemetry.io/collector/featuregate v1.64.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.65.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.154.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.60.0 // indirect
 	go.opentelemetry.io/collector/processor v1.60.0 // indirect
