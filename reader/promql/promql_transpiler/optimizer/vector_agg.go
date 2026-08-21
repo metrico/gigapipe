@@ -91,7 +91,5 @@ func (v *Aggregate) aggregate(fn string) prom_parser.Expr {
 			NeedsLabelsValues: false,
 		},
 	}
-	return &prom_parser.VectorSelector{
-		Name: metricName,
-	}
+	return substituteSelector(v.selector, metricName)
 }
