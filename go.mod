@@ -51,7 +51,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/exp v0.0.0-20260709172345-9ea1abe57597
 	golang.org/x/sync v0.22.0
-	google.golang.org/grpc v1.84.0-dev.0.20260723093437-b6eac429d7b6
+	google.golang.org/grpc v1.85.0-dev
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/yaml.v2 v2.4.0
