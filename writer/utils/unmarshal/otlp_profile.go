@@ -418,7 +418,14 @@ func (d *otlpProfilesDec) Decode() error {
 	if err := req.UnmarshalProto(data); err != nil {
 		return fmt.Errorf("failed to unmarshal OTLP profiles: %w", err)
 	}
-	profs := req.Profiles()
+	return d.decodeProfiles(req.Profiles())
+}
+
+// decodeProfiles walks the resource/scope/profile tree of an already-decoded
+// pprofile.Profiles value and emits one onProfiles call per profile. It is the
+// shared core of both the HTTP body path (otlpProfilesDec.Decode) and the
+// pre-decoded gRPC path (otlpProfilesPreDec.Decode).
+func (d *otlpProfilesDec) decodeProfiles(profs pprofile.Profiles) error {
 	dict := profs.Dictionary()
 
 	rps := profs.ResourceProfiles()
@@ -452,7 +459,42 @@ func (d *otlpProfilesDec) Decode() error {
 	return nil
 }
 
+// otlpProfilesPreDec decodes an already-decoded pprofile.Profiles value injected
+// via withPreParsedBody (used by the gRPC receiver, where the collector framework
+// has already unmarshalled the wire bytes). It reuses the exact same walk loop as
+// the HTTP path via the shared decodeProfiles method.
+type otlpProfilesPreDec struct {
+	ctx        *ParserCtx
+	onProfiles onProfileHandler
+}
+
+func (d *otlpProfilesPreDec) SetOnProfile(h onProfileHandler) { d.onProfiles = h }
+
+// Decode does NO wire decoding: bodyObject was already unmarshalled by the gRPC
+// collector framework. It only runs the shared OTLP-structure -> insert-row
+// transform (decodeProfiles), the same conversion the HTTP path performs after
+// its UnmarshalProto step.
+func (d *otlpProfilesPreDec) Decode() error {
+	profs, ok := d.ctx.bodyObject.(pprofile.Profiles)
+	if !ok {
+		return fmt.Errorf("expected pprofile.Profiles body object, got %T", d.ctx.bodyObject)
+	}
+	shared := &otlpProfilesDec{ctx: d.ctx, onProfiles: d.onProfiles}
+	return shared.decodeProfiles(profs)
+}
+
 var UnmarshalOTLPProfilesProtoV2 = Build(
 	withProfileParser(func(ctx *ParserCtx) iProfilesParser {
 		return &otlpProfilesDec{ctx: ctx}
 	}))
+
+// OTLPProfilesFromProfiles builds a ParsingFunction that decodes an already-decoded
+// pprofile.Profiles value (from the gRPC receiver) over the shared profiles loop,
+// without re-marshalling.
+func OTLPProfilesFromProfiles(profs pprofile.Profiles) ParsingFunction {
+	return Build(
+		withPreParsedBody(profs),
+		withProfileParser(func(ctx *ParserCtx) iProfilesParser {
+			return &otlpProfilesPreDec{ctx: ctx}
+		}))
+}
