@@ -18,13 +18,18 @@ import (
 // Note on @: the accelerated path buckets samples on the step grid -- see the
 // intDiv(timestamp_ns, step) * step floor in planner/bucket_producer.go -- so an
 // @ instant that is not step aligned resolves to the enclosing bucket. The value
-// is therefore accurate to within one step, and exact only for step aligned
-// instants.
+// is therefore accurate to within one step.
+//
+// The step aligned case is not exact either on clickhouse < 24.11: the arrayJoin
+// fallback in planner/fill_gaps.go caps at ctx.To with a half-open range(), so
+// the node landing exactly on the instant is never emitted. Tracked in #906.
 //
 // The queried end is exact: hints.End, and so PlannerContext.To, lands on the
 // instant to the millisecond. The start is not, but for a reason unrelated to @:
-// reader/service/prom_queryable.go floors hints.Start to a 15s grid before
-// deriving From, for every accelerated query with or without a modifier.
+// reader/service/prom_queryable.go floors hints.Start to a 15s grid unless
+// COMPAT_4_0_19 is set, for every accelerated query with or without a modifier,
+// and derives From as hints.Start - hints.Range (always a plain floor here,
+// since a substitute selector carries no range).
 func substituteSelector(src *prom_parser.VectorSelector, metricName string) *prom_parser.VectorSelector {
 	sub := *src
 	sub.Name = metricName
