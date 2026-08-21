@@ -15,10 +15,16 @@ import (
 // From/To, so a modifier dropped here becomes a silently wrong query window
 // rather than an error.
 //
-// Note on @: the accelerated path buckets samples on the step grid, so an @
-// instant that is not step aligned resolves to the enclosing bucket. The value
+// Note on @: the accelerated path buckets samples on the step grid -- see the
+// intDiv(timestamp_ns, step) * step floor in planner/bucket_producer.go -- so an
+// @ instant that is not step aligned resolves to the enclosing bucket. The value
 // is therefore accurate to within one step, and exact only for step aligned
-// instants. The window itself is always exact.
+// instants.
+//
+// The queried end is exact: hints.End, and so PlannerContext.To, lands on the
+// instant to the millisecond. The start is not, but for a reason unrelated to @:
+// reader/service/prom_queryable.go floors hints.Start to a 15s grid before
+// deriving From, for every accelerated query with or without a modifier.
 func substituteSelector(src *prom_parser.VectorSelector, metricName string) *prom_parser.VectorSelector {
 	sub := *src
 	sub.Name = metricName
