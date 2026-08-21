@@ -169,7 +169,12 @@ func TestAtModifierAnchorsWindow(t *testing.T) {
 // TestAtStartEndResolve guards the @ start() / @ end() forms, which reach the
 // substitute as StartOrEnd rather than Timestamp and are resolved later by the
 // engine's preprocessing. The last case combines both modifiers.
+//
+// Every case here shares one range, so the span is asserted once below rather
+// than per case.
 func TestAtStartEndResolve(t *testing.T) {
+	// The range every query in this table selects over.
+	const atRange = 5 * time.Minute
 	for _, c := range []struct {
 		query   string
 		wantEnd int64
@@ -184,6 +189,20 @@ func TestAtStartEndResolve(t *testing.T) {
 			if got.End != c.wantEnd {
 				t.Errorf("@ start()/end() must resolve against the query window:\n got End = %d\nwant End = %d",
 					got.End, c.wantEnd)
+			}
+			// End alone cannot catch a dropped @ end(): end() resolves to the
+			// query end, which is exactly what a dropped modifier falls back to.
+			// The span does catch it. @ collapses the range query onto a single
+			// evaluation instant (engine.go, getTimeRangesForSelector: a non-nil
+			// Timestamp overrides both bounds), so the engine asks for one range
+			// of samples instead of the whole query window plus that range.
+			//
+			// Asserted as an upper bound, not an exact width: prometheus shaves
+			// 1ms off the lower bound to keep range selectors left-open, and
+			// that 1ms is an engine detail this test has no reason to pin.
+			if span := got.End - got.Start; span > atRange.Milliseconds() {
+				t.Errorf("@ must collapse the query onto one instant, so the selected span is one range:\n got span = %d ms (Start = %d, End = %d)\nwant span <= %d ms",
+					span, got.Start, got.End, atRange.Milliseconds())
 			}
 		})
 	}
