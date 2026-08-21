@@ -79,7 +79,11 @@ func hintsForQuery(t *testing.T, query string) *storage.SelectHints {
 	if err != nil {
 		t.Fatalf("new range query %s: %v", query, err)
 	}
-	q.Exec(context.Background())
+	defer q.Close()
+	res := q.Exec(context.Background())
+	if res.Err != nil {
+		t.Fatalf("exec %s: %v", query, res.Err)
+	}
 	if len(hints) != 1 {
 		t.Fatalf("%s: expected exactly one Select call, got %d", query, len(hints))
 	}
@@ -130,6 +134,56 @@ func TestAggOffsetShiftsWindow(t *testing.T) {
 			if got.End != want {
 				t.Errorf("offset must shift the queried window back:\n got End = %d\nwant End = %d (query end %d minus %v)",
 					got.End, want, modQueryEnd.UnixMilli(), c.shift)
+			}
+		})
+	}
+}
+
+// TestAtModifierAnchorsWindow guards @: the window must collapse onto the given
+// instant. @ was explicitly enabled for users in issue #769
+// (EnableAtModifier: true in reader/router/prometheus_query_range.go); the v5.0.0
+// pushdown silently undid that for every accelerated expression.
+//
+// Only the window is asserted. The accelerated path buckets samples on the step
+// grid, so an @ instant that is not step aligned resolves to the enclosing
+// bucket -- the value is accurate to within one step, exact only when the
+// instant is step aligned. That deviation is deliberate and documented on
+// substituteSelector.
+func TestAtModifierAnchorsWindow(t *testing.T) {
+	const atSeconds = 1699000000
+	for _, q := range []string{
+		`rate(http_requests_total{job="j"}[5m] @ 1699000000)`,
+		`sum(http_requests_total{job="j"} @ 1699000000)`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			got := hintsForQuery(t, q)
+			want := int64(atSeconds) * 1000
+			if got.End != want {
+				t.Errorf("@ must anchor the queried window to the given instant:\n got End = %d\nwant End = %d",
+					got.End, want)
+			}
+		})
+	}
+}
+
+// TestAtStartEndResolve guards the @ start() / @ end() forms, which reach the
+// substitute as StartOrEnd rather than Timestamp and are resolved later by the
+// engine's preprocessing. The last case combines both modifiers.
+func TestAtStartEndResolve(t *testing.T) {
+	for _, c := range []struct {
+		query   string
+		wantEnd int64
+	}{
+		{`rate(http_requests_total{job="j"}[5m] @ start())`, modQueryStart.UnixMilli()},
+		{`rate(http_requests_total{job="j"}[5m] @ end())`, modQueryEnd.UnixMilli()},
+		{`rate(http_requests_total{job="j"}[5m] @ end() offset 30m)`,
+			modQueryEnd.UnixMilli() - (30 * time.Minute).Milliseconds()},
+	} {
+		t.Run(c.query, func(t *testing.T) {
+			got := hintsForQuery(t, c.query)
+			if got.End != c.wantEnd {
+				t.Errorf("@ start()/end() must resolve against the query window:\n got End = %d\nwant End = %d",
+					got.End, c.wantEnd)
 			}
 		})
 	}
