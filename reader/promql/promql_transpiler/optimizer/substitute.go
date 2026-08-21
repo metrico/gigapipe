@@ -21,8 +21,9 @@ import (
 // row timestamp is up to one step early. (The HTTP response is unaffected: it
 // carries the engine's own grid timestamps.) The value that row holds does not go
 // stale with it: BucketProducer bounds the read at timestamp_ns <= ctx.To, and
-// ctx.To is the instant to the millisecond, so the bucket aggregate covers the
-// 15s buckets at or before @ -- to 15s granularity, see below.
+// ctx.To is the evaluation instant (the @ instant shifted by any offset), so the
+// bucket aggregate covers the 15s buckets at or before it -- to 15s granularity,
+// see below.
 //
 // Measured, not inferred: against clickhouse 25.3.14.14 on the e2e stack, which
 // takes the WITH FILL ... STALENESS path. A counter sampled every 15s, read at a
@@ -33,9 +34,9 @@ import (
 // stamps every sample with its 15s floor, so a raw sample landing after the @
 // instant but inside the same 15s bucket is read as though it were at the bucket
 // start. Measured: samples at t and t+7s, @ t+3s returned the t+7s value where
-// prometheus returned the t value. That is bounded by 15s, and so by one step --
-// the accelerated path is only reached for steps of 15s or more (useRawData in
-// reader/service/prom_queryable.go).
+// prometheus returned the t value. That is bounded by 15s. Below a 15s step the
+// pushdown is still taken (the optimizer decides at transpile time, not from
+// hints), so the bound is 15s in absolute terms, not one step.
 //
 // None of the above was checked on clickhouse < 24.11, where planner/fill_gaps.go
 // takes the arrayJoin fallback instead. That path caps at ctx.To with a half-open
@@ -43,7 +44,8 @@ import (
 // emitted. Tracked in #906.
 //
 // The queried end is exact: hints.End, and so PlannerContext.To, lands on the
-// instant to the millisecond. The start is not, but for a reason unrelated to @:
+// evaluation instant -- the @ instant shifted by any offset -- to the
+// millisecond. The start is not, but for a reason unrelated to @:
 // reader/service/prom_queryable.go floors hints.Start to a 15s grid unless
 // COMPAT_4_0_19 is set, for every accelerated query with or without a modifier,
 // and derives From as hints.Start - hints.Range (always a plain floor here,

@@ -149,12 +149,8 @@ func TestAggOffsetShiftsWindow(t *testing.T) {
 // (EnableAtModifier: true in reader/router/prometheus_query_range.go); the v5.0.0
 // pushdown silently undid that for every accelerated expression.
 //
-// Only the window is asserted. The accelerated path buckets samples on the step
-// grid, so an unaligned @ instant lands on the enclosing bucket's SQL row, whose
-// timestamp is up to one step early; the value that row carries is still the one
-// at the instant to 15s granularity, because BucketProducer bounds the read at
-// ctx.To. What is inexact is that 15s downsample, not the step. Measured against
-// clickhouse 25.3 and documented on substituteSelector.
+// Only the window is asserted; the value-side bucketing behaviour and its
+// measured bounds are documented on optimizer.substituteSelector.
 func TestAtModifierAnchorsWindow(t *testing.T) {
 	const atSeconds = 1699000000
 	for _, q := range []string{
