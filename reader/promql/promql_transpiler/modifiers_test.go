@@ -23,10 +23,8 @@ var (
 // rather than defaulted because the span assertions are written against it.
 const modLookback = 5 * time.Minute
 
-// recordingQuerier captures the SelectHints the prometheus engine asks storage
-// for, and returns nothing. hints.End is what
-// reader/service/prom_queryable.go turns into PlannerContext.To, so it is
-// exactly the window the accelerated SQL will read.
+// recordingQuerier captures the SelectHints the engine asks storage for.
+// hints.End is what prom_queryable turns into PlannerContext.To.
 type recordingQuerier struct{ hints *[]*storage.SelectHints }
 
 func (r *recordingQuerier) Select(_ context.Context, _ bool, h *storage.SelectHints,
@@ -53,12 +51,9 @@ func (r *recordingQueryable) Querier(int64, int64) (storage.Querier, error) {
 	return &recordingQuerier{hints: r.hints}, nil
 }
 
-// hintsForQuery transpiles query and runs the residual expression through a real
-// prometheus engine, returning the single SelectHints the engine produced.
-//
-// Asserting on hints rather than on generated SQL tests the actual contract --
-// does the engine ask for the right window? -- and stays valid across planner
-// refactors.
+// hintsForQuery transpiles query, runs the residual through a real prometheus
+// engine, and returns the single SelectHints produced. Asserting on hints rather
+// than generated SQL tests the contract and survives planner refactors.
 func hintsForQuery(t *testing.T, query string) *storage.SelectHints {
 	t.Helper()
 	expr, err := promql_parser.Parse(query)
@@ -95,10 +90,8 @@ func hintsForQuery(t *testing.T, query string) *storage.SelectHints {
 	return hints[0]
 }
 
-// TestRangeFnOffsetShiftsWindow guards the range-function path: an offset must
-// translate the queried window back by exactly that duration. Before the fix the
-// substitute selector was built bare, so the offset never reached the engine and
-// rate(x[5m] offset 1h) silently returned the current rate.
+// TestRangeFnOffsetShiftsWindow: on the range-function path, an offset must
+// translate the queried window back by exactly that duration.
 func TestRangeFnOffsetShiftsWindow(t *testing.T) {
 	for _, c := range []struct {
 		query string
@@ -119,11 +112,8 @@ func TestRangeFnOffsetShiftsWindow(t *testing.T) {
 	}
 }
 
-// TestAggOffsetShiftsWindow guards the cross-series aggregation path, which
-// builds its substitute in a second place (Aggregate.aggregate). The last case
-// also covers folding: the inner range function is substituted first, and the
-// outer aggregation clones that already-synthetic selector, so the offset has to
-// survive two hops.
+// TestAggOffsetShiftsWindow: same, for the aggregation path's separate
+// substitute site. The last case folds both sites, so the offset survives two hops.
 func TestAggOffsetShiftsWindow(t *testing.T) {
 	for _, c := range []struct {
 		query string
@@ -144,13 +134,8 @@ func TestAggOffsetShiftsWindow(t *testing.T) {
 	}
 }
 
-// TestAtModifierAnchorsWindow guards @: the window must collapse onto the given
-// instant. @ was explicitly enabled for users in issue #769
-// (EnableAtModifier: true in reader/router/prometheus_query_range.go); the v5.0.0
-// pushdown silently undid that for every accelerated expression.
-//
-// Only the window is asserted; the value-side bucketing behaviour and its
-// measured bounds are documented on optimizer.substituteSelector.
+// TestAtModifierAnchorsWindow: @ must collapse the window onto the given instant.
+// Window only; value-side bucketing is documented on optimizer.substituteSelector.
 func TestAtModifierAnchorsWindow(t *testing.T) {
 	const atSeconds = 1699000000
 	for _, q := range []string{
@@ -168,12 +153,8 @@ func TestAtModifierAnchorsWindow(t *testing.T) {
 	}
 }
 
-// TestAtStartEndResolve guards the @ start() / @ end() forms, which reach the
-// substitute as StartOrEnd rather than Timestamp and are resolved later by the
-// engine's preprocessing. The last case combines both modifiers.
-//
-// Each subtest additionally asserts the selected span; that check is written
-// once, inside the loop body, and runs for every case.
+// TestAtStartEndResolve: @ start() / @ end() reach the substitute as StartOrEnd
+// rather than Timestamp. The last case combines both modifiers.
 func TestAtStartEndResolve(t *testing.T) {
 	for _, c := range []struct {
 		query   string
@@ -191,21 +172,11 @@ func TestAtStartEndResolve(t *testing.T) {
 					got.End, c.wantEnd)
 			}
 			// End alone cannot catch a dropped @ end(): end() resolves to the
-			// query end, which is exactly what a dropped modifier falls back to.
-			// The span does catch it.
-			//
-			// The span is bounded by the lookback, not by the [5m] in the query
-			// text. The range function is folded into SQL, so what reaches the
-			// engine is a bare instant selector with hints.Range == 0, and
-			// getTimeRangesForSelector then takes its lookback branch rather
-			// than its range branch (engine.go:997-1004). @ collapses the query
-			// onto a single evaluation instant, so the engine reads one lookback
-			// window instead of the whole query window plus a lookback.
-			//
-			// Asserted as an upper bound, not an exact width: that branch shaves
-			// 1ms off the lower bound to exclude samples landing precisely a
-			// lookback before the eval time, and that 1ms is an engine detail
-			// this test has no reason to pin.
+			// query end, which is what a dropped modifier falls back to anyway.
+			// The span does catch it. Bounded by the lookback, not the [5m]:
+			// the range is folded into SQL, so hints.Range == 0 and
+			// getTimeRangesForSelector takes its lookback branch. Upper bound
+			// because that branch shaves 1ms off the lower edge.
 			if span := got.End - got.Start; span > modLookback.Milliseconds() {
 				t.Errorf("@ must collapse the query onto one instant, so the selected span is one lookback:\n got span = %d ms (Start = %d, End = %d)\nwant span <= %d ms",
 					span, got.Start, got.End, modLookback.Milliseconds())
