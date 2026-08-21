@@ -16,8 +16,15 @@ import (
 // case prev is a zero default and must not be compared against val.
 func prevValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 	duration time.Duration) (*sql.With, error) {
+	// val is the last sample of the bucket, so val_ts -- that sample's own
+	// timestamp -- is where it actually sits, which is not the bucket key. The
+	// two differ by however far into the bucket the last sample fell, and the
+	// final bucket of a query is truncated by the read bound, so its last sample
+	// can be anywhere in it. Anything measuring an interval between values has to
+	// use val_ts; measuring between bucket keys would overstate it.
 	vals, err := bucketedValues(ctx, fpPlanner, duration+staleness,
-		sql.NewSimpleCol("argMaxMerge(last)", "val"))
+		sql.NewSimpleCol("argMaxMerge(last)", "val"),
+		sql.NewSimpleCol("intDiv(max(timestamp_ns), 1000000)", "val_ts"))
 	if err != nil {
 		return nil, err
 	}
@@ -44,6 +51,7 @@ func prevValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 			sql.NewSimpleCol("val", "val"),
+			sql.NewSimpleCol("val_ts", "val_ts"),
 			sql.NewSimpleCol("source", "source"),
 			sql.NewCol(overWnd(sql.NewRawObject("argMaxIf(val, timestamp_ms, source = 1)"), prevWnd), "prev"),
 			sql.NewCol(overWnd(sql.NewRawObject("countIf(source = 1)"), prevWnd), "prev_cnt")).
@@ -55,10 +63,10 @@ func prevValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 // CounterPlanner accelerates the range functions that measure the change of a
 // series across the frame: rate, increase and delta.
 //
-// They cannot be expressed as one aggregate over (t-range, t], because the
-// value at the start of the range is an actual sample whose position varies
-// with the data. The frame therefore has to be probed on both sides: openWnd
-// looks for the last sample before the range, closeWnd covers the range itself.
+// They cannot be expressed as one aggregate over (t-range, t], because what is
+// measured is the difference between two particular samples, not a reduction
+// over all of them. The frame is probed for its first and last real sample; the
+// change between them, divided by the time between them, is the slope reported.
 type CounterPlanner struct {
 	FpPlanner shared.SQLRequestPlanner
 	Duration  time.Duration
@@ -68,17 +76,18 @@ type CounterPlanner struct {
 func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	// isCounter: add back the value lost at every counter reset. delta operates
 	// on gauges, where a decrease is a real decrease.
-	var isCounter bool
-	var val string
+	//
+	// isRate: report the change per second. increase is the same measurement
+	// over the whole range instead, which is why it is a counter function but
+	// not a rate one.
+	var isCounter, isRate bool
 	switch c.Fn {
 	case "rate":
-		isCounter = true
-		val = fmt.Sprintf("(end - start + resets) / %f", c.Duration.Seconds())
+		isCounter, isRate = true, true
 	case "increase":
-		isCounter = true
-		val = "end - start + resets"
+		isCounter, isRate = true, false
 	case "delta":
-		val = "end - start"
+		isCounter, isRate = false, false
 	default:
 		return nil, fmt.Errorf("unsupported counter function: %s", c.Fn)
 	}
@@ -98,6 +107,7 @@ func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 			sql.NewSimpleCol("val", "val"),
+			sql.NewSimpleCol("val_ts", "val_ts"),
 			sql.NewSimpleCol("source", "source"),
 			sql.NewSimpleCol(resetCol, "reset")).
 			From(sql.NewWithRef(withPrev)),
@@ -107,65 +117,76 @@ func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 	if err != nil {
 		return nil, err
 	}
-	openStart, err := windowOffset(c.Duration + staleness)
-	if err != nil {
-		return nil, err
-	}
-	openEnd, err := windowOffset(c.Duration - time.Millisecond)
-	if err != nil {
-		return nil, err
-	}
-	// The staleness wide strip immediately before the range.
-	openWnd := &sql.WindowFunction{
-		Alias:       "cnt_open_wnd",
-		PartitionBy: []sql.SQLObject{sql.NewRawObject("fingerprint")},
-		OrderBy:     []sql.SQLObject{sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC)},
-		Start:       sql.WindowPoint{Offset: openStart},
-		End:         sql.WindowPoint{Offset: openEnd},
-	}
 
+	// The two samples the change is measured between, and where they sit. Both
+	// _ts columns are picked by bucket order but carry val_ts, so they are the
+	// positions of those same two samples rather than of their buckets -- the
+	// change and the interval it happened over are then on the same clock.
+	//
+	// first_reset is the reset flagged on the earliest in-range sample. That one
+	// compares against a sample outside the range, so the drop it records
+	// happened before the range began and is not part of the change measured
+	// inside it; c_change subtracts it back out. Every later sample compares
+	// against one inside the range. CounterFlagsPlanner applies the same
+	// correction to its transition counts via first_flag.
 	withRanges := sql.NewWith(
 		sql.NewSelect().With(withResets).Select(
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
-			sql.NewCol(overWnd(sql.NewRawObject("argMaxIf(val, timestamp_ms, source = 1)"), openWnd), "start_open"),
-			sql.NewCol(overWnd(sql.NewRawObject("countIf(source = 1)"), openWnd), "open_cnt"),
-			sql.NewCol(overWnd(sql.NewRawObject("argMinIf(val, timestamp_ms, source = 1)"), closeWnd), "start_close"),
-			sql.NewCol(overWnd(sql.NewRawObject("argMaxIf(val, timestamp_ms, source = 1)"), closeWnd), "end"),
-			sql.NewCol(overWnd(sql.NewRawObject("sum(source)"), closeWnd), "close_cnt"),
-			sql.NewCol(overWnd(sql.NewRawObject("sum(reset)"), closeWnd), "resets")).
+			sql.NewCol(overWnd(sql.NewRawObject("argMinIf(val, timestamp_ms, source = 1)"), closeWnd), "first_v"),
+			sql.NewCol(overWnd(sql.NewRawObject("argMinIf(val_ts, timestamp_ms, source = 1)"), closeWnd), "first_ts"),
+			sql.NewCol(overWnd(sql.NewRawObject("argMaxIf(val, timestamp_ms, source = 1)"), closeWnd), "last_v"),
+			sql.NewCol(overWnd(sql.NewRawObject("argMaxIf(val_ts, timestamp_ms, source = 1)"), closeWnd), "last_ts"),
+			sql.NewCol(overWnd(sql.NewRawObject("sum(reset)"), closeWnd), "resets"),
+			sql.NewCol(overWnd(sql.NewRawObject("argMinIf(reset, timestamp_ms, source = 1)"), closeWnd), "first_reset")).
 			From(sql.NewWithRef(withResets)).
-			AddWindows(openWnd, closeWnd),
+			AddWindows(closeWnd),
 		"cnt_ranges")
 
-	// Measure from the last sample before the range when there is one, so that
-	// the growth that happened between it and the first in-range sample is not
-	// dropped. open_cnt, not start_open > 0: a counter legitimately sitting at
-	// zero, or any gauge, would defeat a value based existence test.
-	withStart := sql.NewWith(
+	withSlope := sql.NewWith(
 		sql.NewSelect().With(withRanges).Select(
 			sql.NewSimpleCol("fingerprint", "fingerprint"),
 			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
-			sql.NewSimpleCol("end", "end"),
-			sql.NewSimpleCol("resets", "resets"),
-			sql.NewSimpleCol("open_cnt", "open_cnt"),
-			sql.NewSimpleCol("close_cnt", "close_cnt"),
-			sql.NewSimpleCol("if(open_cnt > 0, start_open, start_close)", "start")).
+			sql.NewSimpleCol("first_ts", "first_ts"),
+			sql.NewSimpleCol("last_ts", "last_ts"),
+			sql.NewSimpleCol(c.change(isCounter), "c_change"),
+			// Milliseconds to seconds: rate is per second, so the span it is
+			// divided by has to be too. Doing it once here keeps the unit in
+			// one place rather than at each of the three call sites.
+			//
+			// The subtraction is positive by construction -- both timestamps are
+			// those of real samples inside (t-range, t] -- and clickhouse
+			// division yields Float64 whatever the operands are.
+			sql.NewSimpleCol("(last_ts - first_ts) / 1000", "c_span_sec")).
 			From(sql.NewWithRef(withRanges)),
-		"cnt_start")
+		"cnt_slope")
 
-	return sql.NewSelect().With(withStart).Select(
+	// The per-second slope between the two samples. increase and delta report
+	// that slope over the whole range rather than per second.
+	val := "c_change / c_span_sec"
+	if !isRate {
+		val = fmt.Sprintf("c_change / c_span_sec * %f", c.Duration.Seconds())
+	}
+
+	return sql.NewSelect().With(withSlope).Select(
 		sql.NewSimpleCol("fingerprint", "fingerprint"),
 		sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
 		sql.NewSimpleCol(val, "val")).
-		From(sql.NewWithRef(withStart)).
-		AndWhere(
-			// end has to come from inside the range,
-			sql.Gt(sql.NewRawObject("close_cnt"), sql.NewIntVal(0)),
-			// and start has to be a different sample than end: measuring a
-			// change needs two of them. A lone first sample of a series yields
-			// no point, as in prometheus.
-			sql.Gt(sql.NewRawObject("open_cnt + close_cnt"), sql.NewIntVal(1))), nil
+		From(sql.NewWithRef(withSlope)).
+		// Two distinct samples inside the range, or there is no interval to
+		// measure a change over. A lone sample yields no point, as in
+		// prometheus, and this is also what keeps c_span_sec off zero.
+		AndWhere(sql.Gt(sql.NewRawObject("last_ts"), sql.NewRawObject("first_ts"))), nil
+}
+
+// change is the value change actually observed between the first and last real
+// sample of the range, before it is scaled. For counters the value lost at every
+// reset inside the range is added back, so a wrap does not read as a decrease.
+func (c *CounterPlanner) change(isCounter bool) string {
+	if isCounter {
+		return "last_v - first_v + (resets - first_reset)"
+	}
+	return "last_v - first_v"
 }
 
 // CounterFlagsPlanner accelerates the range functions that count transitions
