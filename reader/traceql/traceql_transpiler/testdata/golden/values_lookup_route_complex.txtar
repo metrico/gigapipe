@@ -1,0 +1,9 @@
+-- meta --
+complexity: 15000000
+key: service.name
+kind: values
+route: complex
+-- query --
+{.service.name="checkout"}
+-- sql-0 --
+ SELECT  DISTINCT val as val FROM traces_kv_dist WHERE ((date) >= ('2023-12-31')) and ((date) <= ('2024-01-01')) and ((key) == (''))

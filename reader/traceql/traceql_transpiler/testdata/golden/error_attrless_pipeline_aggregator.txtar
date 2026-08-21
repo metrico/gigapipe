@@ -1,0 +1,4 @@
+-- query --
+{} | count() > 2
+-- error --
+requests like `{} | ....` are not supported

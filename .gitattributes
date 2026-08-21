@@ -1,0 +1,11 @@
+# Golden/generated fixtures for the query-language regression corpora
+# (PromQL/LogQL/TraceQL golden SQL, one testdata/golden/ tree per head).
+#
+# These files are produced by `just update-golden <head>` and are meant to
+# be diffed byte-for-byte, never hand-merged: a merge conflict here should
+# be resolved by regenerating, not merging. Marking them -merge means a
+# conflicting merge fails loudly instead of silently interleaving content
+# from both sides; linguist-generated keeps them out of diff summaries and
+# code-review UIs.
+**/testdata/golden/**/*.txtar -merge
+**/testdata/golden/**/*.txtar linguist-generated=true

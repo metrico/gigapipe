@@ -69,6 +69,20 @@ For end-to-end tests:
 make e2e-full
 ```
 
+The repo also has a [Justfile](https://github.com/casey/just) that wraps the
+same build/test/lint lanes CI runs, plus golden-SQL corpus and parser-fuzz
+helpers for the query transpilers. Run `just --list` to see everything
+available, including:
+
+```bash
+just build                   # build the gigapipe binary the way CI does
+just test-unit                # go test -race ./..., matching CI
+just lint                     # golangci-lint, gated to issues new since origin/master
+just arch-lint                 # go-arch-lint report against .go-arch-lint.yml
+just update-golden <head>     # regenerate golden fixtures for promql/logql/traceql
+just fuzz <head> [duration]   # run the native Go parser fuzz target for a query head
+```
+
 ## Submitting a Pull Request
 
 1. Create a branch:

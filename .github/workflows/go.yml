@@ -4,6 +4,11 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: read
+  # Allows the lint job's only-new-issues option to read the PR diff.
+  pull-requests: read
+
 jobs:
 
   build:
@@ -22,5 +27,81 @@ jobs:
         CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
 
     - name: Unit tests
-      run: go test ./...
+      run: go test -race ./...
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.12
+        # Grandfather in pre-existing findings; gate only newly introduced
+        # ones so adoption doesn't require cleaning up the whole repo first.
+        only-new-issues: true
+
+  arch-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: Install go-arch-lint
+      run: go install github.com/fe3dback/go-arch-lint@v1.15.0
+
+    # Report-only: baselines current package coupling against
+    # .go-arch-lint.yml without gating the merge. continue-on-error keeps
+    # this from blocking a PR while still surfacing the report.
+    - name: go-arch-lint check (report-only)
+      continue-on-error: true
+      run: go-arch-lint check
+
+  corpus-promql:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: PromQL golden-SQL corpus
+      run: go test -race ./reader/promql/promql_transpiler/... -run TestGolden -v
+
+  corpus-logql:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: LogQL golden-SQL corpus
+      run: go test -race ./reader/logql/logql_transpiler/clickhouse_planner/... -run TestGolden -v
+
+  corpus-traceql:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: TraceQL golden-SQL corpus
+      run: go test -race ./reader/traceql/traceql_transpiler/... -run TestGolden -v
