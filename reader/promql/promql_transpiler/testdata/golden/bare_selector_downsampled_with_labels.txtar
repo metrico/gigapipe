@@ -1,0 +1,8 @@
+-- meta --
+range: 15m
+route: downsampled
+step: 15s
+-- query --
+http_requests_total{job="api",method="GET"}
+-- sql-0 --
+WITH fp as ( SELECT fingerprint FROM time_series_gin WHERE ((date) >= ('2024-01-15')) and (type IN (2,0)) and ((((key) == ('job')) and ((val) == ('api'))) or (((key) == ('method')) and ((val) == ('GET'))) or (((key) == ('__name__')) and ((val) == ('http_requests_total')))) GROUP BY fingerprint HAVING ((groupBitOr(bitShiftLeft(((key) == ('job')) and ((val) == ('api')), 0) + bitShiftLeft(((key) == ('method')) and ((val) == ('GET')), 1) + bitShiftLeft(((key) == ('__name__')) and ((val) == ('http_requests_total')), 2))) == (7))),values as ( SELECT samples.fingerprint as fingerprint, argMaxMerge(samples.last) as val, intDiv(samples.timestamp_ns, 15000 * 1000000) * 15000 as timestamp_ms FROM metrics_15s as samples WHERE ((samples.timestamp_ns) > (1705318800000000000)) and ((samples.timestamp_ns) <= (1705320007000000000)) and (fingerprint IN (fp)) and (type IN (2,0)) GROUP BY fingerprint, timestamp_ms ORDER BY fingerprint asc , timestamp_ms asc ) SELECT * FROM ( SELECT 1 as type, fingerprint as fingerprint, timestamp_ms as timestamp_ms, val as val, '' as labels FROM values) UNION ALL ( SELECT  DISTINCT 2 as type, fingerprint as fingerprint, 0 as timestamp_ms, toFloat64(0) as val, labels as labels FROM time_series WHERE ((date) >= ('2024-01-15')) and (fingerprint IN (fp)))

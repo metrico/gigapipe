@@ -1,0 +1,8 @@
+-- meta --
+range: 1h
+route: downsampled
+step: 15s
+-- query --
+node_cpu_seconds_total{mode="idle",instance="host1"}
+-- sql-0 --
+WITH fp as ( SELECT fingerprint FROM time_series_gin WHERE ((date) >= ('2024-01-15')) and (type IN (2,0)) and ((((key) == ('instance')) and ((val) == ('host1'))) or (((key) == ('mode')) and ((val) == ('idle'))) or (((key) == ('__name__')) and ((val) == ('node_cpu_seconds_total')))) GROUP BY fingerprint HAVING ((groupBitOr(bitShiftLeft(((key) == ('instance')) and ((val) == ('host1')), 0) + bitShiftLeft(((key) == ('mode')) and ((val) == ('idle')), 1) + bitShiftLeft(((key) == ('__name__')) and ((val) == ('node_cpu_seconds_total')), 2))) == (7))),values as ( SELECT samples.fingerprint as fingerprint, argMaxMerge(samples.last) as val, intDiv(samples.timestamp_ns, 15000 * 1000000) * 15000 as timestamp_ms FROM metrics_15s as samples WHERE ((samples.timestamp_ns) > (1705316100000000000)) and ((samples.timestamp_ns) <= (1705320007000000000)) and (fingerprint IN (fp)) and (type IN (2,0)) GROUP BY fingerprint, timestamp_ms ORDER BY fingerprint asc , timestamp_ms asc ) SELECT * FROM ( SELECT 1 as type, fingerprint as fingerprint, timestamp_ms as timestamp_ms, val as val, '' as labels FROM values) UNION ALL ( SELECT  DISTINCT 2 as type, fingerprint as fingerprint, 0 as timestamp_ms, toFloat64(0) as val, labels as labels FROM time_series WHERE ((date) >= ('2024-01-15')) and (fingerprint IN (fp)))
