@@ -17,11 +17,12 @@ import (
 //
 // Note on @: the accelerated path emits one row per step bucket -- see the
 // intDiv(timestamp_ns, step) * step floor in planner/bucket_producer.go -- so an
-// @ instant that is not step aligned lands on the enclosing bucket, whose
-// timestamp is up to one step early. The value that row carries does not go stale
-// with the timestamp: BucketProducer bounds the read at timestamp_ns <= ctx.To,
-// and ctx.To is the instant to the millisecond, so the bucket aggregate covers
-// exactly the samples at or before @.
+// @ instant that is not step aligned lands on the enclosing bucket, whose SQL
+// row timestamp is up to one step early. (The HTTP response is unaffected: it
+// carries the engine's own grid timestamps.) The value that row holds does not go
+// stale with it: BucketProducer bounds the read at timestamp_ns <= ctx.To, and
+// ctx.To is the instant to the millisecond, so the bucket aggregate covers the
+// 15s buckets at or before @ -- to 15s granularity, see below.
 //
 // Measured, not inferred: against clickhouse 25.3.14.14 on the e2e stack, which
 // takes the WITH FILL ... STALENESS path. A counter sampled every 15s, read at a
@@ -36,10 +37,10 @@ import (
 // the accelerated path is only reached for steps of 15s or more (useRawData in
 // reader/service/prom_queryable.go).
 //
-// None of the above was checked on clickhouse < 24.11, where fillGaps takes the
-// arrayJoin fallback instead. That path caps at ctx.To with a half-open range(),
-// so the node landing exactly on the instant is never emitted and even the step
-// aligned case is inexact. Tracked in #906.
+// None of the above was checked on clickhouse < 24.11, where planner/fill_gaps.go
+// takes the arrayJoin fallback instead. That path caps at ctx.To with a half-open
+// range(), so by inspection the node landing exactly on the instant is never
+// emitted. Tracked in #906.
 //
 // The queried end is exact: hints.End, and so PlannerContext.To, lands on the
 // instant to the millisecond. The start is not, but for a reason unrelated to @:
