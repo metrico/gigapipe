@@ -10,6 +10,10 @@ Only the protobuf encoding is supported. Requests with
 A successful request returns `200 OK`; a request that carries no profiles is a
 no-op that still returns `200 OK`.
 
+Profiles can also be ingested over **OTLP/gRPC**, on the same port as the
+endpoint above. See [OTLP over gRPC](otlp-grpc.md) for the gRPC transport and
+supported signals.
+
 ## Routing via an OpenTelemetry Collector
 
 No collector code changes are required; a profiles-capable collector

@@ -29,7 +29,6 @@ type gzipResponseWriter struct {
 	Writer    *gzip.Writer
 	code      int
 	codeSet   bool
-	written   int
 	preBuffer bytes.Buffer
 }
 
@@ -70,19 +69,20 @@ func (gzw *gzipResponseWriter) Write(b []byte) (int, error) {
 	gzw.codeSet = true
 	if gzw.code/100 == 2 {
 		gzw.Header().Set("Content-Encoding", "gzip")
-		gzw.written += len(b)
 		return gzw.Writer.Write(b)
 	}
 	return gzw.ResponseWriter.Write(b)
 }
 
 func (gzw *gzipResponseWriter) Close() {
-	if gzw.written > 0 {
-		gzw.Writer.Close()
-	}
 	if gzw.code/100 != 2 {
 		return
 	}
+	// Always terminate the gzip stream: a first Write emits the gzip header
+	// into preBuffer even for zero-length bodies, and without the Close
+	// trailer the response would be a truncated stream that clients fail to
+	// decode. Closing with no writes at all produces a valid empty stream.
+	gzw.Writer.Close()
 	// Covers the implicit-200 path where the handler wrote a body without ever
 	// calling WriteHeader: headers are only flushed here in Close.
 	ensureSafeContentType(gzw.Header())

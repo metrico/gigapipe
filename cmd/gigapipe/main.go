@@ -30,6 +30,7 @@ import (
 	"github.com/metrico/qryn/v5/shared/distconfig"
 	"github.com/metrico/qryn/v5/view"
 	"github.com/metrico/qryn/v5/writer"
+	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
 
 var appFlags CommandLineFlags
@@ -327,7 +328,11 @@ func start() {
 		step.run(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
-	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode)
+	grpcOpts := writergrpc.Options{
+		BasicAuthUser: cfg.Setting.AUTH_SETTINGS.BASIC.Username,
+		BasicAuthPass: cfg.Setting.AUTH_SETTINGS.BASIC.Password,
+	}
+	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
 
 }
 
@@ -376,7 +381,7 @@ func stop() {
 // background flushes to complete before forcibly exiting.
 const shutdownTimeout = 30 * time.Second
 
-func httpStart(server *mux.Router, httpURL string, mode string) {
+func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writergrpc.Options) {
 	logger.Info("Starting service")
 	var err error
 	listener, err = net.Listen("tcp", httpURL)
@@ -385,7 +390,13 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 		panic(err)
 	}
 
-	httpServer := &http.Server{Handler: server}
+	// Reader-only nodes have no write path (controller.Registry is nil there),
+	// so only wrap with the OTLP/gRPC dispatcher when this node writes.
+	var root http.Handler = server
+	if mode == "all" || mode == "writer" || mode == "" {
+		root = writergrpc.Mux(server, grpcOpts)
+	}
+	httpServer := &http.Server{Handler: root, Protocols: writergrpc.Protocols()}
 
 	// Start serving in a goroutine so we can block on the signal below.
 	go func() {
@@ -404,6 +415,9 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 	logger.Info(fmt.Sprintf("Received signal %v, starting graceful shutdown...", received))
 
 	// 1. Stop accepting new connections and drain in-flight HTTP requests.
+	// gRPC is served through this same http.Server (see writergrpc.Mux), and
+	// grpc.Server.GracefulStop has no effect on RPCs served via ServeHTTP, so
+	// this Shutdown call is what drains in-flight gRPC requests too.
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
