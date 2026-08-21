@@ -15,14 +15,31 @@ import (
 // From/To, so a modifier dropped here becomes a silently wrong query window
 // rather than an error.
 //
-// Note on @: the accelerated path buckets samples on the step grid -- see the
+// Note on @: the accelerated path emits one row per step bucket -- see the
 // intDiv(timestamp_ns, step) * step floor in planner/bucket_producer.go -- so an
-// @ instant that is not step aligned resolves to the enclosing bucket. The value
-// is therefore accurate to within one step.
+// @ instant that is not step aligned lands on the enclosing bucket, whose
+// timestamp is up to one step early. The value that row carries does not go stale
+// with the timestamp: BucketProducer bounds the read at timestamp_ns <= ctx.To,
+// and ctx.To is the instant to the millisecond, so the bucket aggregate covers
+// exactly the samples at or before @.
 //
-// The step aligned case is not exact either on clickhouse < 24.11: the arrayJoin
-// fallback in planner/fill_gaps.go caps at ctx.To with a half-open range(), so
-// the node landing exactly on the instant is never emitted. Tracked in #906.
+// Measured, not inferred: against clickhouse 25.3.14.14 on the e2e stack, which
+// takes the WITH FILL ... STALENESS path. A counter sampled every 15s, read at a
+// 60s step, @ on a bucket boundary and @ 40s and 55s past one all returned the
+// same value as stock prometheus 2.53.0 fed the identical samples.
+//
+// The residual inexactness is the 15s downsample, not the step: metrics_15s
+// stamps every sample with its 15s floor, so a raw sample landing after the @
+// instant but inside the same 15s bucket is read as though it were at the bucket
+// start. Measured: samples at t and t+7s, @ t+3s returned the t+7s value where
+// prometheus returned the t value. That is bounded by 15s, and so by one step --
+// the accelerated path is only reached for steps of 15s or more (useRawData in
+// reader/service/prom_queryable.go).
+//
+// None of the above was checked on clickhouse < 24.11, where fillGaps takes the
+// arrayJoin fallback instead. That path caps at ctx.To with a half-open range(),
+// so the node landing exactly on the instant is never emitted and even the step
+// aligned case is inexact. Tracked in #906.
 //
 // The queried end is exact: hints.End, and so PlannerContext.To, lands on the
 // instant to the millisecond. The start is not, but for a reason unrelated to @:

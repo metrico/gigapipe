@@ -150,9 +150,10 @@ func TestAggOffsetShiftsWindow(t *testing.T) {
 // pushdown silently undid that for every accelerated expression.
 //
 // Only the window is asserted. The accelerated path buckets samples on the step
-// grid, so an @ instant that is not step aligned resolves to the enclosing
-// bucket -- the value is accurate to within one step, exact only when the
-// instant is step aligned. That deviation is deliberate and documented on
+// grid, so an unaligned @ instant lands on the enclosing bucket's timestamp, up
+// to one step early; the value that row carries is still the one at the instant,
+// because BucketProducer bounds the read at ctx.To. What is inexact is the 15s
+// downsample, not the step. Measured against clickhouse 25.3 and documented on
 // substituteSelector.
 func TestAtModifierAnchorsWindow(t *testing.T) {
 	const atSeconds = 1699000000
