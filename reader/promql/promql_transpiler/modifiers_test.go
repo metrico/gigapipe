@@ -19,6 +19,10 @@ var (
 	modQueryStart = modQueryEnd.Add(-time.Hour)
 )
 
+// modLookback is the engine lookback delta hintsForQuery runs with. Pinned
+// rather than defaulted because the span assertions are written against it.
+const modLookback = 5 * time.Minute
+
 // recordingQuerier captures the SelectHints the prometheus engine asks storage
 // for, and returns nothing. hints.End is what
 // reader/service/prom_queryable.go turns into PlannerContext.To, so it is
@@ -73,6 +77,7 @@ func hintsForQuery(t *testing.T, query string) *storage.SelectHints {
 		MaxSamples:       1e6,
 		Timeout:          time.Minute,
 		EnableAtModifier: true,
+		LookbackDelta:    modLookback,
 	})
 	q, err := engine.NewRangeQuery(context.Background(), &recordingQueryable{hints: &hints}, nil,
 		expr.Expr.String(), modQueryStart, modQueryEnd, time.Minute)
@@ -170,11 +175,9 @@ func TestAtModifierAnchorsWindow(t *testing.T) {
 // substitute as StartOrEnd rather than Timestamp and are resolved later by the
 // engine's preprocessing. The last case combines both modifiers.
 //
-// Every case here shares one range, so the span is asserted once below rather
-// than per case.
+// Each subtest additionally asserts the selected span; that check is written
+// once, inside the loop body, and runs for every case.
 func TestAtStartEndResolve(t *testing.T) {
-	// The range every query in this table selects over.
-	const atRange = 5 * time.Minute
 	for _, c := range []struct {
 		query   string
 		wantEnd int64
@@ -192,17 +195,23 @@ func TestAtStartEndResolve(t *testing.T) {
 			}
 			// End alone cannot catch a dropped @ end(): end() resolves to the
 			// query end, which is exactly what a dropped modifier falls back to.
-			// The span does catch it. @ collapses the range query onto a single
-			// evaluation instant (engine.go, getTimeRangesForSelector: a non-nil
-			// Timestamp overrides both bounds), so the engine asks for one range
-			// of samples instead of the whole query window plus that range.
+			// The span does catch it.
 			//
-			// Asserted as an upper bound, not an exact width: prometheus shaves
-			// 1ms off the lower bound to keep range selectors left-open, and
-			// that 1ms is an engine detail this test has no reason to pin.
-			if span := got.End - got.Start; span > atRange.Milliseconds() {
-				t.Errorf("@ must collapse the query onto one instant, so the selected span is one range:\n got span = %d ms (Start = %d, End = %d)\nwant span <= %d ms",
-					span, got.Start, got.End, atRange.Milliseconds())
+			// The span is bounded by the lookback, not by the [5m] in the query
+			// text. The range function is folded into SQL, so what reaches the
+			// engine is a bare instant selector with hints.Range == 0, and
+			// getTimeRangesForSelector then takes its lookback branch rather
+			// than its range branch (engine.go:997-1004). @ collapses the query
+			// onto a single evaluation instant, so the engine reads one lookback
+			// window instead of the whole query window plus a lookback.
+			//
+			// Asserted as an upper bound, not an exact width: that branch shaves
+			// 1ms off the lower bound to exclude samples landing precisely a
+			// lookback before the eval time, and that 1ms is an engine detail
+			// this test has no reason to pin.
+			if span := got.End - got.Start; span > modLookback.Milliseconds() {
+				t.Errorf("@ must collapse the query onto one instant, so the selected span is one lookback:\n got span = %d ms (Start = %d, End = %d)\nwant span <= %d ms",
+					span, got.Start, got.End, modLookback.Milliseconds())
 			}
 		})
 	}
