@@ -89,9 +89,9 @@ func TestRangeFnsAccelerate(t *testing.T) {
 		{"last_over_time", []string{"argMaxMerge(last)", "argMaxIf(b_last, b_ts, source = 1)"}},
 		{"present_over_time", []string{"1 as val", "(w_src) > (0)"}},
 
-		{"rate", []string{"resets", "/ 300.000000", "if(open_cnt > 0, start_open, start_close)"}},
-		{"increase", []string{"end - start + resets"}},
-		{"delta", []string{"end - start"}},
+		{"rate", []string{"last_v - first_v + (resets - first_reset) as c_change", "c_change * c_reach / 300.000000 as val"}},
+		{"increase", []string{"last_v - first_v + (resets - first_reset) as c_change", "c_change * c_reach as val"}},
+		{"delta", []string{"last_v - first_v as c_change", "c_change * c_reach as val"}},
 
 		{"resets", []string{"(prev_cnt > 0) * (prev > val) * (source = 1)", "flags - first_flag"}},
 		{"changes", []string{"(prev_cnt > 0) * (prev != val) * (source = 1)", "flags - first_flag"}},
@@ -118,31 +118,148 @@ func TestDeltaHasNoResetCorrection(t *testing.T) {
 }
 
 // TestCounterNeedsTwoSamples guards the leading edge of a series. rate, increase
-// and delta measure a change between two samples, so the very first sample of a
-// series, with nothing before it to measure against, must yield no point rather
-// than a zero.
+// and delta measure a change across an interval, so a single sample -- which
+// spans no interval at all -- must yield no point rather than a zero. The same
+// condition is what keeps c_span_sec, the divisor, off zero.
 func TestCounterNeedsTwoSamples(t *testing.T) {
 	for _, fn := range []string{"rate", "increase", "delta"} {
 		t.Run(fn, func(t *testing.T) {
 			got := transpileRange(t, fn+`(x{job="j"}[1m])`)
-			if !strings.Contains(got, "(open_cnt + close_cnt) > (1)") {
-				t.Errorf("%s must require two samples to measure across:\n%s", fn, got)
+			if !strings.Contains(got, "((last_ts) > (first_ts))") {
+				t.Errorf("%s must require an interval to measure across:\n%s", fn, got)
 			}
 		})
 	}
 }
 
-// TestCounterStartsFromSampleBeforeRange guards against a value based existence
-// test on the sample preceding the range: a counter sitting at zero there is a
-// real start value, and falling back to the first in range sample instead
-// understates the result.
-func TestCounterStartsFromSampleBeforeRange(t *testing.T) {
-	got := transpileRange(t, `rate(x{job="j"}[1m])`)
-	if strings.Contains(got, "start_open > 0") {
-		t.Errorf("start existence must be tested by open_cnt, not by value:\n%s", got)
+// TestCounterBackwardReachIsBounded guards the one thing that must not be
+// extrapolated freely. Forward there is nothing to decide: the series is live at
+// t, so the slope carries to the edge. Backward, a counter cannot have been
+// negative, so no more growth can be attributed to the time before the first
+// sample than that sample's own value -- c_span_sec * first_v / c_change seconds
+// at the observed slope. A counter that started at zero inside the range gets no
+// backward reach at all, which is what stops a series appearing to have been
+// running before it existed. delta operates on gauges, which have no such floor.
+func TestCounterBackwardReachIsBounded(t *testing.T) {
+	for _, fn := range []string{"rate", "increase"} {
+		t.Run(fn, func(t *testing.T) {
+			got := transpileRange(t, fn+`(x{job="j"}[5m])`)
+			if !strings.Contains(got, "least(c_back_edge, if(c_change > 0 AND first_v >= 0, "+
+				"c_span_sec * first_v / c_change, c_back_edge)) as c_back") {
+				t.Errorf("%s: backward reach must be bounded by the counter's own floor:\n%s", fn, got)
+			}
+			if !strings.Contains(got, "(c_span_sec + c_back + c_fwd_edge) / c_span_sec as c_reach") {
+				t.Errorf("%s: reach must span both edges:\n%s", fn, got)
+			}
+		})
 	}
-	if !strings.Contains(got, "if(open_cnt > 0, start_open, start_close)") {
-		t.Errorf("missing open_cnt based start selection:\n%s", got)
+	if got := transpileRange(t, `delta(x{job="j"}[5m])`); !strings.Contains(got, "c_back_edge as c_back") {
+		t.Errorf("delta is a gauge function and has no zero floor to bound against:\n%s", got)
+	}
+}
+
+// TestCounterSpanIsBetweenSamplesNotBuckets guards the pairing of the two
+// quantities the slope is built from.
+//
+// val is the last sample of its bucket, so it sits at val_ts, which is not the
+// bucket key: it lands wherever the last sample of that bucket happened to fall.
+// The final bucket of a query is truncated by the read bound, so its last sample
+// can be anywhere inside it. Measuring the change between samples but the
+// interval between bucket keys therefore divides by an interval the change did
+// not happen over, and understates every counter function at the last step.
+func TestCounterSpanIsBetweenSamplesNotBuckets(t *testing.T) {
+	for _, fn := range []string{"rate", "increase", "delta"} {
+		t.Run(fn, func(t *testing.T) {
+			got := transpileRange(t, fn+`(x{job="j"}[5m])`)
+			for _, w := range []string{
+				"intDiv(max(timestamp_ns), 1000000) as val_ts",
+				"argMinIf(val_ts, timestamp_ms, source = 1) OVER cnt_close_wnd as first_ts",
+				"argMaxIf(val_ts, timestamp_ms, source = 1) OVER cnt_close_wnd as last_ts",
+				"(last_ts - first_ts) / 1000 as c_span_sec",
+			} {
+				if !strings.Contains(got, w) {
+					t.Errorf("%s: missing %q -- the span must come from the sampled\n"+
+						"timestamps, not the bucket keys:\n%s", fn, w, got)
+				}
+			}
+			// The bucket key is timestamp_ms. Selecting it directly as an
+			// endpoint is the mistake this test exists to catch.
+			for _, bad := range []string{
+				"minIf(timestamp_ms, source = 1) OVER cnt_close_wnd as first_ts",
+				"maxIf(timestamp_ms, source = 1) OVER cnt_close_wnd as last_ts",
+			} {
+				if strings.Contains(got, bad) {
+					t.Errorf("%s: %q measures the interval between buckets, not\n"+
+						"between the two sampled values:\n%s", fn, bad, got)
+				}
+			}
+		})
+	}
+}
+
+// TestRateCarriesTheChangeToTheRangeEdges guards the defect that motivated this
+// shape. Reporting the observed change as though it were the whole range's
+// assumes the samples covered all of it. Whenever the newest sample lags the step
+// -- always true at the last step of a window, and common mid-window with
+// jittered scrapes -- they did not, and the result is understated in proportion
+// to how much of the range they missed. c_reach carries it out to the edges.
+func TestRateCarriesTheChangeToTheRangeEdges(t *testing.T) {
+	got := transpileRange(t, `rate(x{job="j"}[5m])`)
+	if !strings.Contains(got, "c_change * c_reach / 300.000000 as val") {
+		t.Errorf("rate must divide by the interval the change was measured over:\n%s", got)
+	}
+	if strings.Contains(got, "c_change / 300.000000 as val") {
+		t.Errorf("rate must not divide the raw change by the range:\n%s", got)
+	}
+}
+
+// TestIncreaseIsRateOverTheRange guards the one difference between them: increase
+// reports the same slope over the whole range instead of per second, which is why
+// it is a counter function that is not a rate one.
+func TestIncreaseIsRateOverTheRange(t *testing.T) {
+	inc := transpileRange(t, `increase(x{job="j"}[5m])`)
+	if !strings.Contains(inc, "c_change * c_reach as val") {
+		t.Errorf("increase must report the change over the range, undivided:\n%s", inc)
+	}
+	if !strings.Contains(transpileRange(t, `rate(x{job="j"}[5m])`), "c_change * c_reach / 300.000000 as val") {
+		t.Error("rate must divide the same quantity by the range to get per-second")
+	}
+}
+
+// TestCounterResetsStopAtTheRangeBoundary guards the reset correction against
+// double counting. The earliest in-range sample compares against a sample outside
+// the range, so any drop it records happened before the range began and is not
+// part of the change measured inside it. CounterFlagsPlanner applies the same
+// correction to its transition counts via first_flag.
+func TestCounterResetsStopAtTheRangeBoundary(t *testing.T) {
+	for _, fn := range []string{"rate", "increase"} {
+		t.Run(fn, func(t *testing.T) {
+			got := transpileRange(t, fn+`(x{job="j"}[5m])`)
+			if !strings.Contains(got,
+				"argMinIf(reset, timestamp_ms, source = 1) OVER cnt_close_wnd as first_reset") {
+				t.Errorf("%s: missing the boundary reset:\n%s", fn, got)
+			}
+			if !strings.Contains(got, "last_v - first_v + (resets - first_reset) as c_change") {
+				t.Errorf("%s: boundary reset must be subtracted from the total:\n%s", fn, got)
+			}
+		})
+	}
+	// delta has no reset correction at all, so it has nothing to subtract.
+	if got := transpileRange(t, `delta(x{job="j"}[5m])`); !strings.Contains(got, "last_v - first_v as c_change") {
+		t.Errorf("delta must measure the raw change:\n%s", got)
+	}
+}
+
+// TestCounterProbesOnlyTheRange guards the removal of the second window. The
+// change is measured between the first and last sample inside (t-range, t]; a
+// sample before the range is not one of the two endpoints, so probing for one is
+// work that no longer feeds the result.
+func TestCounterProbesOnlyTheRange(t *testing.T) {
+	got := transpileRange(t, `rate(x{job="j"}[5m])`)
+	for _, bad := range []string{"cnt_open_wnd", "start_open", "open_cnt", "cnt_start"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q belongs to the pre-range probe, which no longer feeds the value:\n%s", bad, got)
+		}
 	}
 }
 
