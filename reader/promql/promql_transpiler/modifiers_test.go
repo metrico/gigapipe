@@ -109,3 +109,28 @@ func TestRangeFnOffsetShiftsWindow(t *testing.T) {
 		})
 	}
 }
+
+// TestAggOffsetShiftsWindow guards the cross-series aggregation path, which
+// builds its substitute in a second place (Aggregate.aggregate). The last case
+// also covers folding: the inner range function is substituted first, and the
+// outer aggregation clones that already-synthetic selector, so the offset has to
+// survive two hops.
+func TestAggOffsetShiftsWindow(t *testing.T) {
+	for _, c := range []struct {
+		query string
+		shift time.Duration
+	}{
+		{`sum(http_requests_total{job="j"} offset 1h)`, time.Hour},
+		{`count(http_requests_total{job="j"} offset 15m)`, 15 * time.Minute},
+		{`sum by (job) (rate(http_requests_total{job="j"}[5m] offset 2h))`, 2 * time.Hour},
+	} {
+		t.Run(c.query, func(t *testing.T) {
+			got := hintsForQuery(t, c.query)
+			want := modQueryEnd.UnixMilli() - c.shift.Milliseconds()
+			if got.End != want {
+				t.Errorf("offset must shift the queried window back:\n got End = %d\nwant End = %d (query end %d minus %v)",
+					got.End, want, modQueryEnd.UnixMilli(), c.shift)
+			}
+		})
+	}
+}
