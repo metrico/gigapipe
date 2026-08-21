@@ -1,0 +1,7 @@
+-- meta --
+kind: tags
+route: simple
+-- query --
+{.service.name="checkout"}
+-- sql-0 --
+WITH select_spans as ( SELECT trace_id as trace_id, span_id as span_id, any(duration) as duration, any(timestamp_ns) as timestamp_ns FROM traces_attrs_gin as traces_idx WHERE (((date) >= ('2024-01-01')) and ((date) <= ('2024-01-01')) and ((traces_idx.timestamp_ns) >= (1704067200000000000)) and ((traces_idx.timestamp_ns) < (1704070800000000000))) and ((((key) == ('service.name')) and ((val) == ('checkout')))) GROUP BY trace_id, span_id HAVING ((bitAnd(groupBitOr(bitShiftLeft(toUInt64(((key) == ('service.name')) and ((val) == ('checkout'))),0)) as bsCond,1)) != (0)) ORDER BY timestamp_ns desc ),pre_select_tags as ( SELECT span_id FROM select_spans) SELECT key as key FROM traces_attrs_gin_dist as traces_idx WHERE (((date) >= ('2024-01-01')) and ((date) <= ('2024-01-01')) and ((traces_idx.timestamp_ns) >= (1704067200000000000)) and ((traces_idx.timestamp_ns) < (1704070800000000000)) and (span_id IN (pre_select_tags))) GROUP BY trace_id, span_id ORDER BY key asc  LIMIT 20
