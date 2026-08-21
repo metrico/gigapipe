@@ -89,9 +89,9 @@ func TestRangeFnsAccelerate(t *testing.T) {
 		{"last_over_time", []string{"argMaxMerge(last)", "argMaxIf(b_last, b_ts, source = 1)"}},
 		{"present_over_time", []string{"1 as val", "(w_src) > (0)"}},
 
-		{"rate", []string{"last_v - first_v + (resets - first_reset) as c_change", "c_change / c_span_sec as val"}},
-		{"increase", []string{"last_v - first_v + (resets - first_reset) as c_change", "c_change / c_span_sec * 300.000000 as val"}},
-		{"delta", []string{"last_v - first_v as c_change", "c_change / c_span_sec * 300.000000 as val"}},
+		{"rate", []string{"last_v - first_v + (resets - first_reset) as c_change", "c_change * c_reach / 300.000000 as val"}},
+		{"increase", []string{"last_v - first_v + (resets - first_reset) as c_change", "c_change * c_reach as val"}},
+		{"delta", []string{"last_v - first_v as c_change", "c_change * c_reach as val"}},
 
 		{"resets", []string{"(prev_cnt > 0) * (prev > val) * (source = 1)", "flags - first_flag"}},
 		{"changes", []string{"(prev_cnt > 0) * (prev != val) * (source = 1)", "flags - first_flag"}},
@@ -129,6 +129,32 @@ func TestCounterNeedsTwoSamples(t *testing.T) {
 				t.Errorf("%s must require an interval to measure across:\n%s", fn, got)
 			}
 		})
+	}
+}
+
+// TestCounterBackwardReachIsBounded guards the one thing that must not be
+// extrapolated freely. Forward there is nothing to decide: the series is live at
+// t, so the slope carries to the edge. Backward, a counter cannot have been
+// negative, so no more growth can be attributed to the time before the first
+// sample than that sample's own value -- c_span_sec * first_v / c_change seconds
+// at the observed slope. A counter that started at zero inside the range gets no
+// backward reach at all, which is what stops a series appearing to have been
+// running before it existed. delta operates on gauges, which have no such floor.
+func TestCounterBackwardReachIsBounded(t *testing.T) {
+	for _, fn := range []string{"rate", "increase"} {
+		t.Run(fn, func(t *testing.T) {
+			got := transpileRange(t, fn+`(x{job="j"}[5m])`)
+			if !strings.Contains(got, "least(c_back_edge, if(c_change > 0 AND first_v >= 0, "+
+				"c_span_sec * first_v / c_change, c_back_edge)) as c_back") {
+				t.Errorf("%s: backward reach must be bounded by the counter's own floor:\n%s", fn, got)
+			}
+			if !strings.Contains(got, "(c_span_sec + c_back + c_fwd_edge) / c_span_sec as c_reach") {
+				t.Errorf("%s: reach must span both edges:\n%s", fn, got)
+			}
+		})
+	}
+	if got := transpileRange(t, `delta(x{job="j"}[5m])`); !strings.Contains(got, "c_back_edge as c_back") {
+		t.Errorf("delta is a gauge function and has no zero floor to bound against:\n%s", got)
 	}
 }
 
@@ -171,19 +197,19 @@ func TestCounterSpanIsBetweenSamplesNotBuckets(t *testing.T) {
 	}
 }
 
-// TestRateDividesBySpanNotRange guards the defect that motivated this shape.
-// Dividing the observed change by the full range assumes the samples covered all
-// of it. Whenever the newest sample lags the step -- always true at the last step
-// of a window, and common mid-window with jittered scrapes -- they did not, and
-// the result is understated in proportion to how much of the range they missed.
-func TestRateDividesBySpanNotRange(t *testing.T) {
+// TestRateCarriesTheChangeToTheRangeEdges guards the defect that motivated this
+// shape. Reporting the observed change as though it were the whole range's
+// assumes the samples covered all of it. Whenever the newest sample lags the step
+// -- always true at the last step of a window, and common mid-window with
+// jittered scrapes -- they did not, and the result is understated in proportion
+// to how much of the range they missed. c_reach carries it out to the edges.
+func TestRateCarriesTheChangeToTheRangeEdges(t *testing.T) {
 	got := transpileRange(t, `rate(x{job="j"}[5m])`)
-	if !strings.Contains(got, "c_change / c_span_sec as val") {
+	if !strings.Contains(got, "c_change * c_reach / 300.000000 as val") {
 		t.Errorf("rate must divide by the interval the change was measured over:\n%s", got)
 	}
-	if strings.Contains(got, "c_change / 300.000000") ||
-		strings.Contains(got, "c_span_sec * 300.000000 as val") {
-		t.Errorf("rate must not normalise by the range:\n%s", got)
+	if strings.Contains(got, "c_change / 300.000000 as val") {
+		t.Errorf("rate must not divide the raw change by the range:\n%s", got)
 	}
 }
 
@@ -192,11 +218,11 @@ func TestRateDividesBySpanNotRange(t *testing.T) {
 // it is a counter function that is not a rate one.
 func TestIncreaseIsRateOverTheRange(t *testing.T) {
 	inc := transpileRange(t, `increase(x{job="j"}[5m])`)
-	if !strings.Contains(inc, "c_change / c_span_sec * 300.000000 as val") {
-		t.Errorf("increase must scale the slope by the range:\n%s", inc)
+	if !strings.Contains(inc, "c_change * c_reach as val") {
+		t.Errorf("increase must report the change over the range, undivided:\n%s", inc)
 	}
-	if !strings.Contains(transpileRange(t, `rate(x{job="j"}[5m])`), "c_change / c_span_sec as val") {
-		t.Error("rate must not carry the range scaling increase does")
+	if !strings.Contains(transpileRange(t, `rate(x{job="j"}[5m])`), "c_change * c_reach / 300.000000 as val") {
+		t.Error("rate must divide the same quantity by the range to get per-second")
 	}
 }
 

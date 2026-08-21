@@ -145,27 +145,31 @@ func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 
 	withSlope := sql.NewWith(
 		sql.NewSelect().With(withRanges).Select(
-			sql.NewSimpleCol("fingerprint", "fingerprint"),
-			sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
-			sql.NewSimpleCol("first_ts", "first_ts"),
-			sql.NewSimpleCol("last_ts", "last_ts"),
-			sql.NewSimpleCol(c.change(isCounter), "c_change"),
-			// Milliseconds to seconds: rate is per second, so the span it is
-			// divided by has to be too. Doing it once here keeps the unit in
-			// one place rather than at each of the three call sites.
-			//
-			// The subtraction is positive by construction -- both timestamps are
-			// those of real samples inside (t-range, t] -- and clickhouse
-			// division yields Float64 whatever the operands are.
-			sql.NewSimpleCol("(last_ts - first_ts) / 1000", "c_span_sec")).
+			append([]sql.SQLObject{
+				sql.NewSimpleCol("fingerprint", "fingerprint"),
+				sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
+				sql.NewSimpleCol("first_ts", "first_ts"),
+				sql.NewSimpleCol("last_ts", "last_ts"),
+				sql.NewSimpleCol("first_v", "first_v"),
+				sql.NewSimpleCol(c.change(isCounter), "c_change"),
+				// Milliseconds to seconds: rate is per second, so the span it is
+				// divided by has to be too. Doing it once here keeps the unit in
+				// one place rather than at each of the call sites.
+				//
+				// The subtraction is positive by construction -- both timestamps
+				// are those of real samples inside (t-range, t] -- and clickhouse
+				// division yields Float64 whatever the operands are.
+				sql.NewSimpleCol("(last_ts - first_ts) / 1000", "c_span_sec"),
+			}, c.reach(isCounter)...)...).
 			From(sql.NewWithRef(withRanges)),
 		"cnt_slope")
 
-	// The per-second slope between the two samples. increase and delta report
-	// that slope over the whole range rather than per second.
-	val := "c_change / c_span_sec"
-	if !isRate {
-		val = fmt.Sprintf("c_change / c_span_sec * %f", c.Duration.Seconds())
+	// The change carried out to the edges of the range, then reported per second
+	// or over the range. c_reach is 1 whenever the samples already span the whole
+	// range, so the common case is unaffected by any of it.
+	val := "c_change * c_reach"
+	if isRate {
+		val = fmt.Sprintf("c_change * c_reach / %f", c.Duration.Seconds())
 	}
 
 	return sql.NewSelect().With(withSlope).Select(
@@ -187,6 +191,44 @@ func (c *CounterPlanner) change(isCounter bool) string {
 		return "last_v - first_v + (resets - first_reset)"
 	}
 	return "last_v - first_v"
+}
+
+// reach builds c_reach, the multiplier that carries the observed change out to
+// the edges of the range.
+//
+// The samples only cover c_span_sec of the range. Reporting the change as if it
+// were the whole range's understates it; assuming the observed slope held across
+// every second of the range overstates it whenever the series was not reporting
+// for part of that time. c_reach is how much of the uncovered time the change is
+// carried across, as a multiple of the span the samples do cover, so it is 1
+// exactly when the samples already reach both edges.
+//
+// Forward, there is nothing to decide: the series is still live at t, so the
+// slope carries to the edge. Backward is bounded twice over -- by the edge
+// itself, and for counters by the counter's own first value, since a counter
+// cannot have been negative. At the observed slope, growing from zero up to
+// first_v takes c_span_sec * first_v / c_change seconds, and no more growth than
+// that can be attributed to the time before the first sample. A counter that
+// started at zero inside the range therefore gets no backward reach at all,
+// which is what stops a series from appearing to have been running before it
+// existed.
+func (c *CounterPlanner) reach(isCounter bool) []sql.SQLObject {
+	back := "c_back_edge"
+	if isCounter {
+		back = "least(c_back_edge, if(c_change > 0 AND first_v >= 0, " +
+			"c_span_sec * first_v / c_change, c_back_edge))"
+	}
+	cols := [][2]string{
+		{fmt.Sprintf("(first_ts - (timestamp_ms - %d)) / 1000", c.Duration.Milliseconds()), "c_back_edge"},
+		{"(timestamp_ms - last_ts) / 1000", "c_fwd_edge"},
+		{back, "c_back"},
+		{"(c_span_sec + c_back + c_fwd_edge) / c_span_sec", "c_reach"},
+	}
+	res := make([]sql.SQLObject, len(cols))
+	for i, col := range cols {
+		res[i] = sql.NewSimpleCol(col[0], col[1])
+	}
+	return res
 }
 
 // CounterFlagsPlanner accelerates the range functions that count transitions
