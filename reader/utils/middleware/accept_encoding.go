@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"errors"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -22,6 +23,8 @@ func AcceptEncodingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The representation varies on Accept-Encoding no matter what this
 		// particular request negotiated; shared caches must key on it.
+		// Add, not Set, so a handler-supplied Vary member survives; handlers
+		// in turn must Add rather than Set to preserve this one.
 		w.Header().Add("Vary", "Accept-Encoding")
 		// A HEAD response carries no body, so there is nothing to compress;
 		// wrapping would only fabricate Content-Encoding metadata that
@@ -44,7 +47,8 @@ func AcceptEncodingMiddleware(next http.Handler) http.Handler {
 // gzip, and a wildcard element applies when gzip is not explicitly listed.
 // An absent header means no compression.
 func acceptsGzip(h http.Header) bool {
-	gzipQ, wildcardQ := -1.0, -1.0
+	var gzipQ, wildcardQ float64
+	var gzipSeen, wildcardSeen bool
 	for _, headerValue := range h.Values("Accept-Encoding") {
 		for _, element := range strings.Split(headerValue, ",") {
 			coding, params, _ := strings.Cut(element, ";")
@@ -53,20 +57,24 @@ func acceptsGzip(h http.Header) bool {
 			switch {
 			// Content-coding names are case-insensitive (RFC 9110 §8.4.1).
 			case strings.EqualFold(coding, "gzip"):
-				gzipQ = q
+				gzipQ, gzipSeen = q, true
 			case coding == "*":
-				wildcardQ = q
+				wildcardQ, wildcardSeen = q, true
 			}
 		}
 	}
-	if gzipQ >= 0 {
+	// An explicitly listed gzip always wins over the wildcard, whatever its
+	// weight.
+	if gzipSeen {
 		return gzipQ > 0
 	}
-	return wildcardQ > 0
+	return wildcardSeen && wildcardQ > 0
 }
 
-// qValue extracts the q parameter from a header element's parameter list,
-// defaulting to 1 when absent or malformed.
+// qValue extracts the q parameter from a header element's parameter list.
+// RFC 9110 §12.4.2 restricts qvalue to [0, 1]; parseable weights outside that
+// range are clamped to it, preserving the direction the client expressed,
+// while absent or unparseable (including NaN/Inf) weights default to 1.
 func qValue(params string) float64 {
 	for _, param := range strings.Split(params, ";") {
 		name, value, ok := strings.Cut(param, "=")
@@ -74,10 +82,10 @@ func qValue(params string) float64 {
 			continue
 		}
 		q, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-		if err != nil {
+		if err != nil || math.IsNaN(q) || math.IsInf(q, 0) {
 			return 1
 		}
-		return q
+		return math.Min(math.Max(q, 0), 1)
 	}
 	return 1
 }
@@ -86,6 +94,7 @@ func qValue(params string) float64 {
 // per RFC 9110 §6.3 and §15.
 func bodyForbidden(code int) bool {
 	return code == http.StatusNoContent ||
+		code == http.StatusResetContent ||
 		code == http.StatusNotModified ||
 		(code >= 100 && code < 200)
 }
@@ -162,13 +171,14 @@ func (gzw *gzipResponseWriter) Flush() {
 	}
 	if gzw.compress {
 		if err := gzw.gz.Flush(); err != nil {
-			logger.Error("gzip middleware: flush error: ", err)
-			return
+			// A failed write almost always means the client went away
+			// mid-response, which is routine on a query service.
+			logger.Debug("gzip middleware: flush error: ", err)
 		}
 	}
-	if f, ok := gzw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	// ResponseController reaches the transport through wrappers that expose
+	// either Flush or Unwrap.
+	_ = http.NewResponseController(gzw.ResponseWriter).Flush()
 }
 
 func (gzw *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
@@ -192,6 +202,13 @@ func (gzw *gzipResponseWriter) Unwrap() http.ResponseWriter {
 	return gzw.ResponseWriter
 }
 
+// HeadersSent reports whether the status line has been committed, letting
+// panic handlers choose between writing an error response and aborting the
+// connection.
+func (gzw *gzipResponseWriter) HeadersSent() bool {
+	return gzw.decided
+}
+
 // finish terminates the gzip stream, emitting the trailer that lets clients
 // verify they received the whole body. A response with no writes at all still
 // becomes a valid empty stream.
@@ -206,6 +223,8 @@ func (gzw *gzipResponseWriter) finish() {
 		return
 	}
 	if err := gzw.gz.Close(); err != nil {
-		logger.Error("gzip middleware: close error: ", err)
+		// A failed write almost always means the client went away
+		// mid-response, which is routine on a query service.
+		logger.Debug("gzip middleware: close error: ", err)
 	}
 }

@@ -134,6 +134,23 @@ func TestAcceptEncoding_PartialContentPassthrough(t *testing.T) {
 	}
 }
 
+// 205 responses cannot contain content (RFC 9110 §15.3.6); the middleware
+// must not wrap them in a gzip envelope.
+func TestAcceptEncoding_ResetContentPassthrough(t *testing.T) {
+	w := gzipGet(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(205)
+	}))
+	if w.Code != 205 {
+		t.Fatalf("code=%d", w.Code)
+	}
+	if enc := w.Header().Get("Content-Encoding"); enc != "" {
+		t.Fatalf("205 must not carry Content-Encoding, got %q", enc)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("205 must not carry content, got %d bytes", w.Body.Len())
+	}
+}
+
 // TestAcceptEncoding_Negotiation covers Accept-Encoding parsing: q-values
 // (RFC 9110 §12.5.3), the wildcard, case-insensitivity, and absence.
 func TestAcceptEncoding_Negotiation(t *testing.T) {
@@ -153,6 +170,14 @@ func TestAcceptEncoding_Negotiation(t *testing.T) {
 		{"GzipZeroQBeatsWildcard", "*, gzip;q=0", false},
 		{"OnlyOtherCodings", "deflate, br", false},
 		{"Empty", "", false},
+		// Weights outside [0,1] are clamped; the client's direction is kept.
+		{"NegativeQ", "gzip;q=-1", false},
+		{"NegativeQBeatsWildcard", "*, gzip;q=-1", false},
+		{"OutOfRangeQ", "gzip;q=5", true},
+		// Unparseable weights fall back to the default q=1.
+		{"NaNQ", "gzip;q=NaN", true},
+		{"InfQ", "gzip;q=Inf", true},
+		{"GarbageQ", "gzip;q=abc", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/", nil)
@@ -263,6 +288,81 @@ func TestAcceptEncoding_WriterInterfaces(t *testing.T) {
 		}
 		if _, ok := w.(interface{ Unwrap() http.ResponseWriter }); !ok {
 			t.Error("wrapper does not implement Unwrap for http.ResponseController")
+		}
+	}))
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushed bool
+}
+
+func (f *flushRecorder) Flush() { f.flushed = true; f.ResponseRecorder.Flush() }
+
+// TestAcceptEncoding_ProdChainFlush builds the middleware chain exactly as
+// cmd/gigapipe/main.go does (Logging outermost, then Cors, then
+// AcceptEncoding) and asserts a handler Flush reaches the transport through
+// every wrapper in between.
+func TestAcceptEncoding_ProdChainFlush(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("chunk"))
+		f, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("handler writer %T is not an http.Flusher", w)
+		}
+		f.Flush()
+	})
+	h := LoggingMiddleware("chain-test")(CorsMiddleware("*")(AcceptEncodingMiddleware(inner)))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	fr := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	h.ServeHTTP(fr, req)
+
+	if !fr.flushed {
+		t.Fatal("handler Flush did not reach the transport through the full middleware chain")
+	}
+	assertGzipStream(t, fr.ResponseRecorder, "chunk")
+}
+
+// The logging wrapper sits between the gzip layer and the transport; it must
+// forward Flush and expose Unwrap so http.ResponseController keeps working,
+// and report header commitment for panic handling.
+func TestLogging_WriterInterfaces(t *testing.T) {
+	var rw http.ResponseWriter = &responseWriterWithCode{ResponseWriter: httptest.NewRecorder()}
+	if _, ok := rw.(http.Flusher); !ok {
+		t.Error("responseWriterWithCode does not implement http.Flusher")
+	}
+	if _, ok := rw.(interface{ Unwrap() http.ResponseWriter }); !ok {
+		t.Error("responseWriterWithCode does not implement Unwrap for http.ResponseController")
+	}
+	hs, ok := rw.(interface{ HeadersSent() bool })
+	if !ok {
+		t.Fatal("responseWriterWithCode does not report HeadersSent")
+	}
+	if hs.HeadersSent() {
+		t.Error("HeadersSent=true before any write")
+	}
+	_, _ = rw.Write([]byte("x"))
+	if !hs.HeadersSent() {
+		t.Error("HeadersSent=false after a body write")
+	}
+}
+
+// HeadersSent lets panic handlers distinguish "safe to write a 500" from
+// "status line already on the wire".
+func TestAcceptEncoding_HeadersSent(t *testing.T) {
+	gzipGet(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hs, ok := w.(interface{ HeadersSent() bool })
+		if !ok {
+			t.Fatal("gzip wrapper does not report HeadersSent")
+		}
+		if hs.HeadersSent() {
+			t.Error("HeadersSent=true before any write")
+		}
+		w.WriteHeader(200)
+		if !hs.HeadersSent() {
+			t.Error("HeadersSent=false after WriteHeader")
 		}
 	}))
 }
