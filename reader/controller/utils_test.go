@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,5 +118,39 @@ func TestTamePanic_MidBodyAbortsCompressedStream(t *testing.T) {
 	}
 	if body, err := io.ReadAll(zr); err == nil {
 		t.Fatalf("aborted response decoded as a complete gzip stream: %q", body)
+	}
+}
+
+// A bare Flush commits an implicit 200 before any body write; a panic after
+// it must abort the connection, not write "Internal Server Error" onto a
+// committed 200. This needs a real server on the identity path — the recorder
+// does not model header commitment, and the gzip writer latches commitment
+// through a different code path.
+func TestTamePanic_FlushThenPanicAborts(t *testing.T) {
+	srv := httptest.NewServer(middleware.LoggingMiddleware("chain-test")(middleware.CorsMiddleware("*")(
+		middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer tamePanic(w, r)
+			w.(http.Flusher).Flush()
+			panic("boom")
+		})))))
+	defer srv.Close()
+
+	req, err := http.NewRequest("GET", srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	buf, readErr := io.ReadAll(resp.Body)
+	if strings.Contains(string(buf), "Internal Server Error") {
+		t.Fatalf("error body written onto a committed 200: %q", buf)
+	}
+	if readErr == nil {
+		t.Fatal("client read a complete-looking response from an aborted handler")
 	}
 }

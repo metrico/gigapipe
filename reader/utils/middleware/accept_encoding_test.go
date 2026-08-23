@@ -349,6 +349,83 @@ func TestLogging_WriterInterfaces(t *testing.T) {
 	}
 }
 
+// plainWriter is an http.ResponseWriter that is not an http.Flusher.
+type plainWriter struct{ header http.Header }
+
+func (p plainWriter) Header() http.Header         { return p.header }
+func (p plainWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (p plainWriter) WriteHeader(int)             {}
+
+// A bare Flush commits the response — net/http sends an implicit 200 — so the
+// wrapper must report the headers as sent afterwards; otherwise a panic
+// following the flush would be answered with a 500 written onto an
+// already-committed 200. When the underlying writer is not a Flusher, nothing
+// is committed and the flag must stay false.
+func TestLogging_FlushCommitsHeaders(t *testing.T) {
+	var rw http.ResponseWriter = &responseWriterWithCode{ResponseWriter: httptest.NewRecorder()}
+	hs := rw.(interface{ HeadersSent() bool })
+	if hs.HeadersSent() {
+		t.Error("HeadersSent=true before any write")
+	}
+	rw.(http.Flusher).Flush()
+	if !hs.HeadersSent() {
+		t.Error("HeadersSent=false after Flush committed the response")
+	}
+
+	var noFlush http.ResponseWriter = &responseWriterWithCode{ResponseWriter: plainWriter{header: http.Header{}}}
+	noFlush.(http.Flusher).Flush()
+	if noFlush.(interface{ HeadersSent() bool }).HeadersSent() {
+		t.Error("HeadersSent=true although the underlying writer cannot flush")
+	}
+}
+
+// A body written after a body-forbidden status must not reach the client.
+// net/http drops 1xx/204/304 bodies itself but ships a 205 body; the gzip
+// wrapper refuses all of them with http.ErrBodyNotAllowed so every
+// body-forbidden status behaves the same. Asserted against a real server —
+// httptest.ResponseRecorder does not model transport framing.
+func TestAcceptEncoding_BodyForbiddenStatusesDropBody(t *testing.T) {
+	for _, code := range []int{204, 205, 304} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			var writeErr error
+			srv := httptest.NewServer(LoggingMiddleware("chain-test")(CorsMiddleware("*")(
+				AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(code)
+					_, writeErr = w.Write([]byte("this must not be sent"))
+				})))))
+			defer srv.Close()
+
+			req, err := http.NewRequest("GET", srv.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Accept-Encoding", "gzip")
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != code {
+				t.Fatalf("code=%d, want %d", resp.StatusCode, code)
+			}
+			if enc := resp.Header.Get("Content-Encoding"); enc != "" {
+				t.Fatalf("body-forbidden status must not carry Content-Encoding, got %q", enc)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(body) != 0 {
+				t.Fatalf("client received %d body bytes: %q", len(body), body)
+			}
+			if writeErr != http.ErrBodyNotAllowed {
+				t.Fatalf("handler write error = %v, want http.ErrBodyNotAllowed", writeErr)
+			}
+		})
+	}
+}
+
 // HeadersSent lets panic handlers distinguish "safe to write a 500" from
 // "status line already on the wire".
 func TestAcceptEncoding_HeadersSent(t *testing.T) {

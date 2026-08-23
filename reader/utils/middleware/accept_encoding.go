@@ -17,8 +17,10 @@ import (
 // Accept-Encoding header allows it, streaming compressed bytes to the client
 // as the handler writes. Compressed responses carry no Content-Length (the
 // compressed size is unknown up front), so they are sent chunked.
-// Responses that must not carry a body (204, 304, 1xx), partial content, and
-// bodies a handler already content-encoded pass through untouched.
+// Partial content and bodies a handler already content-encoded pass through
+// untouched. Statuses that must not carry a body (1xx, 204, 205, 304) are
+// never compressed, and body writes on them are refused with
+// http.ErrBodyNotAllowed.
 func AcceptEncodingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The representation varies on Accept-Encoding no matter what this
@@ -103,6 +105,7 @@ func bodyForbidden(code int) bool {
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	gz       *gzip.Writer
+	status   int
 	compress bool
 	decided  bool
 	hijacked bool
@@ -119,6 +122,7 @@ func newGzipResponseWriter(w http.ResponseWriter) *gzipResponseWriter {
 // content-encoded itself (e.g. promhttp performs its own gzip negotiation).
 func (gzw *gzipResponseWriter) decide(code int) {
 	gzw.decided = true
+	gzw.status = code
 	gzw.compress = code/100 == 2 &&
 		!bodyForbidden(code) &&
 		code != http.StatusPartialContent &&
@@ -152,6 +156,12 @@ func (gzw *gzipResponseWriter) WriteHeader(code int) {
 func (gzw *gzipResponseWriter) Write(b []byte) (int, error) {
 	if !gzw.decided {
 		gzw.decide(http.StatusOK)
+	}
+	// net/http itself refuses body writes on 1xx/204/304; 205 forbids content
+	// just the same (RFC 9110 §15.3.6), so refuse it identically and handlers
+	// see one consistent error across every body-forbidden status.
+	if bodyForbidden(gzw.status) {
+		return 0, http.ErrBodyNotAllowed
 	}
 	if gzw.compress {
 		return gzw.gz.Write(b)

@@ -75,9 +75,13 @@ func (w *responseWriterWithCode) Write(b []byte) (int, error) {
 // Flush forwards to the underlying writer so wrappers and handlers inside
 // this middleware can stream to the client.
 func (w *responseWriterWithCode) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
+	f, ok := w.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
 	}
+	// A flush commits the response headers (net/http sends an implicit 200).
+	w.wroteHeader = true
+	f.Flush()
 }
 
 // Unwrap exposes the wrapped writer to http.ResponseController passthroughs
