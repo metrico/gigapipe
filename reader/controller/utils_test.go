@@ -1,8 +1,14 @@
 package controller
 
 import (
+	"compress/gzip"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/metrico/qryn/v5/reader/utils/middleware"
 )
 
 func TestParseTimeSecOrRFCMagnitudes(t *testing.T) {
@@ -55,5 +61,61 @@ func TestEpochToTimeSharedWithTempo(t *testing.T) {
 		if got := epochToTime(c.in, 0); !got.Equal(c.want) {
 			t.Errorf("%d: got %v want %v", c.in, got.UTC(), c.want.UTC())
 		}
+	}
+}
+
+// A panic before anything is written must surface as a plain 500.
+func TestTamePanic_BeforeWrite(t *testing.T) {
+	h := middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer tamePanic(w, r)
+		panic("boom")
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Fatalf("code=%d, want 500", w.Code)
+	}
+	if w.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("error response must not be encoded, got %q", w.Header().Get("Content-Encoding"))
+	}
+	if w.Body.String() != "Internal Server Error" {
+		t.Fatalf("body=%q", w.Body.String())
+	}
+}
+
+// A panic after the status line is committed must not produce a
+// complete-looking success response: tamePanic aborts the connection via
+// http.ErrAbortHandler, leaving the gzip stream without its trailer so
+// clients detect the truncation.
+func TestTamePanic_MidBodyAbortsCompressedStream(t *testing.T) {
+	h := middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer tamePanic(w, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"status":"success","data":`))
+		panic("boom")
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+
+	func() {
+		defer func() {
+			if rec := recover(); rec != http.ErrAbortHandler {
+				t.Fatalf("recovered %v, want http.ErrAbortHandler", rec)
+			}
+		}()
+		h.ServeHTTP(w, req)
+	}()
+
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		return
+	}
+	if body, err := io.ReadAll(zr); err == nil {
+		t.Fatalf("aborted response decoded as a complete gzip stream: %q", body)
 	}
 }
