@@ -29,6 +29,16 @@ func loggingInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo
 	return resp, err
 }
 
+// streamLoggingInterceptor is loggingInterceptor's counterpart for streaming
+// RPCs: one access-log line per stream, emitted when the stream ends, with
+// the latency spanning the stream's whole lifetime.
+func streamLoggingInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	start := time.Now()
+	err := handler(srv, ss)
+	logger.Info(formatAccessLog(info.FullMethod, status.Code(err), time.Since(start)))
+	return err
+}
+
 // formatAccessLog builds the access-log line for one gRPC call. It is a pure
 // function, factored out of loggingInterceptor so it can be unit-tested
 // without capturing logger output.

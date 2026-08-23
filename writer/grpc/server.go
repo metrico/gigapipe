@@ -47,6 +47,19 @@ func recoveryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInf
 	return handler(ctx, req)
 }
 
+// streamRecoveryInterceptor is recoveryInterceptor's counterpart for
+// streaming RPCs: a panic anywhere in the stream handler becomes
+// codes.Internal instead of killing the receiver.
+func streamRecoveryInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("OTLP gRPC handler panic:", r)
+			err = status.Errorf(codes.Internal, "panic: %v", r)
+		}
+	}()
+	return handler(srv, ss)
+}
+
 // Options carries the gRPC server's runtime configuration. It is an explicit
 // struct rather than positional arguments so future additions (e.g. TLS)
 // don't churn NewServer's and Mux's signatures again.
@@ -73,13 +86,21 @@ type Options struct {
 //     process, and is still logged by the outer logging interceptor;
 //   - auth innermost, so no business handler ever runs for an unauthenticated
 //     request.
+//
+// The stream chain mirrors the unary one interceptor for interceptor, in the
+// same order. Unary interceptors never fire for streaming RPCs, so without
+// the mirror any streaming method a service registers would skip logging,
+// recovery, and — critically — auth. Keep the two chains in lockstep.
 func NewServer(opts Options) *grpc.Server {
-	interceptors := []grpc.UnaryServerInterceptor{loggingInterceptor, recoveryInterceptor}
+	unary := []grpc.UnaryServerInterceptor{loggingInterceptor, recoveryInterceptor}
+	stream := []grpc.StreamServerInterceptor{streamLoggingInterceptor, streamRecoveryInterceptor}
 	if opts.BasicAuthUser != "" && opts.BasicAuthPass != "" {
-		interceptors = append(interceptors, newAuthInterceptor(opts.BasicAuthUser, opts.BasicAuthPass))
+		unary = append(unary, newAuthInterceptor(opts.BasicAuthUser, opts.BasicAuthPass))
+		stream = append(stream, newAuthStreamInterceptor(opts.BasicAuthUser, opts.BasicAuthPass))
 	}
 	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(interceptors...),
+		grpc.ChainUnaryInterceptor(unary...),
+		grpc.ChainStreamInterceptor(stream...),
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 	)
 	registerServices(s)

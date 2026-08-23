@@ -37,6 +37,35 @@ const invalidCredentialsMsg = "invalid credentials"
 // credentials, so the auth failure path also protects against a
 // misconfigured empty user or pass.
 func newAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
+	check := newCredentialCheck(user, pass)
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if err := check(ctx); err != nil {
+			return nil, err
+		}
+		return handler(ctx, req)
+	}
+}
+
+// newAuthStreamInterceptor is newAuthInterceptor's counterpart for streaming
+// RPCs: it verifies the same "authorization" metadata once, when the stream
+// is opened, before any handler runs. No registered service declares
+// streaming methods today; this exists so that the first one added is
+// authenticated instead of silently bypassing auth.
+func newAuthStreamInterceptor(user, pass string) grpc.StreamServerInterceptor {
+	check := newCredentialCheck(user, pass)
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := check(ss.Context()); err != nil {
+			return err
+		}
+		return handler(srv, ss)
+	}
+}
+
+// newCredentialCheck returns the credential verification shared by the unary
+// and stream auth interceptors: it inspects the context's "authorization"
+// metadata and returns nil on valid Basic credentials, or a
+// codes.Unauthenticated status otherwise.
+func newCredentialCheck(user, pass string) func(ctx context.Context) error {
 	// Hash the configured credentials once, not per request. Comparing
 	// SHA-256 digests rather than the raw strings keeps both operands a
 	// fixed 32 bytes, so the comparison below cannot leak credential length
@@ -44,27 +73,27 @@ func newAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
 	expectedUser := sha256.Sum256([]byte(user))
 	expectedPass := sha256.Sum256([]byte(pass))
 
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	return func(ctx context.Context) error {
 		md, _ := metadata.FromIncomingContext(ctx)
 		auth := mdFirst(md, "authorization")
 		if auth == "" {
-			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
+			return status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
 		// The auth-scheme token is case-insensitive (RFC 7235 §2.1).
 		parts := strings.SplitN(auth, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Basic") {
-			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
+			return status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
 		payload, err := base64.StdEncoding.DecodeString(parts[1])
 		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
+			return status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
 		pair := strings.SplitN(string(payload), ":", 2)
 		if len(pair) != 2 {
-			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
+			return status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
 		// Both comparisons are evaluated before branching: folding them
@@ -75,9 +104,9 @@ func newAuthInterceptor(user, pass string) grpc.UnaryServerInterceptor {
 		userOK := subtle.ConstantTimeCompare(gotUser[:], expectedUser[:]) == 1
 		passOK := subtle.ConstantTimeCompare(gotPass[:], expectedPass[:]) == 1
 		if !userOK || !passOK {
-			return nil, status.Error(codes.Unauthenticated, invalidCredentialsMsg)
+			return status.Error(codes.Unauthenticated, invalidCredentialsMsg)
 		}
 
-		return handler(ctx, req)
+		return nil
 	}
 }
