@@ -47,7 +47,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fastjson v1.6.10
 	go.opentelemetry.io/collector/pdata v1.65.0
-	go.opentelemetry.io/collector/pdata/pprofile v0.158.0
+	go.opentelemetry.io/collector/pdata/pprofile v0.159.0
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/exp v0.0.0-20260709172345-9ea1abe57597
 	golang.org/x/sync v0.22.0
@@ -109,7 +109,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-kit/log v0.2.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/analysis v0.25.0 // indirect
 	github.com/go-openapi/errors v0.22.8 // indirect
@@ -227,9 +227,9 @@ require (
 	go.opentelemetry.io/collector/processor v1.60.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.69.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
-	go.opentelemetry.io/otel v1.44.0 // indirect
-	go.opentelemetry.io/otel/metric v1.44.0 // indirect
-	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.opentelemetry.io/otel v1.45.0 // indirect
+	go.opentelemetry.io/otel/metric v1.45.0 // indirect
+	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.step.sm/crypto v0.87.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
