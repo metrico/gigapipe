@@ -214,3 +214,30 @@ func TestRangeTooLargeRejected(t *testing.T) {
 		}
 	}
 }
+
+// TestOuterUnionIsOrdered guards the row order the reader depends on. Clickhouse
+// runs the UNION ALL parts simultaneously and mixes their blocks, so without an
+// explicit ORDER BY on the outer query one fingerprint's rows can arrive in two
+// non-contiguous chunks; the reader then emits it as two series and prometheus
+// fails with "vector cannot contain metrics with the same labelset".
+func TestOuterUnionIsOrdered(t *testing.T) {
+	got := transpileRange(t, `last_over_time(x{job="j"}[5m])`)
+	assertOuterUnionOrdered(t, got)
+}
+
+// assertOuterUnionOrdered checks the row order the reader depends on: the outer
+// select over the UNION ALL must be ordered, and the union must stay a single
+// FROM operand or clickhouse attaches the ORDER BY to the last union member alone.
+func assertOuterUnionOrdered(t *testing.T, got string) {
+	t.Helper()
+	i := strings.LastIndex(got, "UNION ALL")
+	if i < 0 {
+		t.Fatalf("no UNION ALL in:\n%s", got)
+	}
+	if !strings.Contains(got[i:], "ORDER BY type asc , fingerprint asc , timestamp_ms asc") {
+		t.Errorf("outer union select must be ordered:\n%s", got)
+	}
+	if !strings.Contains(got, "FROM ((") {
+		t.Errorf("union must be wrapped in its own parens:\n%s", got)
+	}
+}

@@ -110,3 +110,11 @@ func TestCrossSeriesAggregateOldClickHouse(t *testing.T) {
 		t.Errorf("outer sum missing:\n%s", got)
 	}
 }
+
+// TestAggOuterUnionIsOrdered guards the agg path the same way
+// TestOuterUnionIsOrdered guards the range path: the outer select over the
+// UNION ALL must be ordered, or an interleaved stream splits one series in two.
+func TestAggOuterUnionIsOrdered(t *testing.T) {
+	got := transpileRange(t, `sum(http_requests_total{job="myjob"})`)
+	assertOuterUnionOrdered(t, got)
+}

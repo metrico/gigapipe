@@ -98,7 +98,9 @@ func (u *unionAll) String(ctx *sql.Ctx, options ...int) (string, error) {
 			return "", err
 		}
 	}
-	// the extra pair of parens keeps the union a single FROM operand: without it
-	// clickhouse attaches the outer query's ORDER BY to the last union member only
+	// unionAll is only ever used as a FROM operand (LabelsPlanner and
+	// AggPlanner), and both put an ORDER BY on the outer select. The extra pair
+	// of parens keeps the whole union one operand: without it clickhouse
+	// attaches the outer ORDER BY to the last union member alone.
 	return "((" + strings.Join(selects, ") UNION ALL (") + "))", nil
 }
