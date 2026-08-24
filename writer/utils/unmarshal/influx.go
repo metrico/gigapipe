@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/go-logfmt/logfmt"
-	"github.com/influxdata/telegraf/plugins/parsers/influx"
+	"github.com/influxdata/line-protocol/v2/lineprotocol"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
@@ -40,31 +40,54 @@ type influxDec struct {
 }
 
 func (e *influxDec) Decode() error {
-	parser := influx.NewStreamParser(e.ctx.bodyReader)
-	precision := e.ctx.ctx.Value(utils.ContextKeyPrecision).(time.Duration)
-	parser.SetTimePrecision(precision)
+	dec := lineprotocol.NewDecoder(e.ctx.bodyReader)
+	precision := e.ctx.ctx.Value(utils.ContextKeyPrecision).(lineprotocol.Precision)
+	// Lines without a timestamp get the arrival time, truncated to the
+	// requested precision.
+	now := time.Now()
 
-	for mtr, err := parser.Next(); true; mtr, err = parser.Next() {
-		if err == influx.EOF {
-			return nil
-		}
+	for dec.Next() {
+		measurement, err := dec.Measurement()
 		if err != nil {
 			return errors.NewUnmarshalError(err)
 		}
-		labels := [][]string{{"measurement", mtr.Name()}}
-		for k, v := range mtr.Tags() {
-			labels = append(labels, []string{k, v})
+		labels := [][]string{{"measurement", string(measurement)}}
+		for {
+			k, v, err := dec.NextTag()
+			if err != nil {
+				return errors.NewUnmarshalError(err)
+			}
+			if k == nil {
+				break
+			}
+			labels = append(labels, []string{string(k), string(v)})
 		}
 		labels = sanitizeLabels(labels)
 
-		fields := mtr.Fields()
+		fields := map[string]any{}
+		for {
+			k, v, err := dec.NextField()
+			if err != nil {
+				return errors.NewUnmarshalError(err)
+			}
+			if k == nil {
+				break
+			}
+			fields[string(k)] = v.Interface()
+		}
+
+		tm, err := dec.Time(precision, now)
+		if err != nil {
+			return errors.NewUnmarshalError(err)
+		}
+		timestamp := tm.UnixNano()
 
 		if _, ok := fields["message"]; ok {
 			message, err := getMessage(fields)
 			if err != nil {
 				return err
 			}
-			err = e.onEntries(labels, []int64{mtr.Time().UnixNano()}, []string{message}, []float64{0},
+			err = e.onEntries(labels, []int64{timestamp}, []string{message}, []float64{0},
 				[]uint8{model.SAMPLE_TYPE_LOG})
 			if err != nil {
 				return err
@@ -86,12 +109,15 @@ func (e *influxDec) Decode() error {
 				continue
 			}
 			labels[nameIdx][1] = sanitizeMetricName(k)
-			err = e.onEntries(labels, []int64{mtr.Time().UnixNano()}, []string{""}, []float64{fVal},
+			err = e.onEntries(labels, []int64{timestamp}, []string{""}, []float64{fVal},
 				[]uint8{model.SAMPLE_TYPE_METRIC})
 			if err != nil {
 				return err
 			}
 		}
+	}
+	if err := dec.Err(); err != nil {
+		return errors.NewUnmarshalError(err)
 	}
 	return nil
 }

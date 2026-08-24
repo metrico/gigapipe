@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
+	"github.com/influxdata/line-protocol/v2/lineprotocol"
 	helputils "github.com/metrico/qryn/v5/writer/utils"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
@@ -78,16 +78,16 @@ func PushInfluxV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 				if strPrecision == "" {
 					strPrecision = "ns"
 				}
-				var precision time.Duration
+				var precision lineprotocol.Precision
 				switch strPrecision {
 				case "ns":
-					precision = time.Nanosecond
+					precision = lineprotocol.Nanosecond
 				case "us":
-					precision = time.Microsecond
+					precision = lineprotocol.Microsecond
 				case "ms":
-					precision = time.Millisecond
+					precision = lineprotocol.Millisecond
 				case "s":
-					precision = time.Second
+					precision = lineprotocol.Second
 				default:
 					return nil, errors.New400Error(fmt.Sprintf("Invalid precision %s", strPrecision))
 				}
