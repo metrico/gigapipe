@@ -100,6 +100,15 @@ func (s *AggPlanner) patchLabels() sql.SQLObject {
 		// explicitly, since it is never in the user's label list.
 		labels = append(append([]string{}, s.Labels...), "__name__")
 	}
+	if len(labels) == 0 {
+		// An empty grouping set keeps no labels at all, so the projection is the
+		// constant empty label set -- which is also what prometheus produces for
+		// `sum(x)` and `sum by () (x)`. Building the filter here would render
+		// `x.1 IN ()`, which ClickHouse rejects. `without` never lands here: it
+		// always carries __name__ to drop.
+		return sql.NewRawObject("'{}'")
+	}
+
 	sqlLabels := make([]sql.SQLObject, len(labels))
 	for i, label := range labels {
 		sqlLabels[i] = sql.NewStringVal(label)

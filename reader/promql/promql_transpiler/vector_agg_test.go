@@ -53,6 +53,29 @@ func TestAggByKeepsOnlyListedLabels(t *testing.T) {
 	}
 }
 
+// TestAggEmptyGroupingKeepsNoLabels guards the empty grouping set: a bare
+// aggregation and `by ()` keep no labels, so the projection must be the constant
+// empty label set. Rendering the filter instead would emit `x.1 IN ()`, which
+// ClickHouse rejects with UNSUPPORTED_METHOD on every version.
+func TestAggEmptyGroupingKeepsNoLabels(t *testing.T) {
+	for _, q := range []string{
+		`sum(http_requests_total{job="myjob"})`,
+		`sum by () (http_requests_total{job="myjob"})`,
+		`count(http_requests_total{job="myjob"})`,
+		`sum(rate(http_requests_total{job="myjob"}[5m]))`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			got := transpileRange(t, q)
+			if strings.Contains(got, "IN ()") {
+				t.Errorf("empty IN list is not valid ClickHouse:\n%s", got)
+			}
+			if !strings.Contains(got, "'{}' as new_labels") {
+				t.Errorf("an empty grouping set must project the empty label set:\n%s", got)
+			}
+		})
+	}
+}
+
 // TestAggWithoutDropsNameLabel guards the __name__ fix: `without` must drop the
 // listed labels and __name__, which prometheus removes from every aggregation.
 func TestAggWithoutDropsNameLabel(t *testing.T) {
@@ -69,7 +92,7 @@ func TestAggOfRateFolds(t *testing.T) {
 	if !strings.Contains(got, "sum(val) as val") {
 		t.Errorf("outer sum missing:\n%s", got)
 	}
-	if !strings.Contains(got, "resets") || !strings.Contains(got, "/ 300.000000") {
+	if !strings.Contains(got, "resets") || !strings.Contains(got, "c_change * c_reach / 300.000000 as val") {
 		t.Errorf("inner rate machinery missing:\n%s", got)
 	}
 }

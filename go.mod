@@ -23,7 +23,7 @@ require (
 	github.com/go-faster/jx v1.2.0
 	github.com/go-kit/kit v0.13.0
 	github.com/go-logfmt/logfmt v0.6.1
-	github.com/gofiber/fiber/v3 v3.4.0
+	github.com/gofiber/fiber/v3 v3.5.0
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20260604005048-7023385849c0
 	github.com/gorilla/mux v1.8.1
@@ -42,17 +42,17 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/common v0.70.1
 	github.com/prometheus/prometheus v0.313.2
-	github.com/sirupsen/logrus v1.9.4
-	github.com/stretchr/testify v1.11.1
+	github.com/sirupsen/logrus v1.10.0
+	github.com/stretchr/testify v1.12.1
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fastjson v1.6.10
-	go.opentelemetry.io/collector/pdata v1.64.0
+	go.opentelemetry.io/collector/pdata v1.65.0
 	go.opentelemetry.io/collector/pdata/pprofile v0.158.0
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/exp v0.0.0-20260709172345-9ea1abe57597
 	golang.org/x/sync v0.22.0
 	google.golang.org/grpc v1.84.0-dev.0.20260723093437-b6eac429d7b6
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -135,8 +135,8 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/gofiber/schema v1.8.0 // indirect
-	github.com/gofiber/utils/v2 v2.1.1 // indirect
+	github.com/gofiber/schema v1.8.3 // indirect
+	github.com/gofiber/utils/v2 v2.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/cel-go v0.30.0 // indirect
@@ -156,7 +156,7 @@ require (
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/knadh/koanf/providers/confmap v1.0.0 // indirect
@@ -166,7 +166,7 @@ require (
 	github.com/lestrrat-go/strftime v1.1.1 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
-	github.com/mattn/go-isatty v0.0.23 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/mcuadros/go-defaults v1.2.0 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
@@ -213,7 +213,7 @@ require (
 	github.com/tidwall/tinylru v1.2.1 // indirect
 	github.com/tidwall/wal v1.2.1 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
-	github.com/valyala/fasthttp v1.72.0 // indirect
+	github.com/valyala/fasthttp v1.73.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -221,7 +221,7 @@ require (
 	go.opentelemetry.io/collector/confmap v1.60.0 // indirect
 	go.opentelemetry.io/collector/confmap/xconfmap v0.154.0 // indirect
 	go.opentelemetry.io/collector/consumer v1.60.0 // indirect
-	go.opentelemetry.io/collector/featuregate v1.64.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.65.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.154.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.60.0 // indirect
 	go.opentelemetry.io/collector/processor v1.60.0 // indirect
