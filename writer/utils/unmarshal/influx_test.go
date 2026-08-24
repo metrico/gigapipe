@@ -67,6 +67,7 @@ func TestJsonError(t *testing.T) {
 
 type influxEntry struct {
 	labels    map[string]string
+	nLabels   int
 	timestamp int64
 	message   string
 	value     float64
@@ -86,7 +87,7 @@ func decodeInflux(t *testing.T, body string, precision lineprotocol.Precision) [
 		for _, l := range labels {
 			lbls[l[0]] = l[1]
 		}
-		res = append(res, influxEntry{lbls, timestampsNS[0], message[0], value[0], types[0]})
+		res = append(res, influxEntry{lbls, len(labels), timestampsNS[0], message[0], value[0], types[0]})
 		return nil
 	})
 	if err := dec.Decode(); err != nil {
@@ -157,5 +158,18 @@ func TestInfluxParseError(t *testing.T) {
 	dec.SetOnEntries(func([][]string, []int64, []string, []float64, []uint8) error { return nil })
 	if err := dec.Decode(); err == nil {
 		t.Fatal("want an error for a line without fields")
+	}
+}
+
+func TestInfluxDuplicateTag(t *testing.T) {
+	entries := decodeInflux(t, "cpu,host=a,host=b value=1 1\n", lineprotocol.Nanosecond)
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	if got := entries[0].labels["host"]; got != "b" {
+		t.Fatalf("want the last tag value to win, got %q", got)
+	}
+	if entries[0].nLabels != 3 { // measurement, host, __name__
+		t.Fatalf("want deduplicated labels, got %v", entries[0].labels)
 	}
 }

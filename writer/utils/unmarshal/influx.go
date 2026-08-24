@@ -3,6 +3,7 @@ package unmarshal
 import (
 	"bytes"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/go-logfmt/logfmt"
@@ -60,7 +61,14 @@ func (e *influxDec) Decode() error {
 			if k == nil {
 				break
 			}
-			labels = append(labels, []string{string(k), string(v)})
+			key, value := string(k), string(v)
+			// A duplicate tag key is invalid line protocol, but the previous
+			// parser let the last one win, so keep doing that.
+			if i := slices.IndexFunc(labels[1:], func(l []string) bool { return l[0] == key }); i >= 0 {
+				labels[i+1][1] = value
+				continue
+			}
+			labels = append(labels, []string{key, value})
 		}
 		labels = sanitizeLabels(labels)
 
