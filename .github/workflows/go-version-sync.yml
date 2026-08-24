@@ -26,16 +26,13 @@ jobs:
             exit 1
           fi
           echo "version=${LATEST}" >> $GITHUB_OUTPUT
-          echo "version_mm=${LATEST_MM}" >> $GITHUB_OUTPUT
           echo "Latest stable Go version: ${LATEST}"
 
       - name: Get current Go version from go.mod
         id: go-current
         run: |
           CURRENT=$(grep '^go ' go.mod | awk '{print $2}')
-          CURRENT_MM=$(echo "${CURRENT}" | grep -oE '^[0-9]+\.[0-9]+')
           echo "version=${CURRENT}" >> $GITHUB_OUTPUT
-          echo "version_mm=${CURRENT_MM}" >> $GITHUB_OUTPUT
           echo "Current Go version: ${CURRENT}"
 
       - name: Check if update is needed
@@ -111,7 +108,8 @@ jobs:
             - `scripts/deploy/docker/Dockerfile` — updated `golang` builder image
             - `go.sum` — regenerated via `go mod tidy`
 
-            > **Manual step required:** Update `go-version` in `.github/workflows/go.yml` and `.github/workflows/build_release.yml` to `${{ steps.go-latest.outputs.version_mm }}` — these cannot be updated automatically due to GitHub token restrictions on workflow files.
+            CI workflows read their toolchain from `go.mod` via `setup-go`'s
+            `go-version-file`, so no workflow file needs a manual bump.
 
             ---
             *Keeping the project up-to-date with Go releases ensures compatibility and security enhancements.*
