@@ -74,15 +74,15 @@
 //	}
 //
 // Run `go test ./reader/<head>/... -run TestGolden -update` (or
-// `just update-golden <head>`) to regenerate every fixture's golden section
-// from the head's current output. Regenerating with no code change must
-// produce a byte-identical file (see writeFile): re-run it twice and diff.
+// `make update-golden HEAD=<head>`) to regenerate every fixture's golden
+// section from the head's current output. Regenerating with no code change
+// must produce a byte-identical file (see writeFile): re-run it twice and diff.
 //
 // # TestGolden naming convention
 //
 // Every head's golden-driving test function MUST be named exactly TestGolden
 // in its package (t.Run subtests per fixture are expected and encouraged).
-// The Justfile's `update-golden` recipe runs
+// The Makefile's `update-golden` target runs
 // `go test ./reader/<head>/... -run TestGolden -update`, and the merge
 // gate's corpus lanes key off the same name; a differently-named test
 // silently will not be regenerated or gated.
@@ -303,7 +303,7 @@ func (f *Fixture) CheckError(t TestingT, err error) {
 // state, in a fixed canonical section order (meta, query, sql-N..., error),
 // with meta keys sorted alphabetically. Rebuilding from scratch on every
 // write — rather than patching the previously parsed archive in place — is
-// what makes `just update-golden <head>` deterministic: two consecutive
+// what makes `make update-golden HEAD=<head>` deterministic: two consecutive
 // regenerations with no code change always produce byte-identical files.
 func (f *Fixture) writeFile() error {
 	ar := &txtar.Archive{Comment: f.comment}
