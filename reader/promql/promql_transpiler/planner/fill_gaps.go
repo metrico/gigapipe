@@ -49,12 +49,13 @@ func fillGaps(grouped sql.ISelect, ctx *shared.PlannerContext, duration time.Dur
 
 // fillStaleness densifies grouped with ORDER BY ... WITH FILL STALENESS, the
 // native path on clickhouse >= 24.11. Filled rows carry source = 0 by default.
+// TO is exclusive, hence ctx.To + 1: the step at ctx.To needs filling too.
 func fillStaleness(grouped sql.ISelect, ctx *shared.PlannerContext, duration time.Duration) sql.ISelect {
 	grouped.Select(append(grouped.GetSelect(), sql.NewSimpleCol("1", "source"))...)
 	return grouped.OrderBy(
 		sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
 		sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC).
-			WithFillStaleness(ctx.To.UnixMilli(), ctx.Step.Milliseconds(), duration.Milliseconds()))
+			WithFillStaleness(ctx.To.UnixMilli()+1, ctx.Step.Milliseconds(), duration.Milliseconds()))
 }
 
 // fillArrayJoin densifies grouped without WITH FILL STALENESS, for clickhouse <
@@ -101,10 +102,11 @@ func fillArrayJoin(grouped sql.ISelect, ctx *shared.PlannerContext, duration tim
 
 	// range(start, end, step) is [start, end): every step from the bucket up to,
 	// but excluding, whichever comes first of the next bucket, a duration later,
-	// or the query end. next_ms is another bucket and so already step aligned.
+	// or ctx.To + 1, the exclusive end that still covers the step at ctx.To.
+	// next_ms is another bucket and so already step aligned.
 	tsExpr := fmt.Sprintf(
 		"arrayJoin(range(bucket_ms, least(bucket_ms + toInt64(%d), next_ms, toInt64(%d)), toInt64(%d)))",
-		durationMs, ctx.To.UnixMilli(), ctx.Step.Milliseconds())
+		durationMs, ctx.To.UnixMilli()+1, ctx.Step.Milliseconds())
 
 	finalSel := []sql.SQLObject{
 		sql.NewSimpleCol("fingerprint", "fingerprint"),
