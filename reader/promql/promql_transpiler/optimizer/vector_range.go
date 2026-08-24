@@ -112,7 +112,5 @@ func (v *VectorRange) substitute(p shared.SQLRequestPlanner) prom_parser.Expr {
 			DropMetricName:    true,
 		},
 	}
-	return &prom_parser.VectorSelector{
-		Name: metricName,
-	}
+	return substituteSelector(v.selector.VectorSelector.(*prom_parser.VectorSelector), metricName)
 }

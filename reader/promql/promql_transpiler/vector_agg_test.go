@@ -92,7 +92,7 @@ func TestAggOfRateFolds(t *testing.T) {
 	if !strings.Contains(got, "sum(val) as val") {
 		t.Errorf("outer sum missing:\n%s", got)
 	}
-	if !strings.Contains(got, "resets") || !strings.Contains(got, "/ 300.000000") {
+	if !strings.Contains(got, "resets") || !strings.Contains(got, "c_change * c_reach / 300.000000 as val") {
 		t.Errorf("inner rate machinery missing:\n%s", got)
 	}
 }
@@ -132,4 +132,12 @@ func TestCrossSeriesAggregateOldClickHouse(t *testing.T) {
 	if !strings.Contains(got, "sum(val) as val") {
 		t.Errorf("outer sum missing:\n%s", got)
 	}
+}
+
+// TestAggOuterUnionIsOrdered guards the agg path the same way
+// TestOuterUnionIsOrdered guards the range path: the outer select over the
+// UNION ALL must be ordered, or an interleaved stream splits one series in two.
+func TestAggOuterUnionIsOrdered(t *testing.T) {
+	got := transpileRange(t, `sum(http_requests_total{job="myjob"})`)
+	assertOuterUnionOrdered(t, got)
 }
