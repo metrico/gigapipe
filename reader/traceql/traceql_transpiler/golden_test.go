@@ -15,7 +15,7 @@ import (
 
 // TestGolden is this head's golden-corpus driving test (see
 // reader/internal/goldentest's package doc for the naming convention that
-// wires it into `just update-golden traceql` and the merge gate).
+// wires it into `make update-golden HEAD=traceql` and the merge gate).
 //
 // Every fixture is driven through the *real* two-level TraceQL pipeline:
 //

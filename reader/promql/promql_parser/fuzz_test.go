@@ -7,7 +7,7 @@ import "testing"
 //
 // Not part of the default test/CI lane: native Go fuzz targets only run
 // their seed corpus under plain `go test`, and are otherwise driven locally
-// via `just fuzz promql [duration]` (or `go test -fuzz=FuzzParse`).
+// via `make fuzz HEAD=promql DURATION=<duration>` (or `go test -fuzz=FuzzParse`).
 func FuzzParse(f *testing.F) {
 	for _, seed := range []string{
 		`http_requests_total`,
