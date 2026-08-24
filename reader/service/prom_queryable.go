@@ -310,7 +310,7 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	if err != nil {
 		return &model.SeriesSet{Error: err}
 	}
-	c.ReshuffleSeries(res.Series)
+	res.Series = c.ReshuffleSeries(res.Series)
 	sort.Slice(res.Series, func(i, j int) bool {
 		for k, l1 := range res.Series[i].LabelsArray() {
 			l2 := res.Series[j].LabelsArray()
@@ -329,28 +329,38 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	return &res
 }
 
-func (c *CLokiQuerier) ReshuffleSeries(series []*model.SeriesV2) {
+// ReshuffleSeries merges series that resolve to the same label set (this can
+// happen when a single logical series is split across interleaved ClickHouse
+// blocks and ends up in more than one *model.SeriesV2 entry). The duplicate's
+// samples are merged into the first entry and the duplicate itself must be
+// dropped from the returned slice - the prometheus engine errors out with
+// "vector cannot contain metrics with the same labelset" if two series with
+// identical labels are both kept.
+func (c *CLokiQuerier) ReshuffleSeries(series []*model.SeriesV2) []*model.SeriesV2 {
 	seriesMap := make(map[uint64]*model.SeriesV2, len(series)*2)
+	out := series[:0]
 	for _, ent := range series {
-		labels := ent.LabelsGetter.Get(ent.Fp)
-		strLabels := make([][]byte, len(labels))
-		for i, lbl := range labels {
+		lbls := ent.LabelsGetter.Get(ent.Fp)
+		strLabels := make([][]byte, len(lbls))
+		for i, lbl := range lbls {
 			strLabels[i] = []byte(lbl.Name + "=" + lbl.Value)
 		}
 		str := bytes.Join(strLabels, []byte(" "))
 		_fp := cityhash102.CityHash64(str, uint32(len(str)))
 		if chunk, ok := seriesMap[_fp]; ok {
-			logger.Error(fmt.Printf("Warning: double labels set found [%d - %d]: %s",
+			logger.Error(fmt.Sprintf("Warning: double labels set found [%d - %d]: %s",
 				chunk.Fp, ent.Fp, string(str)))
 			chunk.Samples = append(chunk.Samples, ent.Samples...)
 			sort.Slice(chunk.Samples, func(i, j int) bool {
 				return chunk.Samples[i].TimestampMs < chunk.Samples[j].TimestampMs
 			})
-
+			// duplicate merged into chunk - drop it from the output
 		} else {
 			seriesMap[_fp] = ent
+			out = append(out, ent)
 		}
 	}
+	return out
 }
 
 func (c *CLokiQuerier) LabelValues(ctx context.Context, name string, hints *storage.LabelHints, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {

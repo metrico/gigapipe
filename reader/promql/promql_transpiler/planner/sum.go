@@ -73,7 +73,15 @@ func (s *AggPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		From(&unionAll{
 			ISelect: values,
 			unions:  []sql.ISelect{labelsReq},
-		})
+		}).
+		// Same reason as LabelsPlanner: clickhouse interleaves the UNION ALL
+		// arms' blocks, so the inner ORDER BY above does not survive. The reader
+		// splits a series whenever fingerprint changes, so an interleaved stream
+		// yields two series with the same labelset and prometheus rejects it.
+		OrderBy(
+			sql.NewOrderBy(sql.NewRawObject("type"), sql.ORDER_BY_DIRECTION_ASC),
+			sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
+			sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC))
 	return res, nil
 
 }

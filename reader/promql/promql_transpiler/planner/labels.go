@@ -66,7 +66,17 @@ func (l *LabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 	res := sql.NewSelect().
 		With(withMain).
 		Select(sql.NewRawObject("*")).
-		From(&unionAll{values, []sql.ISelect{labels}})
+		From(&unionAll{values, []sql.ISelect{labels}}).
+		// clickhouse runs the UNION ALL parts simultaneously and mixes their
+		// blocks, so the (fingerprint, timestamp_ms) order of the values CTE does
+		// not survive on its own. The reader groups incoming rows into series by
+		// watching for fingerprint changes, so an interleaved stream splits one
+		// series in two and prometheus rejects the result with "vector cannot
+		// contain metrics with the same labelset".
+		OrderBy(
+			sql.NewOrderBy(sql.NewRawObject("type"), sql.ORDER_BY_DIRECTION_ASC),
+			sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
+			sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC))
 	return res, nil
 }
 
@@ -88,5 +98,9 @@ func (u *unionAll) String(ctx *sql.Ctx, options ...int) (string, error) {
 			return "", err
 		}
 	}
-	return "(" + strings.Join(selects, ") UNION ALL (") + ")", nil
+	// unionAll is only ever used as a FROM operand (LabelsPlanner and
+	// AggPlanner), and both put an ORDER BY on the outer select. The extra pair
+	// of parens keeps the whole union one operand: without it clickhouse
+	// attaches the outer ORDER BY to the last union member alone.
+	return "((" + strings.Join(selects, ") UNION ALL (") + "))", nil
 }
