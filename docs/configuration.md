@@ -50,6 +50,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`BULK_MAX_SIZE_BYTES`** - Maximum batch size in bytes before flushing to ClickHouse
 - **`BULK_MAX_AGE_MS`** - Maximum age in milliseconds before flushing batch (default: `100`)
+- **`QRYN_SYSTEM_SETTINGS_OTLP_MAX_MESSAGE_SIZE`** - Maximum decompressed size in bytes of a single OTLP export request, applied to both the OTLP/HTTP body limit and the OTLP/gRPC max receive message size (default: `67108864`, i.e. 64 MiB). Also settable in the config file as `system_settings.otlp_max_message_size`.
 
 ## Advanced Settings
 
