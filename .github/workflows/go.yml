@@ -37,12 +37,14 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26'
+        go-version-file: go.mod
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v9
       with:
-        version: v2.12
+        # Must be built with a Go toolchain >= go.mod's `go` directive, or
+        # golangci-lint refuses to run at all.
+        version: v2.13.1
         # Grandfather in pre-existing findings; gate only newly introduced
         # ones so adoption doesn't require cleaning up the whole repo first.
         only-new-issues: true
