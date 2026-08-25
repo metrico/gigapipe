@@ -56,6 +56,13 @@ func Bind(p Parser, body io.Reader) BoundParser {
 	}
 }
 
+// PreDecoded binds a parser built over an already-decoded payload, such as the
+// OTLP *FromData builders. Those parsers take their input from the object
+// captured at construction and never read the body, so an empty one is bound.
+func PreDecoded(p Parser) BoundParser {
+	return Bind(p, http.NoBody)
+}
+
 type BuildOption func(ctx *PusherCtx) *PusherCtx
 
 type PusherCtx struct {

@@ -25,11 +25,9 @@ func (s *profilesServer) Export(ctx context.Context, req pprofileotlp.ExportRequ
 	if err != nil {
 		return pprofileotlp.NewExportResponse(), status.Error(codes.InvalidArgument, err.Error())
 	}
-	// Body is nil: the *FromData parsers are built with withPreParsedBody,
-	// so the payload is already supplied and no reader is ever read.
-	parser := controller.Bind(controller.Parser(unmarshal.OTLPProfilesFromProfiles(req.Profiles())), nil)
+	parser := controller.PreDecoded(controller.Parser(unmarshal.OTLPProfilesFromProfiles(req.Profiles())))
 	if err := controller.IngestParsed(ctx, parser, svcs); err != nil {
-		return pprofileotlp.NewExportResponse(), status.Error(codes.Internal, err.Error())
+		return pprofileotlp.NewExportResponse(), ingestFailure("profiles", err)
 	}
 	return pprofileotlp.NewExportResponse(), nil
 }

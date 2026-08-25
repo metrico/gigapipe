@@ -3,6 +3,8 @@ package grpc
 import (
 	"context"
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,8 +19,10 @@ import (
 	"github.com/metrico/qryn/v5/writer/utils/helpers"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	"github.com/metrico/qryn/v5/writer/utils/promise"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
@@ -67,18 +71,26 @@ func (r *recorderSvc) PlanFlush() {}
 
 // fakeRegistry is an in-memory registry.ServiceRegistry test double. For traces,
 // ResolveTraceServices reads GetSpansSeriesService (SpanAttrs slot) and
-// GetSpansService (Spans slot); every other method exists only to satisfy the
-// interface and returns nil.
+// GetSpansService (Spans slot); ResolveLogServices reads GetSamplesService and
+// GetTimeSeriesService. Unset slots return nil to satisfy the interface.
 type fakeRegistry struct {
-	spans     *recorderSvc
-	spanAttrs *recorderSvc
+	spans      *recorderSvc
+	spanAttrs  *recorderSvc
+	samples    *recorderSvc
+	timeSeries *recorderSvc
 }
 
 func (f *fakeRegistry) GetTimeSeriesService(id string) (service.IInsertServiceV2, error) {
-	return nil, nil
+	if f.timeSeries == nil {
+		return nil, nil
+	}
+	return f.timeSeries, nil
 }
 func (f *fakeRegistry) GetSamplesService(id string) (service.IInsertServiceV2, error) {
-	return nil, nil
+	if f.samples == nil {
+		return nil, nil
+	}
+	return f.samples, nil
 }
 func (f *fakeRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
 	return nil, nil
@@ -108,6 +120,20 @@ func installFakeRegistry(t *testing.T) *recorderSvc {
 	controller.Registry = fr
 	t.Cleanup(func() { controller.Registry = old })
 	return spans
+}
+
+// installFakeMetricsRegistry installs a fakeRegistry (save/restore) whose
+// samples and time-series insert services record pushed rows, and returns the
+// two recorders to assert on.
+func installFakeMetricsRegistry(t *testing.T) (samples, timeSeries *recorderSvc) {
+	t.Helper()
+	samples = &recorderSvc{node: "n"}
+	timeSeries = &recorderSvc{node: "n"}
+	fr := &fakeRegistry{samples: samples, timeSeries: timeSeries}
+	old := controller.Registry
+	controller.Registry = fr
+	t.Cleanup(func() { controller.Registry = old })
+	return samples, timeSeries
 }
 
 // installFPCache registers a trivial per-node fingerprint cache for node "n" and
@@ -156,18 +182,43 @@ func sampleTraceRequest() *coltracepb.ExportTraceServiceRequest {
 	}
 }
 
+// sentinelHandler is a plain http.Handler that records whether it was
+// invoked, used to prove gRPC requests never reach the non-gRPC fallback
+// handler (and that non-gRPC requests do).
+type sentinelHandler struct {
+	mu     sync.Mutex
+	called bool
+}
+
+func (s *sentinelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.called = true
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *sentinelHandler) wasCalled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.called
+}
+
 // TestGRPCTraces_EndToEnd drives the OTLP gRPC TraceService over an in-memory
-// bufconn connection and asserts a span row reaches the insert layer (the Spans
-// recorder receives at least one pushed request).
+// bufconn connection, served through the same production stack used in
+// production (Mux + Protocols on a shared http.Server, not a bare
+// grpc.Server), and asserts a span row reaches the insert layer (the Spans
+// recorder receives at least one pushed request). It also asserts the gRPC
+// request never falls through to the sentinel non-gRPC handler.
 func TestGRPCTraces_EndToEnd(t *testing.T) {
 	spans := installFakeRegistry(t)
 	installFPCache(t, "n")
 	installConfig(t)
 
 	lis := bufconn.Listen(1 << 20)
-	srv := NewServer()
-	go func() { _ = srv.Serve(lis) }()
-	defer srv.Stop()
+	sentinel := &sentinelHandler{}
+	httpServer := &http.Server{Handler: Mux(sentinel, Options{}), Protocols: Protocols()}
+	go func() { _ = httpServer.Serve(lis) }()
+	defer httpServer.Close()
 
 	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
@@ -209,5 +260,158 @@ func TestGRPCTraces_EndToEnd(t *testing.T) {
 	}
 	if ts.MName[0] != "op" {
 		t.Fatalf("span name did not flow through: got %q, want %q", ts.MName[0], "op")
+	}
+
+	if sentinel.wasCalled() {
+		t.Fatalf("sentinel non-gRPC handler was called for a gRPC request; Mux dispatch is broken")
+	}
+}
+
+// TestGRPCMetrics_EndToEnd drives the OTLP gRPC MetricsService over an
+// in-memory bufconn connection through the production Mux stack. The request
+// mixes an ingestible cumulative monotonic sum with a delta sum that the
+// ingest policy rejects, asserting both halves of the contract at once: the
+// stored half reaches the samples and time-series insert services with the
+// translated name, and the rejected half is reported via partial_success.
+func TestGRPCMetrics_EndToEnd(t *testing.T) {
+	samples, timeSeries := installFakeMetricsRegistry(t)
+	installFPCache(t, "n")
+	installConfig(t)
+
+	lis := bufconn.Listen(1 << 20)
+	sentinel := &sentinelHandler{}
+	httpServer := &http.Server{Handler: Mux(sentinel, Options{}), Protocols: Protocols()}
+	go func() { _ = httpServer.Serve(lis) }()
+	defer httpServer.Close()
+
+	conn, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	req := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricsv1.ResourceMetrics{{
+			Resource: &resourcev1.Resource{Attributes: []*commonv1.KeyValue{{
+				Key:   "service.name",
+				Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: "svc"}},
+			}}},
+			ScopeMetrics: []*metricsv1.ScopeMetrics{{Metrics: []*metricsv1.Metric{
+				{
+					Name: "http.requests",
+					Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
+						AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+						IsMonotonic:            true,
+						DataPoints: []*metricsv1.NumberDataPoint{{
+							TimeUnixNano: 1700000000_000000000,
+							Value:        &metricsv1.NumberDataPoint_AsInt{AsInt: 5},
+						}},
+					}},
+				},
+				{
+					Name: "delta.requests",
+					Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
+						AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
+						IsMonotonic:            true,
+						DataPoints: []*metricsv1.NumberDataPoint{{
+							TimeUnixNano: 1700000000_000000000,
+							Value:        &metricsv1.NumberDataPoint_AsInt{AsInt: 3},
+						}},
+					}},
+				},
+			}}},
+		}},
+	}
+
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "x-ch-dsn", "test-dsn")
+	client := colmetricspb.NewMetricsServiceClient(conn)
+	resp, err := client.Export(ctx, req)
+	if err != nil {
+		t.Fatalf("export failed: %v", err)
+	}
+
+	if resp.PartialSuccess == nil {
+		t.Fatal("expected partial_success for the delta data point")
+	}
+	if resp.PartialSuccess.RejectedDataPoints != 1 {
+		t.Fatalf("expected 1 rejected data point, got %d", resp.PartialSuccess.RejectedDataPoints)
+	}
+	if resp.PartialSuccess.ErrorMessage == "" {
+		t.Fatal("expected a non-empty partial_success error message")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for (len(samples.reqs()) == 0 || len(timeSeries.reqs()) == 0) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	gotSamples := samples.reqs()
+	if len(gotSamples) == 0 {
+		t.Fatal("samples insert service received no requests")
+	}
+	spl, ok := gotSamples[0].(*model.TimeSamplesData)
+	if !ok {
+		t.Fatalf("samples request had unexpected type %T", gotSamples[0])
+	}
+	if len(spl.MValue) != 1 || spl.MValue[0] != 5 {
+		t.Fatalf("expected exactly the cumulative sample value 5, got %#v", spl.MValue)
+	}
+
+	gotTS := timeSeries.reqs()
+	if len(gotTS) == 0 {
+		t.Fatal("time series insert service received no requests")
+	}
+	ts, ok := gotTS[0].(*model.TimeSeriesData)
+	if !ok {
+		t.Fatalf("time series request had unexpected type %T", gotTS[0])
+	}
+	var sawTotal bool
+	for _, lbls := range ts.MLabels {
+		if strings.Contains(lbls, `"__name__":"http_requests_total"`) {
+			sawTotal = true
+		}
+		if strings.Contains(lbls, "delta_requests") {
+			t.Fatalf("delta metric series must not be stored: %s", lbls)
+		}
+	}
+	if !sawTotal {
+		t.Fatalf("expected a stored series named http_requests_total, got %v", ts.MLabels)
+	}
+
+	if sentinel.wasCalled() {
+		t.Fatal("sentinel non-gRPC handler was called for a gRPC request")
+	}
+}
+
+// TestMux_HTTPPassthrough proves that plain HTTP/1.1 requests are routed to
+// next unchanged — Mux's gRPC dispatch does not swallow ordinary routes.
+func TestMux_HTTPPassthrough(t *testing.T) {
+	lis := bufconn.Listen(1 << 20)
+	sentinel := &sentinelHandler{}
+	httpServer := &http.Server{Handler: Mux(sentinel, Options{}), Protocols: Protocols()}
+	go func() { _ = httpServer.Serve(lis) }()
+	defer httpServer.Close()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return lis.Dial()
+			},
+		},
+	}
+
+	resp, err := client.Get("http://bufnet/")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if !sentinel.wasCalled() {
+		t.Fatalf("sentinel handler was not called for a plain HTTP/1.1 request")
 	}
 }
