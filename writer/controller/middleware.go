@@ -211,57 +211,44 @@ var WithOverallContextMiddleware = WithPreRequest(func(w http.ResponseWriter, r 
 	return nil
 })
 
+// withTSAndSampleService resolves the samples/time-series and profile insert
+// services for the tenant. Resolution goes through the same Resolve*Services
+// helpers the gRPC receiver uses. Node — the fingerprint-cache key in
+// IngestParsed — always comes from the time-series service, since that cache
+// only gates time_series writes; profiles emit no time-series rows, so for
+// them the choice is inert.
 var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
-
 	ctx := r.Context()
-	dsn := ctx.Value(utils.ContextKeyDSN)
-	//// Assuming Registry functions are available and compatible with net/http
-	svc, err := Registry.GetSamplesService(dsn.(string))
+	dsn := ctx.Value(utils.ContextKeyDSN).(string)
+	logSvcs, err := ResolveLogServices(dsn)
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(r.Context(), utils.ContextKeySplService, svc)
-
-	svc, err = Registry.GetTimeSeriesService(dsn.(string))
+	profileSvcs, err := ResolveProfileServices(dsn)
 	if err != nil {
 		return err
 	}
-	ctx = context.WithValue(ctx, utils.ContextKeyTsService, svc)
-
-	svc, err = Registry.GetProfileInsertService(dsn.(string))
-	if err != nil {
-		return err
-	}
-	ctx = context.WithValue(ctx, utils.ContextKeyProfileService, svc)
-
-	nodeName := svc.GetNodeName()
-	ctx = context.WithValue(ctx, utils.ContextKeyNode, nodeName)
+	ctx = context.WithValue(ctx, utils.ContextKeySplService, logSvcs.Spl)
+	ctx = context.WithValue(ctx, utils.ContextKeyTsService, logSvcs.Ts)
+	ctx = context.WithValue(ctx, utils.ContextKeyProfileService, profileSvcs.Profile)
+	ctx = context.WithValue(ctx, utils.ContextKeyNode, logSvcs.Node)
 	*r = *r.WithContext(ctx)
 	return nil
 })
 
+// withTracesService resolves the span insert services for the tenant through
+// the same ResolveTraceServices helper the gRPC receiver uses, keeping the
+// two transports' Node resolution identical.
 var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
-	dsn := r.Context().Value(utils.ContextKeyDSN)
-
-	// Get spans attributes service
-	spanAttrsSvc, err := Registry.GetSpansSeriesService(dsn.(string))
-	if err != nil {
-		return fmt.Errorf("failed to get spans attributes service: %v", err)
-	}
-
-	// Get spans service
-	spansSvc, err := Registry.GetSpansService(dsn.(string))
-	if err != nil {
-		return fmt.Errorf("failed to get spans service: %v", err)
-	}
-
-	// Update context with both services
 	ctx := r.Context()
-	ctx = context.WithValue(ctx, utils.ContextKeySpanAttrsService, spanAttrsSvc)
-	ctx = context.WithValue(ctx, utils.ContextKeySpansService, spansSvc)
-	ctx = context.WithValue(ctx, utils.ContextKeyNode, spansSvc.GetNodeName())
-
-	// Update request context
+	dsn := ctx.Value(utils.ContextKeyDSN).(string)
+	svcs, err := ResolveTraceServices(dsn)
+	if err != nil {
+		return fmt.Errorf("failed to get trace services: %v", err)
+	}
+	ctx = context.WithValue(ctx, utils.ContextKeySpanAttrsService, svcs.SpanAttrs)
+	ctx = context.WithValue(ctx, utils.ContextKeySpansService, svcs.Spans)
+	ctx = context.WithValue(ctx, utils.ContextKeyNode, svcs.Node)
 	*r = *r.WithContext(ctx)
 	return nil
 })
