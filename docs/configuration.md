@@ -42,6 +42,10 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 - **`HOST`** - HTTP server bind address (default: `0.0.0.0`)
 - **`CORS_ALLOW_ORIGIN`** - Enable CORS and set allowed origin (e.g., `https://example.com`)
 
+## OTLP Ingestion
+
+- **`OTLP_GRPC_ADDR`** - Address for the OTLP/gRPC receiver (e.g. `:4317`, the OTel-convention gRPC port). When set, gigapipe accepts OTLP over gRPC in addition to the existing OTLP/HTTP endpoints. Unset or empty disables the receiver (default: off) and leaves existing behavior unchanged. Supports traces, logs, and profiles. See [OTLP over gRPC](otlp-grpc.md).
+
 ## Write Settings
 
 - **`BULK_MAX_SIZE_BYTES`** - Maximum batch size in bytes before flushing to ClickHouse

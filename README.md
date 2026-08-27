@@ -34,6 +34,7 @@
 - [Configuration & Docker](docs/configuration.md) — environment variables, Docker quickstart, cross-cluster setup
 - [Profiling API](docs/profiling-api.md) — profiling endpoints, DOT format export, Graphviz visualization
 - [OTLP Profiles Ingestion](docs/otlp-profiles.md) — OpenTelemetry profiles signal ingestion via `/v1development/profiles`
+- [OTLP over gRPC](docs/otlp-grpc.md) — OTLP/gRPC receiver (`OTLP_GRPC_ADDR`) for traces, logs, and profiles
 - [Contributing](docs/contributing.md) — development setup, testing, CLA requirement
 - [Full Documentation](https://gigapipe.com/docs/oss) — hosted docs at gigapipe.com
 - [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/metrico/gigapipe)

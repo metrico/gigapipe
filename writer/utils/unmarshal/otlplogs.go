@@ -163,3 +163,13 @@ var UnmarshalOTLPLogsV2 = Build(
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &otlpLogDec{ctx: ctx}
 	}))
+
+// OTLPLogsFromData builds a parser over an already-decoded LogsData, reusing
+// the OTLP logs decoder without re-marshaling. Used by the gRPC receiver,
+// where the framework has already decoded the wire bytes.
+func OTLPLogsFromData(ld *otlplogs.LogsData) ParsingFunction {
+	return Build(
+		withPreParsedBody(ld),
+		withLogsParser(func(ctx *ParserCtx) iLogsParser { return &otlpLogDec{ctx: ctx} }),
+	)
+}

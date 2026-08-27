@@ -198,19 +198,13 @@ func doLogsPattern(s *model.TimeSamplesData) {
 	controller.ClusterLines(s.MMessage, s.MFingerprint, s.MTimestampNS)
 }
 
-func doParse(r *http.Request, parser Parser) error {
-	reader := getBodyStream(r)
-	tsService := getService(r, utils.ContextKeyTsService)
-	splService := getService(r, utils.ContextKeySplService)
-	spanAttrsService := getService(r, utils.ContextKeySpanAttrsService)
-	spansService := getService(r, utils.ContextKeySpansService)
-	profileService := getService(r, utils.ContextKeyProfileService)
-	node := r.Context().Value(utils.ContextKeyNode).(string)
-
-	//var promises []chan error
+// IngestParsed runs parser and pushes each ParserResponse to the given
+// per-tenant insert services. It is the transport-agnostic core shared by the
+// HTTP handlers and the gRPC receiver.
+func IngestParsed(ctx context.Context, parser Parser, svcs InsertServices) error {
+	fpNode := FPCache.DB(svcs.Node)
 	var promises []*promise.Promise[uint32]
-	var err error = nil
-	res := parser(r.Context(), reader, FPCache.DB(node))
+	res := parser(ctx, nil, fpNode)
 	for response := range res {
 		if response.Error != nil {
 			go func() {
@@ -219,23 +213,37 @@ func doParse(r *http.Request, parser Parser) error {
 			}()
 			return response.Error
 		}
-
 		promises = append(promises,
-			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, tsService),
-			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, splService),
-			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, spanAttrsService),
-			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, spansService),
-			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, profileService),
+			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, svcs.Ts),
+			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, svcs.Spl),
+			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, svcs.SpanAttrs),
+			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, svcs.Spans),
+			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, svcs.Profile),
 		)
 		if response.SamplesRequest != nil {
 			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
 		}
 	}
 	for _, p := range promises {
-		_, err = p.Get()
-		if err != nil {
+		if _, err := p.Get(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func doParse(r *http.Request, parser Parser) error {
+	svcs := InsertServices{
+		Ts:        getService(r, utils.ContextKeyTsService),
+		Spl:       getService(r, utils.ContextKeySplService),
+		SpanAttrs: getService(r, utils.ContextKeySpanAttrsService),
+		Spans:     getService(r, utils.ContextKeySpansService),
+		Profile:   getService(r, utils.ContextKeyProfileService),
+		Node:      r.Context().Value(utils.ContextKeyNode).(string),
+	}
+	reader := getBodyStream(r)
+	bound := func(ctx context.Context, _ io.Reader, fp numbercache.ICache[uint64]) chan *model.ParserResponse {
+		return parser(ctx, reader, fp)
+	}
+	return IngestParsed(r.Context(), bound, svcs)
 }

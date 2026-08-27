@@ -57,6 +57,20 @@ type ParserCtx struct {
 
 type parserFn func(ctx *ParserCtx) error
 
+// Decode (on the three parser interfaces below) drives one parser: it takes
+// whatever the ParserCtx holds and emits gigapipe insert-model rows through the
+// registered on* handler. The name is historical and slightly overloaded — what
+// it does depends on how the ParserCtx was populated:
+//
+//   - Body-parsing decoders (zipkin, datadog, influx, and the HTTP OTLP path)
+//     read raw bytes from the ctx (bodyReader/bodyBuffer) and DO parse the wire
+//     format before converting to rows.
+//   - Pre-decoded decoders (the gRPC OTLP path, via withPreParsedBody) receive
+//     an ALREADY-decoded object in ctx.bodyObject and do NOT re-parse any wire
+//     bytes — Decode here is purely the OTLP-structure -> insert-row transform.
+//
+// So "Decode" over an already-decoded proto is not redundant: it is the
+// structure-to-storage-model conversion, which must run regardless of transport.
 type iLogsParser interface {
 	Decode() error
 	SetOnEntries(h onEntriesHandler)
@@ -507,6 +521,19 @@ func withParsedBody(fn func() proto.Message) buildOption {
 			if err != nil {
 				return err
 			}
+			ctx.bodyObject = obj
+			return nil
+		})
+		return builder
+	}
+}
+
+// withPreParsedBody injects an already-decoded proto object as the body,
+// bypassing body buffering and proto.Unmarshal. Used by the gRPC receiver,
+// where the framework has already decoded the wire bytes.
+func withPreParsedBody(obj any) buildOption {
+	return func(builder *parserBuilder) *parserBuilder {
+		builder.PreParse = append(builder.PreParse, func(ctx *ParserCtx) error {
 			ctx.bodyObject = obj
 			return nil
 		})
