@@ -116,14 +116,28 @@ func epochToTime(v int64, frac float64) time.Time {
 	}
 }
 
+// tamePanic converts a handler panic into a client-visible failure. While the
+// response headers are still unsent it reports a plain 500. Once the status
+// line is committed, appending an error message would corrupt a partially
+// written body, so it re-panics with http.ErrAbortHandler instead: net/http
+// drops the connection, and the gzip middleware leaves the stream without its
+// trailer, so clients detect the truncation rather than parsing a
+// complete-looking success response.
 func tamePanic(w http.ResponseWriter, r *http.Request) {
-	if err := recover(); err != nil {
-		logger.Error("panic:", err, " stack:", string(debug.Stack()))
-		logger.Error("query: ", r.URL.String())
-		w.WriteHeader(500)
-		w.Write([]byte("Internal Server Error"))
-		recover()
+	err := recover()
+	if err == nil {
+		return
 	}
+	if err == http.ErrAbortHandler {
+		panic(err)
+	}
+	logger.Error("panic:", err, " stack:", string(debug.Stack()))
+	logger.Error("query: ", r.URL.String())
+	if hs, ok := w.(interface{ HeadersSent() bool }); ok && hs.HeadersSent() {
+		panic(http.ErrAbortHandler)
+	}
+	w.WriteHeader(500)
+	w.Write([]byte("Internal Server Error"))
 }
 
 func RunPreRequestPlugins(r *http.Request) (context.Context, error) {

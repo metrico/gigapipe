@@ -44,8 +44,9 @@ func LoggingMiddleware(tpl string) func(next http.Handler) http.Handler {
 
 type responseWriterWithCode struct {
 	http.ResponseWriter
-	statusCode int
-	length     int
+	statusCode  int
+	length      int
+	wroteHeader bool
 }
 
 func (w *responseWriterWithCode) Hijack() (net.Conn, *bufio.ReadWriter, error) {
@@ -59,13 +60,41 @@ func (w *responseWriterWithCode) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func (w *responseWriterWithCode) WriteHeader(code int) {
 	ensureSafeContentType(w.Header())
 	w.statusCode = code
+	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *responseWriterWithCode) Write(b []byte) (int, error) {
 	ensureSafeContentType(w.Header())
+	// Any Write commits the response headers (net/http sends an implicit 200).
+	w.wroteHeader = true
 	w.length += len(b)
 	return w.ResponseWriter.Write(b)
+}
+
+// Flush forwards to the underlying writer so wrappers and handlers inside
+// this middleware can stream to the client.
+func (w *responseWriterWithCode) Flush() {
+	f, ok := w.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+	// A flush commits the response headers (net/http sends an implicit 200).
+	w.wroteHeader = true
+	f.Flush()
+}
+
+// Unwrap exposes the wrapped writer to http.ResponseController passthroughs
+// such as SetWriteDeadline.
+func (w *responseWriterWithCode) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// HeadersSent reports whether the status line has been committed, letting
+// panic handlers choose between writing an error response and aborting the
+// connection.
+func (w *responseWriterWithCode) HeadersSent() bool {
+	return w.wroteHeader
 }
 
 // ensureSafeContentType mitigates MIME-sniffing based reflected XSS
