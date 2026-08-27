@@ -164,3 +164,14 @@ var UnmarshalOTLPV2 = Build(
 	withBufferedBody,
 	withParsedBody(func() proto.Message { return &tracev1.TracesData{} }),
 	withSpansParser(func(ctx *ParserCtx) iSpansParser { return &OTLPDecoder{ctx: ctx} }))
+
+// OTLPTracesFromData builds a parser over an already-decoded TracesData,
+// reusing the OTLP span decoder without re-marshaling. Body read and
+// proto.Unmarshal are skipped; the supplied object is injected directly.
+func OTLPTracesFromData(td *tracev1.TracesData) ParsingFunction {
+	return Build(
+		withPayloadType(2),
+		withPreParsedBody(td),
+		withSpansParser(func(ctx *ParserCtx) iSpansParser { return &OTLPDecoder{ctx: ctx} }),
+	)
+}

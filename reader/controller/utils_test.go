@@ -1,8 +1,15 @@
 package controller
 
 import (
+	"compress/gzip"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/metrico/qryn/v5/reader/utils/middleware"
 )
 
 func TestParseTimeSecOrRFCMagnitudes(t *testing.T) {
@@ -55,5 +62,95 @@ func TestEpochToTimeSharedWithTempo(t *testing.T) {
 		if got := epochToTime(c.in, 0); !got.Equal(c.want) {
 			t.Errorf("%d: got %v want %v", c.in, got.UTC(), c.want.UTC())
 		}
+	}
+}
+
+// A panic before anything is written must surface as a plain 500.
+func TestTamePanic_BeforeWrite(t *testing.T) {
+	h := middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer tamePanic(w, r)
+		panic("boom")
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Fatalf("code=%d, want 500", w.Code)
+	}
+	if w.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("error response must not be encoded, got %q", w.Header().Get("Content-Encoding"))
+	}
+	if w.Body.String() != "Internal Server Error" {
+		t.Fatalf("body=%q", w.Body.String())
+	}
+}
+
+// A panic after the status line is committed must not produce a
+// complete-looking success response: tamePanic aborts the connection via
+// http.ErrAbortHandler, leaving the gzip stream without its trailer so
+// clients detect the truncation.
+func TestTamePanic_MidBodyAbortsCompressedStream(t *testing.T) {
+	h := middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer tamePanic(w, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"status":"success","data":`))
+		panic("boom")
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+
+	func() {
+		defer func() {
+			if rec := recover(); rec != http.ErrAbortHandler {
+				t.Fatalf("recovered %v, want http.ErrAbortHandler", rec)
+			}
+		}()
+		h.ServeHTTP(w, req)
+	}()
+
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		return
+	}
+	if body, err := io.ReadAll(zr); err == nil {
+		t.Fatalf("aborted response decoded as a complete gzip stream: %q", body)
+	}
+}
+
+// A bare Flush commits an implicit 200 before any body write; a panic after
+// it must abort the connection, not write "Internal Server Error" onto a
+// committed 200. This needs a real server on the identity path — the recorder
+// does not model header commitment, and the gzip writer latches commitment
+// through a different code path.
+func TestTamePanic_FlushThenPanicAborts(t *testing.T) {
+	srv := httptest.NewServer(middleware.LoggingMiddleware("chain-test")(middleware.CorsMiddleware("*")(
+		middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer tamePanic(w, r)
+			w.(http.Flusher).Flush()
+			panic("boom")
+		})))))
+	defer srv.Close()
+
+	req, err := http.NewRequest("GET", srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	buf, readErr := io.ReadAll(resp.Body)
+	if strings.Contains(string(buf), "Internal Server Error") {
+		t.Fatalf("error body written onto a committed 200: %q", buf)
+	}
+	if readErr == nil {
+		t.Fatal("client read a complete-looking response from an aborted handler")
 	}
 }
