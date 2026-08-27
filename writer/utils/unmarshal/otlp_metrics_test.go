@@ -744,3 +744,43 @@ func TestOTLPMetrics_HistogramInfBucketUsesCumulative(t *testing.T) {
 		t.Errorf("expected 0 rejected, got %d", stats.RejectedDataPoints())
 	}
 }
+
+// TestOTLPMetrics_HistogramInfBucketStaysMonotonicWhenCountIsLow covers the
+// severe half of the same defect. When the data point's count field is BELOW
+// the sum of its bucket_counts, sourcing +Inf from count places the catch-all
+// bucket underneath a finite one: "<= infinity" ends up smaller than "<= 1",
+// which is arithmetically impossible for cumulative buckets.
+// histogram_quantile interpolates across that broken staircase without
+// complaint, so the guarantee has to come from the encoder.
+func TestOTLPMetrics_HistogramInfBucketStaysMonotonicWhenCountIsLow(t *testing.T) {
+	md := wrapMetrics(testResource(), &metricsv1.Metric{
+		Name: "undercounted.hist",
+		Data: &metricsv1.Metric_Histogram{Histogram: &metricsv1.Histogram{
+			AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints: []*metricsv1.HistogramDataPoint{{
+				TimeUnixNano:   testTS,
+				Count:          5, // below the buckets' own total of 10
+				ExplicitBounds: []float64{0.1, 1},
+				BucketCounts:   []uint64{4, 3, 3},
+			}},
+		}},
+	})
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+
+	// Walk the buckets in ascending `le` order; each must be >= the last.
+	var prev float64
+	for _, le := range []string{`"le":"0.1"`, `"le":"1"`, `"le":"+Inf"`} {
+		got := col.find(`"__name__":"undercounted_hist_bucket"`, le)
+		if len(got) != 1 {
+			t.Fatalf("expected exactly one bucket series for %s, got %d", le, len(got))
+		}
+		if got[0].value < prev {
+			t.Errorf("bucket series is not monotonic: %s = %v is below the previous bucket %v",
+				le, got[0].value, prev)
+		}
+		prev = got[0].value
+	}
+	if prev != 10 {
+		t.Errorf("+Inf bucket: want the running sum 10, got %v", prev)
+	}
+}
