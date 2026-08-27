@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"io"
 	"sync"
 	"testing"
 	"time"
@@ -80,7 +79,7 @@ func TestIngestParsed_EmptyParserReturnsNil(t *testing.T) {
 
 	// A parser that emits no responses must complete without error and
 	// without touching any (nil) service.
-	parser := func(_ context.Context, _ io.Reader, _ numbercache.ICache[uint64]) chan *model.ParserResponse {
+	parser := func(_ context.Context, _ numbercache.ICache[uint64]) chan *model.ParserResponse {
 		ch := make(chan *model.ParserResponse)
 		close(ch)
 		return ch
@@ -117,7 +116,7 @@ func TestIngestParsed_PushRouting(t *testing.T) {
 	spansReq := &model.TimeSamplesData{Size: 40}
 	profileReq := &model.TimeSamplesData{Size: 50}
 
-	parser := func(_ context.Context, _ io.Reader, _ numbercache.ICache[uint64]) chan *model.ParserResponse {
+	parser := func(_ context.Context, _ numbercache.ICache[uint64]) chan *model.ParserResponse {
 		ch := make(chan *model.ParserResponse, 1)
 		ch <- &model.ParserResponse{
 			TimeSeriesRequest: tsReq,
@@ -177,7 +176,7 @@ func TestIngestParsed_ErrorPath(t *testing.T) {
 
 	wantErr := errors.New("boom")
 
-	parser := func(_ context.Context, _ io.Reader, _ numbercache.ICache[uint64]) chan *model.ParserResponse {
+	parser := func(_ context.Context, _ numbercache.ICache[uint64]) chan *model.ParserResponse {
 		// Buffered + trailing responses: IngestParsed returns on the first
 		// error but must drain the rest without blocking the sender.
 		ch := make(chan *model.ParserResponse, 3)

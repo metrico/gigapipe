@@ -27,7 +27,9 @@ func (s *traceServer) Export(ctx context.Context, req *coltracepb.ExportTraceSer
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	td := &tracev1.TracesData{ResourceSpans: req.ResourceSpans}
-	parser := controller.Parser(unmarshal.OTLPTracesFromData(td))
+	// Body is nil: the *FromData parsers are built with withPreParsedBody,
+	// so the payload is already supplied and no reader is ever read.
+	parser := controller.Bind(controller.Parser(unmarshal.OTLPTracesFromData(td)), nil)
 	if err := controller.IngestParsed(ctx, parser, svcs); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

@@ -49,8 +49,19 @@ func ResolveLogServices(dsn string) (InsertServices, error) {
 	if s.Ts, err = Registry.GetTimeSeriesService(dsn); err != nil {
 		return s, err
 	}
-	s.Node = s.Spl.GetNodeName()
+	// Node keys the fingerprint cache, which gates time_series writes — rows
+	// that go to Ts, so the cache must be namespaced by Ts's node.
+	s.Node = s.Ts.GetNodeName()
 	return s, nil
+}
+
+// ResolveMetricServices resolves only the metric insert services for a
+// tenant. Metrics and logs share the same storage (samples + time series), so
+// this delegates to ResolveLogServices; it exists so metric callers don't
+// appear to violate the SIGNAL ISOLATION contract by resolving another
+// signal's services.
+func ResolveMetricServices(dsn string) (InsertServices, error) {
+	return ResolveLogServices(dsn)
 }
 
 // ResolveProfileServices resolves only the profile insert service for a tenant.

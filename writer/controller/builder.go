@@ -37,7 +37,24 @@ func NewMiddlewareConfig(middlewares ...BuildOption) MiddlewareConfig {
 }
 
 type Requester func(w http.ResponseWriter, r *http.Request) error
+
+// Parser turns a request payload into a stream of ParserResponses. The body is
+// a call-time argument because the content-type parsers are registered on the
+// routes at startup, long before any request exists to read from.
 type Parser func(ctx context.Context, body io.Reader, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
+
+// BoundParser is a Parser whose input has already been supplied. IngestParsed
+// takes this type rather than Parser so that it cannot be handed a parser still
+// waiting for a body that IngestParsed has no way to provide.
+type BoundParser func(ctx context.Context, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
+
+// Bind supplies body to p. It is the seam between the route-registered parsers
+// and the request whose payload they read.
+func Bind(p Parser, body io.Reader) BoundParser {
+	return func(ctx context.Context, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse {
+		return p(ctx, body, fpCache)
+	}
+}
 
 type BuildOption func(ctx *PusherCtx) *PusherCtx
 
@@ -201,10 +218,10 @@ func doLogsPattern(s *model.TimeSamplesData) {
 // IngestParsed runs parser and pushes each ParserResponse to the given
 // per-tenant insert services. It is the transport-agnostic core shared by the
 // HTTP handlers and the gRPC receiver.
-func IngestParsed(ctx context.Context, parser Parser, svcs InsertServices) error {
+func IngestParsed(ctx context.Context, parser BoundParser, svcs InsertServices) error {
 	fpNode := FPCache.DB(svcs.Node)
 	var promises []*promise.Promise[uint32]
-	res := parser(ctx, nil, fpNode)
+	res := parser(ctx, fpNode)
 	for response := range res {
 		if response.Error != nil {
 			go func() {
@@ -241,9 +258,5 @@ func doParse(r *http.Request, parser Parser) error {
 		Profile:   getService(r, utils.ContextKeyProfileService),
 		Node:      r.Context().Value(utils.ContextKeyNode).(string),
 	}
-	reader := getBodyStream(r)
-	bound := func(ctx context.Context, _ io.Reader, fp numbercache.ICache[uint64]) chan *model.ParserResponse {
-		return parser(ctx, reader, fp)
-	}
-	return IngestParsed(r.Context(), bound, svcs)
+	return IngestParsed(r.Context(), Bind(parser, getBodyStream(r)), svcs)
 }
