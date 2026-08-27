@@ -682,3 +682,65 @@ func TestOTLPMetrics_TargetInfoSingleSamplePerResource(t *testing.T) {
 		t.Errorf("target_info timestamp: want the latest accepted (%d), got %d", int64(testTS+points-1), got[0].ts)
 	}
 }
+
+// TestOTLPMetrics_HistogramInfBucketUsesCumulative pins the +Inf bucket to the
+// running sum of bucket_counts rather than the data point's own count field.
+// The two disagree whenever a producer is lossy or buggy, and taking count
+// there can place +Inf BELOW the last finite bucket. histogram_quantile does
+// not error on a non-monotonic bucket series — it silently returns a wrong
+// number — so monotonicity has to hold by construction.
+func TestOTLPMetrics_HistogramInfBucketUsesCumulative(t *testing.T) {
+	md := wrapMetrics(testResource(), &metricsv1.Metric{
+		Name: "lossy.hist",
+		Data: &metricsv1.Metric_Histogram{Histogram: &metricsv1.Histogram{
+			AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints: []*metricsv1.HistogramDataPoint{{
+				TimeUnixNano:   testTS,
+				Count:          99, // deliberately disagrees with the buckets below
+				ExplicitBounds: []float64{0.1, 1},
+				BucketCounts:   []uint64{4, 3, 3}, // sums to 10, not 99
+			}},
+		}},
+	})
+	stats := &OTLPMetricsStats{}
+	col := collectMetrics(t, md, stats)
+
+	checks := []struct {
+		sub  []string
+		want float64
+	}{
+		{[]string{`"__name__":"lossy_hist_bucket"`, `"le":"0.1"`}, 4},
+		{[]string{`"__name__":"lossy_hist_bucket"`, `"le":"1"`}, 7},
+		// The running sum, NOT dp.Count (99).
+		{[]string{`"__name__":"lossy_hist_bucket"`, `"le":"+Inf"`}, 10},
+		// _count still reports what the producer claimed, so the discrepancy
+		// stays visible as _bucket{le="+Inf"} != _count.
+		{[]string{`"__name__":"lossy_hist_count"`}, 99},
+	}
+	for _, c := range checks {
+		got := col.find(c.sub...)
+		if len(got) != 1 || got[0].value != c.want {
+			t.Errorf("series %v: want value %v, got %+v", c.sub, c.want, got)
+		}
+	}
+
+	// Monotonicity is the property that actually matters downstream.
+	var prev float64
+	for _, le := range []string{`"le":"0.1"`, `"le":"1"`, `"le":"+Inf"`} {
+		got := col.find(`"__name__":"lossy_hist_bucket"`, le)
+		if len(got) != 1 {
+			t.Fatalf("expected exactly one bucket series for %s, got %d", le, len(got))
+		}
+		if got[0].value < prev {
+			t.Errorf("bucket series is not monotonic: %s = %v is below the previous bucket %v",
+				le, got[0].value, prev)
+		}
+		prev = got[0].value
+	}
+
+	// A count mismatch is well-formed data, merely inconsistent, so the point
+	// is accepted rather than rejected.
+	if stats.RejectedDataPoints() != 0 {
+		t.Errorf("expected 0 rejected, got %d", stats.RejectedDataPoints())
+	}
+}

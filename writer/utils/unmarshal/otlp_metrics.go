@@ -357,15 +357,21 @@ func (d *otlpMetricsDec) decodeHistogram(points []*otlpmetrics.HistogramDataPoin
 		for i, count := range dp.BucketCounts {
 			cumulative += count
 			le := "+Inf"
-			emitCount := cumulative
 			if i < len(dp.ExplicitBounds) {
 				le = strconv.FormatFloat(dp.ExplicitBounds[i], 'f', -1, 64)
 			} else {
-				emitCount = dp.Count
+				// The +Inf bucket carries the running sum rather than dp.Count.
+				// The two disagree whenever a producer is lossy, and taking
+				// dp.Count here can place +Inf BELOW the last finite bucket.
+				// histogram_quantile does not error on a non-monotonic bucket
+				// series, it silently returns a wrong number, so monotonicity
+				// has to hold by construction. The producer's own total is
+				// still reported by _count, leaving any mismatch visible as
+				// _bucket{le="+Inf"} != _count.
 				infEmitted = true
 			}
 			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}}, "histogram", metric)
-			if err := d.emit(lbls, ts, traceID, float64(emitCount)); err != nil {
+			if err := d.emit(lbls, ts, traceID, float64(cumulative)); err != nil {
 				return err
 			}
 		}
