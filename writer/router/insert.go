@@ -12,6 +12,7 @@ func RouteInsertDataApis(router *mux.Router, cfg controllerv1.MiddlewareConfig) 
 	router.HandleFunc("/api/v2/series", controllerv1.PushDatadogMetricsV2(cfg)).Methods("POST")
 	router.HandleFunc("/api/v2/logs", controllerv1.PushDatadogV2(cfg)).Methods("POST")
 	router.HandleFunc("/v1/logs", controllerv1.OTLPLogsV2(cfg)).Methods("POST")
+	router.HandleFunc("/v1/metrics", controllerv1.OTLPMetricsV2(cfg)).Methods("POST")
 
 	router.HandleFunc("/influx/api/v2/write/health", controllerv1.HealthInflux).Methods("GET")
 	router.HandleFunc("/influx/health", controllerv1.HealthInflux).Methods("GET")
