@@ -70,16 +70,3 @@ gigapipe's query engine derives staleness from its own fill window.
 The first exemplar carrying a valid trace ID is stored alongside the sample
 (on plain series and `_bucket` series), enabling metric-to-trace
 correlation queries over the stored trace IDs.
-
-## Baseline test suite
-
-`scripts/test/e2e/otlp-metrics/` contains a comparison harness that ingests
-an identical payload matrix into gigapipe (HTTP protobuf, HTTP JSON, gRPC),
-VictoriaMetrics and Prometheus, then compares PromQL results across all
-three systems and asserts the protocol-conformance behavior above:
-
-```sh
-make docker
-docker compose -f scripts/test/e2e/otlp-metrics/docker-compose.yml up -d
-go run ./scripts/test/e2e/otlp-metrics
-```
