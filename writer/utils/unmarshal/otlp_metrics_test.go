@@ -784,3 +784,69 @@ func TestOTLPMetrics_HistogramInfBucketStaysMonotonicWhenCountIsLow(t *testing.T
 		t.Errorf("+Inf bucket: want the running sum 10, got %v", prev)
 	}
 }
+
+// TestOTLPMetrics_ExpHistogramInfBucketStaysMonotonicWhenCountIsLow is the
+// exponential-histogram counterpart of the classic case. Sourcing +Inf from the
+// data point's count field puts the catch-all bucket below every finite one
+// when count falls under the buckets' own total, so "<= infinity" reads as
+// smaller than "<= 2", which cumulative buckets can never be.
+func TestOTLPMetrics_ExpHistogramInfBucketStaysMonotonicWhenCountIsLow(t *testing.T) {
+	md := wrapMetrics(testResource(), &metricsv1.Metric{
+		Name: "undercounted.exp",
+		Data: &metricsv1.Metric_ExponentialHistogram{ExponentialHistogram: &metricsv1.ExponentialHistogram{
+			AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints: []*metricsv1.ExponentialHistogramDataPoint{{
+				TimeUnixNano: testTS,
+				Count:        5, // below the buckets' own total of 10
+				Scale:        0,
+				ZeroCount:    0,
+				Positive: &metricsv1.ExponentialHistogramDataPoint_Buckets{
+					Offset:       0,
+					BucketCounts: []uint64{4, 3, 3},
+				},
+			}},
+		}},
+	})
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+
+	// scale 0 -> base 2; bucket k's upper bound is 2^(k+1): 2, 4, 8.
+	var prev float64
+	for _, le := range []string{`"le":"2"`, `"le":"4"`, `"le":"8"`, `"le":"+Inf"`} {
+		got := col.find(`"__name__":"undercounted_exp_bucket"`, le)
+		if len(got) != 1 {
+			t.Fatalf("expected exactly one bucket series for %s, got %d", le, len(got))
+		}
+		if got[0].value < prev {
+			t.Errorf("bucket series is not monotonic: %s = %v is below the previous bucket %v",
+				le, got[0].value, prev)
+		}
+		prev = got[0].value
+	}
+	if prev != 10 {
+		t.Errorf("+Inf bucket: want the running sum 10, got %v", prev)
+	}
+}
+
+// TestOTLPMetrics_ExpHistogramInfBucketWithoutPositiveBuckets pins the
+// zero-bucket-only case, where no finite bucket series is emitted and +Inf
+// therefore reports the producer's own total rather than a running sum.
+func TestOTLPMetrics_ExpHistogramInfBucketWithoutPositiveBuckets(t *testing.T) {
+	md := wrapMetrics(testResource(), &metricsv1.Metric{
+		Name: "zeros.only",
+		Data: &metricsv1.Metric_ExponentialHistogram{ExponentialHistogram: &metricsv1.ExponentialHistogram{
+			AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints: []*metricsv1.ExponentialHistogramDataPoint{{
+				TimeUnixNano: testTS,
+				Count:        3,
+				Scale:        0,
+				ZeroCount:    3,
+			}},
+		}},
+	})
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+
+	got := col.find(`"__name__":"zeros_only_bucket"`, `"le":"+Inf"`)
+	if len(got) != 1 || got[0].value != 3 {
+		t.Errorf(`+Inf bucket: want 3, got %+v`, got)
+	}
+}

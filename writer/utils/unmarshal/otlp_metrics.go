@@ -431,8 +431,16 @@ func (d *otlpMetricsDec) decodeExponentialHistogram(points []*otlpmetrics.Expone
 			}
 		}
 
+		// +Inf carries the running sum so the bucket series stays monotonic even
+		// when a producer's count disagrees with its bucket counts; _count
+		// reports the producer's total. With no positive buckets, dp.Count is
+		// the total.
+		infValue := cumulative
+		if dp.Positive == nil || len(dp.Positive.BucketCounts) == 0 {
+			infValue = dp.Count
+		}
 		lblsInf := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}}, "histogram", metric)
-		if err := d.emit(lblsInf, ts, traceID, float64(dp.Count)); err != nil {
+		if err := d.emit(lblsInf, ts, traceID, float64(infValue)); err != nil {
 			return err
 		}
 		if dp.Sum != nil {
