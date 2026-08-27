@@ -381,6 +381,35 @@ func stop() {
 // background flushes to complete before forcibly exiting.
 const shutdownTimeout = 30 * time.Second
 
+// servesGRPC reports whether a node in this mode mounts the OTLP/gRPC
+// receiver. The receiver ingests through the write path (controller.Registry,
+// populated by writer.Init), so it follows exactly the modes that boot the
+// writer subsystem — see bootSequence, whose in("all", "writer", "") gate this
+// mirrors. TestServesGRPCFollowsWriterModes pins the two together.
+func servesGRPC(mode string) bool {
+	return mode == "all" || mode == "writer" || mode == ""
+}
+
+// httpRoot returns the root handler and protocol set for the shared HTTP
+// server. It is split out of httpStart so the mode gating can be asserted
+// directly: httpStart binds a listener and blocks on signals, so the decision
+// is untestable while it stays inline.
+//
+// Both return values are gated on the same condition, deliberately. Reader-only
+// nodes have no write path, so they get neither the OTLP/gRPC dispatcher nor
+// the protocol set that carries it: writergrpc.Protocols() enables cleartext
+// (prior-knowledge) HTTP/2, which exists only to carry gRPC. Setting it on a
+// node with no gRPC handler behind it would widen the protocols that node
+// accepts for no gain. A nil *http.Protocols leaves net/http's default
+// (HTTP/1 plus HTTP/2 over TLS), which is what reader-only nodes served before
+// the receiver existed.
+func httpRoot(server http.Handler, mode string, grpcOpts writergrpc.Options) (http.Handler, *http.Protocols) {
+	if !servesGRPC(mode) {
+		return server, nil
+	}
+	return writergrpc.Mux(server, grpcOpts), writergrpc.Protocols()
+}
+
 func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writergrpc.Options) {
 	logger.Info("Starting service")
 	var err error
@@ -390,13 +419,8 @@ func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writerg
 		panic(err)
 	}
 
-	// Reader-only nodes have no write path (controller.Registry is nil there),
-	// so only wrap with the OTLP/gRPC dispatcher when this node writes.
-	var root http.Handler = server
-	if mode == "all" || mode == "writer" || mode == "" {
-		root = writergrpc.Mux(server, grpcOpts)
-	}
-	httpServer := &http.Server{Handler: root, Protocols: writergrpc.Protocols()}
+	root, protocols := httpRoot(server, mode, grpcOpts)
+	httpServer := &http.Server{Handler: root, Protocols: protocols}
 
 	// Start serving in a goroutine so we can block on the signal below.
 	go func() {
