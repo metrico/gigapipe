@@ -328,7 +328,11 @@ func start() {
 		step.run(cfg, app)
 	}
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
-	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode)
+	grpcOpts := writergrpc.Options{
+		BasicAuthUser: cfg.Setting.AUTH_SETTINGS.BASIC.Username,
+		BasicAuthPass: cfg.Setting.AUTH_SETTINGS.BASIC.Password,
+	}
+	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
 
 }
 
@@ -377,7 +381,32 @@ func stop() {
 // background flushes to complete before forcibly exiting.
 const shutdownTimeout = 30 * time.Second
 
-func httpStart(server *mux.Router, httpURL string, mode string) {
+// servesGRPC reports whether a node in this mode mounts the OTLP/gRPC
+// receiver. The receiver ingests through the write path (controller.Registry,
+// populated by writer.Init), so it is derived from bootSequence rather than
+// restating its mode literals: a mode that mounts the receiver without booting
+// the writer would resolve services against an empty registry.
+func servesGRPC(mode string) bool {
+	return slices.ContainsFunc(bootSequence(mode), func(s bootStep) bool { return s.name == "writer" })
+}
+
+// httpRoot returns the root handler and protocol set for the shared HTTP
+// server. It is split out of httpStart so the mode gating can be asserted
+// directly: httpStart binds a listener and blocks on signals, so the decision
+// is untestable while it stays inline.
+//
+// Both return values come from one gate, deliberately: cleartext
+// (prior-knowledge) HTTP/2 exists here only to carry gRPC, so a node that
+// mounts no gRPC dispatcher must not advertise it either. A nil
+// *http.Protocols leaves net/http's default of HTTP/1 plus HTTP/2 over TLS.
+func httpRoot(server http.Handler, mode string, grpcOpts writergrpc.Options) (http.Handler, *http.Protocols) {
+	if !servesGRPC(mode) {
+		return server, nil
+	}
+	return writergrpc.Mux(server, grpcOpts), writergrpc.Protocols()
+}
+
+func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writergrpc.Options) {
 	logger.Info("Starting service")
 	var err error
 	listener, err = net.Listen("tcp", httpURL)
@@ -386,7 +415,8 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 		panic(err)
 	}
 
-	httpServer := &http.Server{Handler: server}
+	root, protocols := httpRoot(server, mode, grpcOpts)
+	httpServer := &http.Server{Handler: root, Protocols: protocols}
 
 	// Start serving in a goroutine so we can block on the signal below.
 	go func() {
@@ -398,14 +428,6 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 
 	logger.Info("Server is listening on", httpURL)
 
-	// Start the OTLP gRPC receiver. Returns (nil, nil) when OTLP_GRPC_ADDR is
-	// empty, leaving existing behavior unchanged (no listener opened).
-	grpcServer, err := writergrpc.Start(os.Getenv("OTLP_GRPC_ADDR"))
-	if err != nil {
-		logger.Error("Error starting OTLP gRPC receiver:", err)
-		panic(err)
-	}
-
 	// Block until SIGTERM or SIGINT.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
@@ -413,19 +435,13 @@ func httpStart(server *mux.Router, httpURL string, mode string) {
 	logger.Info(fmt.Sprintf("Received signal %v, starting graceful shutdown...", received))
 
 	// 1. Stop accepting new connections and drain in-flight HTTP requests.
+	// gRPC is served through this same http.Server (see writergrpc.Mux), and
+	// grpc.Server.GracefulStop has no effect on RPCs served via ServeHTTP, so
+	// this Shutdown call is what drains in-flight gRPC requests too.
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error:", err)
-	}
-	if grpcServer != nil {
-		stopped := make(chan struct{})
-		go func() { grpcServer.GracefulStop(); close(stopped) }()
-		select {
-		case <-stopped:
-		case <-time.After(shutdownTimeout):
-			grpcServer.Stop()
-		}
 	}
 
 	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).

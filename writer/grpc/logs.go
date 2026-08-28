@@ -27,11 +27,9 @@ func (s *logsServer) Export(ctx context.Context, req *collogspb.ExportLogsServic
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	ld := &logsv1.LogsData{ResourceLogs: req.ResourceLogs}
-	// Body is nil: the *FromData parsers are built with withPreParsedBody,
-	// so the payload is already supplied and no reader is ever read.
-	parser := controller.Bind(controller.Parser(unmarshal.OTLPLogsFromData(ld)), nil)
+	parser := controller.PreDecoded(controller.Parser(unmarshal.OTLPLogsFromData(ld)))
 	if err := controller.IngestParsed(ctx, parser, svcs); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, ingestFailure("logs", err)
 	}
 	return &collogspb.ExportLogsServiceResponse{}, nil
 }

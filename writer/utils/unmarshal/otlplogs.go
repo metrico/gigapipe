@@ -100,10 +100,13 @@ func (e *otlpLogDec) writeAttrValue(key string, value *otlpcommon.AnyValue, pref
 	(*res)[prefix+SanitizeKey(key)] = SanitizeValue(value)
 }
 
+// sanitizeKeyRe matches every character that is not valid in a Prometheus
+// label name.
+var sanitizeKeyRe = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
 func SanitizeKey(key string) string {
 	// Replace characters that are not a-z, A-Z, 0-9, or _ with _
-	re := regexp.MustCompile(`[^a-zA-Z0-9_]`)
-	sanitized := re.ReplaceAllString(key, "_")
+	sanitized := sanitizeKeyRe.ReplaceAllString(key, "_")
 
 	// Prefix with _ if the first character is not a-z or A-Z
 	if len(sanitized) == 0 || (sanitized[0] >= '0' && sanitized[0] <= '9') {
