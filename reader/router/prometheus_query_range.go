@@ -5,14 +5,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	grafana_re "github.com/grafana/regexp"
 	"github.com/metrico/qryn/v5/reader/config"
 	controllerv1 "github.com/metrico/qryn/v5/reader/controller"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/prometheus/prometheus/promql"
-	api_v1 "github.com/prometheus/prometheus/web/api/v1"
 )
 
 // defaultSubqueryInterval is used as the resolution step for subqueries that
@@ -50,15 +48,9 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 	svc := service.CLokiQueriable{
 		ServiceData: model.ServiceData{Session: dataSession},
 	}
-	api := api_v1.API{
-		Queryable:         nil,
-		QueryEngine:       eng,
-		ExemplarQueryable: nil,
-		CORSOrigin:        grafana_re.MustCompile("\\*"),
-	}
 	ctrl := &controllerv1.PromQueryRangeController{
 		Controller: controllerv1.Controller{},
-		Api:        &api,
+		Engine:     eng,
 		Storage:    &svc,
 		Stats:      stats,
 	}

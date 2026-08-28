@@ -18,12 +18,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"
-	api_v1 "github.com/prometheus/prometheus/web/api/v1"
 )
 
 type PromQueryRangeController struct {
 	Controller
-	Api     *api_v1.API
+	Engine  promql.QueryEngine
 	Storage *service.CLokiQueriable
 	Stats   bool
 }
@@ -81,7 +80,7 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(500, err.Error(), w)
 		return
 	}
-	rangeQuery, err := q.Api.QueryEngine.NewRangeQuery(internalCtx, q.Storage.SetOidAndDB(internalCtx, expr), nil,
+	rangeQuery, err := q.Engine.NewRangeQuery(internalCtx, q.Storage.SetOidAndDB(internalCtx, expr), nil,
 		expr.Expr.String(), req.Start, req.End, req.Step)
 	if err != nil {
 		logger.Error("[PQRC001] " + err.Error())
