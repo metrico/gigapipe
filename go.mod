@@ -31,7 +31,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/grafana/pyroscope-go v1.4.2
 	github.com/grafana/regexp v0.0.0-20250905093917-f7b3be9d1853
-	github.com/influxdata/telegraf v1.39.3
+	github.com/influxdata/line-protocol/v2 v2.2.1
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/json-iterator/go v1.1.12
 	github.com/kr/logfmt v0.0.0-20210122060352-19f9bcb100e6
@@ -60,11 +60,9 @@ require (
 )
 
 require (
-	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go/auth v0.22.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
@@ -73,9 +71,6 @@ require (
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
-	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
-	github.com/awnumar/memcall v0.4.0 // indirect
-	github.com/awnumar/memguard v0.23.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.43.3 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.34 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.33 // indirect
@@ -83,6 +78,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.34 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.34 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.35 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.318.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.34 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.5.3 // indirect
@@ -96,15 +92,11 @@ require (
 	github.com/buger/jsonparser v1.2.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/compose-spec/compose-go v1.20.2 // indirect
-	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dennwc/varint v1.0.0 // indirect
 	github.com/dmarkham/enumer v1.6.3 // indirect
 	github.com/edsrzf/mmap-go v1.2.1-0.20241212181136-fad1cd13edbd // indirect
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb // indirect
-	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
@@ -134,13 +126,13 @@ require (
 	github.com/go-openapi/validate v0.25.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-sql-driver/mysql v1.10.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gofiber/schema v1.8.3 // indirect
 	github.com/gofiber/utils/v2 v2.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/google/cel-go v0.30.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -148,18 +140,15 @@ require (
 	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.11 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
+	github.com/hashicorp/consul/api v1.34.4 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/imdario/mergo v0.3.16 // indirect
-	github.com/influxdata/toml v0.0.0-20251106153700-c381e153d076 // indirect
-	github.com/jedib0t/go-pretty/v6 v6.8.3 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
-	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
-	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/knadh/koanf/providers/confmap v1.0.0 // indirect
 	github.com/knadh/koanf/v2 v2.3.5 // indirect
@@ -169,7 +158,6 @@ require (
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/mcuadros/go-defaults v1.2.0 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.1-0.20220423185008-bf980b35cac4 // indirect
@@ -178,7 +166,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f // indirect
-	github.com/naoina/go-stringutil v0.1.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.157.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.157.0 // indirect
@@ -209,11 +196,6 @@ require (
 	github.com/spf13/viper v1.16.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/subosito/gotenv v1.4.2 // indirect
-	github.com/tidwall/gjson v1.19.0 // indirect
-	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/tidwall/tinylru v1.2.1 // indirect
-	github.com/tidwall/wal v1.2.1 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/valyala/fasthttp v1.73.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
@@ -232,7 +214,6 @@ require (
 	go.opentelemetry.io/otel v1.45.0 // indirect
 	go.opentelemetry.io/otel/metric v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
-	go.step.sm/crypto v0.87.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
@@ -250,10 +231,10 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/api v0.291.0 // indirect
+	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260724162435-b2f20204f0df // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
-	gotest.tools/v3 v3.5.2 // indirect
 	k8s.io/apimachinery v0.36.3 // indirect
 	k8s.io/client-go v0.36.3 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
