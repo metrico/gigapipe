@@ -383,11 +383,11 @@ const shutdownTimeout = 30 * time.Second
 
 // servesGRPC reports whether a node in this mode mounts the OTLP/gRPC
 // receiver. The receiver ingests through the write path (controller.Registry,
-// populated by writer.Init), so it follows exactly the modes that boot the
-// writer subsystem — see bootSequence, whose in("all", "writer", "") gate this
-// mirrors. TestServesGRPCFollowsWriterModes pins the two together.
+// populated by writer.Init), so it is derived from bootSequence rather than
+// restating its mode literals: a mode that mounts the receiver without booting
+// the writer would resolve services against an empty registry.
 func servesGRPC(mode string) bool {
-	return mode == "all" || mode == "writer" || mode == ""
+	return slices.ContainsFunc(bootSequence(mode), func(s bootStep) bool { return s.name == "writer" })
 }
 
 // httpRoot returns the root handler and protocol set for the shared HTTP
@@ -395,14 +395,10 @@ func servesGRPC(mode string) bool {
 // directly: httpStart binds a listener and blocks on signals, so the decision
 // is untestable while it stays inline.
 //
-// Both return values are gated on the same condition, deliberately. Reader-only
-// nodes have no write path, so they get neither the OTLP/gRPC dispatcher nor
-// the protocol set that carries it: writergrpc.Protocols() enables cleartext
-// (prior-knowledge) HTTP/2, which exists only to carry gRPC. Setting it on a
-// node with no gRPC handler behind it would widen the protocols that node
-// accepts for no gain. A nil *http.Protocols leaves net/http's default
-// (HTTP/1 plus HTTP/2 over TLS), which is what reader-only nodes served before
-// the receiver existed.
+// Both return values come from one gate, deliberately: cleartext
+// (prior-knowledge) HTTP/2 exists here only to carry gRPC, so a node that
+// mounts no gRPC dispatcher must not advertise it either. A nil
+// *http.Protocols leaves net/http's default of HTTP/1 plus HTTP/2 over TLS.
 func httpRoot(server http.Handler, mode string, grpcOpts writergrpc.Options) (http.Handler, *http.Protocols) {
 	if !servesGRPC(mode) {
 		return server, nil

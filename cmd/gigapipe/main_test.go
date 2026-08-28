@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -123,27 +124,39 @@ func TestBootSequenceModesScope(t *testing.T) {
 	}
 }
 
-// nopHandler stands in for the mux router in httpRoot tests. It is a pointer
-// type so the returned handler can be compared by identity: func values (and
-// so http.HandlerFunc) are not comparable in Go.
-type nopHandler struct{}
+// nopHandler stands in for the mux router in httpRoot tests. It records
+// whether it was reached, so a test can assert that gRPC traffic was
+// intercepted rather than passed through. It is a pointer type so the
+// returned handler can also be compared by identity: func values (and so
+// http.HandlerFunc) are not comparable in Go.
+type nopHandler struct{ served bool }
 
-func (*nopHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
+func (h *nopHandler) ServeHTTP(http.ResponseWriter, *http.Request) { h.served = true }
 
-// TestServesGRPCFollowsWriterModes pins the OTLP/gRPC receiver's mode gate to
-// the modes that actually boot the writer subsystem. The receiver ingests
-// through controller.Registry, which only writer.Init populates, so the two
-// gates must not drift apart: a mode that mounts the receiver without booting
-// the writer would resolve services against a nil registry.
-func TestServesGRPCFollowsWriterModes(t *testing.T) {
-	for _, mode := range []string{"all", "writer", "", "reader", "init_only"} {
-		t.Run("mode="+mode, func(t *testing.T) {
-			bootsWriter := slices.Contains(stepNames(mode), "writer")
-			if got := servesGRPC(mode); got != bootsWriter {
-				t.Errorf("mode %q: servesGRPC=%v but bootSequence boots writer=%v",
-					mode, got, bootsWriter)
-			}
-		})
+// grpcRequest builds the request shape Mux dispatches on: HTTP/2 carrying a
+// gRPC content type, on a real OTLP method path.
+func grpcRequest() *http.Request {
+	r := httptest.NewRequest(http.MethodPost,
+		"/opentelemetry.proto.collector.trace.v1.TraceService/Export", http.NoBody)
+	r.ProtoMajor, r.ProtoMinor, r.Proto = 2, 0, "HTTP/2.0"
+	r.Header.Set("Content-Type", "application/grpc")
+	return r
+}
+
+// TestServesGRPCModes pins the OTLP/gRPC receiver's mode gate to literal
+// expectations. servesGRPC derives its answer from bootSequence, so asserting
+// against bootSequence again would be a tautology; literals are what catch a
+// change to bootSequence — a renamed step, a dropped mode — that would
+// silently stop mounting the receiver on a node that ingests.
+func TestServesGRPCModes(t *testing.T) {
+	want := map[string]bool{
+		"all": true, "writer": true, "": true,
+		"reader": false, "init_only": false,
+	}
+	for mode, w := range want {
+		if got := servesGRPC(mode); got != w {
+			t.Errorf("servesGRPC(%q) = %v, want %v", mode, got, w)
+		}
 	}
 }
 
@@ -156,8 +169,9 @@ func TestHTTPRootWriterModes(t *testing.T) {
 		t.Run("mode="+mode, func(t *testing.T) {
 			base := &nopHandler{}
 			root, protocols := httpRoot(base, mode, writergrpc.Options{})
-			if root == http.Handler(base) {
-				t.Error("expected the router to be wrapped by the OTLP/gRPC dispatcher, got it unwrapped")
+			root.ServeHTTP(httptest.NewRecorder(), grpcRequest())
+			if base.served {
+				t.Error("a gRPC request reached the HTTP router: it must be intercepted by the OTLP/gRPC dispatcher")
 			}
 			if protocols == nil {
 				t.Fatal("expected a protocol set enabling cleartext HTTP/2, got nil")
