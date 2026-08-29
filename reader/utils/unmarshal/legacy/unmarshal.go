@@ -4,6 +4,7 @@ import (
 	"io"
 
 	json "github.com/json-iterator/go"
+	"github.com/metrico/qryn/reader/model"
 )
 
 // DecodePushRequest directly decodes json to a logproto.PushRequest

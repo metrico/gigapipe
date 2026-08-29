@@ -2,11 +2,12 @@ package apihttp
 
 import (
 	"context"
-	controllerv1 "github.com/metrico/qryn/writer/controller"
-	"github.com/metrico/qryn/writer/utils/logger"
 	"net/http"
 	"strings"
 	"time"
+
+	controllerv1 "github.com/metrico/qryn/writer/controller"
+	"github.com/metrico/qryn/writer/utils/logger"
 )
 
 type MiddlewareFunc func(w http.ResponseWriter, r *http.Request) error

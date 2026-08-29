@@ -1,3 +1,7 @@
 /.idea/
 *.idx
 /docker
+
+# Build artifacts
+/vendor/
+/gigapipe
