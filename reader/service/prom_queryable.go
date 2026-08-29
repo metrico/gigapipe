@@ -210,6 +210,39 @@ func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.
 	return (slices.Contains(rateFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
 }
 
+// appendStaleMarker terminates an accelerated (substitute-backed) series with a
+// Prometheus stale marker one step past the last sample the SQL layer returned.
+//
+// The accelerated path builds a series with Prolong=false directly from
+// ClickHouse rows, and the SQL densifier (planner.fillGaps) already forward-fills
+// each real bucket for 5 minutes (planner.staleness) on the step grid. So the
+// last returned sample already sits at lastReal + 5m: the 5m carry is baked into
+// the rows. The problem in issue #931 is that the engine then applies its OWN 5m
+// LookbackDelta on top of that, stacking to ~10m. Appending a stale marker one
+// step past the last returned sample caps the already-filled data at the 5m
+// boundary so the engine cannot extend it any further.
+//
+// (This differs from the raw iterator path in reader/model, which does not
+// SQL-fill and therefore places its marker at lastReal + LookbackDeltaMs to
+// provide the 5m carry itself. Both paths yield ~5m total visibility.)
+//
+// The marker is only appended when the series genuinely stopped before the end
+// of the query window: if the last sample is within one step of queryEndMs the
+// series is still live and Prometheus would not stale-mark it. A zero/unknown
+// step is treated as "cannot place a marker" and is left untouched.
+func appendStaleMarker(samples []model.Sample, stepMs int64, queryEndMs int64) []model.Sample {
+	if len(samples) == 0 || stepMs <= 0 {
+		return samples
+	}
+	markerTs := samples[len(samples)-1].TimestampMs + stepMs
+	if markerTs > queryEndMs {
+		// The series runs up to (or past) the query edge; it did not stop, so
+		// no stale marker - the query window itself truncates it.
+		return samples
+	}
+	return append(samples, model.Sample{TimestampMs: markerTs, Value: model.StaleMarkerValue})
+}
+
 func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints,
 	matchers ...*labels.Matcher) storage.SeriesSet {
 
@@ -290,6 +323,10 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 			if len(res.Series) > 0 && q.MapResult != nil {
 				res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
 			}
+			if len(res.Series) > 0 && !isProlong {
+				res.Series[len(res.Series)-1].Samples = appendStaleMarker(
+					res.Series[len(res.Series)-1].Samples, hints.Step, hints.End)
+			}
 			res.Series = append(res.Series, &model.SeriesV2{
 				LabelsGetter: lblsGetter,
 				Fp:           fp,
@@ -305,6 +342,10 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	}
 	if len(res.Series) > 0 && q.MapResult != nil {
 		res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
+	}
+	if len(res.Series) > 0 && !isProlong {
+		res.Series[len(res.Series)-1].Samples = appendStaleMarker(
+			res.Series[len(res.Series)-1].Samples, hints.Step, hints.End)
 	}
 	err = lblsGetter.Fetch()
 	if err != nil {

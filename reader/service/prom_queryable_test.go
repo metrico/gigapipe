@@ -5,6 +5,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/value"
 )
 
 // stubLabelsGetter is a minimal model.ILabelsGetter backed by a map, for
@@ -136,5 +137,98 @@ func TestReshuffleSeries_DistinctLabelSets(t *testing.T) {
 	}
 	if out[0].Samples[0].TimestampMs != 10 || out[1].Samples[0].TimestampMs != 20 {
 		t.Fatalf("samples should be untouched")
+	}
+}
+
+// The accelerated (substitute-backed) path builds a SeriesV2 with Prolong=false
+// directly from ClickHouse rows. Because the SQL layer fills forward for 5
+// minutes (const staleness) AND the engine applies its own 5-minute
+// LookbackDelta, a value at T could remain visible until ~T+10m (issue #931).
+//
+// The fix appends a Prometheus stale marker one step past the last real sample
+// so the engine stops carrying the value forward. These tests pin the semantics
+// of the appendStaleMarker helper that Select() calls.
+
+func lastIsStaleMarker(t *testing.T, samples []model.Sample, wantTs int64) {
+	t.Helper()
+	if len(samples) == 0 {
+		t.Fatalf("expected samples, got none")
+	}
+	last := samples[len(samples)-1]
+	if last.TimestampMs != wantTs {
+		t.Errorf("stale marker timestamp: expected %d, got %d", wantTs, last.TimestampMs)
+	}
+	if !value.IsStaleNaN(last.Value) {
+		t.Errorf("expected last sample to be a stale marker, got value=%v", last.Value)
+	}
+}
+
+// TestAppendStaleMarker_AppendsOneStepPastLast is the core behavior: a stale
+// marker is appended one step past the last real sample when that sample ends
+// before the query window edge (i.e., the series genuinely stopped).
+func TestAppendStaleMarker_AppendsOneStepPastLast(t *testing.T) {
+	const step = int64(15000)
+	const queryEnd = int64(1_000_000) // well past the last sample
+	in := []model.Sample{
+		{TimestampMs: 100000, Value: 1},
+		{TimestampMs: 115000, Value: 2},
+		{TimestampMs: 130000, Value: 3},
+	}
+
+	out := appendStaleMarker(in, step, queryEnd)
+
+	if len(out) != len(in)+1 {
+		t.Fatalf("expected %d samples (3 real + 1 marker), got %d", len(in)+1, len(out))
+	}
+	// Real samples untouched.
+	for i := range in {
+		if out[i] != in[i] {
+			t.Fatalf("real sample %d changed: %+v -> %+v", i, in[i], out[i])
+		}
+	}
+	lastIsStaleMarker(t, out, 130000+step)
+}
+
+// TestAppendStaleMarker_NoMarkerAtQueryEdge verifies we do NOT emit a stale
+// marker for a series that is still live at the query window edge. Prometheus
+// only stale-marks a series that actually stops, not one that is simply
+// truncated by the end of the query range.
+func TestAppendStaleMarker_NoMarkerAtQueryEdge(t *testing.T) {
+	const step = int64(15000)
+	// Last sample is within one step of the query end -> still live.
+	const queryEnd = int64(130000 + 5000)
+	in := []model.Sample{
+		{TimestampMs: 100000, Value: 1},
+		{TimestampMs: 130000, Value: 3},
+	}
+
+	out := appendStaleMarker(in, step, queryEnd)
+
+	if len(out) != len(in) {
+		t.Fatalf("expected no marker at the query edge, got %d samples: %+v", len(out), out)
+	}
+	for _, s := range out {
+		if value.IsStaleNaN(s.Value) {
+			t.Fatalf("unexpected stale marker for a series live at the query edge: %+v", out)
+		}
+	}
+}
+
+// TestAppendStaleMarker_EmptySeries verifies no marker and no panic for empty
+// input.
+func TestAppendStaleMarker_EmptySeries(t *testing.T) {
+	out := appendStaleMarker(nil, 15000, 1_000_000)
+	if len(out) != 0 {
+		t.Fatalf("expected empty output for empty input, got %+v", out)
+	}
+}
+
+// TestAppendStaleMarker_ZeroStepNoop verifies that with an unknown/zero step we
+// do not fabricate a marker at a bogus timestamp.
+func TestAppendStaleMarker_ZeroStepNoop(t *testing.T) {
+	in := []model.Sample{{TimestampMs: 100000, Value: 1}}
+	out := appendStaleMarker(in, 0, 1_000_000)
+	if len(out) != len(in) {
+		t.Fatalf("expected no marker with zero step, got %+v", out)
 	}
 }
