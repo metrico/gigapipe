@@ -2,14 +2,6 @@ module github.com/metrico/qryn/v5
 
 go 1.27.0
 
-replace (
-	cloud.google.com/go/compute v0.2.0 => cloud.google.com/go/compute v1.7.0
-	github.com/docker/distribution v2.7.1+incompatible => github.com/docker/distribution v2.8.0+incompatible
-	github.com/pascaldekloe/mqtt v1.0.0 => github.com/metrico/mqtt v1.0.1-0.20220314083119-cb53cdb0fcbe
-	gopkg.in/fatih/pool.v2 v2.0.0 => gopkg.in/fatih/pool.v3 v3.0.0
-	k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.22.1
-)
-
 require (
 	github.com/ClickHouse/ch-go v0.74.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
