@@ -210,28 +210,40 @@ func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.
 	return (slices.Contains(rateFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
 }
 
-// appendStaleMarker terminates an accelerated (substitute-backed) series with a
-// Prometheus stale marker one step past the last sample the SQL layer returned.
+// isSQLFilled reports whether the series was forward-filled 5m by
+// FillGapsPlanner. That is exactly the substitute-backed set (created only by
+// the vector_range/vector_agg optimizers, all of which route through the fill).
 //
-// The accelerated path builds a series with Prolong=false directly from
-// ClickHouse rows, and the SQL densifier (planner.fillGaps) already forward-fills
-// each real bucket for 5 minutes (planner.staleness) on the step grid. So the
-// last returned sample already sits at lastReal + 5m: the 5m carry is baked into
-// the rows. The problem in issue #931 is that the engine then applies its OWN 5m
-// LookbackDelta on top of that, stacking to ~10m. Appending a stale marker one
-// step past the last returned sample caps the already-filled data at the 5m
-// boundary so the engine cannot extend it any further.
+// It is the correct gate for appendStaleMarker, not !isProlong: non-substitute
+// instant-vector functions (abs, topk, histogram_quantile, ...) are also
+// Prolong=false but are regrouped by HintsPlanner without a fill, so their rows
+// were never carried 5m and must not be capped.
+func (c *CLokiQuerier) isSQLFilled(matchers []*labels.Matcher) bool {
+	for _, m := range matchers {
+		if m.Name == "__name__" && m.Type == labels.MatchEqual && c.expr.Substitutes[m.Value] != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// appendStaleMarker caps a SQL-filled series (see isSQLFilled) with a stale
+// marker one step past its last row.
 //
-// (This differs from the raw iterator path in reader/model, which does not
-// SQL-fill and therefore places its marker at lastReal + LookbackDeltaMs to
-// provide the 5m carry itself. Both paths yield ~5m total visibility.)
+// The SQL densifier already forward-fills each bucket 5m, so the last row sits
+// at lastReal + 5m. Without a terminator the engine adds its own 5m
+// LookbackDelta on top, stacking to ~10m (issue #931); the marker stops it at
+// the boundary. (The raw iterator path in reader/model instead places its
+// marker at lastReal + LookbackDeltaMs, providing the 5m carry itself.)
 //
-// The marker is only appended when the series genuinely stopped before the end
-// of the query window: if the last sample is within one step of queryEndMs the
-// series is still live and Prometheus would not stale-mark it. A zero/unknown
-// step is treated as "cannot place a marker" and is left untouched.
-func appendStaleMarker(samples []model.Sample, stepMs int64, queryEndMs int64) []model.Sample {
-	if len(samples) == 0 || stepMs <= 0 {
+// sqlFilled gates the whole thing: only SQL-filled (substitute-backed) series
+// carry the baked-in 5m, so only they may be capped.
+//
+// No marker is appended when the series is not SQL-filled, is still live at the
+// query edge (last sample within one step of queryEndMs), or the step is
+// unknown (0).
+func appendStaleMarker(samples []model.Sample, sqlFilled bool, stepMs int64, queryEndMs int64) []model.Sample {
+	if !sqlFilled || len(samples) == 0 || stepMs <= 0 {
 		return samples
 	}
 	markerTs := samples[len(samples)-1].TimestampMs + stepMs
@@ -241,6 +253,20 @@ func appendStaleMarker(samples []model.Sample, stepMs int64, queryEndMs int64) [
 		return samples
 	}
 	return append(samples, model.Sample{TimestampMs: markerTs, Value: model.StaleMarkerValue})
+}
+
+// applyStaleMarkers caps every series with a stale marker via appendStaleMarker,
+// the single post-processing pass Select() runs before ReshuffleSeries (mirroring
+// how ReshuffleSeries is itself a pure, DB-independent pass over the built
+// series). sqlFilled is the query-level gate from isSQLFilled: when false (e.g.
+// abs/topk and other non-substitute instant-vector functions, which are not
+// SQL-filled) no series is marked, so the engine's own 5m lookback is preserved.
+func (c *CLokiQuerier) applyStaleMarkers(series []*model.SeriesV2, sqlFilled bool,
+	stepMs int64, queryEndMs int64) []*model.SeriesV2 {
+	for _, s := range series {
+		s.Samples = appendStaleMarker(s.Samples, sqlFilled, stepMs, queryEndMs)
+	}
+	return series
 }
 
 func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints,
@@ -298,6 +324,7 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	cntSeries := 0
 	lblsGetter := newLabelsGetter(time.UnixMilli(hints.Start), time.UnixMilli(hints.End), c.db, c.ctx)
 	isProlong := c.isProlong(hints, matchers)
+	isSQLFilled := c.isSQLFilled(matchers)
 	for rows.Next() {
 		err = rows.Scan(&tp, &fp, &ts, &val, &lbls)
 		if err != nil {
@@ -323,10 +350,6 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 			if len(res.Series) > 0 && q.MapResult != nil {
 				res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
 			}
-			if len(res.Series) > 0 && !isProlong {
-				res.Series[len(res.Series)-1].Samples = appendStaleMarker(
-					res.Series[len(res.Series)-1].Samples, hints.Step, hints.End)
-			}
 			res.Series = append(res.Series, &model.SeriesV2{
 				LabelsGetter: lblsGetter,
 				Fp:           fp,
@@ -343,10 +366,7 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	if len(res.Series) > 0 && q.MapResult != nil {
 		res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
 	}
-	if len(res.Series) > 0 && !isProlong {
-		res.Series[len(res.Series)-1].Samples = appendStaleMarker(
-			res.Series[len(res.Series)-1].Samples, hints.Step, hints.End)
-	}
+	res.Series = c.applyStaleMarkers(res.Series, isSQLFilled, hints.Step, hints.End)
 	err = lblsGetter.Fetch()
 	if err != nil {
 		return &model.SeriesSet{Error: err}
