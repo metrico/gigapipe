@@ -2,7 +2,7 @@ package optimizer
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
@@ -104,7 +104,7 @@ func (v *VectorRange) fpPlanner() shared.SQLRequestPlanner {
 // substitute swaps the call out for a synthetic vector selector and registers
 // the planner that produces it.
 func (v *VectorRange) substitute(p shared.SQLRequestPlanner) prom_parser.Expr {
-	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int63())
+	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int64())
 	v.gExpr.Substitutes[metricName] = &promql_parser.Substitute{
 		MetricName: metricName,
 		Node:       v.expr,

@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -353,7 +353,6 @@ type InsertServiceV2RoundRobin struct {
 	running bool
 
 	services []*InsertServiceV2
-	rand     *rand.Rand
 	mtx      sync.Mutex
 }
 
@@ -403,7 +402,6 @@ func (svc *InsertServiceV2RoundRobin) init() {
 	}
 	logger.Info(fmt.Sprintf("creating %d services", svc.svcNum))
 	svc.services = make([]*InsertServiceV2, svc.svcNum)
-	svc.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := range svc.services {
 		svc.services[i] = &InsertServiceV2{
 			ID:             fmt.Sprintf("%s-%s-%v", svc.DatabaseNode.Node, svc.insertRequest, svc.AsyncInsert),
@@ -469,9 +467,7 @@ func (svc *InsertServiceV2RoundRobin) Request(req helpers.SizeGetter, insertMode
 			idleSvcs = append(idleSvcs, _svc)
 		}
 	}
-	svc.mtx.Lock()
-	randomIdx := svc.rand.Float64()
-	svc.mtx.Unlock()
+	randomIdx := rand.Float64()
 	if len(insertingSvcs) > 0 {
 		return insertingSvcs[int(randomIdx*float64(len(insertingSvcs)))].Request(req, insertMode)
 	} else if len(idleSvcs) > 0 {

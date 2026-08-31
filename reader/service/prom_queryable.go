@@ -8,7 +8,6 @@ import (
 	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/prometheus/prometheus/util/annotations"
-	"math/rand"
 	"slices"
 	"sort"
 	"strconv"
@@ -78,16 +77,12 @@ func (s *StatsStore) AsMap() map[string]float64 {
 
 type CLokiQueriable struct {
 	model.ServiceData
-	random *rand.Rand
-	Ctx    context.Context
-	Stats  *StatsStore
-	Expr   *promql_parser.Expr
+	Ctx   context.Context
+	Stats *StatsStore
+	Expr  *promql_parser.Expr
 }
 
 func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
-	if c.random == nil {
-		c.random = rand.New(rand.NewSource(time.Now().UnixNano()))
-	}
 	db, err := c.ServiceData.Session.GetDB(c.Ctx)
 	if err != nil {
 		return nil, err
@@ -102,7 +97,6 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Expr) *CLokiQueriable {
 	return &CLokiQueriable{
 		ServiceData: c.ServiceData,
-		random:      c.random,
 		Ctx:         ctx,
 		Expr:        expr,
 	}
