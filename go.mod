@@ -18,10 +18,8 @@ require (
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/c2h5oh/datasize v0.0.0-20231215233829-aa82cc1e6500
 	github.com/go-faster/city v1.0.1
 	github.com/go-faster/jx v1.2.0
-	github.com/go-kit/kit v0.13.0
 	github.com/go-logfmt/logfmt v0.6.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20260709232956-b9395ee17fa0
@@ -51,7 +49,6 @@ require (
 	google.golang.org/grpc v1.85.0-dev
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/go-playground/validator.v9 v9.31.0
-	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -73,7 +70,6 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
-	github.com/go-kit/log v0.2.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
@@ -113,7 +109,6 @@ require (
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.16.0 // indirect
-	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/subosito/gotenv v1.4.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
