@@ -641,3 +641,242 @@ func TestSliceOTLPProfilePrunesAndRoundTrips(t *testing.T) {
 		t.Fatalf("profile attribute key not preserved")
 	}
 }
+
+// An unsymbolized native frame carries no Line/Function, but its Location does
+// point at a Mapping whose filename identifies the binary the offset belongs to.
+// The name must include that filename so frames from different binaries stay
+// distinguishable (and readable) in the flamegraph.
+func TestBuildOTLPTreeUnsymbolizedUsesMappingFilename(t *testing.T) {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds", "/usr/bin/busybox")
+
+	m0 := dict.MappingTable().AppendEmpty()
+	m0.SetFilenameStrindex(3)
+
+	// location with no lines: address + mapping only, as the eBPF profiler emits
+	l0 := dict.LocationTable().AppendEmpty()
+	l0.SetAddress(0x3107)
+	l0.SetMappingIndex(0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.Values().Append(7)
+
+	functions, _, _ := buildOTLPTree(p, dict)
+	const want = "/usr/bin/busybox+0x3107"
+	for _, f := range functions {
+		if f.ValueStr == want {
+			return
+		}
+	}
+	t.Fatalf("expected %q, got %+v", want, functions)
+}
+
+// buildIDProfile builds a one-native-frame profile whose mapping carries the
+// given build-id attributes, in the given order, and returns the frame name
+// buildOTLPTree produced for it.
+func buildIDFrameName(t *testing.T, filename string, buildAttrs [][2]string) string {
+	t.Helper()
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	st := dict.StringTable()
+	add := func(s string) int32 { st.Append(s); return int32(st.Len() - 1) }
+	add("")
+	sCPU := add("cpu")
+	sNs := add("nanoseconds")
+
+	mp := dict.MappingTable().AppendEmpty()
+	if filename != "" {
+		mp.SetFilenameStrindex(add(filename))
+	}
+	for _, kv := range buildAttrs {
+		k := add(kv[0])
+		a := dict.AttributeTable().AppendEmpty()
+		a.SetKeyStrindex(k)
+		a.Value().SetStr(kv[1])
+		mp.AttributeIndices().Append(int32(dict.AttributeTable().Len() - 1))
+	}
+
+	l0 := dict.LocationTable().AppendEmpty()
+	l0.SetAddress(0x1234)
+	l0.SetMappingIndex(0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(sCPU)
+	p.SampleType().SetUnitStrindex(sNs)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.Values().Append(1)
+
+	functions, _, _ := buildOTLPTree(p, dict)
+	if len(functions) != 1 {
+		t.Fatalf("expected 1 function, got %+v", functions)
+	}
+	return functions[0].ValueStr
+}
+
+func TestFrameNameBuildID(t *testing.T) {
+	const gnu = "process.executable.build_id.gnu"
+	const goID = "process.executable.build_id.go"
+	const htl = "process.executable.build_id.htlhash"
+
+	tests := []struct {
+		name     string
+		filename string
+		attrs    [][2]string
+		want     string
+	}{
+		{
+			name:     "gnu build id is appended, truncated to 8 chars",
+			filename: "libc.so.6",
+			attrs:    [][2]string{{gnu, "a3f2c1d4e5b6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"}},
+			want:     "libc.so.6@a3f2c1d4+0x1234",
+		},
+		{
+			name:     "gnu wins over go and htlhash regardless of attribute order",
+			filename: "libc.so.6",
+			attrs: [][2]string{
+				{htl, "cccccccccccccccc"},
+				{goID, "bbbbbbbbbbbbbbbb"},
+				{gnu, "aaaaaaaaaaaaaaaa"},
+			},
+			want: "libc.so.6@aaaaaaaa+0x1234",
+		},
+		{
+			name:     "go build id used when gnu absent",
+			filename: "server",
+			attrs:    [][2]string{{htl, "cccccccccccccccc"}, {goID, "bbbbbbbbbbbbbbbb"}},
+			want:     "server@bbbbbbbb+0x1234",
+		},
+		{
+			name:     "htlhash used as last resort",
+			filename: "server",
+			attrs:    [][2]string{{htl, "cccccccccccccccc"}},
+			want:     "server@cccccccc+0x1234",
+		},
+		{
+			name:     "no build id keeps the plain binary+offset form",
+			filename: "busybox",
+			attrs:    nil,
+			want:     "busybox+0x1234",
+		},
+		{
+			name:     "empty build id value is ignored",
+			filename: "busybox",
+			attrs:    [][2]string{{gnu, ""}},
+			want:     "busybox+0x1234",
+		},
+		{
+			name:     "short build id is not padded",
+			filename: "busybox",
+			attrs:    [][2]string{{gnu, "abc"}},
+			want:     "busybox@abc+0x1234",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildIDFrameName(t, tt.filename, tt.attrs); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// metaForAttrs runs extractOTLPMeta over a profile carrying the given resource
+// and scope attributes, and returns the resolved metadata.
+func metaForAttrs(resAttrs, scopeAttrs map[string]string) otlpProfileMeta {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds")
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	for k, v := range resAttrs {
+		rp.Resource().Attributes().PutStr(k, v)
+	}
+	sp := rp.ScopeProfiles().AppendEmpty()
+	for k, v := range scopeAttrs {
+		sp.Scope().Attributes().PutStr(k, v)
+	}
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+
+	return extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict)
+}
+
+func TestExtractOTLPMetaServiceNameFallback(t *testing.T) {
+	tests := []struct {
+		name  string
+		attrs map[string]string
+		want  string
+	}{
+		{
+			name:  "explicit service.name wins",
+			attrs: map[string]string{"service.name": "checkout", "process.executable.name": "python3.12"},
+			want:  "checkout",
+		},
+		{
+			// The eBPF profiler sets service.name only for APM-linked processes,
+			// so this is the common case for whole-machine profiling.
+			name:  "falls back to process.executable.name",
+			attrs: map[string]string{"process.executable.name": "python3.12", "process.pid": "1234"},
+			want:  "python3.12",
+		},
+		{
+			name: "k8s.deployment.name outranks process.executable.name",
+			attrs: map[string]string{
+				"k8s.deployment.name":     "web",
+				"process.executable.name": "python3.12",
+			},
+			want: "web",
+		},
+		{
+			name:  "faas.name outranks k8s.deployment.name",
+			attrs: map[string]string{"faas.name": "handler", "k8s.deployment.name": "web"},
+			want:  "handler",
+		},
+		{
+			name:  "empty service.name falls through to the next candidate",
+			attrs: map[string]string{"service.name": "", "process.executable.name": "busybox"},
+			want:  "busybox",
+		},
+		{
+			name:  "no candidate at all keeps unknown_service",
+			attrs: map[string]string{"process.pid": "1234"},
+			want:  "unknown_service",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := metaForAttrs(tt.attrs, nil).ServiceName; got != tt.want {
+				t.Fatalf("ServiceName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// The attribute the service name was derived from must still be queryable as a
+// tag; only service.name itself is consumed into the ServiceName field.
+func TestExtractOTLPMetaKeepsFallbackAttributeAsTag(t *testing.T) {
+	meta := metaForAttrs(map[string]string{"process.executable.name": "python3.12"}, nil)
+	for _, tag := range meta.Tags {
+		if tag.Str1 == "process.executable.name" && tag.Str2 == "python3.12" {
+			return
+		}
+	}
+	t.Fatalf("process.executable.name missing from tags: %+v", meta.Tags)
+}
