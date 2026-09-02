@@ -16,6 +16,9 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: gofmt
+      run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
     - name: Build Gigapipe
       run: |
         go mod tidy
