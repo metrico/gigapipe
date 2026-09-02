@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,8 +28,6 @@ var (
 var (
 	tokPool     = sync.Pool{}
 	tokPoolSize int32
-	random      *rand.Rand
-	mtx         sync.Mutex
 	done        chan struct{}
 )
 
@@ -45,9 +43,7 @@ func skipLine() bool {
 	if config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling == 1 {
 		return false
 	}
-	mtx.Lock()
-	defer mtx.Unlock()
-	return random.Float64() < (1 - config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling)
+	return rand.Float64() < (1 - config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling)
 }
 
 func getToks() []clustering.Token {

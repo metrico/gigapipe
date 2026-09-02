@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	rand2 "math/rand"
+	"math/rand/v2"
 	"strconv"
 	"text/template"
-	"time"
 
 	"github.com/ClickHouse/ch-go"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -123,7 +122,6 @@ func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
 }
 
 func (c *Client) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {
-	rand := rand2.New(rand2.NewSource(time.Now().UnixNano()))
 	return func(ctx context.Context, query string, args ...[]interface{}) error {
 		name := fmt.Sprintf("tpl_%d", rand.Uint64())
 		tpl, err := template.New(name).Parse(query)
