@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/writer/model"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
@@ -90,7 +90,7 @@ func largeTraceRequest() *coltracepb.ExportTraceServiceRequest {
 	bigValue := strings.Repeat("x", valueSize)
 
 	spans := make([]*tracev1.Span, spanCount)
-	for i := 0; i < spanCount; i++ {
+	for i := range spanCount {
 		spans[i] = &tracev1.Span{
 			Name:    "op",
 			TraceId: []byte("0123456789abcdef"),

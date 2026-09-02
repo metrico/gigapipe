@@ -224,7 +224,7 @@ func (z *zipkinDecoderV2) decodeHexStr(hexStr []byte, leng int) ([]byte, error) 
 	}
 	if len(hexStr) < leng {
 		prefix := make([]byte, leng)
-		for i := 0; i < leng; i++ {
+		for i := range leng {
 			prefix[i] = '0'
 		}
 		copy(prefix[leng-len(hexStr):], hexStr)

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -376,8 +377,7 @@ func computeFlameGraphDiff(t1, t2 *Tree) *prof.FlameGraphDiff {
 
 		if childrenLeft, ok := t1.Nodes[left.NodeID]; ok {
 			childrenRight := t2.Nodes[right.NodeID]
-			for i := len(childrenLeft) - 1; i >= 0; i-- {
-				childLeft := childrenLeft[i]
+			for i, childLeft := range slices.Backward(childrenLeft) {
 				var childRight *TreeNodeV2
 				if i < len(childrenRight) {
 					childRight = childrenRight[i]
@@ -533,8 +533,8 @@ func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string
 
 	// unit is the second part of sampleType, e.g. "nanoseconds" from "cpu:nanoseconds"
 	unit := ""
-	if idx := strings.Index(sampleType, ":"); idx >= 0 {
-		unit = sampleType[idx+1:]
+	if _, after, ok := strings.Cut(sampleType, ":"); ok {
+		unit = after
 	}
 
 	// Collect all node totals and compute a pruning threshold when maxNodes is set.
@@ -568,10 +568,7 @@ func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string
 	// weight is an integer 1–100 proportional to the child's share of total samples.
 	// Graphviz requires weight >= 1 and works best with small integers.
 	edgeWeight := func(v int64) int {
-		w := int(pct(v))
-		if w < 1 {
-			w = 1
-		}
+		w := max(int(pct(v)), 1)
 		return w
 	}
 
@@ -661,10 +658,7 @@ func heatColor(self, total int64) string {
 	if ratio > 1 {
 		ratio = 1
 	}
-	r := 248 - int(ratio*float64(248-255))
-	if r > 255 {
-		r = 255
-	}
+	r := min(248-int(ratio*float64(248-255)), 255)
 	g := int(248 - ratio*248)
 	b := int(248 - ratio*248)
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)

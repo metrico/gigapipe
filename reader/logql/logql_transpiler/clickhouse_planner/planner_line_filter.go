@@ -124,7 +124,7 @@ func (o *lineFilterOps) re2Like() (string, bool, bool) {
 	if err != nil {
 		return "", false, false
 	}
-	if exp.Op != syntax.OpLiteral || exp.Flags& ^(syntax.PerlX|syntax.FoldCase) != 0 {
+	if exp.Op != syntax.OpLiteral || exp.Flags & ^(syntax.PerlX|syntax.FoldCase) != 0 {
 		return "", false, false
 	}
 	return string(exp.Rune), exp.Flags&syntax.FoldCase != 0, true

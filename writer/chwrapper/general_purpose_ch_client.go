@@ -20,7 +20,7 @@ type Client struct {
 
 var _ IChClient = &Client{}
 
-func (c *Client) Scan(ctx context.Context, req string, args []any, dest ...interface{}) error {
+func (c *Client) Scan(ctx context.Context, req string, args []any, dest ...any) error {
 	rows, err := c.c.Query(ctx, req, args...)
 	if err != nil {
 		return err
@@ -121,8 +121,8 @@ func (c *Client) Exec(ctx context.Context, query string, args ...any) error {
 	return c.c.Exec(ctx, query, args...)
 }
 
-func (c *Client) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {
-	return func(ctx context.Context, query string, args ...[]interface{}) error {
+func (c *Client) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]any) error {
+	return func(ctx context.Context, query string, args ...[]any) error {
 		name := fmt.Sprintf("tpl_%d", rand.Uint64())
 		tpl, err := template.New(name).Parse(query)
 		if err != nil {
@@ -146,7 +146,7 @@ func (c *Client) GetDBExec(env map[string]string) func(ctx context.Context, quer
 	}
 }
 
-func (c *Client) GetFirst(req string, first ...interface{}) error {
+func (c *Client) GetFirst(req string, first ...any) error {
 	res, err := c.c.Query(context.Background(), req)
 	if err != nil {
 		return err
@@ -218,7 +218,7 @@ func (c *Client) Do(ctx context.Context, query ch.Query) error {
 	panic("implement me")
 }
 
-func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
+func (c *Client) Query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
 	// Call the ClickHouse Query method on the connection object with the provided query and arguments
 	rows, err := c.c.Query(ctx, query, args...)
 	if err != nil {
@@ -227,7 +227,7 @@ func (c *Client) Query(ctx context.Context, query string, args ...interface{}) (
 	return rows, nil
 }
 
-func (c *Client) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
+func (c *Client) QueryRow(ctx context.Context, query string, args ...any) driver.Row {
 	// Call the QueryRow method from the underlying ClickHouse connection
 	return c.c.QueryRow(ctx, query, args...)
 }

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -28,7 +29,7 @@ func TargetDocV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Reque
 				return _ctx, nil
 			}),
 			withSimpleParser("*", Parser(unmarshal.ElasticDocUnmarshalV2)),
-			withOkStatusAndJSONBody(200, map[string]interface{}{
+			withOkStatusAndJSONBody(200, map[string]any{
 				"took":   0,
 				"errors": false,
 			}))...)
@@ -74,7 +75,7 @@ func TargetBulkV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 			// Set response status code
 			w.WriteHeader(http.StatusOK)
 			// Prepare JSON response data
-			responseData := map[string]interface{}{
+			responseData := map[string]any{
 				"took":   0,
 				"errors": false,
 			}
@@ -137,9 +138,7 @@ func getRequestParams(r *http.Request) map[string]string {
 	params := make(map[string]string)
 	ctx := r.Context()
 	if ctxParams, ok := ctx.Value(utils.ContextKeyParams).(map[string]string); ok {
-		for key, value := range ctxParams {
-			params[key] = value
-		}
+		maps.Copy(params, ctxParams)
 	}
 	return params
 }

@@ -559,7 +559,7 @@ func (l *labelsGetter) Fetch() error {
 	for rows.Next() {
 		var (
 			fingerprint uint64
-			labels      [][]interface{}
+			labels      [][]any
 		)
 		err := rows.Scan(&fingerprint, &labels)
 		if err != nil {

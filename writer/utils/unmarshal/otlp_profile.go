@@ -3,11 +3,12 @@ package unmarshal
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
 	"github.com/go-faster/city"
-	"github.com/metrico/qryn/v5/writer/model"
 	sharedotlp "github.com/metrico/qryn/v5/shared/otlp"
+	"github.com/metrico/qryn/v5/writer/model"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
@@ -42,7 +43,7 @@ func sortedInt32Keys(m map[int32]struct{}) []int32 {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 

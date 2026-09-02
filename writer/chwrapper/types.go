@@ -16,17 +16,17 @@ type IChClient interface {
 
 	// This should be implemented in the general purpose client and return error in the insert one
 	Exec(ctx context.Context, query string, args ...any) error
-	Scan(ctx context.Context, req string, args []any, dest ...interface{}) error
+	Scan(ctx context.Context, req string, args []any, dest ...any) error
 	DropIfEmpty(ctx context.Context, name string) error
 	TableExists(ctx context.Context, name string) (bool, error)
-	GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error
+	GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]any) error
 	GetVersion(ctx context.Context, k uint64) (uint64, error)
 	GetSetting(ctx context.Context, tp string, name string) (string, error)
 	PutSetting(ctx context.Context, tp string, name string, value string) error
-	GetFirst(req string, first ...interface{}) error
+	GetFirst(req string, first ...any) error
 	GetList(req string) ([]string, error)
-	Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error)
-	QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row
+	Query(ctx context.Context, query string, args ...any) (driver.Rows, error)
+	QueryRow(ctx context.Context, query string, args ...any) driver.Row
 	// This one is shared by both
 	Close() error
 }

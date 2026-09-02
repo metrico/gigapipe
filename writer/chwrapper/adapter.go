@@ -87,7 +87,7 @@ func (a *SmartDatabaseAdapter) Exec(ctx context.Context, query string, args ...a
 	return a.generalPurposeClient.Exec(ctx, query, args...)
 }
 
-func (a *SmartDatabaseAdapter) Scan(ctx context.Context, req string, args []any, dest ...interface{}) error {
+func (a *SmartDatabaseAdapter) Scan(ctx context.Context, req string, args []any, dest ...any) error {
 	if err := a.initGeneralClient(ctx); err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (a *SmartDatabaseAdapter) DropIfEmpty(ctx context.Context, name string) err
 }
 
 // GetDBExec Implement the GetDBExec method in the adapter
-func (a *SmartDatabaseAdapter) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {
+func (a *SmartDatabaseAdapter) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]any) error {
 	if err := a.initGeneralClient(context.Background()); err != nil {
 		return nil
 	}
@@ -131,7 +131,7 @@ func (a *SmartDatabaseAdapter) GetDBExec(env map[string]string) func(ctx context
 }
 
 // GetFirst Implement the GetFirst method in the adapter
-func (a *SmartDatabaseAdapter) GetFirst(req string, first ...interface{}) error {
+func (a *SmartDatabaseAdapter) GetFirst(req string, first ...any) error {
 	if err := a.initGeneralClient(context.Background()); err != nil {
 		return err
 	}
@@ -192,14 +192,14 @@ func (a *SmartDatabaseAdapter) PutSetting(ctx context.Context, tp string, name s
 	return a.generalPurposeClient.PutSetting(ctx, tp, name, value)
 }
 
-func (a *SmartDatabaseAdapter) Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
+func (a *SmartDatabaseAdapter) Query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
 	if err := a.initGeneralClient(ctx); err != nil {
 		return nil, err
 	}
 	return a.generalPurposeClient.Query(ctx, query, args...)
 }
 
-func (a *SmartDatabaseAdapter) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
+func (a *SmartDatabaseAdapter) QueryRow(ctx context.Context, query string, args ...any) driver.Row {
 	if err := a.initGeneralClient(ctx); err != nil {
 		return nil
 	}

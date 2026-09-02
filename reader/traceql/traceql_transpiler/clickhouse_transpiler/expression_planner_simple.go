@@ -78,8 +78,8 @@ func (p *simpleExpressionPlanner) valuesV2Planner(key string) (shared.SQLRequest
 		AggregatedAttr: p.aggAttr,
 	}
 	res = &SelectValuesRequestPlanner{
-		SelectTagsPlanner: SelectTagsPlanner{Main: res},
-		Key:               key,
+		Main: res,
+		Key:  key,
 	}
 	return res, nil
 }

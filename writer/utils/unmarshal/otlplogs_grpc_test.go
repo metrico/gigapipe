@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 	"unsafe"
@@ -71,10 +72,5 @@ func collectMessages(t *testing.T, ld *logsv1.LogsData) []string {
 }
 
 func containsMessage(messages []string, want string) bool {
-	for _, m := range messages {
-		if m == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(messages, want)
 }

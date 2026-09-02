@@ -46,7 +46,7 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 ) {
 	eng := NewPromEngine(config.Cloki.Setting.SYSTEM_SETTINGS.MetricsMaxSamples)
 	svc := service.CLokiQueriable{
-		ServiceData: model.ServiceData{Session: dataSession},
+		Session: dataSession,
 	}
 	ctrl := &controllerv1.PromQueryRangeController{
 		Controller: controllerv1.Controller{},

@@ -49,7 +49,7 @@ type ParsingFunction func(ctx context.Context, body io.Reader,
 type ParserCtx struct {
 	bodyReader io.Reader
 	bodyBuffer []byte
-	bodyObject interface{}
+	bodyObject any
 	fpCache    numbercache.ICache[uint64]
 	ctx        context.Context
 	ctxMap     map[utils.ContextKey]string

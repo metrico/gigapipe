@@ -52,7 +52,7 @@ func acceptsGzip(h http.Header) bool {
 	var gzipQ, wildcardQ float64
 	var gzipSeen, wildcardSeen bool
 	for _, headerValue := range h.Values("Accept-Encoding") {
-		for _, element := range strings.Split(headerValue, ",") {
+		for element := range strings.SplitSeq(headerValue, ",") {
 			coding, params, _ := strings.Cut(element, ";")
 			coding = strings.TrimSpace(coding)
 			q := qValue(params)
@@ -78,7 +78,7 @@ func acceptsGzip(h http.Header) bool {
 // range are clamped to it, preserving the direction the client expressed,
 // while absent or unparseable (including NaN/Inf) weights default to 1.
 func qValue(params string) float64 {
-	for _, param := range strings.Split(params, ";") {
+	for param := range strings.SplitSeq(params, ";") {
 		name, value, ok := strings.Cut(param, "=")
 		if !ok || !strings.EqualFold(strings.TrimSpace(name), "q") {
 			continue

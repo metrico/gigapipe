@@ -17,7 +17,7 @@ type datadogMetricsRequestDec struct {
 	tsNs   []int64
 	values []float64
 
-	path []interface{}
+	path []any
 
 	onEntries onEntriesHandler
 }
@@ -144,17 +144,18 @@ func (d *datadogMetricsRequestDec) WrapError(err error) error {
 		return errors.NewUnmarshalError(err)
 		//return err
 	}
-	path := ""
+	var path strings.Builder
 	for _, i := range d.path {
 		switch i := i.(type) {
 		case string:
-			path += "." + i
+			path.WriteString(".")
+			path.WriteString(i)
 		case *int:
-			path += "." + fmt.Sprintf("%d", *(i))
+			fmt.Fprintf(&path, ".%d", *i)
 		}
 	}
 
-	return errors.NewUnmarshalError(fmt.Errorf("json error path: %s; error: %s", path, err.Error()))
+	return errors.NewUnmarshalError(fmt.Errorf("json error path: %s; error: %s", path.String(), err.Error()))
 }
 
 var UnmarshallDatadogMetricsV2JSONV2 = Build(
