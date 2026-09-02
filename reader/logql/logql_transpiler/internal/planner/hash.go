@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -30,10 +31,5 @@ func fingerprint(labels map[string]string) uint64 {
 }
 
 func contains(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }

@@ -59,7 +59,7 @@ func (j *JSONText) UnmarshalJSON(data []byte) error {
 }
 
 // Unmarshal unmarshal's the json in j to v, as in json.Unmarshal.
-func (j *JSONText) Unmarshal(v interface{}) error {
+func (j *JSONText) Unmarshal(v any) error {
 	if len(*j) == 0 {
 		*j = emptyJSON
 	}

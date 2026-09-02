@@ -199,10 +199,10 @@ func TestExtractOTLPMeta(t *testing.T) {
 	p := sp.Profiles().AppendEmpty()
 	p.SetTime(pcommon.Timestamp(1_700_000_000_000_000_000))
 	p.SetDurationNano(5_000_000_000)
-	p.SampleType().SetTypeStrindex(1)  // "cpu"
-	p.SampleType().SetUnitStrindex(2)  // "nanoseconds"
-	p.PeriodType().SetTypeStrindex(1)  // "cpu"
-	p.PeriodType().SetUnitStrindex(2)  // "nanoseconds"
+	p.SampleType().SetTypeStrindex(1) // "cpu"
+	p.SampleType().SetUnitStrindex(2) // "nanoseconds"
+	p.PeriodType().SetTypeStrindex(1) // "cpu"
+	p.PeriodType().SetUnitStrindex(2) // "nanoseconds"
 
 	m := extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict)
 
@@ -514,11 +514,11 @@ func TestSliceOTLPProfilePrunesAndRoundTrips(t *testing.T) {
 		a.SetUnitStrindex(unit)
 		a.Value().SetStr(val)
 	}
-	mkAttr(7, 8, "loc-attr")     // 0
-	mkAttr(7, 8, "map-attr")     // 1
-	mkAttr(7, 8, "prof-attr")    // 2
-	mkAttr(7, 8, "sample-attr")  // 3
-	mkAttr(9, 9, "decoy-attr")   // 4 (unreferenced)
+	mkAttr(7, 8, "loc-attr")    // 0
+	mkAttr(7, 8, "map-attr")    // 1
+	mkAttr(7, 8, "prof-attr")   // 2
+	mkAttr(7, 8, "sample-attr") // 3
+	mkAttr(9, 9, "decoy-attr")  // 4 (unreferenced)
 
 	// mappings: m0=lib.so w/ attr1, m1=decoy
 	m0 := dict.MappingTable().AppendEmpty()

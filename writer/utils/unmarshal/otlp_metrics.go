@@ -3,9 +3,12 @@ package unmarshal
 import (
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/metrico/qryn/v5/writer/model"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
@@ -28,10 +31,8 @@ type OTLPMetricsStats struct {
 
 func (s *OTLPMetricsStats) reject(count int, reason string) {
 	s.rejected += int64(count)
-	for _, r := range s.reasons {
-		if r == reason {
-			return
-		}
+	if slices.Contains(s.reasons, reason) {
+		return
 	}
 	if len(s.reasons) < maxRejectionReasons {
 		s.reasons = append(s.reasons, reason)
@@ -53,11 +54,13 @@ func (s *OTLPMetricsStats) ErrorMessage() string {
 	case 1:
 		return s.reasons[0]
 	}
-	msg := s.reasons[0]
+	var msg strings.Builder
+	msg.WriteString(s.reasons[0])
 	for _, r := range s.reasons[1:] {
-		msg += "; " + r
+		msg.WriteString("; ")
+		msg.WriteString(r)
 	}
-	return msg
+	return msg.String()
 }
 
 // identifyingResourceAttrs are the resource attributes that become the job and
@@ -108,11 +111,13 @@ func mergeSanitizedAttrs(dst map[string]string, prefix string, attrs []*otlpcomm
 		if len(entries) > 1 {
 			sort.Slice(entries, func(i, j int) bool { return entries[i][0] < entries[j][0] })
 		}
-		val := entries[0][1]
+		var val strings.Builder
+		val.WriteString(entries[0][1])
 		for _, e := range entries[1:] {
-			val += ";" + e[1]
+			val.WriteString(";")
+			val.WriteString(e[1])
 		}
-		dst[key] = val
+		dst[key] = val.String()
 	}
 }
 
@@ -497,9 +502,7 @@ func (d *otlpMetricsDec) emitTargetInfo(rs *resourceScope) error {
 		return nil
 	}
 	merged := make(map[string]string, len(rs.targetAttrs)+3)
-	for k, v := range rs.targetAttrs {
-		merged[k] = v
-	}
+	maps.Copy(merged, rs.targetAttrs)
 	merged["__name__"] = "target_info"
 	if rs.job != "" {
 		merged["job"] = rs.job

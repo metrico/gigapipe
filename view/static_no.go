@@ -1,5 +1,4 @@
 //go:build !view
-// +build !view
 
 package view
 

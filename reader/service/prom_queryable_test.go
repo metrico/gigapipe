@@ -323,7 +323,7 @@ func countStaleMarkers(series []*model.SeriesV2) int {
 // - must leave every series untouched, preserving the engine's own 5m lookback.
 func TestApplyStaleMarkers_NonSubstituteInstantFn(t *testing.T) {
 	const step, queryEnd = int64(15000), int64(1_000_000)
-	c := newQuerierWithSubstitutes("__metric_subst__999") // some other query's subst
+	c := newQuerierWithSubstitutes("__metric_subst__999")  // some other query's subst
 	sqlFilled := c.isSQLFilled(nameMatcher("test_metric")) // abs(test_metric) -> false
 	if sqlFilled {
 		t.Fatal("precondition: abs(test_metric) must not be SQL-filled")
@@ -363,7 +363,7 @@ func TestApplyStaleMarkers_SubstituteBacked(t *testing.T) {
 		if len(s.Samples) != 3 {
 			t.Fatalf("expected 2 real samples + 1 marker, got %d: %+v", len(s.Samples), s.Samples)
 		}
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			if value.IsStaleNaN(s.Samples[i].Value) {
 				t.Fatalf("real sample %d must be untouched, got a stale marker: %+v", i, s.Samples)
 			}

@@ -96,7 +96,7 @@ func Init(cfg *clconfig.ClokiConfig, app *mux.Router) {
 		MaxSamples: cfg.Setting.SYSTEM_SETTINGS.MetricsMaxSamples,
 		Timeout:    30 * time.Second,
 	})
-	promStorage := &readerservice.CLokiQueriable{ServiceData: readermodel.ServiceData{Session: session}}
+	promStorage := &readerservice.CLokiQueriable{Session: session}
 	promMgr := ruler.NewRuleManager(ruler.NewPromEvaluator(eng, promStorage), promService, writeBack, poll)
 
 	lokiCtrl := &controller.Controller{Store: lokiService, Manager: lokiMgr}

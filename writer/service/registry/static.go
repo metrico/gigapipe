@@ -35,14 +35,15 @@ func mapToSlice(m map[string]service.IInsertServiceV2) []service.IInsertServiceV
 }
 
 func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) ServiceRegistry {
-	res := staticServiceRegistry{}
-	res.TimeSeriesSvcs = mapToSlice(opts.TimeSeriesSvcs)
-	res.SamplesSvcs = mapToSlice(opts.SamplesSvcs)
-	res.MetricSvcs = mapToSlice(opts.MetricSvcs)
-	res.TempoSamplesSvcs = mapToSlice(opts.TempoSamplesSvcs)
-	res.TempoTagsSvcs = mapToSlice(opts.TempoTagsSvcs)
-	res.ProfileInsertSvcs = mapToSlice(opts.ProfileInsertSvcs)
-	res.PatternInsertSvcs = mapToSlice(opts.PatternInsertSvcs)
+	res := staticServiceRegistry{
+		TimeSeriesSvcs:    mapToSlice(opts.TimeSeriesSvcs),
+		SamplesSvcs:       mapToSlice(opts.SamplesSvcs),
+		MetricSvcs:        mapToSlice(opts.MetricSvcs),
+		TempoSamplesSvcs:  mapToSlice(opts.TempoSamplesSvcs),
+		TempoTagsSvcs:     mapToSlice(opts.TempoTagsSvcs),
+		ProfileInsertSvcs: mapToSlice(opts.ProfileInsertSvcs),
+		PatternInsertSvcs: mapToSlice(opts.PatternInsertSvcs),
+	}
 	return &res
 }
 

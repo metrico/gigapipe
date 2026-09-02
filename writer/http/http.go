@@ -82,8 +82,8 @@ func matchPath(routePath, requestPath string) (map[string]string, bool) {
 
 	params := make(map[string]string)
 	for i, part := range routeParts {
-		if strings.HasPrefix(part, ":") {
-			params[strings.TrimPrefix(part, ":")] = requestParts[i]
+		if after, ok := strings.CutPrefix(part, ":"); ok {
+			params[after] = requestParts[i]
 		} else if part != requestParts[i] {
 			return nil, false
 		}

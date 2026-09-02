@@ -127,8 +127,8 @@ func getSQLFile(strContents string) ([]string, error) {
 	return res, nil
 }
 
-func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger) func(query string, args ...[]interface{}) error {
-	return func(query string, args ...[]interface{}) error {
+func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger) func(query string, args ...[]any) error {
+	return func(query string, args ...[]any) error {
 		name := fmt.Sprintf("tpl_%d", rand.Uint64())
 		tpl, err := template.New(name).Parse(query)
 		if err != nil {

@@ -79,7 +79,7 @@ func withOkStatusAndBody(status int, body []byte) BuildOption {
 	}
 }
 
-func withOkStatusAndJSONBody(status int, body map[string]interface{}) BuildOption {
+func withOkStatusAndJSONBody(status int, body map[string]any) BuildOption {
 	return func(ctx *PusherCtx) *PusherCtx {
 		ctx.PostRequest = append(ctx.PostRequest, func(w http.ResponseWriter, r *http.Request) error {
 			// Marshal the JSON body

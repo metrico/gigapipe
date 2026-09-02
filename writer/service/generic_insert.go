@@ -35,7 +35,7 @@ const (
 )
 
 type InsertRequest interface {
-	Rows() []interface{}
+	Rows() []any
 	Response() chan error
 }
 
@@ -102,7 +102,7 @@ type InsertServiceV2 struct {
 
 	client chwrapper.IChClient
 
-	state int32
+	state atomic.Int32
 }
 
 func (svc *InsertServiceV2) PlanFlush() {
@@ -145,7 +145,7 @@ func (svc *InsertServiceV2) Ping() (time.Time, error) {
 }
 
 func (svc *InsertServiceV2) GetState(insertMode int) int {
-	return int(atomic.LoadInt32(&svc.state))
+	return int(svc.state.Load())
 }
 
 func (svc *InsertServiceV2) Run() {
@@ -244,7 +244,7 @@ func (svc *InsertServiceV2) swapBuffers() (*requestPortion, error) {
 }
 
 func (svc *InsertServiceV2) setState(state int) {
-	atomic.StoreInt32(&svc.state, int32(state))
+	svc.state.Store(int32(state))
 }
 
 func (svc *InsertServiceV2) fetchLoopIteration() {
@@ -575,16 +575,12 @@ func (svc *InsertServiceV2Multimodal) Run() {
 	}
 	wg := sync.WaitGroup{}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		svc.SyncService.Run()
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		svc.AsyncService.Run()
-	}()
+	})
 	logger.Info("created service")
 	svc.running = true
 	svc.mtx.Unlock()

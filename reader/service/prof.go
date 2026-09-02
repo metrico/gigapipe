@@ -695,9 +695,9 @@ func (ps *ProfService) detachTypeId(strQuery string) (string, string, error) {
 
 type units = string
 type Flamebearer struct {
-	Version              int                    `json:"version"`
-	FlamebearerProfileV1 FlamebearerProfileV1   `json:"flamebearerProfileV1"`
-	Telemetry            map[string]interface{} `json:"telemetry,omitempty"`
+	Version              int                  `json:"version"`
+	FlamebearerProfileV1 FlamebearerProfileV1 `json:"flamebearerProfileV1"`
+	Telemetry            map[string]any       `json:"telemetry,omitempty"`
 }
 
 type FlamebearerProfileV1 struct {

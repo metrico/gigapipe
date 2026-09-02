@@ -27,7 +27,7 @@ var (
 
 var (
 	tokPool     = sync.Pool{}
-	tokPoolSize int32
+	tokPoolSize atomic.Int32
 	done        chan struct{}
 )
 
@@ -49,19 +49,19 @@ func skipLine() bool {
 func getToks() []clustering.Token {
 	toks := tokPool.Get()
 	if toks != nil {
-		atomic.AddInt32(&tokPoolSize, -1)
+		tokPoolSize.Add(-1)
 		return toks.([]clustering.Token)
 	}
 	return make([]clustering.Token, 0, 150)
 }
 
 func putToks(toks []clustering.Token) {
-	if atomic.LoadInt32(&tokPoolSize) > 100 {
+	if tokPoolSize.Load() > 100 {
 		return
 	}
 	toks = toks[:0]
 	tokPool.Put(toks)
-	atomic.AddInt32(&tokPoolSize, 1)
+	tokPoolSize.Add(1)
 }
 
 func ClusterLines(lines []string, fingerprints []uint64, timestamps []int64) {

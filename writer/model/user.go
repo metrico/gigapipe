@@ -218,7 +218,7 @@ type UserFileDownload struct {
 type UserParameterRequest struct {
 	// in: formData
 	// swagger:file
-	File interface{}
+	File any
 }
 
 //swagger:model TableUserList

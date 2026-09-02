@@ -5,6 +5,7 @@ import (
 	databaseSql "database/sql"
 	"fmt"
 	"io"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -186,9 +187,7 @@ func (q *QueryRangeService) QueryVolume(ctx context.Context, query string, fromN
 	value := float64(0)
 	putData := func() {
 		metric := make(map[string]string)
-		for k, v := range lastMetric {
-			metric[k] = v
-		}
+		maps.Copy(metric, lastMetric)
 		res = append(res, QueryVolumeResult{
 			Metric: metric,
 			Value:  []any{float64(toNs / 1000000000), strconv.FormatFloat(value, 'f', -1, 32)},

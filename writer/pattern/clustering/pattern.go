@@ -1,6 +1,7 @@
 package clustering
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -306,8 +307,8 @@ func (r *LogClusterRow) match(l *LogLine) bool {
 func (r *LogClusterRow) cleanup() {
 	r.m.Lock()
 	defer r.m.Unlock()
-	for i := len(r.clusters) - 1; i >= 0; i-- {
-		if time.Since(r.clusters[i].lastFlush) > time.Minute*5 {
+	for i, v := range slices.Backward(r.clusters) {
+		if time.Since(v.lastFlush) > time.Minute*5 {
 			copy(r.clusters[i:], r.clusters[i+1:])
 			r.clusters = r.clusters[:len(r.clusters)-1]
 		}

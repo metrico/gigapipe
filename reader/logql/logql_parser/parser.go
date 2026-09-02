@@ -41,7 +41,7 @@ func FindFirst[T any](node any) *T {
 	if n, ok := node.(*T); ok {
 		return n
 	}
-	if node == nil || (reflect.ValueOf(node).Kind() == reflect.Ptr && reflect.ValueOf(node).IsNil()) {
+	if node == nil || (reflect.ValueOf(node).Kind() == reflect.Pointer && reflect.ValueOf(node).IsNil()) {
 		return nil
 	}
 	switch _node := node.(type) {

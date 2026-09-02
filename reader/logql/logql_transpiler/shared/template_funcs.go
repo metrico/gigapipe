@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"maps"
 	"regexp"
 	"strings"
 	"text/template"
@@ -67,9 +68,7 @@ func BaseTemplateFuncs() template.FuncMap {
 // EntryTemplateLabels returns label values available to line_format templates.
 func EntryTemplateLabels(entry LogEntry) map[string]string {
 	labels := make(map[string]string, len(entry.Labels)+2)
-	for k, v := range entry.Labels {
-		labels[k] = v
-	}
+	maps.Copy(labels, entry.Labels)
 	labels["_entry"] = entry.Message
 	labels["__line__"] = entry.Message
 	return labels

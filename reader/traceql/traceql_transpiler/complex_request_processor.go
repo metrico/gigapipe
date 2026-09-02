@@ -18,7 +18,7 @@ func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
 	from := ctx.From
 	var cachedTraceIDs []string
 	var res []model.TraceInfo
-	for i := int64(0); i < portions; i++ {
+	for i := range portions {
 		ctx.RandomFilter = shared.RandomFilter{
 			Max: int(portions),
 			I:   int(i),
