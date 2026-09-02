@@ -199,10 +199,10 @@ func TestExtractOTLPMeta(t *testing.T) {
 	p := sp.Profiles().AppendEmpty()
 	p.SetTime(pcommon.Timestamp(1_700_000_000_000_000_000))
 	p.SetDurationNano(5_000_000_000)
-	p.SampleType().SetTypeStrindex(1)  // "cpu"
-	p.SampleType().SetUnitStrindex(2)  // "nanoseconds"
-	p.PeriodType().SetTypeStrindex(1)  // "cpu"
-	p.PeriodType().SetUnitStrindex(2)  // "nanoseconds"
+	p.SampleType().SetTypeStrindex(1) // "cpu"
+	p.SampleType().SetUnitStrindex(2) // "nanoseconds"
+	p.PeriodType().SetTypeStrindex(1) // "cpu"
+	p.PeriodType().SetUnitStrindex(2) // "nanoseconds"
 
 	m := extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict)
 
@@ -270,7 +270,7 @@ func TestBuildOTLPTreeSymbolized(t *testing.T) {
 	s.SetStackIndex(0)
 	s.Values().Append(10, 5) // summed = 15
 
-	functions, tree, valuesAgg := buildOTLPTree(p, dict)
+	functions, tree, valuesAgg := buildOTLPTree(p, newOTLPFrameNamer(dict))
 
 	// functions contains main and work
 	names := map[string]bool{}
@@ -375,7 +375,7 @@ func TestBuildOTLPTreeUnsymbolizedFallback(t *testing.T) {
 	s.SetStackIndex(0)
 	s.Values().Append(7)
 
-	functions, _, _ := buildOTLPTree(p, dict)
+	functions, _, _ := buildOTLPTree(p, newOTLPFrameNamer(dict))
 	found := false
 	for _, f := range functions {
 		if f.ValueStr == "+0x1234" {
@@ -514,11 +514,11 @@ func TestSliceOTLPProfilePrunesAndRoundTrips(t *testing.T) {
 		a.SetUnitStrindex(unit)
 		a.Value().SetStr(val)
 	}
-	mkAttr(7, 8, "loc-attr")     // 0
-	mkAttr(7, 8, "map-attr")     // 1
-	mkAttr(7, 8, "prof-attr")    // 2
-	mkAttr(7, 8, "sample-attr")  // 3
-	mkAttr(9, 9, "decoy-attr")   // 4 (unreferenced)
+	mkAttr(7, 8, "loc-attr")    // 0
+	mkAttr(7, 8, "map-attr")    // 1
+	mkAttr(7, 8, "prof-attr")   // 2
+	mkAttr(7, 8, "sample-attr") // 3
+	mkAttr(9, 9, "decoy-attr")  // 4 (unreferenced)
 
 	// mappings: m0=lib.so w/ attr1, m1=decoy
 	m0 := dict.MappingTable().AppendEmpty()
@@ -670,7 +670,7 @@ func TestBuildOTLPTreeUnsymbolizedUsesMappingFilename(t *testing.T) {
 	s.SetStackIndex(0)
 	s.Values().Append(7)
 
-	functions, _, _ := buildOTLPTree(p, dict)
+	functions, _, _ := buildOTLPTree(p, newOTLPFrameNamer(dict))
 	const want = "/usr/bin/busybox+0x3107"
 	for _, f := range functions {
 		if f.ValueStr == want {
@@ -680,7 +680,7 @@ func TestBuildOTLPTreeUnsymbolizedUsesMappingFilename(t *testing.T) {
 	t.Fatalf("expected %q, got %+v", want, functions)
 }
 
-// buildIDProfile builds a one-native-frame profile whose mapping carries the
+// buildIDFrameName builds a one-native-frame profile whose mapping carries the
 // given build-id attributes, in the given order, and returns the frame name
 // buildOTLPTree produced for it.
 func buildIDFrameName(t *testing.T, filename string, buildAttrs [][2]string) string {
@@ -720,7 +720,7 @@ func buildIDFrameName(t *testing.T, filename string, buildAttrs [][2]string) str
 	s.SetStackIndex(0)
 	s.Values().Append(1)
 
-	functions, _, _ := buildOTLPTree(p, dict)
+	functions, _, _ := buildOTLPTree(p, newOTLPFrameNamer(dict))
 	if len(functions) != 1 {
 		t.Fatalf("expected 1 function, got %+v", functions)
 	}
@@ -879,4 +879,154 @@ func TestExtractOTLPMetaKeepsFallbackAttributeAsTag(t *testing.T) {
 		}
 	}
 	t.Fatalf("process.executable.name missing from tags: %+v", meta.Tags)
+}
+
+// Resource attributes outrank scope attributes for every candidate key. This is
+// a behaviour change: the previous code assigned ServiceName while ranging over
+// resource attributes and then again over scope attributes, so a scope-level
+// service.name silently overwrote the resource's. Resource identifies the entity
+// producing the telemetry, scope identifies the instrumentation library inside
+// it, so the resource is the one that names the service.
+func TestExtractOTLPMetaResourceOutranksScope(t *testing.T) {
+	tests := []struct {
+		name       string
+		resAttrs   map[string]string
+		scopeAttrs map[string]string
+		want       string
+	}{
+		{
+			name:       "same key on both, resource wins",
+			resAttrs:   map[string]string{"service.name": "checkout"},
+			scopeAttrs: map[string]string{"service.name": "otel-instrumentation"},
+			want:       "checkout",
+		},
+		{
+			name:       "key empty on resource falls through to scope",
+			resAttrs:   map[string]string{"service.name": ""},
+			scopeAttrs: map[string]string{"service.name": "checkout"},
+			want:       "checkout",
+		},
+		{
+			name:       "key absent from resource falls through to scope",
+			resAttrs:   map[string]string{"process.pid": "1234"},
+			scopeAttrs: map[string]string{"service.name": "checkout"},
+			want:       "checkout",
+		},
+		{
+			// Priority runs over the key list first, then over resource before
+			// scope: a lower-priority key on the resource must not beat a
+			// higher-priority key that only the scope carries.
+			name:       "higher-priority key on scope beats lower-priority key on resource",
+			resAttrs:   map[string]string{"process.executable.name": "python3.12"},
+			scopeAttrs: map[string]string{"service.name": "checkout"},
+			want:       "checkout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := metaForAttrs(tt.resAttrs, tt.scopeAttrs).ServiceName; got != tt.want {
+				t.Fatalf("ServiceName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// Profiles stringify a non-string candidate attribute rather than ignoring it.
+//
+// This is a deliberate difference from the traces path, which reads candidates
+// with GetStringValue() and so sees a non-string value as absent. Both signals
+// share the key list and the resolution order (resolveOTLPServiceName); only the
+// lookup differs, because each reads the attribute representation its own decoder
+// produced. Pinning it here so the divergence is a documented decision rather
+// than something a later reader has to rediscover.
+func TestExtractOTLPMetaStringifiesNonStringCandidate(t *testing.T) {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds")
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	rp.Resource().Attributes().PutInt("process.executable.name", 1234)
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+
+	if got := extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict).ServiceName; got != "1234" {
+		t.Fatalf("ServiceName = %q, want %q", got, "1234")
+	}
+}
+
+// A location whose mapping index falls outside the mapping table still yields a
+// usable, mergeable name: the offset alone, with no binary in front of it.
+func TestFrameNameOutOfRangeMappingKeepsOffset(t *testing.T) {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	dict.StringTable().Append("", "cpu", "nanoseconds")
+
+	loc := dict.LocationTable().AppendEmpty()
+	loc.SetAddress(0x1234)
+	loc.SetMappingIndex(7) // mapping table is empty
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.Values().Append(1)
+
+	functions, _, _ := buildOTLPTree(p, newOTLPFrameNamer(dict))
+	const want = "+0x1234"
+	for _, f := range functions {
+		if f.ValueStr == want {
+			return
+		}
+	}
+	t.Fatalf("expected %q, got %+v", want, functions)
+}
+
+// A location that has a Line but whose function name resolves empty falls
+// through to the mapping fallback rather than naming the frame "".
+func TestFrameNameEmptyFunctionNameFallsBackToMapping(t *testing.T) {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	st := dict.StringTable()
+	add := func(s string) int32 { st.Append(s); return int32(st.Len() - 1) }
+	add("")
+	add("cpu")
+	add("nanoseconds")
+	sBin := add("/usr/bin/busybox")
+
+	dict.FunctionTable().AppendEmpty() // NameStrindex 0 -> ""
+	mp := dict.MappingTable().AppendEmpty()
+	mp.SetFilenameStrindex(sBin)
+
+	loc := dict.LocationTable().AppendEmpty()
+	loc.SetAddress(0x99)
+	loc.SetMappingIndex(0)
+	loc.Lines().AppendEmpty().SetFunctionIndex(0)
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(0)
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.Values().Append(1)
+
+	functions, _, _ := buildOTLPTree(p, newOTLPFrameNamer(dict))
+	const want = "/usr/bin/busybox+0x99"
+	for _, f := range functions {
+		if f.ValueStr == want {
+			return
+		}
+	}
+	t.Fatalf("expected %q, got %+v", want, functions)
 }

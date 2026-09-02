@@ -6,8 +6,8 @@ import (
 	"sort"
 
 	"github.com/go-faster/city"
-	"github.com/metrico/qryn/v5/writer/model"
 	sharedotlp "github.com/metrico/qryn/v5/shared/otlp"
+	"github.com/metrico/qryn/v5/writer/model"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/pprofile/pprofileotlp"
@@ -306,6 +306,54 @@ func extractOTLPMeta(res pcommon.Resource, scope pcommon.InstrumentationScope,
 	return m
 }
 
+// otlpFrameNamer resolves location indices to frame names over the dictionary of
+// one OTLP export, memoizing what it resolves.
+//
+// The scope is deliberately the whole export, not one profile. A dictionary is
+// shared by every profile in the export and is immutable once decoded, so a
+// location resolves to the same name for all of them — and the eBPF profiler is
+// exactly the producer that sends many small profiles (one per process) whose
+// stacks walk through the same shared-library and kernel locations. Resolving
+// per export instead of per profile collapses that repetition.
+//
+// Not safe for concurrent use: decodeProfiles walks an export's profiles
+// sequentially, and one namer belongs to one such walk.
+type otlpFrameNamer struct {
+	dict     pprofile.ProfilesDictionary
+	locs     pprofile.LocationSlice
+	mappings pprofile.MappingSlice
+	// names is keyed by location index, buildIDs by mapping index. Neither is
+	// pre-sized: a profile commonly touches a small fraction of a large shared
+	// dictionary, and sizing to the table length would allocate for locations
+	// the export never names.
+	names    map[int32]string
+	buildIDs map[int32]string
+}
+
+func newOTLPFrameNamer(dict pprofile.ProfilesDictionary) *otlpFrameNamer {
+	return &otlpFrameNamer{
+		dict:     dict,
+		locs:     dict.LocationTable(),
+		mappings: dict.MappingTable(),
+		names:    map[int32]string{},
+		buildIDs: map[int32]string{},
+	}
+}
+
+// nameOf returns the frame name of the location at locIdx, or "n/a" when the
+// index falls outside the dictionary's location table.
+func (n *otlpFrameNamer) nameOf(locIdx int32) string {
+	if locIdx < 0 || int(locIdx) >= n.locs.Len() {
+		return "n/a"
+	}
+	if s, ok := n.names[locIdx]; ok {
+		return s
+	}
+	s := n.frameName(n.locs.At(int(locIdx)))
+	n.names[locIdx] = s
+	return s
+}
+
 // frameName resolves a location's leaf function name, or a binary+offset
 // fallback for frames the producer could not symbolize.
 //
@@ -341,22 +389,21 @@ func extractOTLPMeta(res pcommon.Resource, scope pcommon.InstrumentationScope,
 // heuristic (say, distrusting index 0 unless several mappings exist) would
 // discard correct names for the common single-binary profile, which is the
 // worse trade.
-func frameName(loc pprofile.Location, dict pprofile.ProfilesDictionary) string {
-	st := dict.StringTable()
+func (n *otlpFrameNamer) frameName(loc pprofile.Location) string {
+	st := n.dict.StringTable()
 	if loc.Lines().Len() > 0 {
 		fnIdx := loc.Lines().At(0).FunctionIndex()
-		if fnIdx >= 0 && int(fnIdx) < dict.FunctionTable().Len() {
-			name := strAt(st, dict.FunctionTable().At(int(fnIdx)).NameStrindex())
+		if fnIdx >= 0 && int(fnIdx) < n.dict.FunctionTable().Len() {
+			name := strAt(st, n.dict.FunctionTable().At(int(fnIdx)).NameStrindex())
 			if name != "" {
 				return name
 			}
 		}
 	}
 	binary, build := "", ""
-	if mIdx := loc.MappingIndex(); mIdx >= 0 && int(mIdx) < dict.MappingTable().Len() {
-		mp := dict.MappingTable().At(int(mIdx))
-		binary = strAt(st, mp.FilenameStrindex())
-		build = shortBuildID(mp, dict)
+	if mIdx := loc.MappingIndex(); mIdx >= 0 && int(mIdx) < n.mappings.Len() {
+		binary = strAt(st, n.mappings.At(int(mIdx)).FilenameStrindex())
+		build = n.shortBuildID(mIdx)
 	}
 	if build != "" {
 		return fmt.Sprintf("%s@%s+0x%x", binary, build, loc.Address())
@@ -380,14 +427,28 @@ var buildIDKeys = [...]string{
 // flamegraph label; the full id is 40 characters and would dominate the node.
 const buildIDLen = 8
 
-// shortBuildID returns the mapping's preferred build id, truncated, or "" when
+// shortBuildID returns the build id of the mapping at mIdx, resolving it at most
+// once per mapping per export. A build id is a property of the mapping, not of
+// the location, and a mapping backs every location in the binary it describes —
+// so without the memo the attribute-table scan below would repeat for thousands
+// of locations that all share one answer.
+func (n *otlpFrameNamer) shortBuildID(mIdx int32) string {
+	if s, ok := n.buildIDs[mIdx]; ok {
+		return s
+	}
+	s := scanBuildID(n.mappings.At(int(mIdx)), n.dict)
+	n.buildIDs[mIdx] = s
+	return s
+}
+
+// scanBuildID returns the mapping's preferred build id, truncated, or "" when
 // the mapping carries none.
 //
 // Preference runs over buildIDKeys, NOT over the order the producer happened to
 // append the attributes in: a mapping carrying several build ids must always
 // resolve to the same one, or the same frame would be named differently
 // depending on attribute ordering and would stop merging with itself.
-func shortBuildID(mp pprofile.Mapping, dict pprofile.ProfilesDictionary) string {
+func scanBuildID(mp pprofile.Mapping, dict pprofile.ProfilesDictionary) string {
 	st := dict.StringTable()
 	at := dict.AttributeTable()
 	ai := mp.AttributeIndices()
@@ -412,33 +473,19 @@ func shortBuildID(mp pprofile.Mapping, dict pprofile.ProfilesDictionary) string 
 	return ""
 }
 
-func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
+// buildOTLPTree converts one profile into the tree, function and value rows the
+// insert path stores. namer carries the frame-name cache and is shared by every
+// profile in the export (see otlpFrameNamer).
+func buildOTLPTree(p pprofile.Profile, namer *otlpFrameNamer) (
 	[]model.Function, []model.TreeRootStructure, []model.ValuesAgg) {
 
+	dict := namer.dict
 	st := dict.StringTable()
 	sampleType := strAt(st, p.SampleType().TypeStrindex())
 	sampleUnit := strAt(st, p.SampleType().UnitStrindex())
 	valueName := fmt.Sprintf("%s:%s", sampleType, sampleUnit)
 
-	locs := dict.LocationTable()
 	stacks := dict.StackTable()
-
-	// A location repeats across every sample whose stack walks through it, and
-	// resolving its name costs several dictionary lookups (function table, or
-	// mapping table plus a scan of the attribute table for the build id). Resolve
-	// each distinct location once instead of once per frame occurrence.
-	names := make(map[int32]string, locs.Len())
-	nameOf := func(locIdx int32) string {
-		if locIdx < 0 || int(locIdx) >= locs.Len() {
-			return "n/a"
-		}
-		if n, ok := names[locIdx]; ok {
-			return n
-		}
-		n := frameName(locs.At(int(locIdx)), dict)
-		names[locIdx] = n
-		return n
-	}
 
 	funcs := map[uint64]string{}
 	tree := map[uint64]*profTrieNode{}
@@ -464,7 +511,7 @@ func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
 
 		parentId := uint64(0)
 		for i := li.Len() - 1; i >= 0; i-- {
-			name := nameOf(li.At(i))
+			name := namer.nameOf(li.At(i))
 			fnId := city.CH64([]byte(name))
 			funcs[fnId] = name
 			nodeId := getNodeId(parentId, fnId, li.Len()-i)
@@ -546,6 +593,7 @@ func (d *otlpProfilesDec) Decode() error {
 // pre-decoded gRPC path (otlpProfilesPreDec.Decode).
 func (d *otlpProfilesDec) decodeProfiles(profs pprofile.Profiles) error {
 	dict := profs.Dictionary()
+	namer := newOTLPFrameNamer(dict)
 
 	rps := profs.ResourceProfiles()
 	for i := 0; i < rps.Len(); i++ {
@@ -558,7 +606,7 @@ func (d *otlpProfilesDec) decodeProfiles(profs pprofile.Profiles) error {
 				p := ps.At(k)
 
 				meta := extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict)
-				functions, tree, valuesAgg := buildOTLPTree(p, dict)
+				functions, tree, valuesAgg := buildOTLPTree(p, namer)
 				payload, err := sliceOTLPProfile(p, dict)
 				if err != nil {
 					return fmt.Errorf("failed to slice OTLP profile: %w", err)
