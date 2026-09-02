@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -98,12 +99,12 @@ func (pusherCtx *PusherCtx) Do(w http.ResponseWriter, r *http.Request) error {
 }
 
 func ErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
-	if e, ok := customErrors.Unwrap[*customErrors.UnMarshalError](err); ok {
+	if e, ok := errors.AsType[*customErrors.UnMarshalError](err); ok {
 		stat.AddSentMetrics("json_parse_errors", 1)
 		writeErrorResponse(w, e.GetCode(), e.Error())
 		return
 	}
-	if e, ok := customErrors.Unwrap[customErrors.IQrynError](err); ok {
+	if e, ok := errors.AsType[customErrors.IQrynError](err); ok {
 		writeErrorResponse(w, e.GetCode(), e.Error())
 		return
 	}

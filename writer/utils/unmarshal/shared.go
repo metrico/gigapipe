@@ -48,14 +48,3 @@ func newTimeSeriesAndSamples(c chan *model.ParserResponse,
 	res.reset()
 	return res
 }
-
-func fastFillArray[T any](len int, val T) []T {
-	res := make([]T, len)
-	res[0] = val
-	_len := 1
-	for _len < len {
-		copy(res[_len:], res[:_len])
-		_len <<= 1
-	}
-	return res
-}

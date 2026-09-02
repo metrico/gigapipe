@@ -74,11 +74,3 @@ func NewUnmarshalError(err error) IQrynError {
 		400,
 	}
 }
-
-func Unwrap[T IQrynError](err error) (T, bool) {
-	var target T
-	if errors.As(err, &target) {
-		return target, true
-	}
-	return target, false
-}
