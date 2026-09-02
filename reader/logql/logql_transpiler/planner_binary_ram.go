@@ -1,10 +1,11 @@
 package logql_transpiler
 
 import (
+	"cmp"
 	"errors"
 	"io"
 	"math"
-	"sort"
+	"slices"
 	"strconv"
 
 	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
@@ -69,6 +70,13 @@ type sampleKey struct {
 	TimestampNS int64
 }
 
+func compareSampleKeys(a, b sampleKey) int {
+	if c := cmp.Compare(a.Fingerprint, b.Fingerprint); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.TimestampNS, b.TimestampNS)
+}
+
 // drainMatrix consumes a matrix channel and collects all entries into a map.
 // Handles both the io.EOF sentinel entry and plain channel close.
 func drainMatrix(ch chan []shared.LogEntry) (map[sampleKey]shared.LogEntry, error) {
@@ -111,12 +119,7 @@ func emitBinary(left, right map[sampleKey]shared.LogEntry, op string, out chan [
 			keys = append(keys, k)
 		}
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].Fingerprint != keys[j].Fingerprint {
-			return keys[i].Fingerprint < keys[j].Fingerprint
-		}
-		return keys[i].TimestampNS < keys[j].TimestampNS
-	})
+	slices.SortFunc(keys, compareSampleKeys)
 
 	batch := make([]shared.LogEntry, 0, min(len(keys), 100))
 	for _, k := range keys {
@@ -136,12 +139,7 @@ func sortedSampleKeys(m map[sampleKey]shared.LogEntry) []sampleKey {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].Fingerprint != keys[j].Fingerprint {
-			return keys[i].Fingerprint < keys[j].Fingerprint
-		}
-		return keys[i].TimestampNS < keys[j].TimestampNS
-	})
+	slices.SortFunc(keys, compareSampleKeys)
 	return keys
 }
 

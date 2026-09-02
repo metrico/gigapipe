@@ -2,7 +2,6 @@ package planner
 
 import (
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/go-faster/city"
@@ -15,14 +14,14 @@ import (
 //	cityHash64(arrayStringConcat(arrayMap((k,v)->concat(k,'=',v),mapKeys(labels),mapValues(labels)),','))
 //
 // ClickHouse Map keys are always stored in sorted order, so mapKeys() returns
-// the same sorted sequence as sort.Strings here, making the two formulas produce
+// the same sorted sequence as slices.Sort here, making the two formulas produce
 // identical results for the same label set.
 func fingerprint(labels map[string]string) uint64 {
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	parts := make([]string, len(keys))
 	for i, k := range keys {
 		parts[i] = k + "=" + labels[k]

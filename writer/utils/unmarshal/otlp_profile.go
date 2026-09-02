@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"sort"
 
 	"github.com/go-faster/city"
 	sharedotlp "github.com/metrico/qryn/v5/shared/otlp"
@@ -373,7 +372,7 @@ func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
 	for id := range funcs {
 		fnIdx = append(fnIdx, id)
 	}
-	sort.Slice(fnIdx, func(i, j int) bool { return fnIdx[i] > fnIdx[j] })
+	slices.SortFunc(fnIdx, descendingID)
 	functions := make([]model.Function, 0, len(fnIdx))
 	for _, id := range fnIdx {
 		functions = append(functions, model.Function{ValueInt64: id, ValueStr: funcs[id]})
@@ -384,7 +383,7 @@ func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
 	for id := range tree {
 		tIdx = append(tIdx, id)
 	}
-	sort.Slice(tIdx, func(i, j int) bool { return tIdx[i] > tIdx[j] })
+	slices.SortFunc(tIdx, descendingID)
 	treeRes := make([]model.TreeRootStructure, 0, len(tIdx))
 	for _, id := range tIdx {
 		n := tree[id]

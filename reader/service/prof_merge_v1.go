@@ -1,9 +1,9 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
-	"sort"
 	"unsafe"
 
 	"github.com/metrico/qryn/v5/reader/prof"
@@ -245,14 +245,11 @@ func hashProfileLabels(labels []*prof.Label) uint64 {
 	copy(_labels, labels)
 
 	// Sort labels
-	sort.Slice(_labels, func(i, j int) bool {
-		if _labels[i].Key < _labels[j].Key {
-			return true
+	slices.SortFunc(_labels, func(a, b *prof.Label) int {
+		if c := cmp.Compare(a.Key, b.Key); c != 0 {
+			return c
 		}
-		if _labels[i].Key == _labels[j].Key && _labels[i].Str < _labels[j].Str {
-			return true
-		}
-		return false
+		return cmp.Compare(a.Str, b.Str)
 	})
 
 	arr := make([]uint64, len(_labels))

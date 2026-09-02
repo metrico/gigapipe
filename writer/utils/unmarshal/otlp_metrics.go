@@ -1,12 +1,12 @@
 package unmarshal
 
 import (
+	"cmp"
 	"encoding/hex"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -109,7 +109,7 @@ func mergeSanitizedAttrs(dst map[string]string, prefix string, attrs []*otlpcomm
 	}
 	for key, entries := range grouped {
 		if len(entries) > 1 {
-			sort.Slice(entries, func(i, j int) bool { return entries[i][0] < entries[j][0] })
+			slices.SortFunc(entries, func(a, b [2]string) int { return cmp.Compare(a[0], b[0]) })
 		}
 		var val strings.Builder
 		val.WriteString(entries[0][1])
@@ -270,7 +270,7 @@ func (d *otlpMetricsDec) seriesLabels(name string, rs *resourceScope, pointAttrs
 	for k, v := range merged {
 		lbls = append(lbls, []string{k, v})
 	}
-	sort.Slice(lbls, func(i, j int) bool { return lbls[i][0] < lbls[j][0] })
+	slices.SortFunc(lbls, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
 	return lbls
 }
 
@@ -515,7 +515,7 @@ func (d *otlpMetricsDec) emitTargetInfo(rs *resourceScope) error {
 	for k, v := range merged {
 		lbls = append(lbls, []string{k, v})
 	}
-	sort.Slice(lbls, func(i, j int) bool { return lbls[i][0] < lbls[j][0] })
+	slices.SortFunc(lbls, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
 
 	return d.emit(lbls, rs.lastTs, "", 1)
 }
