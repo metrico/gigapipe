@@ -170,7 +170,7 @@ func (s *StrSelectorPipeline) String() string {
 }
 
 type LineFilter struct {
-	Fn  string       `@("|="|"!="|"|~"|"!~"|"|>")`
+	Fn  string        `@("|="|"!="|"|~"|"!~"|"|>")`
 	Exp LineFilterExp `@@`
 }
 
@@ -180,7 +180,7 @@ func (l *LineFilter) String() string {
 
 type LineFilterExp struct {
 	Head LineFilterHead `@@`
-	Op string `@("and"|"or")?`
+	Op   string         `@("and"|"or")?`
 	Tail *LineFilterExp `@@?`
 }
 
@@ -196,8 +196,8 @@ func (l *LineFilterExp) String() string {
 }
 
 type LineFilterHead struct {
-	Complex *LineFilterExp        `( "(" @@ ")" )`
-	Simple  *LineFilterSimple  `| @@`
+	Complex *LineFilterExp    `( "(" @@ ")" )`
+	Simple  *LineFilterSimple `| @@`
 }
 
 func (h *LineFilterHead) String() string {

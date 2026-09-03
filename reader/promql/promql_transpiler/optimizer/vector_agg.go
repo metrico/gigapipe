@@ -2,7 +2,7 @@ package optimizer
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
@@ -82,7 +82,7 @@ func (v *Aggregate) aggregate(fn string) prom_parser.Expr {
 		p.Main = planner.NewInstantVectorPlanner(&fp)
 	}
 
-	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int63())
+	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int64())
 	v.gExpr.Substitutes[metricName] = &promql_parser.Substitute{
 		MetricName: metricName,
 		Node:       v.expr,

@@ -171,11 +171,9 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 				proc = planByWithout(proc, aggOp.ByOrWithoutPrefix, aggOp.ByOrWithoutSuffix)
 			}
 			proc = &LRAPlanner{
-				AggregatorPlanner: AggregatorPlanner{
-					GenericPlanner: GenericPlanner{proc},
-					Duration:       duration,
-				},
-				Func: lra.Fn,
+				GenericPlanner: GenericPlanner{proc},
+				Duration:       duration,
+				Func:           lra.Fn,
 			}
 			return maybeComparison(proc, aggOp.Comparison)
 		}
@@ -184,19 +182,15 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 	if len(lra.StrSel.Pipelines) > 0 && lra.StrSel.Pipelines[len(lra.StrSel.Pipelines)-1].Unwrap != nil {
 		proc = planByWithout(proc, lra.ByOrWithoutPrefix, lra.ByOrWithoutSuffix)
 		proc = &UnwrapAggPlanner{
-			AggregatorPlanner: AggregatorPlanner{
-				GenericPlanner: GenericPlanner{proc},
-				Duration:       duration,
-			},
-			Function: lra.Fn,
+			GenericPlanner: GenericPlanner{proc},
+			Duration:       duration,
+			Function:       lra.Fn,
 		}
 	} else {
 		proc = &LRAPlanner{
-			AggregatorPlanner: AggregatorPlanner{
-				GenericPlanner: GenericPlanner{proc},
-				Duration:       duration,
-			},
-			Func: lra.Fn,
+			GenericPlanner: GenericPlanner{proc},
+			Duration:       duration,
+			Func:           lra.Fn,
 		}
 	}
 	proc, err = maybeComparison(proc, lra.Comparison)
@@ -210,11 +204,9 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 		proc = planByWithout(proc, aggOp.ByOrWithoutPrefix, aggOp.ByOrWithoutSuffix)
 	}
 	return maybeComparison(&AggOpPlanner{
-		AggregatorPlanner: AggregatorPlanner{
-			GenericPlanner: GenericPlanner{proc},
-			Duration:       duration,
-		},
-		Func: aggOp.Fn,
+		GenericPlanner: GenericPlanner{proc},
+		Duration:       duration,
+		Func:           aggOp.Fn,
 	}, aggOp.Comparison)
 }
 

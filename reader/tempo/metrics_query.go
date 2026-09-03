@@ -720,20 +720,20 @@ func BuildGenericExemplarsQuery(req *GenericExemplarsRequest) (sql.ISelect, []st
 
 // CompareRequest holds parsed parameters for the compare() function.
 type CompareRequest struct {
-	FromNS          int64
-	ToNS            int64
-	BaselineFromNS  int64 // optional: explicit baseline window start (from compare() args)
-	BaselineToNS    int64 // optional: explicit baseline window end (from compare() args)
-	TracesTable string
-	AttrsTable  string
-	Distributed bool
-	OuterKeys   []string
-	OuterOps    []string
-	OuterVals   []string
-	InnerKeys   []string
-	InnerOps    []string
-	InnerVals   []string
-	TopN        int
+	FromNS         int64
+	ToNS           int64
+	BaselineFromNS int64 // optional: explicit baseline window start (from compare() args)
+	BaselineToNS   int64 // optional: explicit baseline window end (from compare() args)
+	TracesTable    string
+	AttrsTable     string
+	Distributed    bool
+	OuterKeys      []string
+	OuterOps       []string
+	OuterVals      []string
+	InnerKeys      []string
+	InnerOps       []string
+	InnerVals      []string
+	TopN           int
 }
 
 // CompareResultRow is one row from the compare() query.
@@ -843,7 +843,7 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 
 	attrsSubquery := sql.NewSelect().
 		Select(sql.NewRawObject("*")).
-		From(sql.NewRawObject(req.AttrsTable+" FINAL")).
+		From(sql.NewRawObject(req.AttrsTable + " FINAL")).
 		AndWhere(ginDateWhere)
 	attrsSubWith := sql.NewWith(attrsSubquery, "attrs_sub")
 
@@ -922,8 +922,8 @@ func parseTimeValNs(s string) (int64, error) {
 		{"d", 86_400_000_000_000},
 	}
 	for _, u := range units {
-		if strings.HasSuffix(s, u.suffix) {
-			numStr := strings.TrimSuffix(s, u.suffix)
+		if before, ok := strings.CutSuffix(s, u.suffix); ok {
+			numStr := before
 			f, err := strconv.ParseFloat(numStr, 64)
 			if err != nil {
 				return 0, fmt.Errorf("invalid time value %q", s)
@@ -1013,7 +1013,7 @@ func isIntrinsicKey(key string) bool {
 	intrinsics := map[string]bool{
 		"name": true, "span:name": true, "rootName": true,
 		"rootServiceName": true,
-		"duration": true, "span:duration": true,
+		"duration":        true, "span:duration": true,
 	}
 	return intrinsics[key]
 }

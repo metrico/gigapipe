@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,7 +35,7 @@ const (
 )
 
 type InsertRequest interface {
-	Rows() []interface{}
+	Rows() []any
 	Response() chan error
 }
 
@@ -102,7 +102,7 @@ type InsertServiceV2 struct {
 
 	client chwrapper.IChClient
 
-	state int32
+	state atomic.Int32
 }
 
 func (svc *InsertServiceV2) PlanFlush() {
@@ -145,7 +145,7 @@ func (svc *InsertServiceV2) Ping() (time.Time, error) {
 }
 
 func (svc *InsertServiceV2) GetState(insertMode int) int {
-	return int(atomic.LoadInt32(&svc.state))
+	return int(svc.state.Load())
 }
 
 func (svc *InsertServiceV2) Run() {
@@ -244,7 +244,7 @@ func (svc *InsertServiceV2) swapBuffers() (*requestPortion, error) {
 }
 
 func (svc *InsertServiceV2) setState(state int) {
-	atomic.StoreInt32(&svc.state, int32(state))
+	svc.state.Store(int32(state))
 }
 
 func (svc *InsertServiceV2) fetchLoopIteration() {
@@ -353,7 +353,6 @@ type InsertServiceV2RoundRobin struct {
 	running bool
 
 	services []*InsertServiceV2
-	rand     *rand.Rand
 	mtx      sync.Mutex
 }
 
@@ -403,7 +402,6 @@ func (svc *InsertServiceV2RoundRobin) init() {
 	}
 	logger.Info(fmt.Sprintf("creating %d services", svc.svcNum))
 	svc.services = make([]*InsertServiceV2, svc.svcNum)
-	svc.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := range svc.services {
 		svc.services[i] = &InsertServiceV2{
 			ID:             fmt.Sprintf("%s-%s-%v", svc.DatabaseNode.Node, svc.insertRequest, svc.AsyncInsert),
@@ -469,9 +467,7 @@ func (svc *InsertServiceV2RoundRobin) Request(req helpers.SizeGetter, insertMode
 			idleSvcs = append(idleSvcs, _svc)
 		}
 	}
-	svc.mtx.Lock()
-	randomIdx := svc.rand.Float64()
-	svc.mtx.Unlock()
+	randomIdx := rand.Float64()
 	if len(insertingSvcs) > 0 {
 		return insertingSvcs[int(randomIdx*float64(len(insertingSvcs)))].Request(req, insertMode)
 	} else if len(idleSvcs) > 0 {
@@ -579,16 +575,12 @@ func (svc *InsertServiceV2Multimodal) Run() {
 	}
 	wg := sync.WaitGroup{}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		svc.SyncService.Run()
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		svc.AsyncService.Run()
-	}()
+	})
 	logger.Info("created service")
 	svc.running = true
 	svc.mtx.Unlock()

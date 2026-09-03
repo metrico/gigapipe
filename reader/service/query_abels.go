@@ -39,7 +39,7 @@ func NewQueryLabelsService(sd *model.ServiceData) *QueryLabelsService {
 	return res
 }
 
-func (q *QueryLabelsService) GenericLabelReq(ctx context.Context, query string, args ...interface{}) (chan string, error) {
+func (q *QueryLabelsService) GenericLabelReq(ctx context.Context, query string, args ...any) (chan string, error) {
 	session, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err

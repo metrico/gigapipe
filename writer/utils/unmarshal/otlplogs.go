@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"regexp"
 	"strconv"
 	"time"
@@ -36,12 +37,8 @@ func (e *otlpLogDec) Decode() error {
 				var labels [][]string
 				// Merge resource and scope attributes
 				attrsMap := make(map[string]string)
-				for k, v := range resourceAttrs {
-					attrsMap[k] = v
-				}
-				for k, v := range scopeAttrs {
-					attrsMap[k] = v
-				}
+				maps.Copy(attrsMap, resourceAttrs)
+				maps.Copy(attrsMap, scopeAttrs)
 				// Extract log record attributes
 				e.initAttributesMap(logRecord.Attributes, "", &attrsMap)
 

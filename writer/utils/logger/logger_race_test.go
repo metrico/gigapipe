@@ -19,9 +19,9 @@ func TestLoggerRaceCond(t *testing.T) {
 	qrynFmt.Run()
 	Logger.SetFormatter(qrynFmt)
 	g := errgroup.Group{}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		g.Go(func() error {
-			for j := 0; j < 100000; j++ {
+			for range 100000 {
 				Logger.Info("a", "B", fmt.Errorf("aaaa"))
 			}
 			return nil

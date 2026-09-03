@@ -2,7 +2,7 @@ package registry
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -12,7 +12,6 @@ import (
 
 type staticDBRegistry struct {
 	databases    []*model.DataDatabasesMap
-	rand         *rand.Rand
 	mtx          sync.Mutex
 	lastPingTime time.Time
 }
@@ -21,7 +20,6 @@ var _ model.IDBRegistry = &staticDBRegistry{}
 
 func NewStaticDBRegistry(databases map[string]*model.DataDatabasesMap) model.IDBRegistry {
 	res := staticDBRegistry{
-		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
 		lastPingTime: time.Now(),
 	}
 	for _, d := range databases {
@@ -33,7 +31,7 @@ func NewStaticDBRegistry(databases map[string]*model.DataDatabasesMap) model.IDB
 func (s *staticDBRegistry) GetDB(ctx context.Context) (*model.DataDatabasesMap, error) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	idx := s.rand.Intn(len(s.databases))
+	idx := rand.IntN(len(s.databases))
 	return s.databases[idx], nil
 }
 
@@ -51,7 +49,6 @@ func (s *staticDBRegistry) Stop() {
 	}
 	s.databases = nil
 	s.lastPingTime = time.Time{}
-	s.rand = nil
 }
 
 func (s *staticDBRegistry) Ping() error {

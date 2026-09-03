@@ -28,7 +28,7 @@ var Logger = logrus.New()
 type DbLogger struct{}
 
 /* db logger for logrus */
-func (*DbLogger) Print(v ...interface{}) {
+func (*DbLogger) Print(v ...any) {
 	if v[0] == "sql" {
 		Logger.WithFields(logrus.Fields{"module": "db", "type": "sql"}).Print(v[3])
 	}
@@ -57,7 +57,7 @@ func InitLogger() {
 		}
 
 		headers := map[string]string{}
-		for _, h := range strings.Split(config.Cloki.Setting.LOG_SETTINGS.Qryn.Headers, ";;") {
+		for h := range strings.SplitSeq(config.Cloki.Setting.LOG_SETTINGS.Qryn.Headers, ";;") {
 			pair := strings.Split(h, ":")
 			headers[pair[0]] = strings.Join(pair[1:], ":")
 		}
@@ -186,15 +186,15 @@ func configureSyslogHook() {
 	*/
 }
 
-func Info(args ...interface{}) {
+func Info(args ...any) {
 	Logger.Info(args...)
 }
 
-func Error(args ...interface{}) {
+func Error(args ...any) {
 	Logger.Error(args...)
 }
 
-func Debug(args ...interface{}) {
+func Debug(args ...any) {
 	Logger.Debug(args...)
 }
 

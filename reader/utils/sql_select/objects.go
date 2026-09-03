@@ -19,7 +19,7 @@ func NewRawObject(val string) *RawObject {
 	}
 }
 
-func FmtRawObject(tmpl string, arg ...interface{}) *RawObject {
+func FmtRawObject(tmpl string, arg ...any) *RawObject {
 	return &RawObject{fmt.Sprintf(tmpl, arg...)}
 }
 

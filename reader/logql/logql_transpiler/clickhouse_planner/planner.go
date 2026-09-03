@@ -597,7 +597,7 @@ func getLabelsAndValuesFromLabelParams(count int,
 	getParam func(i int) (logql_parser.LabelName, *logql_parser.QuotedString)) ([]string, []string, error) {
 	labels := make([]string, count)
 	vals := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		label, valParam := getParam(i)
 		labels[i] = label.Name
 		var (

@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	rand2 "math/rand"
+	"math/rand/v2"
 	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v5/ctrl/logger"
@@ -128,9 +127,8 @@ func getSQLFile(strContents string) ([]string, error) {
 	return res, nil
 }
 
-func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger) func(query string, args ...[]interface{}) error {
-	rand := rand2.New(rand2.NewSource(time.Now().UnixNano()))
-	return func(query string, args ...[]interface{}) error {
+func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger) func(query string, args ...[]any) error {
+	return func(query string, args ...[]any) error {
 		name := fmt.Sprintf("tpl_%d", rand.Uint64())
 		tpl, err := template.New(name).Parse(query)
 		if err != nil {

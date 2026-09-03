@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,7 +45,7 @@ type ProfileIR struct {
 	TimeStampNao     int64
 	Payload          *bytes.Buffer
 	PayloadType      PayloadType
-	ValueAggregation interface{}
+	ValueAggregation any
 	Profile          *pprof_proto.Profile
 }
 
@@ -328,8 +329,8 @@ func Parse(data *bytes.Buffer) ([]ProfileIR, error) {
 		ValueAggregation: valueAggregates,
 		Type:             profileTypeInfo,
 		Profile:          pProfData,
+		Payload:          new(bytes.Buffer),
 	}
-	profile.Payload = new(bytes.Buffer)
 	pProfData.WriteUncompressed(profile.Payload)
 	// Append the profile to the result
 	profiles = append(profiles, profile)
@@ -361,8 +362,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	}
 	for _, sample := range profile.Sample {
 		parentId := uint64(0)
-		for i := len(sample.Location) - 1; i >= 0; i-- {
-			loc := sample.Location[i]
+		for i, loc := range slices.Backward(sample.Location) {
 			name := "n/a"
 			if len(loc.Line) > 0 {
 				name = loc.Line[0].Function.Name

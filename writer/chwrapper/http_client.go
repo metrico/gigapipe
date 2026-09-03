@@ -94,8 +94,8 @@ func (c *HttpChClient) executeInsert(ctx context.Context, sql string, input prot
 	defer stmt.Close()
 
 	// Insert rows
-	for row := 0; row < rowCount; row++ {
-		values := make([]interface{}, len(input))
+	for row := range rowCount {
+		values := make([]any, len(input))
 		for col, column := range input {
 			values[col] = c.getValue(column.Data, row)
 		}
@@ -113,24 +113,24 @@ type HttpFormatter interface {
 	HttpValues() any
 }
 
-func (c *HttpChClient) getValue(data interface{}, row int) interface{} {
-	value := func() interface{} {
+func (c *HttpChClient) getValue(data any, row int) any {
+	value := func() any {
 		if data == nil {
 			return nil
 		}
-		if v, ok := data.(interface{ Row(int) interface{} }); ok {
+		if v, ok := data.(interface{ Row(int) any }); ok {
 			return v.Row(row)
 		}
-		if v, ok := data.(interface{ Get(int) interface{} }); ok {
+		if v, ok := data.(interface{ Get(int) any }); ok {
 			return v.Get(row)
 		}
-		if v, ok := data.(interface{ Value(int) interface{} }); ok {
+		if v, ok := data.(interface{ Value(int) any }); ok {
 			return v.Value(row)
 		}
 
 		// Use reflection
 		rv := reflect.ValueOf(data)
-		if rv.Kind() == reflect.Ptr && !rv.IsNil() {
+		if rv.Kind() == reflect.Pointer && !rv.IsNil() {
 			rv = rv.Elem()
 		}
 
@@ -163,7 +163,7 @@ func (c *HttpChClient) getValue(data interface{}, row int) interface{} {
 		return _v.HttpValues()
 	}
 	rv := reflect.ValueOf(value)
-	httpFormatterType := reflect.TypeOf((*HttpFormatter)(nil)).Elem()
+	httpFormatterType := reflect.TypeFor[HttpFormatter]()
 	if (rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array) &&
 		rv.Type().Elem().Implements(httpFormatterType) {
 		res := make([]any, rv.Len())
@@ -175,7 +175,7 @@ func (c *HttpChClient) getValue(data interface{}, row int) interface{} {
 	return value
 }
 
-func (c *HttpChClient) getRowCount(data interface{}) int {
+func (c *HttpChClient) getRowCount(data any) int {
 	if data == nil {
 		return 0
 	}
@@ -190,7 +190,7 @@ func (c *HttpChClient) getRowCount(data interface{}) int {
 
 	// Use reflection
 	rv := reflect.ValueOf(data)
-	if rv.Kind() == reflect.Ptr && !rv.IsNil() {
+	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
 		rv = rv.Elem()
 	}
 
@@ -241,14 +241,14 @@ func (c *HttpChClient) ServerVersion() (*driver.ServerVersion, error) {
 	}, nil
 }
 
-func (c *HttpChClient) GetFirst(req string, first ...interface{}) error {
+func (c *HttpChClient) GetFirst(req string, first ...any) error {
 	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
 	return c.db.QueryRowContext(context.Background(), req).Scan(first...)
 }
 
-func (c *HttpChClient) Scan(ctx context.Context, req string, args []any, dest ...interface{}) error {
+func (c *HttpChClient) Scan(ctx context.Context, req string, args []any, dest ...any) error {
 	if c.db == nil {
 		return fmt.Errorf("connection is nil")
 	}
@@ -294,13 +294,13 @@ func (c *HttpChClient) TableExists(ctx context.Context, name string) (bool, erro
 	return exists == 1, nil
 }
 
-func (c *HttpChClient) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {
-	return func(ctx context.Context, query string, args ...[]interface{}) error {
+func (c *HttpChClient) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]any) error {
+	return func(ctx context.Context, query string, args ...[]any) error {
 		if c.db == nil {
 			return fmt.Errorf("connection is nil")
 		}
 		// Convert [][]interface{} to []interface{} if needed
-		var flatArgs []interface{}
+		var flatArgs []any
 		for _, argGroup := range args {
 			for _, arg := range argGroup {
 				flatArgs = append(flatArgs, arg)
@@ -378,7 +378,7 @@ func (c *HttpChClient) GetList(req string) ([]string, error) {
 	return arr, res.Err()
 }
 
-func (c *HttpChClient) Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
+func (c *HttpChClient) Query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
 	if c.db == nil {
 		return nil, fmt.Errorf("connection is nil")
 	}
@@ -391,7 +391,7 @@ func (c *HttpChClient) Query(ctx context.Context, query string, args ...interfac
 	return &sqlRowsWrapper{rows: rows}, nil
 }
 
-func (c *HttpChClient) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
+func (c *HttpChClient) QueryRow(ctx context.Context, query string, args ...any) driver.Row {
 	if c.db == nil {
 		return &errorRow{err: fmt.Errorf("connection is nil")}
 	}
@@ -417,11 +417,11 @@ func (r *sqlRowsWrapper) Next() bool {
 	return r.rows.Next()
 }
 
-func (r *sqlRowsWrapper) Scan(dest ...interface{}) error {
+func (r *sqlRowsWrapper) Scan(dest ...any) error {
 	return r.rows.Scan(dest...)
 }
 
-func (r *sqlRowsWrapper) ScanStruct(dest interface{}) error {
+func (r *sqlRowsWrapper) ScanStruct(dest any) error {
 	// This is a simplified implementation - you might need to use reflection
 	// or a third-party library for proper struct scanning
 	return fmt.Errorf("ScanStruct not implemented for HTTP client")
@@ -460,7 +460,7 @@ func (r *sqlRowsWrapper) HasData() bool {
 	return true
 }
 
-func (r *sqlRowsWrapper) Totals(dest ...interface{}) error {
+func (r *sqlRowsWrapper) Totals(dest ...any) error {
 	// HTTP interface doesn't support totals
 	return fmt.Errorf("totals not supported in HTTP interface")
 }
@@ -500,11 +500,11 @@ type sqlRowWrapper struct {
 	row *sql.Row
 }
 
-func (r *sqlRowWrapper) Scan(dest ...interface{}) error {
+func (r *sqlRowWrapper) Scan(dest ...any) error {
 	return r.row.Scan(dest...)
 }
 
-func (r *sqlRowWrapper) ScanStruct(dest interface{}) error {
+func (r *sqlRowWrapper) ScanStruct(dest any) error {
 	// This is a simplified implementation
 	return fmt.Errorf("ScanStruct not implemented for HTTP client")
 }
@@ -519,11 +519,11 @@ type errorRow struct {
 	err error
 }
 
-func (r *errorRow) Scan(dest ...interface{}) error {
+func (r *errorRow) Scan(dest ...any) error {
 	return r.err
 }
 
-func (r *errorRow) ScanStruct(dest interface{}) error {
+func (r *errorRow) ScanStruct(dest any) error {
 	return r.err
 }
 

@@ -29,7 +29,7 @@ func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2
 		MaxOpenConns:    10,
 		MaxIdleConns:    2,
 		ConnMaxLifetime: time.Hour,
-		Settings: map[string]interface{}{
+		Settings: map[string]any{
 			"allow_experimental_database_replicated": "1",
 			"materialize_ttl_after_modify":           "0",
 		},

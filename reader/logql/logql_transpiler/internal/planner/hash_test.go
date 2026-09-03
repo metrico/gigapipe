@@ -133,7 +133,7 @@ func (f FakePlanner) Process(context *shared.PlannerContext, c chan []shared.Log
 func TestParser(t *testing.T) {
 	out := make(chan []shared.LogEntry)
 	p := ParserPlanner{
-		GenericPlanner:  GenericPlanner{Main: &FakePlanner{out}},
+		Main:            &FakePlanner{out},
 		Op:              "logfmt",
 		ParameterNames:  []string{"lbl"},
 		ParameterValues: []string{"a"},

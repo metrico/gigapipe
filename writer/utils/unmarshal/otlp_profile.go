@@ -3,6 +3,7 @@ package unmarshal
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
 	"github.com/go-faster/city"
@@ -42,7 +43,7 @@ func sortedInt32Keys(m map[int32]struct{}) []int32 {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 

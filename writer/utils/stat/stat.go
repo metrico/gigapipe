@@ -1,6 +1,7 @@
 package stat
 
 import (
+	"maps"
 	"math"
 	"regexp"
 	"strings"
@@ -17,7 +18,7 @@ const timeSpanSec = 30
 
 var sentMetrics = func() []map[string]int64 {
 	res := make([]map[string]int64, timeSpanSec+2)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		res[i] = make(map[string]int64, timeSpanSec+2)
 	}
 	return res
@@ -133,9 +134,7 @@ func getRate() map[string]int64 {
 		}
 	}
 
-	for k, v := range counters {
-		res[k] = v
-	}
+	maps.Copy(res, counters)
 	return res
 }
 

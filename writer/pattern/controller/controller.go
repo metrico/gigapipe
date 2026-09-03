@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,9 +27,7 @@ var (
 
 var (
 	tokPool     = sync.Pool{}
-	tokPoolSize int32
-	random      *rand.Rand
-	mtx         sync.Mutex
+	tokPoolSize atomic.Int32
 	done        chan struct{}
 )
 
@@ -45,27 +43,25 @@ func skipLine() bool {
 	if config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling == 1 {
 		return false
 	}
-	mtx.Lock()
-	defer mtx.Unlock()
-	return random.Float64() < (1 - config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling)
+	return rand.Float64() < (1 - config.Cloki.Setting.DRILLDOWN_SETTINGS.LogPatternsDownsampling)
 }
 
 func getToks() []clustering.Token {
 	toks := tokPool.Get()
 	if toks != nil {
-		atomic.AddInt32(&tokPoolSize, -1)
+		tokPoolSize.Add(-1)
 		return toks.([]clustering.Token)
 	}
 	return make([]clustering.Token, 0, 150)
 }
 
 func putToks(toks []clustering.Token) {
-	if atomic.LoadInt32(&tokPoolSize) > 100 {
+	if tokPoolSize.Load() > 100 {
 		return
 	}
 	toks = toks[:0]
 	tokPool.Put(toks)
-	atomic.AddInt32(&tokPoolSize, 1)
+	tokPoolSize.Add(1)
 }
 
 func ClusterLines(lines []string, fingerprints []uint64, timestamps []int64) {
