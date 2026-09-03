@@ -270,13 +270,14 @@ func extractOTLPMeta(res pcommon.Resource, scope pcommon.InstrumentationScope,
 		SampleTypesUnits: []model.StrStr{{Str1: sampleType, Str2: sampleUnit}},
 		PeriodType:       strAt(st, p.PeriodType().TypeStrindex()),
 		PeriodUnit:       strAt(st, p.PeriodType().UnitStrindex()),
-		ServiceName:      "unknown_service",
 	}
 
 	appendAttrs := func(attrs pcommon.Map) {
 		attrs.Range(func(k string, v pcommon.Value) bool {
+			// service.name is consumed into ServiceName below; every other
+			// attribute stays queryable as a tag, the fallback candidates
+			// (process.executable.name and friends) included.
 			if k == "service.name" {
-				m.ServiceName = v.AsString()
 				return true
 			}
 			m.Tags = append(m.Tags, model.StrStr{Str1: k, Str2: v.AsString()})
@@ -286,36 +287,205 @@ func extractOTLPMeta(res pcommon.Resource, scope pcommon.InstrumentationScope,
 	appendAttrs(res.Attributes())
 	appendAttrs(scope.Attributes())
 
+	// The eBPF profiler sets service.name only for processes it can link to an
+	// APM agent, so for whole-machine profiling the name has to come from the
+	// process itself. The candidate list is shared with the traces path so a
+	// process resolves to the same service name whichever signal it emitted.
+	lookup := func(key string) string {
+		if v, ok := res.Attributes().Get(key); ok {
+			if sv := v.AsString(); sv != "" {
+				return sv
+			}
+		}
+		if v, ok := scope.Attributes().Get(key); ok {
+			return v.AsString()
+		}
+		return ""
+	}
+	m.ServiceName = resolveOTLPServiceName(otlpServiceNameKeys, "unknown_service", lookup)
+
 	return m
 }
 
-// frameName resolves a location's leaf function name, or a build-id+addr fallback.
-// The resolved pdata pprofile.Mapping type exposes no build-id string accessor
-// (only FilenameStrindex), so the fallback uses an empty build id.
-func frameName(loc pprofile.Location, dict pprofile.ProfilesDictionary) string {
-	st := dict.StringTable()
+// otlpFrameNamer resolves location indices to frame names over the dictionary of
+// one OTLP export, memoizing what it resolves.
+//
+// The scope is deliberately the whole export, not one profile. A dictionary is
+// shared by every profile in the export and is immutable once decoded, so a
+// location resolves to the same name for all of them — and the eBPF profiler is
+// exactly the producer that sends many small profiles (one per process) whose
+// stacks walk through the same shared-library and kernel locations. Resolving
+// per export instead of per profile collapses that repetition.
+//
+// Not safe for concurrent use: decodeProfiles walks an export's profiles
+// sequentially, and one namer belongs to one such walk.
+type otlpFrameNamer struct {
+	dict     pprofile.ProfilesDictionary
+	locs     pprofile.LocationSlice
+	mappings pprofile.MappingSlice
+	// names is keyed by location index, buildIDs by mapping index. Neither is
+	// pre-sized: a profile commonly touches a small fraction of a large shared
+	// dictionary, and sizing to the table length would allocate for locations
+	// the export never names.
+	names    map[int32]string
+	buildIDs map[int32]string
+}
+
+func newOTLPFrameNamer(dict pprofile.ProfilesDictionary) *otlpFrameNamer {
+	return &otlpFrameNamer{
+		dict:     dict,
+		locs:     dict.LocationTable(),
+		mappings: dict.MappingTable(),
+		names:    map[int32]string{},
+		buildIDs: map[int32]string{},
+	}
+}
+
+// nameOf returns the frame name of the location at locIdx, or "n/a" when the
+// index falls outside the dictionary's location table.
+func (n *otlpFrameNamer) nameOf(locIdx int32) string {
+	if locIdx < 0 || int(locIdx) >= n.locs.Len() {
+		return "n/a"
+	}
+	if s, ok := n.names[locIdx]; ok {
+		return s
+	}
+	s := n.frameName(n.locs.At(int(locIdx)))
+	n.names[locIdx] = s
+	return s
+}
+
+// frameName resolves a location's leaf function name, or a binary+offset
+// fallback for frames the producer could not symbolize.
+//
+// The eBPF profiler symbolizes interpreted runtimes in-agent but leaves native
+// frames unsymbolized: those carry no Line/Function, only an address and a
+// Mapping. The address is a file-relative offset (not a runtime virtual
+// address), so "<binary>+0x<offset>" is stable across processes and runs and
+// merges correctly, while a bare "+0x<offset>" would name every such frame
+// after nothing at all.
+//
+// The name is built from the Mapping the location points at:
+//
+//	<filename>@<build id>+0x<offset>   e.g. libc.so.6@a3f2c1d4+0x1234
+//
+// The filename is used exactly as the producer sends it, with no basename or
+// path normalisation. Note the eBPF profiler sends a BASE filename, never a
+// path (its libpf.Frame.FileName is documented as "the base filename of the
+// executable"), so the filename alone cannot separate two same-named binaries
+// shipped in different images. The truncated build id is what separates them,
+// which is why it is in the name rather than only in the tags.
+//
+// Either component degrades independently: a mapping with no build id yields
+// "<filename>+0x<offset>", and a location with no resolvable mapping at all
+// yields the bare "+0x<offset>".
+//
+// A caveat on mapping index 0. Location.mapping_index is a plain int32 with no
+// presence bit, so a producer that never sets it is indistinguishable on the
+// wire from one that deliberately points at the first mapping. We take the
+// spec-correct reading: index 0 is a reference to mapping 0, because the schema
+// offers no way to say "no mapping". The consequence is that a producer which
+// emits locations without mappings has those frames named after whichever
+// binary happens to sit at index 0. Nothing can be done about that here; a
+// heuristic (say, distrusting index 0 unless several mappings exist) would
+// discard correct names for the common single-binary profile, which is the
+// worse trade.
+func (n *otlpFrameNamer) frameName(loc pprofile.Location) string {
+	st := n.dict.StringTable()
 	if loc.Lines().Len() > 0 {
 		fnIdx := loc.Lines().At(0).FunctionIndex()
-		if fnIdx >= 0 && int(fnIdx) < dict.FunctionTable().Len() {
-			name := strAt(st, dict.FunctionTable().At(int(fnIdx)).NameStrindex())
+		if fnIdx >= 0 && int(fnIdx) < n.dict.FunctionTable().Len() {
+			name := strAt(st, n.dict.FunctionTable().At(int(fnIdx)).NameStrindex())
 			if name != "" {
 				return name
 			}
 		}
 	}
-	buildID := ""
-	return fmt.Sprintf("%s+0x%x", buildID, loc.Address())
+	binary, build := "", ""
+	if mIdx := loc.MappingIndex(); mIdx >= 0 && int(mIdx) < n.mappings.Len() {
+		binary = strAt(st, n.mappings.At(int(mIdx)).FilenameStrindex())
+		build = n.shortBuildID(mIdx)
+	}
+	if build != "" {
+		return fmt.Sprintf("%s@%s+0x%x", binary, build, loc.Address())
+	}
+	return fmt.Sprintf("%s+0x%x", binary, loc.Address())
 }
 
-func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
+// buildIDKeys are the build-id attribute keys a producer may set on a Mapping,
+// in descending order of preference. GNU build ids come from the ELF note and
+// are the most widely available; the Go build id only exists for Go binaries;
+// the htlhash is the profiler's own file hash and is used only when neither
+// real build id is present.
+var buildIDKeys = [...]string{
+	"process.executable.build_id.gnu",
+	"process.executable.build_id.go",
+	"process.executable.build_id.htlhash",
+}
+
+// buildIDLen is how much of the build id is kept in a frame name. Eight hex
+// characters distinguish builds of the same binary while staying readable in a
+// flamegraph label; the full id is 40 characters and would dominate the node.
+const buildIDLen = 8
+
+// shortBuildID returns the build id of the mapping at mIdx, resolving it at most
+// once per mapping per export. A build id is a property of the mapping, not of
+// the location, and a mapping backs every location in the binary it describes —
+// so without the memo the attribute-table scan below would repeat for thousands
+// of locations that all share one answer.
+func (n *otlpFrameNamer) shortBuildID(mIdx int32) string {
+	if s, ok := n.buildIDs[mIdx]; ok {
+		return s
+	}
+	s := scanBuildID(n.mappings.At(int(mIdx)), n.dict)
+	n.buildIDs[mIdx] = s
+	return s
+}
+
+// scanBuildID returns the mapping's preferred build id, truncated, or "" when
+// the mapping carries none.
+//
+// Preference runs over buildIDKeys, NOT over the order the producer happened to
+// append the attributes in: a mapping carrying several build ids must always
+// resolve to the same one, or the same frame would be named differently
+// depending on attribute ordering and would stop merging with itself.
+func scanBuildID(mp pprofile.Mapping, dict pprofile.ProfilesDictionary) string {
+	st := dict.StringTable()
+	at := dict.AttributeTable()
+	ai := mp.AttributeIndices()
+	for _, want := range buildIDKeys {
+		for k := 0; k < ai.Len(); k++ {
+			idx := ai.At(k)
+			if idx < 0 || int(idx) >= at.Len() {
+				continue
+			}
+			kv := at.At(int(idx))
+			if strAt(st, kv.KeyStrindex()) != want {
+				continue
+			}
+			if v := kv.Value().AsString(); v != "" {
+				if len(v) > buildIDLen {
+					return v[:buildIDLen]
+				}
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// buildOTLPTree converts one profile into the tree, function and value rows the
+// insert path stores. namer carries the frame-name cache and is shared by every
+// profile in the export (see otlpFrameNamer).
+func buildOTLPTree(p pprofile.Profile, namer *otlpFrameNamer) (
 	[]model.Function, []model.TreeRootStructure, []model.ValuesAgg) {
 
+	dict := namer.dict
 	st := dict.StringTable()
 	sampleType := strAt(st, p.SampleType().TypeStrindex())
 	sampleUnit := strAt(st, p.SampleType().UnitStrindex())
 	valueName := fmt.Sprintf("%s:%s", sampleType, sampleUnit)
 
-	locs := dict.LocationTable()
 	stacks := dict.StackTable()
 
 	funcs := map[uint64]string{}
@@ -342,11 +512,7 @@ func buildOTLPTree(p pprofile.Profile, dict pprofile.ProfilesDictionary) (
 
 		parentId := uint64(0)
 		for i := li.Len() - 1; i >= 0; i-- {
-			locIdx := li.At(i)
-			name := "n/a"
-			if locIdx >= 0 && int(locIdx) < locs.Len() {
-				name = frameName(locs.At(int(locIdx)), dict)
-			}
+			name := namer.nameOf(li.At(i))
 			fnId := city.CH64([]byte(name))
 			funcs[fnId] = name
 			nodeId := getNodeId(parentId, fnId, li.Len()-i)
@@ -428,6 +594,7 @@ func (d *otlpProfilesDec) Decode() error {
 // pre-decoded gRPC path (otlpProfilesPreDec.Decode).
 func (d *otlpProfilesDec) decodeProfiles(profs pprofile.Profiles) error {
 	dict := profs.Dictionary()
+	namer := newOTLPFrameNamer(dict)
 
 	rps := profs.ResourceProfiles()
 	for i := 0; i < rps.Len(); i++ {
@@ -440,7 +607,7 @@ func (d *otlpProfilesDec) decodeProfiles(profs pprofile.Profiles) error {
 				p := ps.At(k)
 
 				meta := extractOTLPMeta(rp.Resource(), sp.Scope(), p, dict)
-				functions, tree, valuesAgg := buildOTLPTree(p, dict)
+				functions, tree, valuesAgg := buildOTLPTree(p, namer)
 				payload, err := sliceOTLPProfile(p, dict)
 				if err != nil {
 					return fmt.Errorf("failed to slice OTLP profile: %w", err)

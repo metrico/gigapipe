@@ -25,36 +25,18 @@ func getOtlpAttr(attrs []*commonv1.KeyValue, key string) *commonv1.KeyValue {
 }
 
 func otlpGetServiceNames(attrs []*commonv1.KeyValue) (string, string) {
-	local := ""
-	remote := ""
-	for _, attr := range []string{
-		"peer.service", "service.name", "faas.name", "k8s.deployment.name", "process.executable.name",
-	} {
-		val := getOtlpAttr(attrs, attr)
+	lookup := func(key string) string {
+		val := getOtlpAttr(attrs, key)
 		if val == nil {
-			continue
+			return ""
 		}
-		local = val.Value.GetStringValue()
-		if local == "" {
-			continue
-		}
-		break
+		return val.Value.GetStringValue()
 	}
-	for _, attr := range []string{"service.name", "faas.name", "k8s.deployment.name", "process.executable.name"} {
-		val := getOtlpAttr(attrs, attr)
-		if val == nil {
-			continue
-		}
-		remote = val.Value.GetStringValue()
-		if remote == "" {
-			continue
-		}
-		break
-	}
-	if local == "" {
-		local = "OTLPResourceNoServiceName"
-	}
-	return local, remote
+	// The remote service has no placeholder: an unresolved remote means "this
+	// span has no peer", which is not the same as a peer whose name we failed
+	// to determine.
+	return resolveOTLPServiceName(otlpLocalServiceNameKeys, "OTLPResourceNoServiceName", lookup),
+		resolveOTLPServiceName(otlpServiceNameKeys, "", lookup)
 }
 
 func populateServiceNames(span *tracev1.Span) {
