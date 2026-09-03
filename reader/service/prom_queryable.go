@@ -365,14 +365,28 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		return &model.SeriesSet{Error: err}
 	}
 	res.Series = c.ReshuffleSeries(res.Series)
-	slices.SortFunc(res.Series, func(a, b *model.SeriesV2) int {
-		return slices.CompareFunc(a.LabelsArray(), b.LabelsArray(), func(l1, l2 labels.Label) int {
+	// LabelsArray() is not a field read: it rebuilds the label set from the
+	// fingerprint and sorts it on every call. Fetch it once per series instead
+	// of twice per comparison.
+	type keyedSeries struct {
+		lbls   model.Labels
+		series *model.SeriesV2
+	}
+	keyed := make([]keyedSeries, len(res.Series))
+	for i, s := range res.Series {
+		keyed[i] = keyedSeries{s.LabelsArray(), s}
+	}
+	slices.SortFunc(keyed, func(a, b keyedSeries) int {
+		return slices.CompareFunc(a.lbls, b.lbls, func(l1, l2 labels.Label) int {
 			if c := cmp.Compare(l1.Name, l2.Name); c != 0 {
 				return c
 			}
 			return cmp.Compare(l1.Value, l2.Value)
 		})
 	})
+	for i := range keyed {
+		res.Series[i] = keyed[i].series
+	}
 	return &res
 }
 
