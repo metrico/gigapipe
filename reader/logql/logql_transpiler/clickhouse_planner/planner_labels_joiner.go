@@ -107,6 +107,12 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			AndWhere(sql.Gt(sql.NewRawObject("length(labels)"), sql.NewIntVal(0))), nil
 
 	}
+	// `main` holds one row per log line and joins many-to-one onto
+	// `_time_series` (one row per fingerprint). An ANY INNER JOIN keeps at most
+	// one matched pair per key and would collapse every multi-line stream to a
+	// single line, so the samples side is preserved with ANY LEFT JOIN and the
+	// unresolved fingerprints are dropped by the same length(labels) > 0 filter
+	// used above, rather than by the join type.
 	return sql.NewSelect().
 		With(withMain, withTS).
 		Select(
@@ -117,7 +123,8 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("main.value", "value")).
 		From(sql.NewWithRef(withMain)).
 		Join(sql.NewJoin(
-			"ANY INNER ",
+			"ANY LEFT ",
 			sql.NewWithRef(withTS),
-			sql.Eq(sql.NewRawObject("main.fingerprint"), sql.NewRawObject("_time_series.fingerprint")))), nil
+			sql.Eq(sql.NewRawObject("main.fingerprint"), sql.NewRawObject("_time_series.fingerprint")))).
+		AndWhere(sql.Gt(sql.NewRawObject("length(_time_series.labels)"), sql.NewIntVal(0))), nil
 }

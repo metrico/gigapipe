@@ -88,7 +88,11 @@ func TestLabelsJoinBoundsSingleNodeJoinToMainFingerprints(t *testing.T) {
 }
 
 // A sample whose fingerprint has no time_series row yet belongs to no stream, so
-// it must not reach the client carrying an empty label set.
+// it must not reach the client carrying an empty label set. Both modes drop such
+// rows with a length(labels) > 0 filter. The single-node path keeps ANY LEFT
+// JOIN so it does not collapse multi-line streams (one row per line in `main`)
+// down to one row per fingerprint; the filter, not the join type, sheds the
+// unresolved rows.
 func TestLabelsJoinDropsUnresolvedFingerprints(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -96,7 +100,7 @@ func TestLabelsJoinDropsUnresolvedFingerprints(t *testing.T) {
 		want    string
 	}{
 		{"cluster", true, "WHERE ((length(labels)) > (0))"},
-		{"single node", false, "ANY INNER  JOIN _time_series"},
+		{"single node", false, "WHERE ((length(_time_series.labels)) > (0))"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			planner := &LabelsJoinPlanner{
