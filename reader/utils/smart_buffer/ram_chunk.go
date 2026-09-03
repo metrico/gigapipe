@@ -11,43 +11,86 @@ var ErrBufferFull = errors.New("buffer is full")
 const (
 	// chunkSize defines the maximum size of the RAM buffer (5MB).
 	chunkSize = 5 * 1000 * 1000 // 5MB
-	// initialChunkSize is the starting capacity; append grows it as needed,
-	// so a small response never touches the whole 5MB.
-	initialChunkSize = 8 * 1024
+	// initialBlockSize is the size of the first block, small enough that a
+	// few-hundred-byte response costs a single small allocation.
+	initialBlockSize = 8 * 1024
+	// maxBlockSize caps the block size at Go's largest size class, so every
+	// block stays on the small-object allocation path.
+	maxBlockSize = 32 * 1024
 )
 
-// ramChunk is a fixed-size RAM buffer that accumulates data up to chunkSize.
+// ramChunk accumulates up to chunkSize bytes in a list of separately allocated
+// blocks. Blocks are never reallocated or copied, so the chunk allocates only
+// what is actually written: a growing single slice would copy everything
+// accumulated so far on each growth step. Blocks are reused after Clear.
 // It returns ErrBufferFull when it cannot accept more data.
 type ramChunk struct {
-	data []byte
-	size int
+	blocks    [][]byte
+	cur       int // block currently being filled
+	size      int
+	readBlock int
+	readOff   int
 }
 
-// newRAMChunk creates a new RAM chunk that grows on demand up to chunkSize.
+// newRAMChunk creates a new RAM chunk. No memory is reserved until the first write.
 func newRAMChunk() *ramChunk {
-	return &ramChunk{
-		data: make([]byte, 0, initialChunkSize),
-	}
+	return &ramChunk{}
 }
 
 // Write writes data to the RAM chunk, writing as much as will fit.
 // Returns the number of bytes written and ErrBufferFull if not all data could be written.
 func (r *ramChunk) Write(p []byte) (int, error) {
-	available := chunkSize - r.size
-	if available == 0 {
-		return 0, ErrBufferFull
+	written := 0
+	for len(p) > 0 {
+		if r.size >= chunkSize {
+			return written, ErrBufferFull
+		}
+		if r.cur == len(r.blocks) {
+			r.blocks = append(r.blocks, make([]byte, 0, r.nextBlockSize()))
+		}
+		block := r.blocks[r.cur]
+		if len(block) == cap(block) {
+			r.cur++
+			continue
+		}
+		n := min(len(p), cap(block)-len(block))
+		r.blocks[r.cur] = append(block, p[:n]...)
+		p = p[n:]
+		r.size += n
+		written += n
 	}
-
-	written := min(len(p), available)
-
-	r.data = append(r.data, p[:written]...)
-	r.size += written
-
-	if written < len(p) {
-		return written, ErrBufferFull
-	}
-
 	return written, nil
+}
+
+// nextBlockSize doubles the previous block size up to maxBlockSize, clamped to
+// the room left in the chunk so the blocks tile chunkSize exactly.
+func (r *ramChunk) nextBlockSize() int {
+	size := initialBlockSize
+	if r.cur > 0 {
+		size = min(cap(r.blocks[r.cur-1])*2, maxBlockSize)
+	}
+	return min(size, chunkSize-r.size)
+}
+
+// Read implements io.Reader over the accumulated blocks.
+// Returns io.EOF once all data has been read.
+func (r *ramChunk) Read(p []byte) (int, error) {
+	n := 0
+	for n < len(p) && r.readBlock < len(r.blocks) {
+		block := r.blocks[r.readBlock]
+		if r.readOff == len(block) {
+			r.readBlock++
+			r.readOff = 0
+			continue
+		}
+		copied := copy(p[n:], block[r.readOff:])
+		r.readOff += copied
+		n += copied
+	}
+	if n == 0 {
+		return 0, io.EOF
+	}
+	return n, nil
 }
 
 // Flush writes all accumulated data in the chunk to the provided writer
@@ -56,23 +99,24 @@ func (r *ramChunk) Flush(w io.Writer) error {
 	if r.size == 0 {
 		return nil
 	}
-	if _, err := w.Write(r.data); err != nil {
-		return err
+	for _, block := range r.blocks {
+		if _, err := w.Write(block); err != nil {
+			return err
+		}
 	}
 	r.Clear()
 	return nil
 }
 
-// Clear resets the chunk to empty state.
+// Clear resets the chunk to empty state, keeping the blocks for reuse.
 func (r *ramChunk) Clear() {
-	r.data = r.data[:0]
+	for i := range r.blocks {
+		r.blocks[i] = r.blocks[i][:0]
+	}
+	r.cur = 0
 	r.size = 0
-}
-
-// Bytes returns the current data in the chunk.
-// The returned slice should not be modified.
-func (r *ramChunk) Bytes() []byte {
-	return r.data
+	r.readBlock = 0
+	r.readOff = 0
 }
 
 // Size returns the current number of bytes stored in the chunk.
