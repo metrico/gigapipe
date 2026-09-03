@@ -87,7 +87,7 @@ func qValue(params string) float64 {
 		if err != nil || math.IsNaN(q) || math.IsInf(q, 0) {
 			return 1
 		}
-		return math.Min(math.Max(q, 0), 1)
+		return min(max(q, 0), 1)
 	}
 	return 1
 }

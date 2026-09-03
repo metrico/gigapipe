@@ -1,8 +1,9 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"unsafe"
 
 	"github.com/metrico/qryn/v5/reader/prof"
@@ -47,7 +48,7 @@ func sanitizeProfile(p *prof.Profile) {
 		return i
 	}
 
-	p.SampleType = removeInPlace(p.SampleType, func(x *prof.ValueType) bool {
+	p.SampleType = slices.DeleteFunc(p.SampleType, func(x *prof.ValueType) bool {
 		x.Type = str(x.Type)
 		x.Unit = str(x.Unit)
 		return false
@@ -67,7 +68,7 @@ func sanitizeProfile(p *prof.Profile) {
 
 	t := make(map[uint64]uint64)
 	j := uint64(1)
-	p.Mapping = removeInPlace(p.Mapping, func(x *prof.Mapping) bool {
+	p.Mapping = slices.DeleteFunc(p.Mapping, func(x *prof.Mapping) bool {
 		x.BuildId = str(x.BuildId)
 		x.Filename = str(x.Filename)
 		t[x.Id] = j
@@ -77,7 +78,7 @@ func sanitizeProfile(p *prof.Profile) {
 	})
 
 	var mapping *prof.Mapping
-	p.Location = removeInPlace(p.Location, func(x *prof.Location) bool {
+	p.Location = slices.DeleteFunc(p.Location, func(x *prof.Location) bool {
 		if x.MappingId == 0 {
 			if mapping == nil {
 				mapping = &prof.Mapping{Id: uint64(len(p.Mapping)) + 1}
@@ -92,7 +93,7 @@ func sanitizeProfile(p *prof.Profile) {
 
 	t = make(map[uint64]uint64)
 	j = 1
-	p.Function = removeInPlace(p.Function, func(x *prof.Function) bool {
+	p.Function = slices.DeleteFunc(p.Function, func(x *prof.Function) bool {
 		x.Name = str(x.Name)
 		x.SystemName = str(x.SystemName)
 		x.Filename = str(x.Filename)
@@ -102,7 +103,7 @@ func sanitizeProfile(p *prof.Profile) {
 		return false
 	})
 
-	p.Location = removeInPlace(p.Location, func(x *prof.Location) bool {
+	p.Location = slices.DeleteFunc(p.Location, func(x *prof.Location) bool {
 		for i := range x.Line {
 			line := x.Line[i]
 			line.FunctionId = t[line.FunctionId]
@@ -123,7 +124,7 @@ func sanitizeProfile(p *prof.Profile) {
 	}
 
 	vs := len(p.SampleType)
-	p.Sample = removeInPlace(p.Sample, func(x *prof.Sample) bool {
+	p.Sample = slices.DeleteFunc(p.Sample, func(x *prof.Sample) bool {
 		if len(x.Value) != vs {
 			return true
 		}
@@ -141,17 +142,6 @@ func sanitizeProfile(p *prof.Profile) {
 		}
 		return false
 	})
-}
-
-func removeInPlace[T any](slice []T, predicate func(T) bool) []T {
-	n := 0
-	for i := range slice {
-		if !predicate(slice[i]) {
-			slice[n] = slice[i]
-			n++
-		}
-	}
-	return slice[:n]
 }
 
 func combineHeaders(a, b *prof.Profile) error {
@@ -255,14 +245,11 @@ func hashProfileLabels(labels []*prof.Label) uint64 {
 	copy(_labels, labels)
 
 	// Sort labels
-	sort.Slice(_labels, func(i, j int) bool {
-		if _labels[i].Key < _labels[j].Key {
-			return true
+	slices.SortFunc(_labels, func(a, b *prof.Label) int {
+		if c := cmp.Compare(a.Key, b.Key); c != 0 {
+			return c
 		}
-		if _labels[i].Key == _labels[j].Key && _labels[i].Str < _labels[j].Str {
-			return true
-		}
-		return false
+		return cmp.Compare(a.Str, b.Str)
 	})
 
 	arr := make([]uint64, len(_labels))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestAppend(t *testing.T) {
 func BenchmarkFastAppend(b *testing.B) {
 	for b.Loop() {
 		var res []byte
-		res = append(res, fastFillArray(LEN, byte(1))...)
+		res = append(res, slices.Repeat([]byte{1}, LEN)...)
 		_ = res
 	}
 }

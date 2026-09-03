@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"time"
 	"unsafe"
@@ -353,8 +354,8 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	p.tsSpl.spl.MMessage = append(p.tsSpl.spl.MMessage, message...)
 	p.tsSpl.spl.MValue = append(p.tsSpl.spl.MValue, value...)
 	p.tsSpl.spl.MTimestampNS = append(p.tsSpl.spl.MTimestampNS, timestampsNS...)
-	p.tsSpl.spl.MFingerprint = append(p.tsSpl.spl.MFingerprint, fastFillArray(len(timestampsNS), fp)...)
-	p.tsSpl.spl.MTTLDays = append(p.tsSpl.spl.MTTLDays, fastFillArray(len(timestampsNS), ttlDays)...)
+	p.tsSpl.spl.MFingerprint = append(p.tsSpl.spl.MFingerprint, slices.Repeat([]uint64{fp}, len(timestampsNS))...)
+	p.tsSpl.spl.MTTLDays = append(p.tsSpl.spl.MTTLDays, slices.Repeat([]uint16{ttlDays}, len(timestampsNS))...)
 	p.tsSpl.spl.MType = append(p.tsSpl.spl.MType, types...)
 
 	var tps [3]bool

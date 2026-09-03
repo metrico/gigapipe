@@ -1,6 +1,8 @@
 package unmarshal
 
 import (
+	"slices"
+
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/proto/logproto"
 	"google.golang.org/protobuf/proto"
@@ -30,7 +32,7 @@ func (l *logsProtoDec) Decode() error {
 			msgs[i] = e.GetLine()
 		}
 		err = l.onEntries(labels, tsns, msgs, make([]float64, len(stream.GetEntries())),
-			fastFillArray[uint8](len(stream.GetEntries()), model.SAMPLE_TYPE_LOG))
+			slices.Repeat([]uint8{model.SAMPLE_TYPE_LOG}, len(stream.GetEntries())))
 		if err != nil {
 			return err
 		}

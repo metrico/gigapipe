@@ -1,6 +1,7 @@
 package unmarshal
 
 import (
+	"slices"
 	"time"
 
 	"github.com/metrico/qryn/v5/writer/model"
@@ -43,7 +44,7 @@ func (l *promMetricsProtoDec) Decode() error {
 			points++
 			if points >= flushLimit {
 				err := l.onEntries(oLblsBuf, tsns, msg, value,
-					fastFillArray[uint8](len(tsns), model.SAMPLE_TYPE_METRIC))
+					slices.Repeat([]uint8{model.SAMPLE_TYPE_METRIC}, len(tsns)))
 				if err != nil {
 					return err
 				}
@@ -58,7 +59,7 @@ func (l *promMetricsProtoDec) Decode() error {
 		// Flush remaining samples if sample count is less than maxSamples
 		if len(tsns) > 0 {
 			err := l.onEntries(oLblsBuf, tsns, msg, value,
-				fastFillArray[uint8](len(tsns), model.SAMPLE_TYPE_METRIC))
+				slices.Repeat([]uint8{model.SAMPLE_TYPE_METRIC}, len(tsns)))
 			if err != nil {
 				return err
 			}

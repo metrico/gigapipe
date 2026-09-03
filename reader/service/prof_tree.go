@@ -1,9 +1,9 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/metrico/qryn/v5/reader/prof"
@@ -293,12 +293,9 @@ func mergeNodes(t1, t2 *Tree) {
 			t2Children = []*TreeNodeV2{}
 		}
 
-		sort.Slice(t1Children, func(i, j int) bool {
-			return t1Children[i].NodeID < t1Children[j].NodeID
-		})
-		sort.Slice(t2Children, func(i, j int) bool {
-			return t2Children[i].NodeID < t2Children[j].NodeID
-		})
+		byNodeID := func(a, b *TreeNodeV2) int { return cmp.Compare(a.NodeID, b.NodeID) }
+		slices.SortFunc(t1Children, byNodeID)
+		slices.SortFunc(t2Children, byNodeID)
 
 		newT1Nodes, newT2Nodes := mergeChildren(t1Children, t2Children)
 		t1.Nodes[key] = newT1Nodes
@@ -550,7 +547,7 @@ func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string
 			}
 		}
 		if len(allTotals) > maxNodes {
-			sort.Slice(allTotals, func(i, j int) bool { return allTotals[i] > allTotals[j] })
+			slices.SortFunc(allTotals, func(a, b int64) int { return cmp.Compare(b, a) })
 			threshold = allTotals[maxNodes-1]
 		}
 	}

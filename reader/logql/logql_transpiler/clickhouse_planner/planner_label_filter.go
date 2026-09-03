@@ -3,12 +3,12 @@ package clickhouse_planner
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
-	"golang.org/x/exp/slices"
 )
 
 type LabelFilterPlanner struct {

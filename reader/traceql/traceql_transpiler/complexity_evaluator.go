@@ -1,7 +1,8 @@
 package traceql_transpiler
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strconv"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -78,9 +79,9 @@ func (t *TraceQLComplexityEvaluator[T]) ProcessComplexReq(ctx *shared.PlannerCon
 }
 
 func sortSpans(spans []model.SpanInfo) {
-	sort.Slice(spans, func(_i, j int) bool {
-		s1, _ := strconv.ParseInt(spans[_i].StartTimeUnixNano, 10, 64)
-		s2, _ := strconv.ParseInt(spans[j].StartTimeUnixNano, 10, 64)
-		return s1 > s2
+	slices.SortFunc(spans, func(a, b model.SpanInfo) int {
+		s1, _ := strconv.ParseInt(a.StartTimeUnixNano, 10, 64)
+		s2, _ := strconv.ParseInt(b.StartTimeUnixNano, 10, 64)
+		return cmp.Compare(s2, s1)
 	})
 }

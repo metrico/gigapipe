@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"mime/multipart"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -396,7 +396,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	for fnId := range funcs {
 		indices = append(indices, fnId)
 	}
-	sort.Slice(indices, func(i, j int) bool { return indices[i] > indices[j] })
+	slices.SortFunc(indices, descendingID)
 	var funRes []*model.Function
 	for _, fnId := range indices {
 		funRes = append(funRes, &model.Function{
@@ -408,7 +408,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	for tId := range tree {
 		indices = append(indices, tId)
 	}
-	sort.Slice(indices, func(i, j int) bool { return indices[i] > indices[j] })
+	slices.SortFunc(indices, descendingID)
 	var tressRes []*profTrieNode
 	for _, id := range indices {
 		node := tree[id]
@@ -417,6 +417,11 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	}
 	return funRes, tressRes
 }
+
+// descendingID orders profile function and tree node ids the way
+// postProcessProf expects them: highest id first.
+func descendingID(a, b uint64) int { return cmp.Compare(b, a) }
+
 func getNodeId(parentId uint64, funcId uint64, traceLevel int) uint64 {
 	buf := make([]byte, 16)
 	binary.LittleEndian.PutUint64(buf[0:8], parentId)

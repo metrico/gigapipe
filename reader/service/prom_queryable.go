@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,9 +10,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/prometheus/prometheus/util/annotations"
 	"slices"
-	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -366,20 +365,13 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		return &model.SeriesSet{Error: err}
 	}
 	res.Series = c.ReshuffleSeries(res.Series)
-	sort.Slice(res.Series, func(i, j int) bool {
-		for k, l1 := range res.Series[i].LabelsArray() {
-			l2 := res.Series[j].LabelsArray()
-			if k >= len(l2) {
-				return false
+	slices.SortFunc(res.Series, func(a, b *model.SeriesV2) int {
+		return slices.CompareFunc(a.LabelsArray(), b.LabelsArray(), func(l1, l2 labels.Label) int {
+			if c := cmp.Compare(l1.Name, l2.Name); c != 0 {
+				return c
 			}
-			if l1.Name != l2[k].Name {
-				return l1.Name < l2[k].Name
-			}
-			if l1.Value != l2[k].Value {
-				return l1.Value < l2[k].Value
-			}
-		}
-		return true
+			return cmp.Compare(l1.Value, l2.Value)
+		})
 	})
 	return &res
 }
@@ -406,8 +398,8 @@ func (c *CLokiQuerier) ReshuffleSeries(series []*model.SeriesV2) []*model.Series
 			logger.Error(fmt.Sprintf("Warning: double labels set found [%d - %d]: %s",
 				chunk.Fp, ent.Fp, string(str)))
 			chunk.Samples = append(chunk.Samples, ent.Samples...)
-			sort.Slice(chunk.Samples, func(i, j int) bool {
-				return chunk.Samples[i].TimestampMs < chunk.Samples[j].TimestampMs
+			slices.SortFunc(chunk.Samples, func(a, b model.Sample) int {
+				return cmp.Compare(a.TimestampMs, b.TimestampMs)
 			})
 			// duplicate merged into chunk - drop it from the output
 		} else {
@@ -472,27 +464,8 @@ func (l *labelsGetter) Get(fingerprint uint64) model.Labels {
 			Value: label[1],
 		}
 	}
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].Name < res[j].Name
-	})
+	slices.SortFunc(res, func(a, b labels.Label) int { return cmp.Compare(a.Name, b.Name) })
 	return res
-}
-
-type labelsSort struct {
-	labels []string
-}
-
-func (l labelsSort) Len() int {
-	return len(l.labels) / 2
-}
-
-func (l labelsSort) Less(i, j int) bool {
-	return l.labels[i*2] < l.labels[j*2]
-}
-
-func (l labelsSort) Swap(i, j int) {
-	l.labels[i*2], l.labels[j*2] = l.labels[j*2], l.labels[i*2]
-	l.labels[i*2+1], l.labels[j*2+1] = l.labels[j*2+1], l.labels[i*2+1]
 }
 
 func (l *labelsGetter) GetNative(fingerprint uint64) labels.Labels {
@@ -569,9 +542,7 @@ func (l *labelsGetter) Fetch() error {
 		for i, label := range labels {
 			strLabels[i] = []string{label[0].(string), label[1].(string)}
 		}
-		sort.Slice(strLabels, func(i, j int) bool {
-			return strings.Compare(strLabels[i][0], strLabels[j][0]) < 0
-		})
+		slices.SortFunc(strLabels, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
 		l.fingerprintsHas[fingerprint] = strLabels
 		//cache.Set(l.getIdx(fingerprint), bLabels)
 	}

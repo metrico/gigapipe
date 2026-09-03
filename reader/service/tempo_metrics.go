@@ -1,10 +1,10 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -631,16 +631,15 @@ func (t *TempoService) executeHistogramRange(
 		}
 	}
 
+	bucket := func(s model.MetricsTimeSeries) float64 {
+		if len(s.Labels) > 0 && s.Labels[0].Value.DoubleValue != nil {
+			return *s.Labels[0].Value.DoubleValue
+		}
+		return 0
+	}
 	// Sort series by ascending bucket value
-	sort.Slice(result, func(i, j int) bool {
-		bi, bj := 0.0, 0.0
-		if len(result[i].Labels) > 0 && result[i].Labels[0].Value.DoubleValue != nil {
-			bi = *result[i].Labels[0].Value.DoubleValue
-		}
-		if len(result[j].Labels) > 0 && result[j].Labels[0].Value.DoubleValue != nil {
-			bj = *result[j].Labels[0].Value.DoubleValue
-		}
-		return bi < bj
+	slices.SortFunc(result, func(a, b model.MetricsTimeSeries) int {
+		return cmp.Compare(bucket(a), bucket(b))
 	})
 
 	return &model.MetricsQueryRangeResponse{

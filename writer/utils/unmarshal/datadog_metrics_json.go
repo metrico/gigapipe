@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,7 +38,7 @@ func (d *datadogMetricsRequestDec) Decode() error {
 					return err
 				}
 				return d.WrapError(d.onEntries(d.Labels, d.tsNs, make([]string, len(d.values)), d.values,
-					fastFillArray[uint8](len(d.values), model.SAMPLE_TYPE_METRIC)))
+					slices.Repeat([]uint8{model.SAMPLE_TYPE_METRIC}, len(d.values))))
 			}))
 		}
 		return d.WrapError(dec.Skip())
