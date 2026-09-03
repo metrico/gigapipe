@@ -8,8 +8,13 @@ import (
 // ErrBufferFull is returned when the RAM chunk cannot accept more data.
 var ErrBufferFull = errors.New("buffer is full")
 
-// chunkSize defines the maximum size of the RAM buffer (5MB).
-const chunkSize = 5 * 1000 * 1000 // 5MB
+const (
+	// chunkSize defines the maximum size of the RAM buffer (5MB).
+	chunkSize = 5 * 1000 * 1000 // 5MB
+	// initialChunkSize is the starting capacity; append grows it as needed,
+	// so a small response never touches the whole 5MB.
+	initialChunkSize = 8 * 1024
+)
 
 // ramChunk is a fixed-size RAM buffer that accumulates data up to chunkSize.
 // It returns ErrBufferFull when it cannot accept more data.
@@ -18,10 +23,10 @@ type ramChunk struct {
 	size int
 }
 
-// newRAMChunk creates a new RAM chunk with pre-allocated capacity.
+// newRAMChunk creates a new RAM chunk that grows on demand up to chunkSize.
 func newRAMChunk() *ramChunk {
 	return &ramChunk{
-		data: make([]byte, 0, chunkSize),
+		data: make([]byte, 0, initialChunkSize),
 	}
 }
 
