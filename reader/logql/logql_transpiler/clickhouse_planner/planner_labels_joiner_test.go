@@ -86,3 +86,35 @@ func TestLabelsJoinBoundsSingleNodeJoinToMainFingerprints(t *testing.T) {
 		t.Fatalf("single-node labels join not bounded to main fingerprints, got:\n%s", got)
 	}
 }
+
+// A sample whose fingerprint has no time_series row yet belongs to no stream, so
+// it must not reach the client carrying an empty label set.
+func TestLabelsJoinDropsUnresolvedFingerprints(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		cluster bool
+		want    string
+	}{
+		{"cluster", true, "WHERE ((length(labels)) > (0))"},
+		{"single node", false, "ANY INNER  JOIN _time_series"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			planner := &LabelsJoinPlanner{
+				NoStreamSelect: true,
+				Main:           staticPlanner{mockMain()},
+				TimeSeries:     staticPlanner{mockTimeSeries()},
+			}
+			sel, err := planner.Process(&shared.PlannerContext{IsCluster: tc.cluster})
+			if err != nil {
+				t.Fatalf("Process() error = %v", err)
+			}
+			got, err := sel.String(newCtx())
+			if err != nil {
+				t.Fatalf("String() error = %v", err)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("unresolved fingerprints not dropped (want %q), got:\n%s", tc.want, got)
+			}
+		})
+	}
+}
