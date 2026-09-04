@@ -68,16 +68,20 @@ func applyMiddlewares(acc *mux.Router) {
 	if !ownHttpServer {
 		return
 	}
+	// gorilla/mux applies Use entries outermost-first; keep the same order as
+	// cmd/gigapipe/main.go (Logging → Cors → AcceptEncoding → BasicAuth): the
+	// gzip wrapper depends on the logging writer's Flush/Unwrap sitting
+	// between it and the transport.
+	acc.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
+	if config.Cloki.Setting.HTTP_SETTINGS.Cors.Enable {
+		acc.Use(middleware.CorsMiddleware(config.Cloki.Setting.HTTP_SETTINGS.Cors.Origin))
+	}
+	acc.Use(middleware.AcceptEncodingMiddleware)
 	if config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
 		config.Cloki.Setting.AUTH_SETTINGS.BASIC.Password != "" {
 		acc.Use(middleware.BasicAuthMiddleware(config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username,
 			config.Cloki.Setting.AUTH_SETTINGS.BASIC.Password))
 	}
-	acc.Use(middleware.AcceptEncodingMiddleware)
-	if config.Cloki.Setting.HTTP_SETTINGS.Cors.Enable {
-		acc.Use(middleware.CorsMiddleware(config.Cloki.Setting.HTTP_SETTINGS.Cors.Origin))
-	}
-	acc.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
 }
 
 func httpStart(server *mux.Router, httpURL string) {

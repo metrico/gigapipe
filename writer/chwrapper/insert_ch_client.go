@@ -18,12 +18,12 @@ type InsertCHWrapper struct {
 
 var _ IChClient = &InsertCHWrapper{}
 
-func (c *InsertCHWrapper) Query(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
+func (c *InsertCHWrapper) Query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (c *InsertCHWrapper) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
+func (c *InsertCHWrapper) QueryRow(ctx context.Context, query string, args ...any) driver.Row {
 	//TODO implement me
 	panic("implement me")
 }
@@ -60,7 +60,7 @@ func (c *InsertCHWrapper) Exec(ctx context.Context, query string, args ...any) e
 	return errors.New("not implemented")
 }
 
-func (c *InsertCHWrapper) Scan(ctx context.Context, req string, args []any, dest ...interface{}) error {
+func (c *InsertCHWrapper) Scan(ctx context.Context, req string, args []any, dest ...any) error {
 	return errors.New("not implemented")
 }
 
@@ -72,8 +72,8 @@ func (c *InsertCHWrapper) TableExists(ctx context.Context, name string) (bool, e
 	return false, errors.New("not implemented")
 }
 
-func (c *InsertCHWrapper) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]interface{}) error {
-	return func(ctx context.Context, query string, args ...[]interface{}) error {
+func (c *InsertCHWrapper) GetDBExec(env map[string]string) func(ctx context.Context, query string, args ...[]any) error {
+	return func(ctx context.Context, query string, args ...[]any) error {
 		return errors.New("not implemented")
 	}
 }
@@ -90,7 +90,7 @@ func (c *InsertCHWrapper) PutSetting(ctx context.Context, tp string, name string
 	return errors.New("not implemented")
 }
 
-func (c *InsertCHWrapper) GetFirst(req string, first ...interface{}) error {
+func (c *InsertCHWrapper) GetFirst(req string, first ...any) error {
 	return errors.New("not implemented")
 }
 

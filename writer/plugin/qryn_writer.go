@@ -14,7 +14,6 @@ import (
 	patternCtrl "github.com/metrico/qryn/v5/writer/pattern/controller"
 	"github.com/metrico/qryn/v5/writer/plugins"
 	"github.com/metrico/qryn/v5/writer/service"
-	"github.com/metrico/qryn/v5/writer/utils/helpers"
 	"github.com/metrico/qryn/v5/writer/utils/logger"
 	"github.com/metrico/qryn/v5/writer/watchdog"
 	"gopkg.in/go-playground/validator.v9"
@@ -118,8 +117,6 @@ func (p *QrynWriterPlugin) RegisterRoutes(config config.ClokiBaseSettingServer,
 	middlewareTempoFactory controllerv1.MiddlewareConfig,
 	router *mux.Router,
 ) {
-	helpers.SetGlobalLimit(config.HTTP_SETTINGS.InputBufferMB * 1024 * 1024)
-
 	config.Validate = validator.New()
 
 	p.performV1APIRouting(middlewareFactory, middlewareTempoFactory, router)

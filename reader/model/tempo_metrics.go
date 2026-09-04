@@ -37,7 +37,7 @@ type MetricsTimeSeries struct {
 	Labels     []MetricsKeyValue `json:"labels"`
 	Samples    []MetricsSample   `json:"samples"`
 	PromLabels string            `json:"promLabels,omitempty"`
-	Exemplars  []interface{}     `json:"exemplars,omitempty"`
+	Exemplars  []any             `json:"exemplars,omitempty"`
 }
 
 // MetricsQueryRangeResponse is the top-level response for /api/metrics/query_range.
@@ -50,7 +50,7 @@ type MetricsQueryRangeResponse struct {
 type MetricsInstantSeries struct {
 	Labels    []MetricsKeyValue `json:"labels"`
 	Value     float64           `json:"value"`
-	Exemplars []interface{}     `json:"exemplars"`
+	Exemplars []any             `json:"exemplars"`
 }
 
 // MetricsQueryInstantResponse is the top-level response for /api/metrics/query.

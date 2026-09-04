@@ -78,7 +78,10 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		*l.LabelsCache = withTS
 	}
 
-	joinType := "ANY LEFT "
+	// The labels map and the samples are two independent reads of ClickHouse,
+	// so a fingerprint written between them appears in the samples with nothing
+	// to resolve its labels against. Such an entry belongs to no stream, so it
+	// is dropped rather than emitted with an empty label set.
 	if ctx.IsCluster {
 		withTSRef := sql.NewWithRef(withTS)
 		withTSSelect := sql.NewSelect().
@@ -100,7 +103,8 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 				sql.NewCol(labelsCol, "labels"),
 				sql.NewSimpleCol("main.string", "string"),
 				sql.NewSimpleCol("main.value", "value")).
-			From(sql.NewWithRef(withMain)), nil
+			From(sql.NewWithRef(withMain)).
+			AndWhere(sql.Gt(sql.NewRawObject("length(labels)"), sql.NewIntVal(0))), nil
 
 	}
 	return sql.NewSelect().
@@ -113,7 +117,7 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("main.value", "value")).
 		From(sql.NewWithRef(withMain)).
 		Join(sql.NewJoin(
-			joinType,
+			"ANY INNER ",
 			sql.NewWithRef(withTS),
 			sql.Eq(sql.NewRawObject("main.fingerprint"), sql.NewRawObject("_time_series.fingerprint")))), nil
 }

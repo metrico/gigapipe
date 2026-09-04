@@ -3,11 +3,11 @@ package planner
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"strconv"
 
 	"github.com/go-faster/jx"
 	"github.com/kr/logfmt"
-	"golang.org/x/exp/slices"
 )
 
 // errNotJSONObject is returned when a `json` parser is applied to a line whose

@@ -1,8 +1,9 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/metrico/qryn/v5/reader/prof"
@@ -292,12 +293,9 @@ func mergeNodes(t1, t2 *Tree) {
 			t2Children = []*TreeNodeV2{}
 		}
 
-		sort.Slice(t1Children, func(i, j int) bool {
-			return t1Children[i].NodeID < t1Children[j].NodeID
-		})
-		sort.Slice(t2Children, func(i, j int) bool {
-			return t2Children[i].NodeID < t2Children[j].NodeID
-		})
+		byNodeID := func(a, b *TreeNodeV2) int { return cmp.Compare(a.NodeID, b.NodeID) }
+		slices.SortFunc(t1Children, byNodeID)
+		slices.SortFunc(t2Children, byNodeID)
 
 		newT1Nodes, newT2Nodes := mergeChildren(t1Children, t2Children)
 		t1.Nodes[key] = newT1Nodes
@@ -376,8 +374,7 @@ func computeFlameGraphDiff(t1, t2 *Tree) *prof.FlameGraphDiff {
 
 		if childrenLeft, ok := t1.Nodes[left.NodeID]; ok {
 			childrenRight := t2.Nodes[right.NodeID]
-			for i := len(childrenLeft) - 1; i >= 0; i-- {
-				childLeft := childrenLeft[i]
+			for i, childLeft := range slices.Backward(childrenLeft) {
 				var childRight *TreeNodeV2
 				if i < len(childrenRight) {
 					childRight = childrenRight[i]
@@ -533,8 +530,8 @@ func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string
 
 	// unit is the second part of sampleType, e.g. "nanoseconds" from "cpu:nanoseconds"
 	unit := ""
-	if idx := strings.Index(sampleType, ":"); idx >= 0 {
-		unit = sampleType[idx+1:]
+	if _, after, ok := strings.Cut(sampleType, ":"); ok {
+		unit = after
 	}
 
 	// Collect all node totals and compute a pruning threshold when maxNodes is set.
@@ -550,7 +547,7 @@ func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string
 			}
 		}
 		if len(allTotals) > maxNodes {
-			sort.Slice(allTotals, func(i, j int) bool { return allTotals[i] > allTotals[j] })
+			slices.SortFunc(allTotals, func(a, b int64) int { return cmp.Compare(b, a) })
 			threshold = allTotals[maxNodes-1]
 		}
 	}
@@ -568,10 +565,7 @@ func (t *Tree) ToDot(sampleType string, profileName string, maxNodes int) string
 	// weight is an integer 1–100 proportional to the child's share of total samples.
 	// Graphviz requires weight >= 1 and works best with small integers.
 	edgeWeight := func(v int64) int {
-		w := int(pct(v))
-		if w < 1 {
-			w = 1
-		}
+		w := max(int(pct(v)), 1)
 		return w
 	}
 
@@ -661,10 +655,7 @@ func heatColor(self, total int64) string {
 	if ratio > 1 {
 		ratio = 1
 	}
-	r := 248 - int(ratio*float64(248-255))
-	if r > 255 {
-		r = 255
-	}
+	r := min(248-int(ratio*float64(248-255)), 255)
 	g := int(248 - ratio*248)
 	b := int(248 - ratio*248)
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)

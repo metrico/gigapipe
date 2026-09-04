@@ -1,9 +1,10 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -90,7 +91,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		var value float64
 		byVals := make([]string, byCount)
 
-		scanArgs := make([]interface{}, 2+byCount)
+		scanArgs := make([]any, 2+byCount)
 		scanArgs[0] = &ts
 		scanArgs[1] = &value
 		for i := range byVals {
@@ -223,7 +224,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 					var spanTs int64
 					exByVals := make([]string, exByCount)
 
-					scanArgs := make([]interface{}, 4+exByCount)
+					scanArgs := make([]any, 4+exByCount)
 					scanArgs[0] = &ts
 					scanArgs[1] = &traceID
 					scanArgs[2] = &durNs
@@ -250,13 +251,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 					for i := range result {
 						var keyParts []string
 						for _, lbl := range result[i].Labels {
-							isBy := false
-							for _, byLabel := range resolvedByLabels {
-								if lbl.Key == byLabel {
-									isBy = true
-									break
-								}
-							}
+							isBy := slices.Contains(resolvedByLabels, lbl.Key)
 							if isBy {
 								keyParts = append(keyParts, lbl.Value.StringValue)
 							}
@@ -274,7 +269,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 							tsToValue[ms] = sample.Value
 						}
 
-						var exList []interface{}
+						var exList []any
 						for _, ex := range groupExemplars {
 							labels := []model.MetricsKeyValue{
 								{Key: "trace:id", Value: model.MetricsLabelValue{StringValue: ex.traceID}},
@@ -393,7 +388,7 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		var value float64
 		byVals := make([]string, byCount)
 
-		scanArgs := make([]interface{}, 1+byCount)
+		scanArgs := make([]any, 1+byCount)
 		scanArgs[0] = &value
 		for i := range byVals {
 			scanArgs[1+i] = &byVals[i]
@@ -414,7 +409,7 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		result = append(result, model.MetricsInstantSeries{
 			Labels:    labels,
 			Value:     value,
-			Exemplars: make([]interface{}, 0),
+			Exemplars: make([]any, 0),
 		})
 	}
 
@@ -613,7 +608,7 @@ func (t *TempoService) executeHistogramRange(
 						continue
 					}
 					bucketSec := *result[i].Labels[0].Value.DoubleValue
-					var exList []interface{}
+					var exList []any
 					for _, ex := range exemplarRows {
 						if float64(ex.bucketNs)/1e9 != bucketSec {
 							continue
@@ -636,16 +631,15 @@ func (t *TempoService) executeHistogramRange(
 		}
 	}
 
+	bucket := func(s model.MetricsTimeSeries) float64 {
+		if len(s.Labels) > 0 && s.Labels[0].Value.DoubleValue != nil {
+			return *s.Labels[0].Value.DoubleValue
+		}
+		return 0
+	}
 	// Sort series by ascending bucket value
-	sort.Slice(result, func(i, j int) bool {
-		bi, bj := 0.0, 0.0
-		if len(result[i].Labels) > 0 && result[i].Labels[0].Value.DoubleValue != nil {
-			bi = *result[i].Labels[0].Value.DoubleValue
-		}
-		if len(result[j].Labels) > 0 && result[j].Labels[0].Value.DoubleValue != nil {
-			bj = *result[j].Labels[0].Value.DoubleValue
-		}
-		return bi < bj
+	slices.SortFunc(result, func(a, b model.MetricsTimeSeries) int {
+		return cmp.Compare(bucket(a), bucket(b))
 	})
 
 	return &model.MetricsQueryRangeResponse{
@@ -697,7 +691,7 @@ func (t *TempoService) executeCompareRange(
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
 				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: float64(row.SelectionCount)}},
-				Exemplars: []interface{}{},
+				Exemplars: []any{},
 			})
 		}
 		if row.BaselineCount > 0 {
@@ -707,7 +701,7 @@ func (t *TempoService) executeCompareRange(
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
 				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: float64(row.BaselineCount)}},
-				Exemplars: []interface{}{},
+				Exemplars: []any{},
 			})
 		}
 	}

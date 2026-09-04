@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"regexp"
 	"strconv"
 	"time"
@@ -36,12 +37,8 @@ func (e *otlpLogDec) Decode() error {
 				var labels [][]string
 				// Merge resource and scope attributes
 				attrsMap := make(map[string]string)
-				for k, v := range resourceAttrs {
-					attrsMap[k] = v
-				}
-				for k, v := range scopeAttrs {
-					attrsMap[k] = v
-				}
+				maps.Copy(attrsMap, resourceAttrs)
+				maps.Copy(attrsMap, scopeAttrs)
 				// Extract log record attributes
 				e.initAttributesMap(logRecord.Attributes, "", &attrsMap)
 
@@ -100,10 +97,13 @@ func (e *otlpLogDec) writeAttrValue(key string, value *otlpcommon.AnyValue, pref
 	(*res)[prefix+SanitizeKey(key)] = SanitizeValue(value)
 }
 
+// sanitizeKeyRe matches every character that is not valid in a Prometheus
+// label name.
+var sanitizeKeyRe = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
 func SanitizeKey(key string) string {
 	// Replace characters that are not a-z, A-Z, 0-9, or _ with _
-	re := regexp.MustCompile(`[^a-zA-Z0-9_]`)
-	sanitized := re.ReplaceAllString(key, "_")
+	sanitized := sanitizeKeyRe.ReplaceAllString(key, "_")
 
 	// Prefix with _ if the first character is not a-z or A-Z
 	if len(sanitized) == 0 || (sanitized[0] >= '0' && sanitized[0] <= '9') {
@@ -163,3 +163,13 @@ var UnmarshalOTLPLogsV2 = Build(
 	withLogsParser(func(ctx *ParserCtx) iLogsParser {
 		return &otlpLogDec{ctx: ctx}
 	}))
+
+// OTLPLogsFromData builds a parser over an already-decoded LogsData, reusing
+// the OTLP logs decoder without re-marshaling. Used by the gRPC receiver,
+// where the framework has already decoded the wire bytes.
+func OTLPLogsFromData(ld *otlplogs.LogsData) ParsingFunction {
+	return Build(
+		withPreParsedBody(ld),
+		withLogsParser(func(ctx *ParserCtx) iLogsParser { return &otlpLogDec{ctx: ctx} }),
+	)
+}

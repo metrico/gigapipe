@@ -50,4 +50,3 @@ func TestPrepareLineFormatTemplateTimestamp(t *testing.T) {
 		t.Fatalf("ExecuteLineFormatTemplate() = %q, want %q", got, fmt.Sprintf("%d", ts.Unix()))
 	}
 }
-

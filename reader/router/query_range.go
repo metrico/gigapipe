@@ -10,9 +10,7 @@ import (
 
 func RouteQueryRangeApis(app *mux.Router, dataSession model.IDBRegistry) {
 	qrService := &service.QueryRangeService{
-		ServiceData: model.ServiceData{
-			Session: dataSession,
-		},
+		Session: dataSession,
 	}
 	qrCtrl := &controllerv1.QueryRangeController{
 		QueryRangeService: qrService,

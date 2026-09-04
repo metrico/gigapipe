@@ -3,6 +3,7 @@ package shared
 import (
 	"database/sql"
 	"io"
+	"maps"
 
 	sql2 "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -69,9 +70,7 @@ func (c *ClickhouseGetterPlanner) Scan(ctx *PlannerContext, rows *sql.Rows, res 
 			return
 		}
 		entries[i].Labels = make(map[string]string)
-		for k, v := range labels {
-			entries[i].Labels[k] = v
-		}
+		maps.Copy(entries[i].Labels, labels)
 		i++
 		if i >= 100 {
 			res <- entries
@@ -109,9 +108,7 @@ func (c *ClickhouseGetterPlanner) ScanMatrix(ctx *PlannerContext, rows *sql.Rows
 			return
 		}
 		entries[i].Labels = make(map[string]string)
-		for k, v := range labels {
-			entries[i].Labels[k] = v
-		}
+		maps.Copy(entries[i].Labels, labels)
 		i++
 		if i >= 100 {
 			res <- entries

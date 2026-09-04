@@ -3,6 +3,7 @@ package clickhouse_planner
 import (
 	"fmt"
 	"github.com/metrico/qryn/v5/reader/config"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,12 +30,12 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		from = from.Add(ctx.Offset)
 	}
 	var emptyLabels []string
-	for i := len(s.LabelNames) - 1; i >= 0; i-- {
+	for i, v := range slices.Backward(s.LabelNames) {
 		if config.Cloki.Setting.ClokiReader.OmitEmptyValues {
 			break
 		}
 		if (s.Ops[i] == "=" || s.Ops[i] == "=~") && s.Values[i] == "" {
-			emptyLabels = append(emptyLabels, s.LabelNames[i])
+			emptyLabels = append(emptyLabels, v)
 			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
 			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
 			s.Values = append(s.Values[:i], s.Values[i+1:]...)

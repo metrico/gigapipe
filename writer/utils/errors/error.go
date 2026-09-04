@@ -66,20 +66,11 @@ func New429Error(msg string) IQrynError {
 
 // NewUnmarshalError creates a new instance of UnmarshalError.
 func NewUnmarshalError(err error) IQrynError {
-	var target IQrynError
-	if errors.As(err, &target) {
+	if target, ok := errors.AsType[IQrynError](err); ok {
 		return target
 	}
 	return &UnMarshalError{
 		err.Error(),
 		400,
 	}
-}
-
-func Unwrap[T IQrynError](err error) (T, bool) {
-	var target T
-	if errors.As(err, &target) {
-		return target, true
-	}
-	return target, false
 }

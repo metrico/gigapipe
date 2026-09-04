@@ -1,12 +1,15 @@
 package model
 
 import (
+	"math"
+	"sync"
+
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/util/annotations"
-	"sync"
 )
 
 type Labels []labels.Label
@@ -80,7 +83,8 @@ func (s *SeriesV2) Iterator(it chunkenc.Iterator) chunkenc.Iterator {
 			samples: s.Samples,
 			idx:     -1,
 		},
-		stepMs: s.StepMs,
+		stepMs:  s.StepMs,
+		staleAt: -1,
 	}
 }
 
@@ -150,79 +154,118 @@ func (s *seriesIt) Err() error {
 	return nil
 }
 
+// prolongSeriesIt terminates a run of samples with a Prometheus stale marker at
+// the lookback boundary instead of forward-filling the last value on the step
+// grid for 5 minutes.
+//
+// For an instant vector selector (or rate/deriv/delta) in a range query, the
+// Prometheus engine carries the last real sample forward for its LookbackDelta
+// (5m by default). gigapipe used to *also* forward-fill for 5m inside this
+// iterator, so a sample at T could stay visible until ~T+10m (issue #931).
+//
+// This iterator instead yields the real samples untouched and, when a run ends,
+// emits a single stale marker at lastSample + LookbackDeltaMs. The engine
+// carries the last value forward across its own lookback window and the marker
+// terminates it exactly at the boundary, so total visibility is ~5m - matching
+// upstream Prometheus and never stacking to ~10m.
+//
+// A run ends when the next real sample is more than LookbackDeltaMs away, or
+// when there are no more samples. Gaps up to LookbackDeltaMs are left unmarked
+// and bridged by the engine's lookback, so genuinely *sparse* series behave the
+// same as in upstream Prometheus. If a sparse series that was marked stale
+// later resumes (its next sample lands more than LookbackDeltaMs after the
+// previous one), the marker sits in the gap between the two real samples: the
+// old value stops at the boundary and the new value simply starts a fresh run -
+// exactly what Prometheus does when a series reappears after going stale.
 type prolongSeriesIt struct {
 	s           *seriesIt
-	prev        *Sample
-	next        *Sample
 	stepMs      int64
 	timestampMs int64
-	m           sync.Mutex
+	value       float64
+	// staleAt, when set (>= 0), is the timestamp at which the next Next() must
+	// emit a stale marker before advancing to the following real sample.
+	staleAt int64
+	m       sync.Mutex
 }
 
 func (p *prolongSeriesIt) Err() error {
 	return p.s.Err()
 }
 
+// StaleMarkerValue is the Prometheus stale marker encoded as a float64. The
+// PromQL engine detects it via value.IsStaleNaN and stops carrying a series
+// forward at that timestamp, regardless of its LookbackDelta. It is the single
+// source of truth for the marker across the reader.
+var StaleMarkerValue = math.Float64frombits(value.StaleNaN)
+
+// LookbackDeltaMs mirrors the Prometheus engine's default lookback delta (5m,
+// the value NewPromEngine relies on). A sample stays valid for at most this
+// long, so a gap larger than this is where a series is considered to have
+// stopped and a stale marker is emitted.
+const LookbackDeltaMs = int64(5 * 60 * 1000)
+
+// scheduleStaleAfterCurrent decides whether the sample currently under p.s (at
+// p.s.idx) ends a run and, if so, schedules a stale marker.
+//
+// A run ends when the following real sample is more than LookbackDeltaMs away
+// (a gap the engine's lookback would not bridge) or when there is no following
+// sample. In that case the marker is placed at cur + LookbackDeltaMs: the last
+// real value stays visible for the full lookback window - exactly as upstream
+// Prometheus carries a sample forward - and the marker then terminates it at
+// the lookback boundary, so the engine cannot extend it any further. Gaps up to
+// LookbackDeltaMs are left unmarked and bridged by the engine's own lookback,
+// matching Prometheus behavior for sparse series.
+//
+// Because a marker is only scheduled when the next sample is more than
+// LookbackDeltaMs away, cur + LookbackDeltaMs is always strictly before that
+// next sample, so markers never collide with or reorder real samples.
+func (p *prolongSeriesIt) scheduleStaleAfterCurrent() {
+	cur := p.s.samples[p.s.idx].TimestampMs
+	nextIdx := p.s.idx + 1
+	if nextIdx < len(p.s.samples) && p.s.samples[nextIdx].TimestampMs <= cur+LookbackDeltaMs {
+		// The next sample is within the lookback window; the engine bridges the
+		// gap on its own. No marker.
+		return
+	}
+	p.staleAt = cur + LookbackDeltaMs
+}
+
 func (p *prolongSeriesIt) Seek(t int64) chunkenc.ValueType {
 	p.m.Lock()
 	defer p.m.Unlock()
-	p.prev = nil
-	p.next = nil
+	p.staleAt = -1
 	if p.s.Seek(t) == chunkenc.ValNone {
 		return chunkenc.ValNone
 	}
-	p.prev = &p.s.samples[p.s.idx]
-	p.timestampMs = p.prev.TimestampMs
-	if p.s.Next() != chunkenc.ValNone {
-		p.next = &p.s.samples[p.s.idx]
-	}
+	p.timestampMs = p.s.samples[p.s.idx].TimestampMs
+	p.value = p.s.samples[p.s.idx].Value
+	p.scheduleStaleAfterCurrent()
 	return chunkenc.ValFloat
 }
 
 func (p *prolongSeriesIt) Next() chunkenc.ValueType {
 	p.m.Lock()
 	defer p.m.Unlock()
-	if p.prev == nil {
-		if p.s.Next() == chunkenc.ValNone {
-			return chunkenc.ValNone
-		}
-		p.prev = &p.s.samples[p.s.idx]
-		if p.s.Next() != chunkenc.ValNone {
-			p.next = &p.s.samples[p.s.idx]
-		}
-		p.timestampMs = p.prev.TimestampMs
+
+	// A stale marker was scheduled after the previous real sample: emit it now.
+	if p.staleAt >= 0 {
+		p.timestampMs = p.staleAt
+		p.value = StaleMarkerValue
+		p.staleAt = -1
 		return chunkenc.ValFloat
 	}
 
-	if p.next == nil {
-		if p.timestampMs > p.prev.TimestampMs+300000 {
-			return chunkenc.ValNone
-		}
-		p.timestampMs += p.stepMs
-		return chunkenc.ValFloat
+	if p.s.Next() == chunkenc.ValNone {
+		return chunkenc.ValNone
 	}
-
-	done := false
-	for p.timestampMs > p.prev.TimestampMs+300000 || (p.next != nil && p.timestampMs >= p.next.TimestampMs) {
-		p.prev = p.next
-		p.next = nil
-		if p.s.Next() != chunkenc.ValNone {
-			p.next = &p.s.samples[p.s.idx]
-		}
-		p.timestampMs = p.prev.TimestampMs
-		done = true
-	}
-
-	if done {
-		return chunkenc.ValFloat
-	}
-
-	p.timestampMs += p.stepMs
+	p.timestampMs = p.s.samples[p.s.idx].TimestampMs
+	p.value = p.s.samples[p.s.idx].Value
+	p.scheduleStaleAfterCurrent()
 	return chunkenc.ValFloat
 }
 
 func (p *prolongSeriesIt) At() (int64, float64) {
-	return p.timestampMs, p.prev.Value
+	return p.timestampMs, p.value
 }
 
 // AtHistogram returns the current timestamp/value pair if the value is a

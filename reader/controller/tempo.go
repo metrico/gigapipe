@@ -458,9 +458,10 @@ type traceSearchParams struct {
 
 func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	var err error
-	res := traceSearchParams{}
-	res.Q = r.URL.Query().Get("q")
-	res.Tags = r.URL.Query().Get("tags")
+	res := traceSearchParams{
+		Q:    r.URL.Query().Get("q"),
+		Tags: r.URL.Query().Get("tags"),
+	}
 	res.MinDuration, err = time.ParseDuration(orDefault(r.URL.Query().Get("minDuration"), "0"))
 	if err != nil {
 		return nil, fmt.Errorf("minDuration: %v", err)

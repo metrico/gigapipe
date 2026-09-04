@@ -1,9 +1,7 @@
 package registry
 
 import (
-	"math/rand"
-	"sync"
-	"time"
+	"math/rand/v2"
 
 	"github.com/metrico/qryn/v5/writer/service"
 )
@@ -16,8 +14,6 @@ type staticServiceRegistry struct {
 	TempoTagsSvcs     []service.IInsertServiceV2
 	ProfileInsertSvcs []service.IInsertServiceV2
 	PatternInsertSvcs []service.IInsertServiceV2
-	rand              *rand.Rand
-	mtx               sync.Mutex
 }
 
 type StaticServiceRegistryOpts struct {
@@ -40,15 +36,14 @@ func mapToSlice(m map[string]service.IInsertServiceV2) []service.IInsertServiceV
 
 func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) ServiceRegistry {
 	res := staticServiceRegistry{
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		TimeSeriesSvcs:    mapToSlice(opts.TimeSeriesSvcs),
+		SamplesSvcs:       mapToSlice(opts.SamplesSvcs),
+		MetricSvcs:        mapToSlice(opts.MetricSvcs),
+		TempoSamplesSvcs:  mapToSlice(opts.TempoSamplesSvcs),
+		TempoTagsSvcs:     mapToSlice(opts.TempoTagsSvcs),
+		ProfileInsertSvcs: mapToSlice(opts.ProfileInsertSvcs),
+		PatternInsertSvcs: mapToSlice(opts.PatternInsertSvcs),
 	}
-	res.TimeSeriesSvcs = mapToSlice(opts.TimeSeriesSvcs)
-	res.SamplesSvcs = mapToSlice(opts.SamplesSvcs)
-	res.MetricSvcs = mapToSlice(opts.MetricSvcs)
-	res.TempoSamplesSvcs = mapToSlice(opts.TempoSamplesSvcs)
-	res.TempoTagsSvcs = mapToSlice(opts.TempoTagsSvcs)
-	res.ProfileInsertSvcs = mapToSlice(opts.ProfileInsertSvcs)
-	res.PatternInsertSvcs = mapToSlice(opts.PatternInsertSvcs)
 	return &res
 }
 
@@ -62,9 +57,7 @@ func staticServiceRegistryGetService[T interface{ GetNodeName() string }](r *sta
 			}
 		}
 	}
-	r.mtx.Lock()
-	defer r.mtx.Unlock()
-	idx := r.rand.Intn(len(svcs))
+	idx := rand.IntN(len(svcs))
 	return svcs[idx], nil
 }
 

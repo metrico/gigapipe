@@ -2,13 +2,14 @@ package unmarshal
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +45,7 @@ type ProfileIR struct {
 	TimeStampNao     int64
 	Payload          *bytes.Buffer
 	PayloadType      PayloadType
-	ValueAggregation interface{}
+	ValueAggregation any
 	Profile          *pprof_proto.Profile
 }
 
@@ -328,8 +329,8 @@ func Parse(data *bytes.Buffer) ([]ProfileIR, error) {
 		ValueAggregation: valueAggregates,
 		Type:             profileTypeInfo,
 		Profile:          pProfData,
+		Payload:          new(bytes.Buffer),
 	}
-	profile.Payload = new(bytes.Buffer)
 	pProfData.WriteUncompressed(profile.Payload)
 	// Append the profile to the result
 	profiles = append(profiles, profile)
@@ -361,8 +362,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	}
 	for _, sample := range profile.Sample {
 		parentId := uint64(0)
-		for i := len(sample.Location) - 1; i >= 0; i-- {
-			loc := sample.Location[i]
+		for i, loc := range slices.Backward(sample.Location) {
 			name := "n/a"
 			if len(loc.Line) > 0 {
 				name = loc.Line[0].Function.Name
@@ -396,7 +396,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	for fnId := range funcs {
 		indices = append(indices, fnId)
 	}
-	sort.Slice(indices, func(i, j int) bool { return indices[i] > indices[j] })
+	slices.SortFunc(indices, descendingID)
 	var funRes []*model.Function
 	for _, fnId := range indices {
 		funRes = append(funRes, &model.Function{
@@ -408,7 +408,7 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	for tId := range tree {
 		indices = append(indices, tId)
 	}
-	sort.Slice(indices, func(i, j int) bool { return indices[i] > indices[j] })
+	slices.SortFunc(indices, descendingID)
 	var tressRes []*profTrieNode
 	for _, id := range indices {
 		node := tree[id]
@@ -417,6 +417,11 @@ func postProcessProf(profile *pprof_proto.Profile) ([]*model.Function, []*profTr
 	}
 	return funRes, tressRes
 }
+
+// descendingID orders profile function and tree node ids the way
+// postProcessProf expects them: highest id first.
+func descendingID(a, b uint64) int { return cmp.Compare(b, a) }
+
 func getNodeId(parentId uint64, funcId uint64, traceLevel int) uint64 {
 	buf := make([]byte, 16)
 	binary.LittleEndian.PutUint64(buf[0:8], parentId)

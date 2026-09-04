@@ -15,15 +15,13 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
-	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql"
-	api_v1 "github.com/prometheus/prometheus/web/api/v1"
 )
 
 type PromQueryRangeController struct {
 	Controller
-	Api     *api_v1.API
+	Engine  promql.QueryEngine
 	Storage *service.CLokiQueriable
 	Stats   bool
 }
@@ -81,7 +79,7 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(500, err.Error(), w)
 		return
 	}
-	rangeQuery, err := q.Api.QueryEngine.NewRangeQuery(internalCtx, q.Storage.SetOidAndDB(internalCtx, expr), nil,
+	rangeQuery, err := q.Engine.NewRangeQuery(internalCtx, q.Storage.SetOidAndDB(internalCtx, expr), nil,
 		expr.Expr.String(), req.Start, req.End, req.Step)
 	if err != nil {
 		logger.Error("[PQRC001] " + err.Error())
@@ -356,12 +354,12 @@ func parseDuration(s string) (time.Duration, error) {
 	if d, err := strconv.ParseFloat(s, 64); err == nil {
 		ts := d * float64(time.Second)
 		if ts > float64(math.MaxInt64) || ts < float64(math.MinInt64) {
-			return 0, errors.Errorf("cannot parse %q to a valid duration. It overflows int64", s)
+			return 0, fmt.Errorf("cannot parse %q to a valid duration. It overflows int64", s)
 		}
 		return time.Duration(ts), nil
 	}
 	if d, err := model.ParseDuration(s); err == nil {
 		return time.Duration(d), nil
 	}
-	return 0, errors.Errorf("cannot parse %q to a valid duration", s)
+	return 0, fmt.Errorf("cannot parse %q to a valid duration", s)
 }

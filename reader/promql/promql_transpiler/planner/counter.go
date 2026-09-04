@@ -30,10 +30,7 @@ func prevValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 	}
 	withVals := sql.NewWith(vals, "cnt_vals")
 
-	lookback := ctx.Step
-	if lookback < staleness {
-		lookback = staleness
-	}
+	lookback := max(ctx.Step, staleness)
 	start, err := windowOffset(lookback)
 	if err != nil {
 		return nil, err

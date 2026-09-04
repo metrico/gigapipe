@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -37,7 +38,31 @@ func NewMiddlewareConfig(middlewares ...BuildOption) MiddlewareConfig {
 }
 
 type Requester func(w http.ResponseWriter, r *http.Request) error
+
+// Parser turns a request payload into a stream of ParserResponses. The body is
+// a call-time argument because the content-type parsers are registered on the
+// routes at startup, long before any request exists to read from.
 type Parser func(ctx context.Context, body io.Reader, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
+
+// BoundParser is a Parser whose input has already been supplied. IngestParsed
+// takes this type rather than Parser so that it cannot be handed a parser still
+// waiting for a body that IngestParsed has no way to provide.
+type BoundParser func(ctx context.Context, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse
+
+// Bind supplies body to p. It is the seam between the route-registered parsers
+// and the request whose payload they read.
+func Bind(p Parser, body io.Reader) BoundParser {
+	return func(ctx context.Context, fpCache numbercache.ICache[uint64]) chan *model.ParserResponse {
+		return p(ctx, body, fpCache)
+	}
+}
+
+// PreDecoded binds a parser built over an already-decoded payload, such as the
+// OTLP *FromData builders. Those parsers take their input from the object
+// captured at construction and never read the body, so an empty one is bound.
+func PreDecoded(p Parser) BoundParser {
+	return Bind(p, http.NoBody)
+}
 
 type BuildOption func(ctx *PusherCtx) *PusherCtx
 
@@ -74,12 +99,12 @@ func (pusherCtx *PusherCtx) Do(w http.ResponseWriter, r *http.Request) error {
 }
 
 func ErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
-	if e, ok := customErrors.Unwrap[*customErrors.UnMarshalError](err); ok {
+	if e, ok := errors.AsType[*customErrors.UnMarshalError](err); ok {
 		stat.AddSentMetrics("json_parse_errors", 1)
 		writeErrorResponse(w, e.GetCode(), e.Error())
 		return
 	}
-	if e, ok := customErrors.Unwrap[customErrors.IQrynError](err); ok {
+	if e, ok := errors.AsType[customErrors.IQrynError](err); ok {
 		writeErrorResponse(w, e.GetCode(), e.Error())
 		return
 	}
@@ -198,19 +223,13 @@ func doLogsPattern(s *model.TimeSamplesData) {
 	controller.ClusterLines(s.MMessage, s.MFingerprint, s.MTimestampNS)
 }
 
-func doParse(r *http.Request, parser Parser) error {
-	reader := getBodyStream(r)
-	tsService := getService(r, utils.ContextKeyTsService)
-	splService := getService(r, utils.ContextKeySplService)
-	spanAttrsService := getService(r, utils.ContextKeySpanAttrsService)
-	spansService := getService(r, utils.ContextKeySpansService)
-	profileService := getService(r, utils.ContextKeyProfileService)
-	node := r.Context().Value(utils.ContextKeyNode).(string)
-
-	//var promises []chan error
+// IngestParsed runs parser and pushes each ParserResponse to the given
+// per-tenant insert services. It is the transport-agnostic core shared by the
+// HTTP handlers and the gRPC receiver.
+func IngestParsed(ctx context.Context, parser BoundParser, svcs InsertServices) error {
+	fpNode := FPCache.DB(svcs.Node)
 	var promises []*promise.Promise[uint32]
-	var err error = nil
-	res := parser(r.Context(), reader, FPCache.DB(node))
+	res := parser(ctx, fpNode)
 	for response := range res {
 		if response.Error != nil {
 			go func() {
@@ -219,23 +238,33 @@ func doParse(r *http.Request, parser Parser) error {
 			}()
 			return response.Error
 		}
-
 		promises = append(promises,
-			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, tsService),
-			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, splService),
-			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, spanAttrsService),
-			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, spansService),
-			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, profileService),
+			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, svcs.Ts),
+			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, svcs.Spl),
+			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, svcs.SpanAttrs),
+			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, svcs.Spans),
+			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, svcs.Profile),
 		)
 		if response.SamplesRequest != nil {
 			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
 		}
 	}
 	for _, p := range promises {
-		_, err = p.Get()
-		if err != nil {
+		if _, err := p.Get(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func doParse(r *http.Request, parser Parser) error {
+	svcs := InsertServices{
+		Ts:        getService(r, utils.ContextKeyTsService),
+		Spl:       getService(r, utils.ContextKeySplService),
+		SpanAttrs: getService(r, utils.ContextKeySpanAttrsService),
+		Spans:     getService(r, utils.ContextKeySpansService),
+		Profile:   getService(r, utils.ContextKeyProfileService),
+		Node:      r.Context().Value(utils.ContextKeyNode).(string),
+	}
+	return IngestParsed(r.Context(), Bind(parser, getBodyStream(r)), svcs)
 }
