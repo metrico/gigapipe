@@ -2,3 +2,4 @@
 *.idx
 /docker
 /deps
+/.claude/
