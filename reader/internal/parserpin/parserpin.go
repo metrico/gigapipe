@@ -1,4 +1,4 @@
-package goldentest
+package parserpin
 
 import (
 	"reflect"

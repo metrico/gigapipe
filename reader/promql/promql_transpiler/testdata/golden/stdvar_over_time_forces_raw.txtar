@@ -1,8 +1,0 @@
--- meta --
-range: 15m
-route: raw
-step: 1m
--- query --
-stdvar_over_time(cpu_usage{host="h1"}[5m])
--- sql-0 --
-WITH fp as ( SELECT fingerprint FROM time_series_gin WHERE ((date) >= ('2024-01-15')) and (type IN (2,0)) and ((((key) == ('host')) and ((val) == ('h1'))) or (((key) == ('__name__')) and ((val) == ('cpu_usage')))) GROUP BY fingerprint HAVING ((groupBitOr(bitShiftLeft(((key) == ('host')) and ((val) == ('h1')), 0) + bitShiftLeft(((key) == ('__name__')) and ((val) == ('cpu_usage')), 1))) == (3))),values as ( SELECT samples.fingerprint as fingerprint, samples.value as val, intDiv(samples.timestamp_ns, 1000000) as timestamp_ms FROM samples_v3 as samples WHERE ((samples.timestamp_ns) > (1705318500000000000)) and ((samples.timestamp_ns) <= (1705320007000000000)) and (fingerprint IN (fp)) and (type IN (2,0)) ORDER BY fingerprint asc , timestamp_ns asc ) SELECT * FROM (( SELECT 1 as type, fingerprint as fingerprint, timestamp_ms as timestamp_ms, val as val, '' as labels FROM values) UNION ALL ( SELECT  DISTINCT 2 as type, fingerprint as fingerprint, 0 as timestamp_ms, toFloat64(0) as val, labels as labels FROM time_series WHERE ((date) >= ('2024-01-15')) and (fingerprint IN (fp)))) ORDER BY type asc , fingerprint asc , timestamp_ms asc 

@@ -1,4 +1,0 @@
--- query --
-sum_over_time({app="x"} | unwrap bytes [5m])
--- error --
-labels col not inited

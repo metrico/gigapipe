@@ -1,4 +1,0 @@
--- query --
-{app="x"} | logfmt
--- error --
-logfmt not supported

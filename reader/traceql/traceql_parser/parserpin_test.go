@@ -3,7 +3,7 @@ package traceql_parser
 import (
 	"testing"
 
-	"github.com/metrico/qryn/v5/reader/internal/goldentest"
+	"github.com/metrico/qryn/v5/reader/internal/parserpin"
 )
 
 // TestParserPins pins the TraceQL parser's AST shape for representative
@@ -11,7 +11,7 @@ import (
 // fail to parse. See reader/traceql/traceql_parser/fuzz_test.go for the
 // complementary "never panics" fuzz target.
 func TestParserPins(t *testing.T) {
-	goldentest.RunParserPins(t, Parse, []goldentest.ParserPinCase[*TraceQLScript]{
+	parserpin.RunParserPins(t, Parse, []parserpin.ParserPinCase[*TraceQLScript]{
 		{
 			Name:  "dot_attribute_selector",
 			Query: `{.http.method="GET"}`,

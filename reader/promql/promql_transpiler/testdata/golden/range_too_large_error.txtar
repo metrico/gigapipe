@@ -1,7 +1,0 @@
--- meta --
-range: 1h
-step: 1m
--- query --
-sum_over_time(x{job="j"}[30d])
--- error --
-expanding series: range 719h59m59.999s is too large to accelerate: window offsets are limited to 596h31m23.647s

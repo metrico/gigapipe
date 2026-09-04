@@ -1,4 +1,0 @@
--- query --
-{foo="bar"}
--- error --
-unsupported attribute foo

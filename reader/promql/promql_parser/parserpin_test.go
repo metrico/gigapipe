@@ -3,19 +3,19 @@ package promql_parser
 import (
 	"testing"
 
-	"github.com/metrico/qryn/v5/reader/internal/goldentest"
+	"github.com/metrico/qryn/v5/reader/internal/parserpin"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 // TestParserPins pins the PromQL parser's AST shape for a representative
 // spread of valid query shapes, and its error behavior for a representative
-// spread of invalid ones. See reader/internal/goldentest/parserpin.go for
+// spread of invalid ones. See reader/internal/parserpin/parserpin.go for
 // what RunParserPins asserts generically (non-nil root / non-nil error); the
 // Check callbacks here go further for the cases where a deeper shape pin is
 // worth the assertion.
 func TestParserPins(t *testing.T) {
-	goldentest.RunParserPins(t, Parse, []goldentest.ParserPinCase[*Expr]{
+	parserpin.RunParserPins(t, Parse, []parserpin.ParserPinCase[*Expr]{
 		{
 			Name:  "bare_selector",
 			Query: `http_requests_total`,

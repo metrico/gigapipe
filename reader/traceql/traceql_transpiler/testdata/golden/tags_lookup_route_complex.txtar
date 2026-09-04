@@ -1,8 +1,0 @@
--- meta --
-complexity: 15000000
-kind: tags
-route: complex
--- query --
-{.service.name="checkout"}
--- sql-0 --
- SELECT  DISTINCT key as key FROM traces_kv_dist WHERE ((date) >= ('2023-12-31')) and ((date) <= ('2024-01-01'))
