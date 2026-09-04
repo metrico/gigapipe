@@ -185,6 +185,71 @@ func TestParserPins(t *testing.T) {
 				}
 			},
 		},
+		{
+			Name:  "line_filter_negative_regex",
+			Query: `{app="x"} !~ "(?i)debug"`,
+			Check: func(t *testing.T, ast *LogQLScript) {
+				sel := ast.Head.StrSelector
+				if sel == nil || len(sel.Pipelines) != 1 || sel.Pipelines[0].LineFilter == nil {
+					t.Fatalf("expected a single LineFilter pipeline stage, got %+v", ast.Head)
+				}
+				if sel.Pipelines[0].LineFilter.Fn != "!~" {
+					t.Errorf("expected line filter fn !~, got %q", sel.Pipelines[0].LineFilter.Fn)
+				}
+			},
+		},
+		{
+			Name:  "drop_stage_multiple_labels",
+			Query: `{app="x"} | json | logfmt | drop __error__, __error_details__`,
+			Check: func(t *testing.T, ast *LogQLScript) {
+				sel := ast.Head.StrSelector
+				if sel == nil || len(sel.Pipelines) != 3 {
+					t.Fatalf("expected 3 pipeline stages (json, logfmt, drop), got %+v", ast.Head)
+				}
+				drop := sel.Pipelines[2].Drop
+				if drop == nil || len(drop.Params) != 2 {
+					t.Fatalf("expected a drop stage with 2 params, got %+v", sel.Pipelines[2])
+				}
+			},
+		},
+		{
+			Name:  "label_filter_or_chain",
+			Query: `{app="x"} | json | level="error" or level="warn"`,
+			Check: func(t *testing.T, ast *LogQLScript) {
+				sel := ast.Head.StrSelector
+				if sel == nil || len(sel.Pipelines) != 2 || sel.Pipelines[1].LabelFilter == nil {
+					t.Fatalf("expected a single LabelFilter pipeline stage after json, got %+v", ast.Head)
+				}
+				lf := sel.Pipelines[1].LabelFilter
+				if lf.Op != "or" || lf.Tail == nil {
+					t.Errorf("expected an 'or'-chained label filter with a Tail, got op=%q tail=%+v", lf.Op, lf.Tail)
+				}
+			},
+		},
+		{
+			Name:  "quantile_over_time_call",
+			Query: `quantile_over_time(0.99, {app="x"} | json | unwrap duration_ms [5m])`,
+			Check: func(t *testing.T, ast *LogQLScript) {
+				qot := ast.Head.QuantileOverTime
+				if qot == nil || qot.Fn != "quantile_over_time" {
+					t.Fatalf("expected a QuantileOverTime head, got %+v", ast.Head)
+				}
+			},
+		},
+		{
+			Name:  "rate_over_unwrap_after_parser",
+			Query: `rate({app="x"} | json | unwrap duration_ms [5m])`,
+			Check: func(t *testing.T, ast *LogQLScript) {
+				lra := ast.Head.LRAOrUnwrap
+				if lra == nil || lra.Fn != "rate" {
+					t.Fatalf("expected an LRAOrUnwrap head with fn rate, got %+v", ast.Head)
+				}
+				pipelines := lra.StrSel.Pipelines
+				if len(pipelines) != 2 || pipelines[0].Parser == nil || pipelines[1].Unwrap == nil {
+					t.Fatalf("expected a Parser stage followed by an Unwrap stage, got %+v", pipelines)
+				}
+			},
+		},
 
 		// Invalid queries: only a non-nil parse error is asserted (see
 		// RunParserPins), spread across a representative range of syntax
@@ -195,5 +260,12 @@ func TestParserPins(t *testing.T) {
 		{Name: "invalid_range_duration_unit", Query: `rate({app="x"}[5x])`, WantErr: true},
 		{Name: "invalid_missing_matcher_op", Query: `{app "x"}`, WantErr: true},
 		{Name: "invalid_unclosed_range_call", Query: `rate({app="x"}[5m]`, WantErr: true},
+		// Empty by()/without() grouping is accepted for AggOperator (see
+		// aggregation_sum_by/aggregation_without) but not here: LRAOrUnwrap's
+		// ByOrWithoutPrefix production requires a non-empty label list.
+		{Name: "invalid_empty_by_prefix", Query: `max by () (count_over_time({app="x"}[5m]))`, WantErr: true},
+		// unwrap only accepts a bare label, never a conversion-function call
+		// wrapping one (contrast unwrap_both_spellings_equivalent's `unwrap bytes`).
+		{Name: "invalid_unwrap_conversion_func_call", Query: `rate({app="x"} | logfmt | unwrap duration(duration) [5m])`, WantErr: true},
 	})
 }

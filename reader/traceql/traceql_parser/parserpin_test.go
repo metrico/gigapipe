@@ -178,6 +178,95 @@ func TestParserPins(t *testing.T) {
 			},
 		},
 
+		{
+			Name:  "resource_prefixed_regex_matcher",
+			Query: `{ resource.service.name =~ "ship.*" }`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				head := ast.Head.AttrSelector.Head
+				if head == nil || head.Op != "=~" {
+					t.Fatalf("expected a =~ matcher, got %+v", head)
+				}
+			},
+		},
+		{
+			Name:  "mixed_attr_and_intrinsic_conjunction",
+			Query: `{ resource.service.name = "checkout" && status = error }`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				exp := ast.Head.AttrSelector
+				if exp.AndOr != "&&" || exp.Tail == nil || exp.Tail.Head == nil {
+					t.Fatalf("expected an &&-chained tail, got %+v", exp)
+				}
+				if exp.Tail.Head.Label != "status" {
+					t.Errorf("expected the tail's label to be the intrinsic 'status', got %q", exp.Tail.Head.Label)
+				}
+			},
+		},
+		{
+			Name:  "aggregator_with_attr_arg",
+			Query: `{ status = ok } | avg(duration) > 0`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				agg := ast.Head.Aggregator
+				if agg == nil || agg.Fn != "avg" {
+					t.Fatalf("expected an avg aggregator, got %+v", agg)
+				}
+				if agg.Attr != "duration" {
+					t.Errorf("expected Attr=duration, got %q", agg.Attr)
+				}
+			},
+		},
+		{
+			Name:  "metrics_pipeline_with_by_grouping",
+			Query: `{ } | count_over_time() by (resource.service.name)`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				mf := ast.Head.MetricsFn
+				if mf == nil || mf.Fn != "count_over_time" {
+					t.Fatalf("expected a count_over_time MetricsFn, got %+v", ast.Head)
+				}
+				if mf.By == nil {
+					t.Errorf("expected a non-nil by(...) clause")
+				}
+			},
+		},
+		{
+			Name:  "nil_comparison",
+			Query: `{ kind != nil }`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				head := ast.Head.AttrSelector.Head
+				if head == nil || head.Op != "!=" {
+					t.Fatalf("expected a != matcher, got %+v", head)
+				}
+				if head.Val.NilVal == "" {
+					t.Errorf("expected Val.NilVal to be set, got %+v", head.Val)
+				}
+			},
+		},
+		{
+			Name:  "attribute_to_attribute_comparison",
+			Query: `{ span.child.index = resource.deployment.env }`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				head := ast.Head.AttrSelector.Head
+				if head == nil {
+					t.Fatalf("expected a non-nil attribute selector head")
+				}
+				if head.Val.UnquotVal != "resource.deployment.env" {
+					t.Errorf("expected the RHS to be the unquoted attribute path, got %+v", head.Val)
+				}
+			},
+		},
+		{
+			Name:  "numeric_intrinsic_comparison",
+			Query: `{ name > 3 }`,
+			Check: func(t *testing.T, ast *TraceQLScript) {
+				head := ast.Head.AttrSelector.Head
+				if head == nil || head.Op != ">" {
+					t.Fatalf("expected a > matcher, got %+v", head)
+				}
+				if head.Val.FVal != "3" {
+					t.Errorf("expected Val.FVal=3, got %+v", head.Val)
+				}
+			},
+		},
+
 		// --- invalid queries: expected to fail to parse ---
 		{
 			Name:    "unclosed_brace",
@@ -208,6 +297,23 @@ func TestParserPins(t *testing.T) {
 		{
 			Name:    "unclosed_aggregator_call",
 			Query:   `{.a="x"} | count(`,
+			WantErr: true,
+		},
+		{
+			// Distinct failure class from "bare_descendant_token_not_supported"
+			// (">>"): a single ">" isn't a script-level structural operator
+			// either — only Descendant/NotDescendant/Ancestor/NotAncestor/
+			// Sibling/And/Or are (see TraceQLScript.Op's alternation).
+			Name:    "bare_gt_not_a_structural_operator",
+			Query:   `{.a="x"} > {.b="y"}`,
+			WantErr: true,
+		},
+		{
+			// "!(" immediately preceding an expression fails at the lexer,
+			// same failure layer as "lone_ampersand_not_a_token" but a
+			// different offending token.
+			Name:    "boolean_negation_not_supported",
+			Query:   `{ !(kind = client) }`,
 			WantErr: true,
 		},
 	})

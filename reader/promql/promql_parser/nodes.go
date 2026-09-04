@@ -16,7 +16,7 @@ type Expr struct {
 
 // NextSubstituteName returns a fresh, deterministic pushdown-substitute metric
 // name for this transpile. It replaces a random suffix so the SQL a query
-// lowers to is reproducible across runs (required for golden-SQL pinning).
+// lowers to is reproducible across runs (see TestTranspileIsDeterministic).
 func (e *Expr) NextSubstituteName() string {
 	e.substCounter++
 	return fmt.Sprintf("__metric_subst__%d", e.substCounter)
