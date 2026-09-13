@@ -191,3 +191,43 @@ ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+## Compression codecs. Applied via MODIFY COLUMN so only new parts are affected;
+## old parts stay readable and converge on merges.
+ALTER TABLE {{.DB}}.samples_v3 {{.OnCluster}}
+    MODIFY COLUMN fingerprint UInt64 CODEC(ZSTD(1)),
+    MODIFY COLUMN timestamp_ns Int64 CODEC(Delta(8), ZSTD(1)),
+    MODIFY COLUMN value Float64 CODEC(ZSTD(1)),
+    MODIFY COLUMN string String CODEC(ZSTD(1)),
+    MODIFY COLUMN type UInt8 CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.metrics_15s {{.OnCluster}}
+    MODIFY COLUMN fingerprint UInt64 CODEC(ZSTD(1)),
+    MODIFY COLUMN timestamp_ns Int64 CODEC(DoubleDelta, ZSTD(1)),
+    MODIFY COLUMN last AggregateFunction(argMax, Float64, Int64) CODEC(ZSTD(1)),
+    MODIFY COLUMN max SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1)),
+    MODIFY COLUMN min SimpleAggregateFunction(min, Float64) CODEC(Gorilla, ZSTD(1)),
+    MODIFY COLUMN count AggregateFunction(count) CODEC(ZSTD(1)),
+    MODIFY COLUMN sum SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
+    MODIFY COLUMN bytes SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
+    MODIFY COLUMN type UInt8 CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.time_series {{.OnCluster}}
+    MODIFY COLUMN labels String CODEC(ZSTD(1)),
+    MODIFY COLUMN metadata String CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.time_series_gin {{.OnCluster}}
+    MODIFY COLUMN key String CODEC(ZSTD(1)),
+    MODIFY COLUMN val String CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.patterns {{.OnCluster}}
+    MODIFY COLUMN timestamp_10m UInt32 CODEC(ZSTD(1)),
+    MODIFY COLUMN fingerprint UInt64 CODEC(ZSTD(1)),
+    MODIFY COLUMN timestamp_s UInt32 CODEC(DoubleDelta, ZSTD(1)),
+    MODIFY COLUMN tokens Array(String) CODEC(ZSTD(1)),
+    MODIFY COLUMN classes Array(UInt32) CODEC(ZSTD(1)),
+    MODIFY COLUMN overall_cost UInt32 CODEC(ZSTD(1)),
+    MODIFY COLUMN generalized_cost UInt32 CODEC(ZSTD(1)),
+    MODIFY COLUMN samples_count UInt32 CODEC(ZSTD(1)),
+    MODIFY COLUMN pattern_id UInt64 CODEC(ZSTD(1)),
+    MODIFY COLUMN iteration_id UInt64 CODEC(ZSTD(1));
