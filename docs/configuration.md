@@ -60,6 +60,8 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`SAMPLES_DAYS`** - TTL in days for stored samples (default: `7`)
 - **`STORAGE_POLICY`** - ClickHouse storage policy name for data placement
+- **`METRICS_15S_ENABLED`** - Aggregate metric samples into the `metrics_15s` rollup table (default: `true`). Set to `false` to stop the aggregation and delete the stored metric rollups; metric queries are then served from raw samples. Log queries keep using the table either way. At 15-second scrape resolution the rollup stores roughly one row per raw sample at several times the disk cost, so disabling it trades PromQL query speed on large windows for disk space. Re-enabling resumes aggregation from that moment: queries reaching back into the disabled period keep using raw samples.
+- **`METRICS_15S_TTL_DAYS`** - TTL in days for the `metrics_15s` rollup table (default: the database's samples TTL)
 
 ## Mode
 

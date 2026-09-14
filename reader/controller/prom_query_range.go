@@ -75,9 +75,12 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 	}
 	// The optimizers push rate/increase/aggregations down into metrics_15s;
 	// skip them when the aggregation cannot cover the query window so the
-	// engine evaluates the original expression over raw samples instead.
-	earliestNS := req.Start.Add(-promql_transpiler.MaxLookback(expr.Expr)).UnixNano()
-	if q.Storage.Metrics15sAvailable(internalCtx, earliestNS) {
+	// engine evaluates the original expression over raw samples instead. The
+	// same version info snapshot is passed down to Select so per-selector
+	// routing agrees with this decision.
+	versionInfo := q.Storage.ResolveVersionInfo(internalCtx)
+	earliestNS := promql_transpiler.EarliestReadNS(expr.Expr, req.Start)
+	if versionInfo == nil || versionInfo.Metrics15sAvailable(earliestNS) {
 		expr, err = promql_transpiler.TranspileExpressionV2(expr)
 		if err != nil {
 			logger.Error("[PQRC005] " + err.Error())
@@ -85,7 +88,9 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	rangeQuery, err := q.Engine.NewRangeQuery(internalCtx, q.Storage.SetOidAndDB(internalCtx, expr), nil,
+	queryStorage := q.Storage.SetOidAndDB(internalCtx, expr)
+	queryStorage.VersionInfo = versionInfo
+	rangeQuery, err := q.Engine.NewRangeQuery(internalCtx, queryStorage, nil,
 		expr.Expr.String(), req.Start, req.End, req.Step)
 	if err != nil {
 		logger.Error("[PQRC001] " + err.Error())

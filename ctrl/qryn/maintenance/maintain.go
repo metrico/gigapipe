@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,8 +134,16 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 			MoveTo: p.MoveTo,
 		}
 	}
+	metrics15sTTLDays := dbObject.TTLDays
+	if v := os.Getenv("METRICS_15S_TTL_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("METRICS_15S_TTL_DAYS: invalid value %q", v)
+		}
+		metrics15sTTLDays = n
+	}
 	return Rotate(connDb, dbObject.ClusterName, dbObject.ClusterName != "",
-		ttlPolicy, dbObject.TTLDays, dbObject.StoragePolicy, logger.Logger)
+		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, dbObject.StoragePolicy, logger.Logger)
 }
 
 func RecodecDB(dbObject *config.ClokiBaseDataBase) error {

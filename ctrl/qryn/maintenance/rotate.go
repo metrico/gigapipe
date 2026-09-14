@@ -120,7 +120,7 @@ type RotatePolicy struct {
 }
 
 func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []RotatePolicy, dropTTLDays int,
-	storagePolicy string, logger logger.ILogger) error {
+	metrics15sTTLDays int, storagePolicy string, logger logger.ILogger) error {
 	//TODO: add pluggable extension
 	err := storagePolicyUpdate(db, clusterName, distributed, storagePolicy, "v3_storage_policy",
 		"time_series", "time_series_gin", "samples_v3")
@@ -199,7 +199,7 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 		err = rotateTables(db, clusterName, distributed, days,
 			minTTL,
 			"toDateTime(timestamp_ns / 1000000000)",
-			logDefaultTTLString("toDateTime(timestamp_ns / 1000000000)"),
+			fmt.Sprintf("toDateTime(timestamp_ns / 1000000000) + toIntervalDay(%d)", metrics15sTTLDays),
 			"metrics_15s",
 			logger, "metrics_15s")
 		if err != nil {
