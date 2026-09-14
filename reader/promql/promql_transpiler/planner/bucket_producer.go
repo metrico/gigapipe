@@ -9,17 +9,23 @@ import (
 )
 
 // BucketProducer reads the 15s downsampled table and produces one row per
-// (fingerprint, step bucket) with the requested partial aggregates. It is the
-// raw per-step value extractor: no source column, no grid fill, just the real
-// buckets. FillGapsPlanner is layered on top to densify it onto the step grid.
+// (fingerprint, bucket) with the requested partial aggregates. It is the raw
+// per-bucket value extractor: no source column, no grid fill, just the real
+// buckets. FillGapsPlanner is layered on top to densify it onto the same grid.
 //
 // Lookback extends the read window before ctx.From so the earliest steps see the
 // buckets their frame or fill reaches back into. It is the same quantity the fill
 // is sized to: the furthest a sample can influence a step.
+//
+// Resolution is the bucket width. It is usually ctx.Step, but callers that need
+// to tell two samples apart within a window narrower than ctx.Step -- the range
+// functions in CounterPlanner and CounterFlagsPlanner -- pass a finer one; see
+// bucketResolution.
 type BucketProducer struct {
-	Fp       shared.SQLRequestPlanner
-	Lookback time.Duration
-	Cols     []sql.SQLObject
+	Fp         shared.SQLRequestPlanner
+	Lookback   time.Duration
+	Resolution time.Duration
+	Cols       []sql.SQLObject
 }
 
 // ColAliases returns the aliases of the value columns, for handing to
@@ -40,7 +46,7 @@ func (b *BucketProducer) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 	withFp := sql.NewWith(fp, "fp")
 
 	timestampCol := fmt.Sprintf("intDiv(timestamp_ns, %d) * %d",
-		ctx.Step.Nanoseconds(), ctx.Step.Milliseconds())
+		b.Resolution.Nanoseconds(), b.Resolution.Milliseconds())
 
 	sel := []sql.SQLObject{
 		sql.NewSimpleCol("fingerprint", "fingerprint"),

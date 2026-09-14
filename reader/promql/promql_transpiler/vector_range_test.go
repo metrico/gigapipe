@@ -132,6 +132,53 @@ func TestCounterNeedsTwoSamples(t *testing.T) {
 	}
 }
 
+// TestCounterAcceleratesWhenStepIsNotFinerThanRange guards the regression in
+// gigapipe-step-vs-range-bug-report.md: rate(), increase(), delta(), resets()
+// and changes() returned zero series for every series whenever the query's
+// step was greater than or equal to the function's own range -- e.g.
+// rate(x[300s]) queried with step=300s or step=301s -- even though the
+// underlying data was present and healthy the whole time.
+//
+// The accelerated query buckets real samples once per row and then looks,
+// per row, at every bucket inside (t-range, t] to find the first and last
+// real sample (CounterPlanner) or the preceding sample (CounterFlagsPlanner).
+// Bucketing at the query's own step, unconditionally, meant that once step
+// reached or exceeded the range, buckets landed exactly on the step grid and
+// a whole (t-range, t] window could hold at most one of them: first and last
+// (or current and previous) always collapsed onto the same single row, so
+// "two distinct samples" was never satisfied and every query of this very
+// ordinary shape (step == rate window, back-to-back tiling with no gaps or
+// overlap) came back empty, silently, with no error.
+//
+// The fix keeps the bucket narrower than the range whenever step alone would
+// not (see bucketResolution), so this asserts that shape survives for every
+// affected function at the exact boundary (step == range) and past it
+// (step > range), while a step already finer than the range -- the common
+// case, already covered by every other test in this file -- is untouched.
+func TestCounterAcceleratesWhenStepIsNotFinerThanRange(t *testing.T) {
+	const wideBucket = "intDiv(timestamp_ns, 300000000000) * 300000"
+	const narrowBucket = "intDiv(timestamp_ns, 150000000000) * 150000"
+
+	for _, fn := range []string{"rate", "increase", "delta", "resets", "changes"} {
+		t.Run(fn, func(t *testing.T) {
+			for _, step := range []time.Duration{5 * time.Minute, 6 * time.Minute} {
+				ctx := rangeTestCtx()
+				ctx.Step = step
+				got := transpileRangeCtx(t, fn+`(x{job="j"}[5m])`, ctx)
+				if strings.Contains(got, wideBucket) {
+					t.Errorf("step=%s: bucketed one row per step (%s) -- (t-range, t] can "+
+						"never hold more than one of them, so the query always returns no "+
+						"series:\n%s", step, wideBucket, got)
+				}
+				if !strings.Contains(got, narrowBucket) {
+					t.Errorf("step=%s: expected a sub-range bucket (%s) so at least two land "+
+						"inside any (t-range, t] window:\n%s", step, narrowBucket, got)
+				}
+			}
+		})
+	}
+}
+
 // TestCounterBackwardReachIsBounded guards the one thing that must not be
 // extrapolated freely. Forward there is nothing to decide: the series is live at
 // t, so the slope carries to the edge. Backward, a counter cannot have been

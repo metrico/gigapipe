@@ -91,7 +91,7 @@ func (o *OverTimePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 	for i, c := range def.bucket {
 		bucketCols[i] = sql.NewSimpleCol(c.expr, c.alias)
 	}
-	vals, err := bucketedValues(ctx, o.FpPlanner, o.Duration, bucketCols...)
+	vals, err := bucketedValues(ctx, o.FpPlanner, o.Duration, bucketResolution(ctx.Step, o.Duration), bucketCols...)
 	if err != nil {
 		return nil, err
 	}

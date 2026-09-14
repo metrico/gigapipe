@@ -40,7 +40,7 @@ func fillTestCtx(staleness bool) *shared.PlannerContext {
 
 func renderFill(t *testing.T, staleness bool) string {
 	t.Helper()
-	p := &FillGapsPlanner{Main: stubProducer{}, Duration: 5 * time.Minute, ValueCols: []string{"val"}}
+	p := &FillGapsPlanner{Main: stubProducer{}, Duration: 5 * time.Minute, Resolution: time.Minute, ValueCols: []string{"val"}}
 	req, err := p.Process(fillTestCtx(staleness))
 	if err != nil {
 		t.Fatal(err)
