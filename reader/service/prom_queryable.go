@@ -101,6 +101,21 @@ func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Ex
 	}
 }
 
+// Metrics15sAvailable reports whether the metrics_15s aggregation can serve
+// query windows starting at fromNS. On probe errors it reports true so the
+// query path surfaces the underlying error instead of silently degrading.
+func (c *CLokiQueriable) Metrics15sAvailable(ctx context.Context, fromNS int64) bool {
+	db, err := c.ServiceData.Session.GetDB(ctx)
+	if err != nil {
+		return true
+	}
+	versionInfo, err := dbversion.GetVersionInfo(ctx, db.Config.ClusterName != "", db.Session)
+	if err != nil {
+		return true
+	}
+	return versionInfo.Metrics15sAvailable(fromNS)
+}
+
 type CLokiQuerier struct {
 	db   *model.DataDatabasesMap
 	ctx  context.Context
@@ -145,7 +160,8 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		hints.Start = hints.Start / 15000 * 15000
 	}
 
-	useRawData := hints.Start%15000 != 0 ||
+	useRawData := !versionInfo.Metrics15sAvailable((hints.Start - hints.Range) * 1000000) ||
+		hints.Start%15000 != 0 ||
 		hints.Step < 15000 ||
 		(hints.Range > 0 && hints.Range < 15000) ||
 		!(isSupported || !ok)

@@ -37,11 +37,17 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 		PromError(400, err.Error(), w)
 		return
 	}
-	expr, err = promql_transpiler.TranspileExpressionV2(expr)
-	if err != nil {
-		logger.Error("[PQRC005] " + err.Error())
-		PromError(500, err.Error(), w)
-		return
+	// The optimizers push rate/increase/aggregations down into metrics_15s;
+	// skip them when the aggregation cannot cover the query window so the
+	// engine evaluates the original expression over raw samples instead.
+	earliestNS := req.Time.Add(-promql_transpiler.MaxLookback(expr.Expr)).UnixNano()
+	if q.Storage.Metrics15sAvailable(ctx, earliestNS) {
+		expr, err = promql_transpiler.TranspileExpressionV2(expr)
+		if err != nil {
+			logger.Error("[PQRC005] " + err.Error())
+			PromError(500, err.Error(), w)
+			return
+		}
 	}
 	promQuery, err := q.Engine.NewInstantQuery(ctx, q.Storage.SetOidAndDB(ctx, expr), nil,
 		expr.Expr.String(), req.Time)

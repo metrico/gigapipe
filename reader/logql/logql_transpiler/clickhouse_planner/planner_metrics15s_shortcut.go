@@ -6,6 +6,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/plugins"
+	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -59,6 +60,22 @@ func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.
 }
 
 func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	// Log rows flow into metrics_15s even when metric aggregation is opted
+	// out, so only a missing table forces the raw path here.
+	if ctx.VersionInfo != nil && !ctx.VersionInfo.HasCapability(dbversion.CapMetrics15s) {
+		// Same query shape over raw samples: count() per row replaces the
+		// merged count state.
+		var col sql.SQLObject
+		switch m.Function {
+		case "rate":
+			col = sql.NewRawObject(
+				fmt.Sprintf("toFloat64(count()) / %f",
+					float64(m.Duration.Milliseconds())/1000))
+		case "count_over_time":
+			col = sql.NewRawObject("count()")
+		}
+		return m.GetQuery(ctx, col, ctx.SamplesDistTableName), nil
+	}
 	var col sql.SQLObject
 	switch m.Function {
 	case "rate":

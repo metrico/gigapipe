@@ -132,9 +132,15 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 	if err != nil {
 		return err
 	}
-	err = storagePolicyUpdate(db, clusterName, distributed, storagePolicy, "metrics_15s", "metrics_15s")
+	metrics15sExists, err := tableExists(db, "metrics_15s")
 	if err != nil {
 		return err
+	}
+	if metrics15sExists {
+		err = storagePolicyUpdate(db, clusterName, distributed, storagePolicy, "metrics_15s", "metrics_15s")
+		if err != nil {
+			return err
+		}
 	}
 
 	logDefaultTTLString := func(column string) string {
@@ -189,14 +195,16 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 	if err != nil {
 		return err
 	}
-	err = rotateTables(db, clusterName, distributed, days,
-		minTTL,
-		"toDateTime(timestamp_ns / 1000000000)",
-		logDefaultTTLString("toDateTime(timestamp_ns / 1000000000)"),
-		"metrics_15s",
-		logger, "metrics_15s")
-	if err != nil {
-		return err
+	if metrics15sExists {
+		err = rotateTables(db, clusterName, distributed, days,
+			minTTL,
+			"toDateTime(timestamp_ns / 1000000000)",
+			logDefaultTTLString("toDateTime(timestamp_ns / 1000000000)"),
+			"metrics_15s",
+			logger, "metrics_15s")
+		if err != nil {
+			return err
+		}
 	}
 
 	err = rotateTables(db, clusterName, distributed, days,

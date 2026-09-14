@@ -33,8 +33,14 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 	if readSuffix == "" {
 		readSuffix = "_dist"
 	}
-	return UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
+	err = UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
 		dbObject.TTLDays, dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
+	if err != nil {
+		return err
+	}
+	m15Enabled := os.Getenv("METRICS_15S_ENABLED") != "false" && os.Getenv("METRICS_15S_ENABLED") != "0"
+	return SyncMetrics15s(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "",
+		m15Enabled, logger)
 }
 
 func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
