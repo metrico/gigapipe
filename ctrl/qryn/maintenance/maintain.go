@@ -39,7 +39,13 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 	if err != nil {
 		return err
 	}
-	m15Enabled := os.Getenv("METRICS_15S_ENABLED") != "false" && os.Getenv("METRICS_15S_ENABLED") != "0"
+	m15Enabled := true
+	if v := os.Getenv("METRICS_15S_ENABLED"); v != "" {
+		m15Enabled, err = strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("METRICS_15S_ENABLED: invalid value %q", v)
+		}
+	}
 	return SyncMetrics15s(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "",
 		m15Enabled, logger)
 }
