@@ -17,8 +17,27 @@ type VersionInfo map[string]int64
 
 func (v VersionInfo) IsVersionSupported(ver string, fromNS int64, toNS int64) bool {
 	time, ok := v[ver]
-	fmt.Printf("Checking %d - %d", fromNS, time)
 	return ok && (fromNS >= (time * 1000000000))
+}
+
+// CapMetrics15s is the capability key set when the metrics_15s table (or its
+// distributed wrapper) exists in the database.
+const CapMetrics15s = "cap_metrics_15s"
+
+// MarkerMetrics15s is the settings marker holding the unix time the metrics_15s
+// aggregation pipeline was last enabled. Absent on installs that never toggled
+// the pipeline; set to a far-future time while it is disabled.
+const MarkerMetrics15s = "metrics_15s"
+
+// Metrics15sAvailable reports whether metrics_15s can serve a query window
+// starting at fromNS: the table must exist, and the window must not reach back
+// before the pipeline was last enabled (older buckets were never materialized).
+func (v VersionInfo) Metrics15sAvailable(fromNS int64) bool {
+	if !v.HasCapability(CapMetrics15s) {
+		return false
+	}
+	t, ok := v[MarkerMetrics15s]
+	return !ok || fromNS >= t*1000000000
 }
 
 // CapStaleness is the server capability key for ORDER BY ... WITH FILL STALENESS,
@@ -114,7 +133,7 @@ FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, tableName))
 		return nil, err
 	}
 	defer tables.Close()
-	metrics15sV1 := false
+	metrics15sPresent := false
 	for tables.Next() {
 		var tableName string
 		err = tables.Scan(&tableName)
@@ -122,10 +141,10 @@ FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, tableName))
 			fmt.Println(err)
 			continue
 		}
-		metrics15sV1 = metrics15sV1 || tableName == "metrics_15s" || tableName == "metrics_15s_dist"
+		metrics15sPresent = metrics15sPresent || tableName == "metrics_15s" || tableName == "metrics_15s_dist"
 	}
-	if !metrics15sV1 {
-		_versions["v5"] = 0
+	if metrics15sPresent {
+		_versions[CapMetrics15s] = 0
 	}
 
 	// Probe the server for optional SQL features. A failed probe leaves the

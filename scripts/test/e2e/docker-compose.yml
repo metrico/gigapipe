@@ -21,6 +21,7 @@ services:
       QRYN_LOGIN: a
       QRYN_PASSWORD: b
       QRYN_RULER_ENABLED: "${QRYN_RULER_ENABLED:-true}"
+      METRICS_15S_ENABLED: "${METRICS_15S_ENABLED:-true}"
       BULK_MAX_AGE_MS: "100"
       PORT: "9080"
     command:

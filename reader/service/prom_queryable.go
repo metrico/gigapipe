@@ -79,6 +79,10 @@ type CLokiQueriable struct {
 	Ctx   context.Context
 	Stats *StatsStore
 	Expr  *promql_parser.Expr
+	// VersionInfo, when set, is the version info resolved once for the whole
+	// query; Select uses it instead of fetching its own so every routing
+	// decision within one query sees the same snapshot.
+	VersionInfo dbversion.VersionInfo
 }
 
 func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
@@ -87,9 +91,10 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 		return nil, err
 	}
 	return &CLokiQuerier{
-		db:   db,
-		ctx:  c.Ctx,
-		expr: c.Expr,
+		db:          db,
+		ctx:         c.Ctx,
+		expr:        c.Expr,
+		versionInfo: c.VersionInfo,
 	}, nil
 }
 
@@ -101,10 +106,26 @@ func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Ex
 	}
 }
 
+// ResolveVersionInfo returns the version info for the request's database, or
+// nil when the probe fails; callers treat nil as unknown and let the query
+// path surface the underlying error.
+func (c *CLokiQueriable) ResolveVersionInfo(ctx context.Context) dbversion.VersionInfo {
+	db, err := c.ServiceData.Session.GetDB(ctx)
+	if err != nil {
+		return nil
+	}
+	versionInfo, err := dbversion.GetVersionInfo(ctx, db.Config.ClusterName != "", db.Session)
+	if err != nil {
+		return nil
+	}
+	return versionInfo
+}
+
 type CLokiQuerier struct {
-	db   *model.DataDatabasesMap
-	ctx  context.Context
-	expr *promql_parser.Expr
+	db          *model.DataDatabasesMap
+	ctx         context.Context
+	expr        *promql_parser.Expr
+	versionInfo dbversion.VersionInfo
 }
 
 var supportedFunctions = map[string]bool{
@@ -145,7 +166,8 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		hints.Start = hints.Start / 15000 * 15000
 	}
 
-	useRawData := hints.Start%15000 != 0 ||
+	useRawData := !versionInfo.Metrics15sAvailable((hints.Start-hints.Range)*1000000) ||
+		hints.Start%15000 != 0 ||
 		hints.Step < 15000 ||
 		(hints.Range > 0 && hints.Range < 15000) ||
 		!(isSupported || !ok)
@@ -274,9 +296,13 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	}
 	matchers = _matchers
 
-	versionInfo, err := dbversion.GetVersionInfo(c.ctx, c.db.Config.ClusterName != "", c.db.Session)
-	if err != nil {
-		return &model.SeriesSet{Error: err}
+	versionInfo := c.versionInfo
+	if versionInfo == nil {
+		var err error
+		versionInfo, err = dbversion.GetVersionInfo(c.ctx, c.db.Config.ClusterName != "", c.db.Session)
+		if err != nil {
+			return &model.SeriesSet{Error: err}
+		}
 	}
 
 	q, err := c.transpileLabelMatchers(hints, matchers, versionInfo)

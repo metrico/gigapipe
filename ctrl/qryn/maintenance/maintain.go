@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,8 +34,20 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 	if readSuffix == "" {
 		readSuffix = "_dist"
 	}
-	return UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
+	err = UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
 		dbObject.TTLDays, dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
+	if err != nil {
+		return err
+	}
+	m15Enabled := true
+	if v := os.Getenv("METRICS_15S_ENABLED"); v != "" {
+		m15Enabled, err = strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("METRICS_15S_ENABLED: invalid value %q", v)
+		}
+	}
+	return SyncMetrics15s(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "",
+		m15Enabled, logger)
 }
 
 func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
@@ -127,8 +140,16 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 			MoveTo: p.MoveTo,
 		}
 	}
+	metrics15sTTLDays := dbObject.TTLDays
+	if v := os.Getenv("METRICS_15S_TTL_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("METRICS_15S_TTL_DAYS: invalid value %q", v)
+		}
+		metrics15sTTLDays = n
+	}
 	return Rotate(connDb, dbObject.ClusterName, dbObject.ClusterName != "",
-		ttlPolicy, dbObject.TTLDays, dbObject.StoragePolicy, logger.Logger)
+		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, dbObject.StoragePolicy, logger.Logger)
 }
 
 func RecodecDB(dbObject *config.ClokiBaseDataBase) error {

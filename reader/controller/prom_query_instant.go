@@ -37,13 +37,29 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 		PromError(400, err.Error(), w)
 		return
 	}
-	expr, err = promql_transpiler.TranspileExpressionV2(expr)
-	if err != nil {
-		logger.Error("[PQRC005] " + err.Error())
-		PromError(500, err.Error(), w)
-		return
+	// The optimizers push rate/increase/aggregations down into metrics_15s;
+	// skip them when the aggregation cannot cover the query window so the
+	// engine evaluates the original expression over raw samples instead. The
+	// same version info snapshot is passed down to Select so per-selector
+	// routing agrees with this decision.
+	//
+	// A failed probe (nil) also skips them: the substitutes they install are
+	// read by Select before its own routing check, so optimizing on an unknown
+	// aggregate state can read an aggregate holding no metric rows and return
+	// an empty result instead of an error. Raw samples always answer correctly.
+	versionInfo := q.Storage.ResolveVersionInfo(ctx)
+	earliestNS := promql_transpiler.EarliestReadNS(expr.Expr, req.Time)
+	if versionInfo != nil && versionInfo.Metrics15sAvailable(earliestNS) {
+		expr, err = promql_transpiler.TranspileExpressionV2(expr)
+		if err != nil {
+			logger.Error("[PQRC005] " + err.Error())
+			PromError(500, err.Error(), w)
+			return
+		}
 	}
-	promQuery, err := q.Engine.NewInstantQuery(ctx, q.Storage.SetOidAndDB(ctx, expr), nil,
+	queryStorage := q.Storage.SetOidAndDB(ctx, expr)
+	queryStorage.VersionInfo = versionInfo
+	promQuery, err := q.Engine.NewInstantQuery(ctx, queryStorage, nil,
 		expr.Expr.String(), req.Time)
 	if err != nil {
 		PromError(500, err.Error(), w)
