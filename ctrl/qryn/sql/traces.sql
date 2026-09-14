@@ -90,3 +90,26 @@ FROM traces_input ARRAY JOIN tags;
 
 INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 VALUES (cityHash64('tempo_traces_v1'), 'update', 'tempo_traces_v2', toString(toUnixTimestamp(NOW())), NOW());
+
+## Compression codecs. Applied via MODIFY COLUMN so only new parts are affected;
+## old parts stay readable and converge on merges.
+## span_id is left on LZ4: random 8-byte IDs do not compress.
+ALTER TABLE {{.DB}}.tempo_traces {{.OnCluster}}
+    MODIFY COLUMN trace_id FixedString(16) CODEC(ZSTD(1)),
+    MODIFY COLUMN parent_id String CODEC(ZSTD(1)),
+    MODIFY COLUMN name String CODEC(ZSTD(1)),
+    MODIFY COLUMN timestamp_ns Int64 CODEC(Delta(8), ZSTD(1)),
+    MODIFY COLUMN duration_ns Int64 CODEC(ZSTD(1)),
+    MODIFY COLUMN service_name String CODEC(ZSTD(1)),
+    MODIFY COLUMN payload String CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.tempo_traces_attrs_gin {{.OnCluster}}
+    MODIFY COLUMN key String CODEC(ZSTD(1)),
+    MODIFY COLUMN val String CODEC(ZSTD(1)),
+    MODIFY COLUMN trace_id FixedString(16) CODEC(ZSTD(1)),
+    MODIFY COLUMN timestamp_ns Int64 CODEC(Delta(8), ZSTD(1)),
+    MODIFY COLUMN duration Int64 CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.tempo_traces_kv {{.OnCluster}}
+    MODIFY COLUMN key String CODEC(ZSTD(1)),
+    MODIFY COLUMN val String CODEC(ZSTD(1));

@@ -148,3 +148,19 @@ DROP TABLE IF EXISTS {{.DB}}.profiles_mv_bak {{.OnCluster}};
 
 INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 VALUES (cityHash64('profiles_v2'), 'update', 'profiles_v2', toString(toUnixTimestamp(NOW())), NOW());
+
+## Compression codecs for the columns that lack them, matching the ZSTD(1)
+## used by the rest of the profiles tables. MODIFY COLUMN only affects new
+## parts; old parts stay readable and converge on merges.
+ALTER TABLE {{.DB}}.profiles {{.OnCluster}}
+    MODIFY COLUMN `tree` Array(Tuple(UInt64, UInt64, UInt64, Array(Tuple(String, Int64, Int64)))) CODEC(ZSTD(1)),
+    MODIFY COLUMN `functions` Array(Tuple(UInt64, String)) CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.profiles_series_gin {{.OnCluster}}
+    MODIFY COLUMN sample_types_units Array(Tuple(String, String)) CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.profiles_series_keys {{.OnCluster}}
+    MODIFY COLUMN date Date CODEC(ZSTD(1)),
+    MODIFY COLUMN key String CODEC(ZSTD(1)),
+    MODIFY COLUMN val String CODEC(ZSTD(1)),
+    MODIFY COLUMN val_id UInt64 CODEC(ZSTD(1));
