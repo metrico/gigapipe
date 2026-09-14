@@ -3,6 +3,8 @@ package smart_buffer
 import (
 	"errors"
 	"io"
+	"math/bits"
+	"sync"
 )
 
 // ErrBufferFull is returned when the RAM chunk cannot accept more data.
@@ -14,15 +16,37 @@ const (
 	// initialBlockSize is the size of the first block, small enough that a
 	// few-hundred-byte response costs a single small allocation.
 	initialBlockSize = 8 * 1024
-	// maxBlockSize caps the block size at Go's largest size class, so every
-	// block stays on the small-object allocation path.
-	maxBlockSize = 32 * 1024
+	// maxBlockSize caps the block size, so a full chunk is a couple of dozen
+	// blocks rather than a couple of hundred writes on the spill path.
+	maxBlockSize = 256 * 1024
+	blockClasses = 6 // 8KB..256KB
 )
 
+// blockPools holds spare blocks of every ladder size. A response reuses the
+// memory of the ones before it instead of faulting in fresh pages.
+var blockPools [blockClasses]sync.Pool
+
+func blockClass(size int) int {
+	return bits.Len(uint(size/initialBlockSize)) - 1
+}
+
+func getBlock(size int) []byte {
+	if b, _ := blockPools[blockClass(size)].Get().(*[]byte); b != nil {
+		return (*b)[:0]
+	}
+	return make([]byte, 0, size)
+}
+
+func putBlock(b []byte) {
+	b = b[:0]
+	blockPools[blockClass(cap(b))].Put(&b)
+}
+
 // ramChunk accumulates up to chunkSize bytes in a list of separately allocated
-// blocks. Blocks are never reallocated or copied, so the chunk allocates only
-// what is actually written: a growing single slice would copy everything
-// accumulated so far on each growth step. Blocks are reused after Clear.
+// blocks. Blocks are never reallocated or copied, so the chunk holds only what
+// is actually written: a growing single slice would copy everything accumulated
+// so far on each growth step. Blocks are reused after Clear and returned to the
+// pool by Release.
 // It returns ErrBufferFull when it cannot accept more data.
 type ramChunk struct {
 	blocks    [][]byte
@@ -46,14 +70,14 @@ func (r *ramChunk) Write(p []byte) (int, error) {
 			return written, ErrBufferFull
 		}
 		if r.cur == len(r.blocks) {
-			r.blocks = append(r.blocks, make([]byte, 0, r.nextBlockSize()))
+			r.blocks = append(r.blocks, getBlock(r.nextBlockSize()))
 		}
 		block := r.blocks[r.cur]
 		if len(block) == cap(block) {
 			r.cur++
 			continue
 		}
-		n := min(len(p), cap(block)-len(block))
+		n := min(len(p), cap(block)-len(block), chunkSize-r.size)
 		r.blocks[r.cur] = append(block, p[:n]...)
 		p = p[n:]
 		r.size += n
@@ -62,14 +86,12 @@ func (r *ramChunk) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-// nextBlockSize doubles the previous block size up to maxBlockSize, clamped to
-// the room left in the chunk so the blocks tile chunkSize exactly.
+// nextBlockSize doubles the previous block size up to maxBlockSize.
 func (r *ramChunk) nextBlockSize() int {
-	size := initialBlockSize
-	if r.cur > 0 {
-		size = min(cap(r.blocks[r.cur-1])*2, maxBlockSize)
+	if r.cur == 0 {
+		return initialBlockSize
 	}
-	return min(size, chunkSize-r.size)
+	return min(cap(r.blocks[r.cur-1])*2, maxBlockSize)
 }
 
 // Read implements io.Reader over the accumulated blocks.
@@ -100,6 +122,9 @@ func (r *ramChunk) Flush(w io.Writer) error {
 		return nil
 	}
 	for _, block := range r.blocks {
+		if len(block) == 0 {
+			break
+		}
 		if _, err := w.Write(block); err != nil {
 			return err
 		}
@@ -113,6 +138,19 @@ func (r *ramChunk) Clear() {
 	for i := range r.blocks {
 		r.blocks[i] = r.blocks[i][:0]
 	}
+	r.cur = 0
+	r.size = 0
+	r.readBlock = 0
+	r.readOff = 0
+}
+
+// Release returns the blocks to the pool. The chunk is empty afterwards and can
+// be written to again.
+func (r *ramChunk) Release() {
+	for _, block := range r.blocks {
+		putBlock(block)
+	}
+	r.blocks = nil
 	r.cur = 0
 	r.size = 0
 	r.readBlock = 0

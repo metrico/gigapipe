@@ -95,8 +95,10 @@ func (b *SmartBuffer) Read(p []byte) (n int, err error) {
 	return b.file.Read(p)
 }
 
-// Close cleans up resources by closing and removing the temporary file if one was created.
+// Close cleans up resources: the RAM blocks go back to the pool and the
+// temporary file, if one was created, is closed and removed.
 func (b *SmartBuffer) Close() error {
+	b.chunk.Release()
 	return b.file.Close()
 }
 

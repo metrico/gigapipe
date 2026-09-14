@@ -18,7 +18,7 @@ func writeChunks(t *testing.T, r *ramChunk, total, per int) {
 	}
 }
 
-func TestRAMChunk_BlocksTileChunkSize(t *testing.T) {
+func TestRAMChunk_StopsAtChunkSize(t *testing.T) {
 	t.Parallel()
 
 	r := newRAMChunk()
@@ -30,14 +30,43 @@ func TestRAMChunk_BlocksTileChunkSize(t *testing.T) {
 
 	allocated := 0
 	for _, block := range r.blocks {
+		if cap(block) > maxBlockSize {
+			t.Errorf("block capacity %d exceeds %d", cap(block), maxBlockSize)
+		}
 		allocated += cap(block)
 	}
-	if allocated != chunkSize {
-		t.Errorf("allocated %d bytes, want exactly %d", allocated, chunkSize)
+	if allocated < chunkSize || allocated >= chunkSize+maxBlockSize {
+		t.Errorf("allocated %d bytes, want [%d, %d)", allocated, chunkSize, chunkSize+maxBlockSize)
 	}
 
 	if _, err := r.Write([]byte("x")); err != ErrBufferFull {
 		t.Errorf("Write() on full chunk error = %v, want %v", err, ErrBufferFull)
+	}
+}
+
+func TestRAMChunk_ReleaseReusesBlocks(t *testing.T) {
+	t.Parallel()
+
+	r := newRAMChunk()
+	writeChunks(t, r, 64*1024, 4096)
+	first := make([][]byte, len(r.blocks))
+	copy(first, r.blocks)
+	r.Release()
+
+	if r.Size() != 0 {
+		t.Errorf("Size() after Release = %d, want 0", r.Size())
+	}
+
+	r2 := newRAMChunk()
+	writeChunks(t, r2, 64*1024, 4096)
+	reused := 0
+	for i, block := range r2.blocks {
+		if i < len(first) && &block[:1][0] == &first[i][:1][0] {
+			reused++
+		}
+	}
+	if reused == 0 {
+		t.Error("no block was taken from the pool")
 	}
 }
 
