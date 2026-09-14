@@ -30,6 +30,7 @@ func newElasticRouter(t *testing.T) (*mux.Router, *recorderSvc) {
 	router.HandleFunc("/{target}/_doc", TargetDocV2(cfg)).Methods("POST")
 	router.HandleFunc("/{target}/_doc/{id}", TargetDocV2(cfg)).Methods("PUT")
 	router.HandleFunc("/{target}/_bulk", TargetBulkV2(cfg)).Methods("POST")
+	router.HandleFunc("/_bulk", TargetBulkV2(cfg)).Methods("POST")
 	return router, ts
 }
 
@@ -116,5 +117,21 @@ func TestElasticBulkActionLineOverridesThePathIndex(t *testing.T) {
 	}
 	if got := byID["2"]["_index"]; got != "other" {
 		t.Errorf("_index of the doc with its own = %q, want %q", got, "other")
+	}
+}
+
+// Without a target in the path an action line has to carry its own index:
+// Elasticsearch rejects a document with no index at all.
+func TestElasticBulkRejectsAMissingIndex(t *testing.T) {
+	router, _ := newElasticRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/_bulk", strings.NewReader(
+		`{"index":{"_id":"1"}}`+"\n"+`{"message":"one"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
 }

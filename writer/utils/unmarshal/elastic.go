@@ -141,9 +141,10 @@ func (e *elasticBulkDec) decodeCreateObj(dec *jx.Decoder) error {
 	if err != nil {
 		return err
 	}
-	if index != "" {
-		e.labels = append(e.labels, []string{"_index", index})
+	if index == "" {
+		return customErrors.New400Error("index is missing")
 	}
+	e.labels = append(e.labels, []string{"_index", index})
 	return nil
 }
 
