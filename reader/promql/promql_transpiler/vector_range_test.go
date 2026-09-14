@@ -179,6 +179,31 @@ func TestCounterAcceleratesWhenStepIsNotFinerThanRange(t *testing.T) {
 	}
 }
 
+// TestOverTimeKeepsQueryStepEvenWhenCoarserThanRange guards a deliberate scope
+// boundary on the fix above. sum_over_time, avg_over_time and friends reduce
+// over every sample the window holds; a single bucket landing inside
+// (t-range, t] already gives them a value (a slightly over-inclusive one, if
+// the bucket spans past the true range edge, since none of these were part of
+// the reported bug), so unlike the counter functions they have no correctness
+// floor forcing anything finer than ctx.Step. Capping their bucket to range/2
+// too, the way an earlier version of this fix did as a side effect, would
+// multiply the internal row count for every over-time query whose step
+// happens to be coarser than its range -- a real cost, paid for a class of
+// functions nobody reported broken. They must keep bucketing at ctx.Step
+// however that ratio comes out.
+func TestOverTimeKeepsQueryStepEvenWhenCoarserThanRange(t *testing.T) {
+	for _, fn := range []string{"sum_over_time", "count_over_time", "min_over_time", "max_over_time", "avg_over_time", "last_over_time"} {
+		t.Run(fn, func(t *testing.T) {
+			ctx := rangeTestCtx()
+			ctx.Step = 10 * time.Minute // step >> range(5m)
+			got := transpileRangeCtx(t, fn+`(x{job="j"}[5m])`, ctx)
+			if !strings.Contains(got, "intDiv(timestamp_ns, 600000000000) * 600000") {
+				t.Errorf("%s: expected bucketing at ctx.Step (600s), not a range/2 cap:\n%s", fn, got)
+			}
+		})
+	}
+}
+
 // TestCounterBackwardReachIsBounded guards the one thing that must not be
 // extrapolated freely. Forward there is nothing to decide: the series is live at
 // t, so the slope carries to the edge. Backward, a counter cannot have been

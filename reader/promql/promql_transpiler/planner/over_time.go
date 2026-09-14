@@ -91,7 +91,14 @@ func (o *OverTimePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 	for i, c := range def.bucket {
 		bucketCols[i] = sql.NewSimpleCol(c.expr, c.alias)
 	}
-	vals, err := bucketedValues(ctx, o.FpPlanner, o.Duration, bucketResolution(ctx.Step, o.Duration), bucketCols...)
+	// Unlike CounterPlanner/CounterFlagsPlanner, a single bucket landing inside
+	// (t-range, t] is already enough here -- these functions reduce over
+	// whatever samples the window holds, they don't need to tell two of them
+	// apart. So there is no correctness floor forcing a finer-than-ctx.Step
+	// bucket, and using ctx.Step directly keeps this cheap: internal row count
+	// stays tied to the query's own step, not to range/2, however large the
+	// step-to-range ratio gets.
+	vals, err := bucketedValues(ctx, o.FpPlanner, o.Duration, ctx.Step, bucketCols...)
 	if err != nil {
 		return nil, err
 	}
