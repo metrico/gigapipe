@@ -5,10 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 )
 
 // rangeTestCtxCap builds a planner context. staleness selects whether the server
@@ -356,5 +358,103 @@ func assertOuterUnionOrdered(t *testing.T, got string) {
 	}
 	if !strings.Contains(got, "FROM ((") {
 		t.Errorf("union must be wrapped in its own parens:\n%s", got)
+	}
+}
+
+// The LogQL shortcut and the bucket read must use the configured window, not a
+// baked-in 15s. A context that does not set AggrInterval (every hand-built test
+// context) must still render, since a zero would divide by zero.
+func TestMetrics15ShortcutUsesContextInterval(t *testing.T) {
+	from := time.Unix(1700000000, 0)
+	ctx := &shared.PlannerContext{
+		From:                    from.Add(-time.Hour),
+		To:                      from,
+		Step:                    time.Minute,
+		Metrics15sTableName:     "metrics_aggr",
+		Metrics15sDistTableName: "metrics_aggr",
+		Type:                    shared.SAMPLES_TYPE_LOGS,
+		AggrInterval:            time.Minute,
+	}
+	planner := clickhouse_planner.NewMetrics15ShortcutPlanner("count_over_time", time.Minute, nil)
+	sel, err := planner.Process(ctx)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	got, err := sel.String(sql.DefaultCtx())
+	if err != nil {
+		t.Fatalf("String: %v", err)
+	}
+	// The read window must snap to the 1m bucket grid carried by the context,
+	// not the 15s grid: from/to truncate to different literals under each.
+	if !strings.Contains(got, "1699996380000000000") || !strings.Contains(got, "1699999980000000000") {
+		t.Errorf("read window is not snapped to the configured 1m grid:\n%s", got)
+	}
+	if strings.Contains(got, "1699996395000000000") || strings.Contains(got, "1699999995000000000") {
+		t.Errorf("read window still snapped to the 15s grid:\n%s", got)
+	}
+
+	// A context with no interval falls back rather than dividing by zero.
+	ctx.AggrInterval = 0
+	sel, err = planner.Process(ctx)
+	if err != nil {
+		t.Fatalf("Process with zero interval: %v", err)
+	}
+	if _, err := sel.String(sql.DefaultCtx()); err != nil {
+		t.Fatalf("String with zero interval: %v", err)
+	}
+}
+
+// With no metrics preaggregate the optimizers must not fire. They rewrite range
+// functions into Substitutes that select from the aggregate table, and
+// transpileLabelMatchers resolves a substitute before it ever consults
+// useRawData -- so leaving them on aims every accelerated query at a view that
+// does not exist.
+func TestOptimizersOffWithoutAggregate(t *testing.T) {
+	t.Setenv("SAMPLES_SPLIT_BY_SIGNAL", "true")
+	t.Setenv("METRICS_AGGR_ENABLED", "false")
+	if err := samplesconfig.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	t.Cleanup(func() {
+		t.Setenv("SAMPLES_SPLIT_BY_SIGNAL", "false")
+		t.Setenv("METRICS_AGGR_ENABLED", "true")
+		_ = samplesconfig.Reload()
+	})
+
+	expr, err := promql_parser.Parse(`rate(test_metric[5m])`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expr, err = TranspileExpressionV2(expr)
+	if err != nil {
+		t.Fatalf("TranspileExpressionV2: %v", err)
+	}
+	if len(expr.Substitutes) != 0 {
+		t.Errorf("got %d substitutes, want 0 with the aggregate off", len(expr.Substitutes))
+	}
+}
+
+// With an aggregate present the optimizers still fire: this is the accelerated
+// path and it must not regress.
+func TestOptimizersOnWithAggregate(t *testing.T) {
+	t.Setenv("SAMPLES_SPLIT_BY_SIGNAL", "false")
+	if err := samplesconfig.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	t.Cleanup(func() {
+		t.Setenv("SAMPLES_SPLIT_BY_SIGNAL", "false")
+		_ = samplesconfig.Reload()
+	})
+
+	expr, err := promql_parser.Parse(`rate(test_metric[5m])`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expr, err = TranspileExpressionV2(expr)
+	if err != nil {
+		t.Fatalf("TranspileExpressionV2: %v", err)
+	}
+	if len(expr.Substitutes) != 1 {
+		t.Errorf("got %d substitutes, want 1", len(expr.Substitutes))
 	}
 }

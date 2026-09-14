@@ -34,3 +34,12 @@ var RulesScript string
 
 //go:embed rules_dist.sql
 var RulesDistScript string
+
+//go:embed log_split.sql
+var LogSplitScript string
+
+//go:embed log_split_dist.sql
+var LogSplitDistScript string
+
+//go:embed log_split_read_dist.sql
+var LogSplitReadDistScript string

@@ -109,25 +109,6 @@ FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, tableName))
 		}
 	}
 
-	tables, err := db.QueryCtx(ctx, `SHOW TABLES`)
-	if err != nil {
-		return nil, err
-	}
-	defer tables.Close()
-	metrics15sV1 := false
-	for tables.Next() {
-		var tableName string
-		err = tables.Scan(&tableName)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		metrics15sV1 = metrics15sV1 || tableName == "metrics_15s" || tableName == "metrics_15s_dist"
-	}
-	if !metrics15sV1 {
-		_versions["v5"] = 0
-	}
-
 	// Probe the server for optional SQL features. A failed probe leaves the
 	// capability absent, which degrades to the compatible path rather than an
 	// error, so a transient error here is not fatal to the query.

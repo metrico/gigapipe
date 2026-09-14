@@ -8,6 +8,7 @@ import (
 
 	clickhouse_v2 "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/metrico/qryn/v5/writer/chwrapper"
 	config2 "github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/model"
@@ -70,15 +71,30 @@ func (p *QrynWriterPlugin) getDataDBSession(config config.ClokiBaseSettingServer
 	return dbNodeMap, dbv2Map, dbv3Map
 }
 
-func healthCheck(conn chwrapper.IChClient, isDistributed bool) {
-	tablesToCheck := []string{
-		"time_series", "samples_v3", "settings",
+// healthCheckTables lists the tables healthCheck must probe before the writer
+// accepts traffic. The samples tables depend on the storage layout; probing
+// the wrong ones panics a healthy install on startup.
+func healthCheckTables(splitBySignal bool) (tablesToCheck, distTablesToCheck []string) {
+	tablesToCheck = []string{
+		"time_series", "settings",
 		"tempo_traces", "tempo_traces_attrs_gin",
 	}
-	distTablesToCheck := []string{
-		"samples_v3_dist", "time_series_dist",
+	distTablesToCheck = []string{
+		"time_series_dist",
 		"tempo_traces_dist", "tempo_traces_attrs_gin_dist",
 	}
+	if splitBySignal {
+		tablesToCheck = append(tablesToCheck, "samples_logs", "samples_metrics")
+		distTablesToCheck = append(distTablesToCheck, "samples_logs_dist", "samples_metrics_dist")
+	} else {
+		tablesToCheck = append(tablesToCheck, "samples_v3")
+		distTablesToCheck = append(distTablesToCheck, "samples_v3_dist")
+	}
+	return tablesToCheck, distTablesToCheck
+}
+
+func healthCheck(conn chwrapper.IChClient, isDistributed bool) {
+	tablesToCheck, distTablesToCheck := healthCheckTables(samplesconfig.SplitBySignal())
 	checkTable := func(table string) error {
 		query := fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", table)
 		to, cancel := context.WithTimeout(context.Background(), time.Second*30)

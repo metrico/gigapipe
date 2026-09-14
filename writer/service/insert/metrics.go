@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/ch-go/proto"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/plugins"
 	"github.com/metrico/qryn/v5/writer/service"
@@ -50,7 +51,7 @@ func NewMetricsInsertService(opts model.InsertServiceOpts) service.IInsertServic
 	if opts.ParallelNum <= 0 {
 		opts.ParallelNum = 1
 	}
-	tableName := "samples_v3"
+	tableName := samplesconfig.SamplesTable(true)
 	if opts.Node.ClusterName != "" {
 		tableName += "_dist"
 	}

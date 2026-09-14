@@ -4,6 +4,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/optimizer"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -13,6 +14,14 @@ var optimizers = []func() optimizer.Optimizer{
 }
 
 func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error) {
+	// Every optimizer here rewrites a range function into a Substitute that
+	// reads the metrics preaggregate, and transpileLabelMatchers resolves a
+	// substitute before it consults useRawData. With no aggregate to read there
+	// is nothing to accelerate, and leaving them on would point every such query
+	// at a view that does not exist.
+	if !samplesconfig.MetricsAggrAvailable() {
+		return expr, nil
+	}
 	_expr, err := Walk(expr, expr.Expr, func(node parser.Expr) (parser.Expr, error) {
 		for _, opt := range optimizers {
 			_opt := opt()

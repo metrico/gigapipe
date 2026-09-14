@@ -51,6 +51,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 ## Advanced Settings
 
 - **`ADVANCED_SAMPLES_ORDERING`** - Custom ordering for samples table (ClickHouse ORDER BY clause)
+- **`ADVANCED_METRICS_ORDERING`** - Custom ordering for the metrics samples table when `SAMPLES_SPLIT_BY_SIGNAL` is on (defaults to `ADVANCED_SAMPLES_ORDERING`)
 - **`ADVANCED_PROMETHEUS_MAX_SAMPLES`** - Maximum number of samples returned in Prometheus queries
 - **`ADVANCED_OMIT_EMPTY_VALUES`** - Omit empty values in query results (`true`, `false`)
 - **`OMIT_CREATE_TABLES`** - Skip table creation on startup (`true`, `false`)
@@ -60,6 +61,10 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`SAMPLES_DAYS`** - TTL in days for stored samples (default: `7`)
 - **`STORAGE_POLICY`** - ClickHouse storage policy name for data placement
+- **`SAMPLES_SPLIT_BY_SIGNAL`** - Store logs and metrics in separate tables `samples_logs` and `samples_metrics` instead of the shared `samples_v3` (`true`, `false`, default `false`). Intended for new installations: once enabled, data already in `samples_v3` is no longer read.
+- **`METRICS_AGGR_ENABLED`** - Build the metrics preaggregate `metrics_aggr` (`true`, `false`, default `true`). When `false`, metric queries read raw samples. Requires `SAMPLES_SPLIT_BY_SIGNAL`. Re-enabling does not backfill: `metrics_aggr` holds nothing for the window it was off, and queries over that window read as empty until the table is rebuilt from `samples_metrics`.
+- **`METRICS_AGGR_INTERVAL`** - Bucket width of the metrics preaggregate (default `15s`), a whole number of seconds. A later change must be a whole multiple of the previous value, otherwise startup fails rather than leaving buckets coarser than the read path assumes. Widths below the scrape interval are accepted but pointless: the preaggregate then holds about a row per sample and costs more than reading raw samples.
+- **`METRICS_AGGR_DAYS`** - TTL in days for the metrics preaggregate (defaults to `SAMPLES_DAYS`)
 
 ## Mode
 

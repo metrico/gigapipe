@@ -22,6 +22,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
@@ -139,15 +140,21 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
 	isSupported, ok := supportedFunctions[hints.Func]
 
-	c.adjustHintsForRate(hints)
+	// The step grid is the preaggregate's bucket grid. It is the configured
+	// width whether or not the aggregate is enabled, so turning the aggregate
+	// off changes which table is read, not the shape of the answer.
+	bucketMs := samplesconfig.MetricsAggrIntervalMs()
+
+	c.adjustHintsForRate(hints, bucketMs)
 
 	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
-		hints.Start = hints.Start / 15000 * 15000
+		hints.Start = hints.Start / bucketMs * bucketMs
 	}
 
-	useRawData := hints.Start%15000 != 0 ||
-		hints.Step < 15000 ||
-		(hints.Range > 0 && hints.Range < 15000) ||
+	useRawData := !samplesconfig.MetricsAggrAvailable() ||
+		hints.Start%bucketMs != 0 ||
+		hints.Step < bucketMs ||
+		(hints.Range > 0 && hints.Range < bucketMs) ||
 		!(isSupported || !ok)
 
 	start := hints.Start - hints.Range
@@ -186,10 +193,14 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 
 var rateFunctions = []string{"deriv", "rate", "delta"}
 
-func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
+// adjustHintsForRate floors the step for the rate-like functions, which cannot
+// be answered off a grid coarser than half their range. floorMs is the
+// preaggregate bucket width: no step finer than one bucket is answerable from
+// the aggregate.
+func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints, floorMs int64) {
 	step := hints.Step
 	if slices.Contains(rateFunctions, hints.Func) && hints.Step > (hints.Range/2) || hints.Step == 0 {
-		step = max(hints.Range/2, 15000)
+		step = max(hints.Range/2, floorMs)
 	}
 	hints.Step = step
 }

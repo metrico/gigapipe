@@ -28,6 +28,7 @@ import (
 	rulerrouter "github.com/metrico/qryn/v5/ruler/router"
 	"github.com/metrico/qryn/v5/shared/commonroutes"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/metrico/qryn/v5/view"
 	"github.com/metrico/qryn/v5/writer"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
@@ -286,6 +287,9 @@ func main() {
 
 func start() {
 	distconfig.Init()
+	if err := samplesconfig.Init(); err != nil {
+		panic(err)
+	}
 	tables.InitDistTableNames()
 	var configPaths []string
 	if _, err := os.Stat(*appFlags.ConfigPath); err == nil {

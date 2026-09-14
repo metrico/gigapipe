@@ -11,6 +11,7 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/helputils"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 )
 
 func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, error) {
@@ -207,6 +208,43 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 		logger, "patterns")
 	if err != nil {
 		return err
+	}
+
+	if samplesconfig.SplitBySignal() {
+		err = storagePolicyUpdate(db, clusterName, distributed, storagePolicy,
+			"v5_split_storage_policy", "samples_logs", "samples_metrics", "logs_aggr", "metrics_aggr")
+		if err != nil {
+			return err
+		}
+		err = rotateTables(db, clusterName, distributed, days,
+			minTTL,
+			"toDateTime(timestamp_ns / 1000000000)",
+			logDefaultTTLString("toDateTime(timestamp_ns / 1000000000)"),
+			"v5_split_samples_days", logger, "samples_logs", "samples_metrics")
+		if err != nil {
+			return err
+		}
+		err = rotateTables(db, clusterName, distributed, days,
+			minTTL,
+			"toDateTime(timestamp_ns / 1000000000)",
+			logDefaultTTLString("toDateTime(timestamp_ns / 1000000000)"),
+			"logs_aggr", logger, "logs_aggr")
+		if err != nil {
+			return err
+		}
+		// The metrics preaggregate is the one table with its own retention: it is
+		// a derivative, so keeping it longer or shorter than the raw samples is a
+		// legitimate trade the operator makes.
+		aggrTTL := fmt.Sprintf("toDateTime(timestamp_ns / 1000000000) + toIntervalDay(%d)",
+			aggrDropDays(samplesconfig.MetricsAggrDays(), dropTTLDays))
+		err = rotateTables(db, clusterName, distributed, days,
+			minTTL,
+			"toDateTime(timestamp_ns / 1000000000)",
+			aggrTTL,
+			"metrics_aggr", logger, "metrics_aggr")
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

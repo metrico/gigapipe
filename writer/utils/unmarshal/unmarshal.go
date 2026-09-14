@@ -13,6 +13,7 @@ import (
 	"github.com/go-faster/city"
 	"github.com/go-faster/jx"
 	clcwriter "github.com/metrico/cloki-config/config/writer"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
@@ -160,7 +161,10 @@ func (p *pushRequestDec) decodeStreamValue(d *jx.Decoder) error {
 		return nil
 	})
 
-	if tp == 3 {
+	// A split store keeps the dual type: the ingest splitter fans such a row
+	// into both tables as a log row and a metric row. A shared table cannot,
+	// since reads match `type IN (wanted, 0)`, so there it collapses to 0.
+	if tp == 3 && !samplesconfig.SplitBySignal() {
 		tp = 0
 	}
 
@@ -222,7 +226,10 @@ func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
 		return errors.NewUnmarshalError(err)
 	}
 
-	if tp == 3 {
+	// A split store keeps the dual type: the ingest splitter fans such a row
+	// into both tables as a log row and a metric row. A shared table cannot,
+	// since reads match `type IN (wanted, 0)`, so there it collapses to 0.
+	if tp == 3 && !samplesconfig.SplitBySignal() {
 		tp = 0
 	}
 

@@ -358,8 +358,17 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	p.tsSpl.spl.MTTLDays = append(p.tsSpl.spl.MTTLDays, slices.Repeat([]uint16{ttlDays}, len(timestampsNS))...)
 	p.tsSpl.spl.MType = append(p.tsSpl.spl.MType, types...)
 
-	var tps [3]bool
+	// A dual-typed row needs a time_series row for each signal, not one row of
+	// type 3: label lookups filter with `type IN (wanted, 0)`, which a 3 matches
+	// for neither. The array is sized past the largest type so indexing by it is
+	// in range.
+	var tps [model.SAMPLE_TYPE_LOG_AND_METRIC + 1]bool
 	for _, t := range types {
+		if t == model.SAMPLE_TYPE_LOG_AND_METRIC {
+			tps[model.SAMPLE_TYPE_LOG] = true
+			tps[model.SAMPLE_TYPE_METRIC] = true
+			continue
+		}
 		tps[t] = true
 	}
 

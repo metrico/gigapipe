@@ -7,6 +7,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/plugins"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 )
 
 type Metrics15ShortcutPlanner struct {
@@ -31,6 +32,13 @@ func NewMetrics15ShortcutPlanner(function string, duration time.Duration,
 func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.SQLObject, table string) sql.ISelect {
 	from := ctx.From
 	to := ctx.To
+	// The window must snap to the bucket grid of the table being read. A context
+	// built without an interval would divide by zero here, so fall back to the
+	// logs width, which is what this planner reads.
+	bucketNs := ctx.AggrInterval.Nanoseconds()
+	if bucketNs <= 0 {
+		bucketNs = samplesconfig.LogsAggrInterval().Nanoseconds()
+	}
 	offsetNsStr := ""
 	if m.Offset != nil {
 		from = from.Add(*m.Offset)
@@ -51,9 +59,9 @@ func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.
 		From(sql.NewSimpleCol(table, "samples")).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("samples.timestamp_ns"),
-				sql.NewIntVal(from.UnixNano()/15000000000*15000000000)),
+				sql.NewIntVal(from.UnixNano()/bucketNs*bucketNs)),
 			sql.Lt(sql.NewRawObject("samples.timestamp_ns"),
-				sql.NewIntVal((to.UnixNano()/15000000000)*15000000000)),
+				sql.NewIntVal((to.UnixNano()/bucketNs)*bucketNs)),
 			GetTypes(ctx)).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ns"))
 }

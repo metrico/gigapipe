@@ -9,6 +9,10 @@ const (
 	SAMPLE_TYPE_LOG    = 1
 	SAMPLE_TYPE_METRIC = 2
 	SAMPLE_TYPE_UNDEF  = 0
+
+	// SAMPLE_TYPE_LOG_AND_METRIC marks a row carrying both a log line and a
+	// numeric value, which only a loki-style push can produce.
+	SAMPLE_TYPE_LOG_AND_METRIC = SAMPLE_TYPE_LOG | SAMPLE_TYPE_METRIC
 )
 
 // Our replacement for gofaster.ch StrCol

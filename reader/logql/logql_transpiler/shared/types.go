@@ -39,7 +39,10 @@ type PlannerContext struct {
 	TimeSeriesDistTableName    string
 	Metrics15sTableName        string
 	Metrics15sDistTableName    string
-	PatternsTable              string
+	// AggrInterval is the bucket width of the preaggregate this context reads,
+	// or 0 when there is none and raw samples must be used.
+	AggrInterval  time.Duration
+	PatternsTable string
 
 	TracesAttrsTable     string
 	TracesAttrsDistTable string

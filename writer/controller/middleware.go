@@ -229,6 +229,7 @@ var withTSAndSampleService = WithPreRequest(func(w http.ResponseWriter, r *http.
 		return err
 	}
 	ctx = context.WithValue(ctx, utils.ContextKeySplService, logSvcs.Spl)
+	ctx = context.WithValue(ctx, utils.ContextKeyMtrService, logSvcs.Mtr)
 	ctx = context.WithValue(ctx, utils.ContextKeyTsService, logSvcs.Ts)
 	ctx = context.WithValue(ctx, utils.ContextKeyProfileService, profileSvcs.Profile)
 	ctx = context.WithValue(ctx, utils.ContextKeyNode, logSvcs.Node)

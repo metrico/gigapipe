@@ -23,12 +23,13 @@ import (
 )
 
 // metricsFakeRegistry satisfies registry.ServiceRegistry with recorder-backed
-// samples, time-series and profile services, which is the set
+// samples, time-series, metrics and profile services, which is the set
 // withTSAndSampleService resolves.
 type metricsFakeRegistry struct {
-	samples    *recorderSvc
-	timeSeries *recorderSvc
-	profile    *recorderSvc
+	samples    service.IInsertServiceV2
+	timeSeries service.IInsertServiceV2
+	profile    service.IInsertServiceV2
+	mtr        service.IInsertServiceV2
 }
 
 func (f *metricsFakeRegistry) GetTimeSeriesService(id string) (service.IInsertServiceV2, error) {
@@ -38,7 +39,7 @@ func (f *metricsFakeRegistry) GetSamplesService(id string) (service.IInsertServi
 	return f.samples, nil
 }
 func (f *metricsFakeRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
-	return nil, nil
+	return f.mtr, nil
 }
 func (f *metricsFakeRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {
 	return nil, nil

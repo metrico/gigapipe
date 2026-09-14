@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/metrico/qryn/v5/writer/service"
 )
 
@@ -11,8 +12,11 @@ import (
 // nil-safe). SIGNAL ISOLATION: each signal resolves ONLY its own services —
 // logs never resolve spans services, traces never resolve samples, etc.
 type InsertServices struct {
-	Ts        service.IInsertServiceV2
-	Spl       service.IInsertServiceV2
+	Ts  service.IInsertServiceV2
+	Spl service.IInsertServiceV2
+	// Mtr is the metrics half of a split store, nil when logs and metrics share
+	// one table.
+	Mtr       service.IInsertServiceV2
 	SpanAttrs service.IInsertServiceV2
 	Spans     service.IInsertServiceV2
 	Profile   service.IInsertServiceV2
@@ -49,15 +53,21 @@ func ResolveLogServices(dsn string) (InsertServices, error) {
 	if s.Ts, err = Registry.GetTimeSeriesService(dsn); err != nil {
 		return s, err
 	}
+	if samplesconfig.SplitBySignal() {
+		if s.Mtr, err = Registry.GetMetricsService(dsn); err != nil {
+			return s, err
+		}
+	}
 	// Node keys the fingerprint cache, which gates time_series writes — rows
 	// that go to Ts, so the cache must be namespaced by Ts's node.
 	s.Node = s.Ts.GetNodeName()
 	return s, nil
 }
 
-// ResolveMetricServices resolves only the metric insert services for a
-// tenant. Metrics and logs share the same storage (samples + time series), so
-// this delegates to ResolveLogServices; it exists so metric callers don't
+// ResolveMetricServices resolves only the metric insert services for a tenant.
+// It delegates to ResolveLogServices because both signals resolve the same
+// pair: the time series service, plus the samples service and — under
+// SAMPLES_SPLIT_BY_SIGNAL — the metrics one. It exists so metric callers don't
 // appear to violate the SIGNAL ISOLATION contract by resolving another
 // signal's services.
 func ResolveMetricServices(dsn string) (InsertServices, error) {

@@ -14,6 +14,7 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 )
 
 const (
@@ -43,6 +44,27 @@ func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string
 	if checkMode(CLUST_MODE_DISTRIBUTED) {
 		err = updateScripts(db, dbname, clusterName, 3, sql.LogDistScript,
 			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		if err != nil {
+			return err
+		}
+	}
+	if samplesconfig.SplitBySignal() {
+		err = updateScripts(db, dbname, clusterName, 12, sql.LogSplitScript,
+			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering,
+			skipUnavailableShards, logger)
+		if err != nil {
+			return err
+		}
+		if checkMode(CLUST_MODE_DISTRIBUTED) {
+			err = updateScripts(db, dbname, clusterName, 13, sql.LogSplitDistScript,
+				checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering,
+				skipUnavailableShards, logger)
+			if err != nil {
+				return err
+			}
+		}
+		err = SyncMetricsAggrMV(db, dbname, clusterName,
+			checkMode(CLUST_MODE_DISTRIBUTED), checkMode(CLUST_MODE_CLOUD), logger)
 		if err != nil {
 			return err
 		}
@@ -105,6 +127,13 @@ func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string
 		if err != nil {
 			return err
 		}
+		if samplesconfig.SplitBySignal() {
+			err = updateReadDistScripts(db, dbname, clusterName, readCluster, readSuffix,
+				14, sql.LogSplitReadDistScript, logger)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	err = Cleanup(db, clusterName, checkMode(CLUST_MODE_DISTRIBUTED), dbname, logger)
@@ -130,7 +159,7 @@ func getSQLFile(strContents string) ([]string, error) {
 func getDBExec(db clickhouse.Conn, env map[string]string, logger logger.ILogger) func(query string, args ...[]any) error {
 	return func(query string, args ...[]any) error {
 		name := fmt.Sprintf("tpl_%d", rand.Uint64())
-		tpl, err := template.New(name).Parse(query)
+		tpl, err := template.New(name).Option("missingkey=error").Parse(query)
 		if err != nil {
 			logger.Error(query)
 			return err
@@ -157,13 +186,7 @@ func updateReadDistScripts(db clickhouse.Conn, dbname string, clusterName string
 	if err != nil {
 		return err
 	}
-	env := map[string]string{
-		"DB":           dbname,
-		"CLUSTER":      clusterName,
-		"OnCluster":    "ON CLUSTER `" + clusterName + "`",
-		"READ_CLUSTER": readCluster,
-		"READ_SUFFIX":  readSuffix,
-	}
+	env := readDistEnv(dbname, clusterName, readCluster, readSuffix)
 	exec := getDBExec(db, env, logger)
 	verTable := "ver" + distconfig.Suffix()
 	var ver uint64 = 0
@@ -196,13 +219,11 @@ func updateReadDistScripts(db clickhouse.Conn, dbname string, clusterName string
 	return nil
 }
 
-func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int64, file string, replicated bool,
-	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool, logger logger.ILogger) error {
-	scripts, err := getSQLFile(file)
-	if err != nil {
-		return err
-	}
-	verTable := "ver"
+// scriptEnv builds the template environment for the versioned DDL scripts. It
+// is separate from updateScripts so a test can render every script against the
+// exact environment production supplies.
+func scriptEnv(dbname, clusterName, storagePolicy, advancedSamplesOrdering string,
+	ttlDays int, replicated, skipUnavailableShards bool) map[string]string {
 	env := map[string]string{
 		"DB":                   dbname,
 		"CLUSTER":              clusterName,
@@ -211,6 +232,7 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 		"CREATE_SETTINGS":      "",
 		"SAMPLES_ORDER_RUL":    "timestamp_ns",
 		"DIST_CREATE_SETTINGS": "",
+		"AGGR_INTERVAL_NS":     strconv.FormatInt(samplesconfig.MetricsAggrInterval().Nanoseconds(), 10),
 	}
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)
@@ -219,6 +241,12 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 	if advancedSamplesOrdering != "" {
 		env["SAMPLES_ORDER_RUL"] = advancedSamplesOrdering
 	}
+	// The metrics table falls back to the shared ordering rule, so an operator
+	// who only sets ADVANCED_SAMPLES_ORDERING still gets it applied to both.
+	env["METRICS_ORDER_RUL"] = env["SAMPLES_ORDER_RUL"]
+	if o := samplesconfig.MetricsOrdering(); o != "" {
+		env["METRICS_ORDER_RUL"] = o
+	}
 	//TODO: move to the config package
 	if skipUnavailableShards {
 		env["DIST_CREATE_SETTINGS"] += " SETTINGS skip_unavailable_shards = 1"
@@ -226,7 +254,6 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 	if ttlDays != 0 {
 		env["DefaultTtlDays"] = strconv.FormatInt(int64(ttlDays), 10)
 	}
-
 	if clusterName != "" {
 		env["OnCluster"] = "ON CLUSTER `" + clusterName + "`"
 	}
@@ -239,6 +266,30 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 		env["MergeTree"] = "MergeTree"
 		env["AggregatingMergeTree"] = "AggregatingMergeTree"
 	}
+	return env
+}
+
+// readDistEnv builds the template environment for the cross-cluster read-path
+// scripts, which is deliberately smaller than scriptEnv's.
+func readDistEnv(dbname, clusterName, readCluster, readSuffix string) map[string]string {
+	return map[string]string{
+		"DB":           dbname,
+		"CLUSTER":      clusterName,
+		"OnCluster":    "ON CLUSTER `" + clusterName + "`",
+		"READ_CLUSTER": readCluster,
+		"READ_SUFFIX":  readSuffix,
+	}
+}
+
+func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int64, file string, replicated bool,
+	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool, logger logger.ILogger) error {
+	scripts, err := getSQLFile(file)
+	if err != nil {
+		return err
+	}
+	verTable := "ver"
+	env := scriptEnv(dbname, clusterName, storagePolicy, advancedSamplesOrdering,
+		ttlDays, replicated, skipUnavailableShards)
 	exec := getDBExec(db, env, logger)
 	err = exec(`CREATE TABLE IF NOT EXISTS ver {{.OnCluster}} (k UInt64, ver UInt64) 
 ENGINE={{.ReplacingMergeTree}}(ver) ORDER BY k`)

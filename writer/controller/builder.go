@@ -10,6 +10,7 @@ import (
 	"time"
 
 	retry "github.com/avast/retry-go"
+	"github.com/metrico/qryn/v5/shared/samplesconfig"
 	"github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/pattern/controller"
@@ -223,6 +224,59 @@ func doLogsPattern(s *model.TimeSamplesData) {
 	controller.ClusterLines(s.MMessage, s.MFingerprint, s.MTimestampNS)
 }
 
+// splitByType divides a samples request into its log and metric halves for a
+// split store. Either half is nil when it has no rows, which doPush reads as
+// nothing to send.
+//
+// The halves must answer the queries the shared table answered. Reads filter
+// with `type IN (wanted, 0)` (GetTypes), so a dual-typed row cannot be written
+// as-is -- 3 matches neither signal -- and is written as a log row in one half
+// and a metric row in the other. An undefined type stays 0 in both halves,
+// where it keeps matching both, exactly as it did in the shared table.
+func splitByType(s *model.TimeSamplesData) (*model.TimeSamplesData, *model.TimeSamplesData) {
+	logs := &model.TimeSamplesData{}
+	metrics := &model.TimeSamplesData{}
+	for i, tp := range s.MType {
+		if tp&model.SAMPLE_TYPE_LOG != 0 {
+			appendSample(logs, s, i, model.SAMPLE_TYPE_LOG, true)
+		}
+		if tp&model.SAMPLE_TYPE_METRIC != 0 {
+			appendSample(metrics, s, i, model.SAMPLE_TYPE_METRIC, false)
+		}
+		if tp == model.SAMPLE_TYPE_UNDEF {
+			appendSample(logs, s, i, model.SAMPLE_TYPE_UNDEF, true)
+			appendSample(metrics, s, i, model.SAMPLE_TYPE_UNDEF, false)
+		}
+	}
+	if len(logs.MFingerprint) == 0 {
+		logs = nil
+	}
+	if len(metrics.MFingerprint) == 0 {
+		metrics = nil
+	}
+	return logs, metrics
+}
+
+// appendSample copies row i of src into dst under type tp. Size follows the
+// same per-row formula the parser uses (unmarshal/builder.go:368), so queue
+// accounting stays comparable across the split. hasMessage tells it whether
+// dst is the logs half: samples_metrics has no string column and
+// NewMetricsInsertService's insert never writes one, so the message length is
+// only real for the logs half, not for tp (an undefined row is written to
+// both halves under the same tp).
+func appendSample(dst, src *model.TimeSamplesData, i int, tp uint8, hasMessage bool) {
+	dst.MFingerprint = append(dst.MFingerprint, src.MFingerprint[i])
+	dst.MTimestampNS = append(dst.MTimestampNS, src.MTimestampNS[i])
+	dst.MValue = append(dst.MValue, src.MValue[i])
+	dst.MMessage = append(dst.MMessage, src.MMessage[i])
+	dst.MTTLDays = append(dst.MTTLDays, src.MTTLDays[i])
+	dst.MType = append(dst.MType, tp)
+	dst.Size += 26
+	if hasMessage {
+		dst.Size += len(src.MMessage[i])
+	}
+}
+
 // IngestParsed runs parser and pushes each ParserResponse to the given
 // per-tenant insert services. It is the transport-agnostic core shared by the
 // HTTP handlers and the gRPC receiver.
@@ -238,15 +292,31 @@ func IngestParsed(ctx context.Context, parser BoundParser, svcs InsertServices) 
 			}()
 			return response.Error
 		}
+		samples := response.SamplesRequest
+		var metricSamples helpers.SizeGetter
+		if samplesconfig.SplitBySignal() {
+			if spl, ok := samples.(*model.TimeSamplesData); ok {
+				logHalf, metricHalf := splitByType(spl)
+				samples, metricSamples = nil, nil
+				if logHalf != nil {
+					samples = logHalf
+				}
+				if metricHalf != nil {
+					metricSamples = metricHalf
+				}
+			}
+		}
 		promises = append(promises,
 			doPush(response.TimeSeriesRequest, service.INSERT_MODE_SYNC, svcs.Ts),
-			doPush(response.SamplesRequest, service.INSERT_MODE_SYNC, svcs.Spl),
+			doPush(samples, service.INSERT_MODE_SYNC, svcs.Spl),
+			doPush(metricSamples, service.INSERT_MODE_SYNC, svcs.Mtr),
 			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, svcs.SpanAttrs),
 			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, svcs.Spans),
 			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, svcs.Profile),
 		)
-		if response.SamplesRequest != nil {
-			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
+		// Pattern clustering reads log lines, so it sees the log half only.
+		if s, ok := samples.(*model.TimeSamplesData); ok && s != nil {
+			doLogsPattern(s)
 		}
 	}
 	for _, p := range promises {
@@ -261,6 +331,7 @@ func doParse(r *http.Request, parser Parser) error {
 	svcs := InsertServices{
 		Ts:        getService(r, utils.ContextKeyTsService),
 		Spl:       getService(r, utils.ContextKeySplService),
+		Mtr:       getService(r, utils.ContextKeyMtrService),
 		SpanAttrs: getService(r, utils.ContextKeySpanAttrsService),
 		Spans:     getService(r, utils.ContextKeySpansService),
 		Profile:   getService(r, utils.ContextKeyProfileService),
