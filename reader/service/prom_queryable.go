@@ -166,7 +166,7 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		hints.Start = hints.Start / 15000 * 15000
 	}
 
-	useRawData := !versionInfo.Metrics15sAvailable((hints.Start - hints.Range) * 1000000) ||
+	useRawData := !versionInfo.Metrics15sAvailable((hints.Start-hints.Range)*1000000) ||
 		hints.Start%15000 != 0 ||
 		hints.Step < 15000 ||
 		(hints.Range > 0 && hints.Range < 15000) ||
