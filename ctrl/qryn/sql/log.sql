@@ -23,10 +23,10 @@ PARTITION BY date
 ORDER BY fingerprint {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.samples_v3 {{.OnCluster}} (
-  fingerprint UInt64,
-  timestamp_ns Int64 CODEC(DoubleDelta),
-  value Float64 CODEC(Gorilla),
-  string String
+  fingerprint UInt64 CODEC(Delta, ZSTD(1)),
+  timestamp_ns Int64 CODEC(DoubleDelta, ZSTD(1)),
+  value Float64 CODEC(Gorilla, ZSTD(1)),
+  string String CODEC(ZSTD(1))
 ) ENGINE = {{.MergeTree}}
 PARTITION BY toStartOfDay(toDateTime(timestamp_ns / 1000000000))
 ORDER BY ({{.SAMPLES_ORDER_RUL}}) {{.CREATE_SETTINGS}};
@@ -81,14 +81,14 @@ INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 VALUES (cityHash64('update_v3_5'), 'update', 'v3_1', toString(toUnixTimestamp(NOW())), NOW());
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_15s {{.OnCluster}} (
-    fingerprint UInt64,
-    timestamp_ns Int64 CODEC(DoubleDelta),
-    last AggregateFunction(argMax, Float64, Int64),
-    max SimpleAggregateFunction(max, Float64),
-    min SimpleAggregateFunction(min, Float64),
-    count AggregateFunction(count),
-    sum SimpleAggregateFunction(sum, Float64),
-    bytes SimpleAggregateFunction(sum, Float64)
+    fingerprint UInt64 CODEC(Delta, ZSTD(1)),
+    timestamp_ns Int64 CODEC(DoubleDelta, ZSTD(1)),
+    last AggregateFunction(argMax, Float64, Int64) CODEC(ZSTD(1)),
+    max SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1)),
+    min SimpleAggregateFunction(min, Float64) CODEC(Gorilla, ZSTD(1)),
+    count AggregateFunction(count) CODEC(ZSTD(1)),
+    sum SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
+    bytes SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1))
 ) ENGINE = {{.AggregatingMergeTree}}
 PARTITION BY toDate(toDateTime(intDiv(timestamp_ns, 1000000000)))
 ORDER BY (fingerprint, timestamp_ns) {{.CREATE_SETTINGS}};
