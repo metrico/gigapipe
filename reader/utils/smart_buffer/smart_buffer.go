@@ -28,7 +28,6 @@ type SmartBuffer struct {
 	file        *fileBuffer
 	size        int64
 	readStarted bool
-	readPos     int64
 }
 
 // New creates a new smart buffer instance.
@@ -65,7 +64,8 @@ func (b *SmartBuffer) Write(data []byte) (int, error) {
 		return 0, fmt.Errorf("failed to flush RAM chunk to file: %w", err)
 	}
 
-	return b.Write(data[written:])
+	n, err := b.Write(data[written:])
+	return written + n, err
 }
 
 // Read implements io.Reader. On the first call, it finalizes the buffer by flushing
@@ -89,23 +89,16 @@ func (b *SmartBuffer) Read(p []byte) (n int, err error) {
 	}
 
 	if b.file.Size() == 0 {
-		bytes := b.chunk.Bytes()
-		if b.readPos >= int64(len(bytes)) {
-			return 0, io.EOF
-		}
-		n := copy(p, bytes[b.readPos:])
-		b.readPos += int64(n)
-		if b.readPos >= int64(len(bytes)) {
-			return n, io.EOF
-		}
-		return n, nil
+		return b.chunk.Read(p)
 	}
 
 	return b.file.Read(p)
 }
 
-// Close cleans up resources by closing and removing the temporary file if one was created.
+// Close cleans up resources: the RAM blocks go back to the pool and the
+// temporary file, if one was created, is closed and removed.
 func (b *SmartBuffer) Close() error {
+	b.chunk.Release()
 	return b.file.Close()
 }
 
