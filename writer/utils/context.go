@@ -6,7 +6,6 @@ const (
 	ContextKeyDDSource         ContextKey = "ddsource"
 	ContextKeyTarget           ContextKey = "target"
 	ContextKeyID               ContextKey = "id"
-	ContextKeyParams           ContextKey = "params"
 	ContextKeyPrecision        ContextKey = "precision"
 	ContextKeyBodyStream       ContextKey = "bodyStream"
 	ContextKeyDSN              ContextKey = "DSN"

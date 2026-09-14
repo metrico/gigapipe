@@ -115,26 +115,37 @@ func (e *elasticBulkDec) decodeLine(line []byte) error {
 }
 
 func (e *elasticBulkDec) decodeCreateObj(dec *jx.Decoder) error {
-	target := e.ctx.ctxMap[utils.ContextKeyTarget]
+	// The index in the action line wins over the one in the path, as it does in
+	// Elasticsearch, where the path only supplies the default.
+	index := e.ctx.ctxMap[utils.ContextKeyTarget]
 	e.labels = [][]string{{"type", "elastic"}}
-	if target != "" {
-		e.labels = append(e.labels, []string{"_index", target})
-	}
-	return dec.Obj(func(d *jx.Decoder, key string) error {
+	err := dec.Obj(func(d *jx.Decoder, key string) error {
 		tp := d.Next()
 		if tp != jx.String {
 			return d.Skip()
 		}
-		if (target != "" && key == "_index") || key == "type" {
+		if key == "type" {
 			return d.Skip()
 		}
 		val, err := dec.Str()
 		if err != nil {
 			return customErrors.NewUnmarshalError(err)
 		}
+		if key == "_index" {
+			index = val
+			return nil
+		}
 		e.labels = append(e.labels, []string{key, val})
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if index == "" {
+		return customErrors.New400Error("index is missing")
+	}
+	e.labels = append(e.labels, []string{"_index", index})
+	return nil
 }
 
 var ElasticBulkUnmarshalV2 = Build(
