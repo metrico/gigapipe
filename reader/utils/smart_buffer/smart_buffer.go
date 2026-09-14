@@ -64,7 +64,8 @@ func (b *SmartBuffer) Write(data []byte) (int, error) {
 		return 0, fmt.Errorf("failed to flush RAM chunk to file: %w", err)
 	}
 
-	return b.Write(data[written:])
+	n, err := b.Write(data[written:])
+	return written + n, err
 }
 
 // Read implements io.Reader. On the first call, it finalizes the buffer by flushing
