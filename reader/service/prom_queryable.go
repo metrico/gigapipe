@@ -24,6 +24,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/tables"
 
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -206,14 +207,40 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 	return promql_transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
 }
 
-var rateFunctions = []string{"deriv", "rate", "delta"}
+// prolongFunctions are the functions whose series the raw iterator carries
+// forward from one step to the next (see model.SeriesV2.Iterator). It is not a
+// statement about bucket sizing -- that is planner.NeedsDistinctSamples, which
+// covers a different, larger set -- and the two must not be conflated back into
+// one list.
+var prolongFunctions = []string{"deriv", "rate", "delta"}
 
+// adjustHintsForRate settles the step the rest of the request runs on.
+//
+// Two separate jobs. A query with no step of its own (an instant query), or a
+// range function the engine reports no range for (its argument is a subquery
+// rather than a matrix selector), has nothing to size a bucket against; 15s is
+// the metrics_15s grid, the finest step that table can answer at.
+//
+// Otherwise the only adjustment is the one the planners need: a function that
+// measures a change across samples cannot answer from a single bucket, so its
+// step is capped to what planner.BucketResolution says that takes. Capping here
+// rather than only inside the planner is what keeps it visible to useRawData
+// below -- a step the cap drops under the 15s grid is one metrics_15s cannot
+// serve at all, and routes to raw samples instead of to a bucket finer than the
+// table's own resolution. The planners apply the same function to the same
+// numbers and so reach the same width; it is idempotent, so calling it at both
+// layers is not a conflict.
 func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
-	step := hints.Step
-	if slices.Contains(rateFunctions, hints.Func) && hints.Step > (hints.Range/2) || hints.Step == 0 {
-		step = max(hints.Range/2, 15000)
+	if hints.Step != 0 && !planner.NeedsDistinctSamples(hints.Func) {
+		return
 	}
-	hints.Step = step
+	if hints.Step == 0 || hints.Range == 0 {
+		hints.Step = max(hints.Range/2, 15000)
+		return
+	}
+	hints.Step = planner.BucketResolution(
+		time.Duration(hints.Step)*time.Millisecond,
+		time.Duration(hints.Range)*time.Millisecond).Milliseconds()
 }
 
 func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.Matcher) bool {
@@ -222,7 +249,7 @@ func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.
 			return false
 		}
 	}
-	return (slices.Contains(rateFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
+	return (slices.Contains(prolongFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
 }
 
 // isSQLFilled reports whether the series was forward-filled 5m by

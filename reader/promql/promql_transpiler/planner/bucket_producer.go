@@ -20,7 +20,7 @@ import (
 // Resolution is the bucket width. It is usually ctx.Step, but callers that need
 // to tell two samples apart within a window narrower than ctx.Step -- the range
 // functions in CounterPlanner and CounterFlagsPlanner -- pass a finer one; see
-// bucketResolution.
+// BucketResolution.
 type BucketProducer struct {
 	Fp         shared.SQLRequestPlanner
 	Lookback   time.Duration
