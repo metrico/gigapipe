@@ -50,7 +50,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 ## Advanced Settings
 
-- **`ADVANCED_SAMPLES_ORDERING`** - Custom ordering for samples table (ClickHouse ORDER BY clause)
+- **`ADVANCED_SAMPLES_ORDERING`** - ClickHouse `ORDER BY` clause for the `samples_v3` table (default: `timestamp_ns`). Applies **only when the table is first created** — setting it on a deployment that already has `samples_v3` has no effect, and the sort key cannot be changed by `ALTER`. The value is interpolated into DDL without validation. See [Table Ordering](table-ordering.md).
 - **`ADVANCED_PROMETHEUS_MAX_SAMPLES`** - Maximum number of samples returned in Prometheus queries
 - **`ADVANCED_OMIT_EMPTY_VALUES`** - Omit empty values in query results (`true`, `false`)
 - **`OMIT_CREATE_TABLES`** - Skip table creation on startup (`true`, `false`)
