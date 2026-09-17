@@ -20,7 +20,10 @@ func TestBucketResolution(t *testing.T) {
 		want time.Duration
 	}{
 		{"far finer than half the duration", 15 * time.Second, 15 * time.Second},
-		{"just under half", half - time.Millisecond, half - time.Millisecond},
+		// Not a divisor of the range, so it rounds down to the next width that
+		// is: three buckets of 100s tile 300s, where two of 149.999s leave a
+		// remainder the frame would have to over-include.
+		{"just under half, not a divisor", half - time.Millisecond, 100 * time.Second},
 		{"exactly half", half, half},
 		{"just over half", half + time.Millisecond, half},
 		{"between half and the full duration", 200 * time.Second, half},
@@ -95,6 +98,33 @@ func TestNeedsDistinctSamples(t *testing.T) {
 	for _, fn := range reduces {
 		if NeedsDistinctSamples(fn) {
 			t.Errorf("%s answers from a single sample and must keep the query's own step", fn)
+		}
+	}
+}
+
+// TestBucketResolutionTilesTheRange is the property the window depends on once
+// buckets are keyed by their right edge: the buckets the frame reaches must tile
+// (t-duration, t] without leaving a partial one at the back.
+//
+// A bucket keyed T covers (T-b, T]. The frame reaches keys T, T-b, ... down to
+// the smallest at or above t-duration+1ms, so their union is exactly
+// (t-duration, t] when b divides duration, and over-includes by less than one
+// bucket when it cannot.
+func TestBucketResolutionTilesTheRange(t *testing.T) {
+	for _, d := range []time.Duration{time.Minute, 90 * time.Second, 5 * time.Minute, time.Hour} {
+		for _, step := range []time.Duration{
+			15 * time.Second, 25 * time.Second, 40 * time.Second,
+			time.Minute, 5 * time.Minute, 30 * time.Minute, time.Hour,
+		} {
+			b := BucketResolution(step, d)
+			if b <= 0 || b > d/2 {
+				t.Fatalf("d=%s step=%s: bucket %s must be positive and at most half the range", d, step, b)
+			}
+			if d%b != 0 {
+				t.Errorf("d=%s step=%s: bucket %s does not divide the range, so the "+
+					"buckets the frame reaches cannot tile it exactly (remainder %s)",
+					d, step, b, d%b)
+			}
 		}
 	}
 }
