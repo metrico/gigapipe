@@ -25,9 +25,14 @@ func TestTranspilerV2(t *testing.T) {
 	}
 	for _, v := range script.Substitutes {
 		req, err := v.Request.Process(&shared.PlannerContext{
-			IsCluster:               false,
-			From:                    time.Now(),
-			To:                      time.Now().Add(time.Minute * -5),
+			IsCluster: false,
+			From:      time.Now(),
+			To:        time.Now().Add(time.Minute * -5),
+			// Step is what the accelerated planners bucket by; left at zero this
+			// context is not one the request path can produce (adjustHintsForRate
+			// never lets hints.Step reach the planners as zero) and it renders a
+			// fill with STEP 0.
+			Step:                    15 * time.Second,
 			TimeSeriesGinTableName:  "time_series_gin",
 			SamplesTableName:        "samples_v3",
 			TimeSeriesTableName:     "time_series",

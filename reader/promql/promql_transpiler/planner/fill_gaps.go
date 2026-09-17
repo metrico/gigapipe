@@ -28,6 +28,13 @@ type FillGapsPlanner struct {
 }
 
 func (f *FillGapsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	// Resolution has no safe zero value: it becomes the STEP the fill walks the
+	// grid by, and a struct literal that omits it compiles cleanly and renders
+	// STEP 0 -- an interval no server can advance by. Refuse it here rather than
+	// hand ClickHouse a query that cannot terminate.
+	if f.Resolution <= 0 {
+		return nil, fmt.Errorf("fill gaps: resolution must be positive, got %s", f.Resolution)
+	}
 	grouped, err := f.Main.Process(ctx)
 	if err != nil {
 		return nil, err
