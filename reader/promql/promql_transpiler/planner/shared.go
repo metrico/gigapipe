@@ -67,14 +67,40 @@ func windowOffset(d time.Duration) (int32, error) {
 // far forward a real row is filled. That is one quantity, not two: it is the
 // furthest a sample can influence a step, so it is exactly what the first steps
 // must be able to reach back to and exactly how long a sample stays relevant.
+//
+// resolution is the width real samples are bucketed to -- see bucketResolution.
 func bucketedValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
-	lookback time.Duration, cols ...sql.SQLObject) (sql.ISelect, error) {
-	producer := &BucketProducer{Fp: fpPlanner, Lookback: lookback, Cols: cols}
+	lookback, resolution time.Duration, cols ...sql.SQLObject) (sql.ISelect, error) {
+	producer := &BucketProducer{Fp: fpPlanner, Lookback: lookback, Resolution: resolution, Cols: cols}
 	return (&FillGapsPlanner{
-		Main:      producer,
-		Duration:  lookback,
-		ValueCols: producer.ColAliases(),
+		Main:       producer,
+		Duration:   lookback,
+		Resolution: resolution,
+		ValueCols:  producer.ColAliases(),
 	}).Process(ctx)
+}
+
+// bucketResolution returns the width real samples are grouped to before a
+// range function evaluates them.
+//
+// ctx.Step is used whenever it already leaves room for at least two buckets
+// inside any (t-duration, t] window -- the normal case, where the query's step
+// is finer than the function's own range. Once step reaches or exceeds
+// duration, every bucket lands exactly on the query's step grid and a whole
+// (t-duration, t] window can hold at most one of them: a function that
+// measures a change between two samples (rate, increase, delta, resets,
+// changes) then never sees more than a single point and always yields
+// nothing, silently, however healthy the underlying data is. Falling back to
+// duration/2 keeps at least two buckets in reach regardless of how coarse the
+// query's step is.
+func bucketResolution(step, duration time.Duration) time.Duration {
+	if step < duration {
+		return step
+	}
+	if half := duration / 2; half > 0 {
+		return half
+	}
+	return time.Millisecond
 }
 
 // rangeFrame is the frame covering (t-duration, t], the sample set a prometheus

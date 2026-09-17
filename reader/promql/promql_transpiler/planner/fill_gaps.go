@@ -9,11 +9,11 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-// FillGapsPlanner densifies its Main producer onto the step grid. Main must yield
-// rows of (fingerprint, timestamp_ms, <value cols>) at real sample buckets, with
-// no source column and no fill; FillGapsPlanner adds source = 0 evaluation rows so
-// that a downstream window aggregate is evaluated at every step, out to Duration
-// past each real sample.
+// FillGapsPlanner densifies its Main producer onto the Resolution grid. Main must
+// yield rows of (fingerprint, timestamp_ms, <value cols>) at real sample buckets,
+// with no source column and no fill; FillGapsPlanner adds source = 0 evaluation
+// rows so that a downstream window aggregate is evaluated at every grid point,
+// out to Duration past each real sample.
 //
 // The filled rows are evaluation points, never data: their stored values are
 // irrelevant, and every consumer must recompute its value with an
@@ -21,9 +21,10 @@ import (
 // R for an over-time aggregator, the 5m lookback delta before a cross-series
 // aggregation. See the fill semantics in fillGaps.
 type FillGapsPlanner struct {
-	Main      shared.SQLRequestPlanner
-	Duration  time.Duration
-	ValueCols []string
+	Main       shared.SQLRequestPlanner
+	Duration   time.Duration
+	Resolution time.Duration
+	ValueCols  []string
 }
 
 func (f *FillGapsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -31,31 +32,31 @@ func (f *FillGapsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 	if err != nil {
 		return nil, err
 	}
-	return fillGaps(grouped, ctx, f.Duration, f.ValueCols), nil
+	return fillGaps(grouped, ctx, f.Duration, f.Resolution, f.ValueCols), nil
 }
 
-// fillGaps densifies grouped onto the step grid, choosing the native STALENESS
-// clause when the server supports it (clickhouse >= 24.11) and the arrayJoin
-// range expansion otherwise. Both produce identical rows: real buckets carry
-// source = 1, generated evaluation points carry source = 0, out to duration past
-// each real bucket.
-func fillGaps(grouped sql.ISelect, ctx *shared.PlannerContext, duration time.Duration,
+// fillGaps densifies grouped onto the resolution grid, choosing the native
+// STALENESS clause when the server supports it (clickhouse >= 24.11) and the
+// arrayJoin range expansion otherwise. Both produce identical rows: real buckets
+// carry source = 1, generated evaluation points carry source = 0, out to
+// duration past each real bucket.
+func fillGaps(grouped sql.ISelect, ctx *shared.PlannerContext, duration, resolution time.Duration,
 	valueCols []string) sql.ISelect {
 	if ctx.VersionInfo.HasCapability(dbversion.CapStaleness) {
-		return fillStaleness(grouped, ctx, duration)
+		return fillStaleness(grouped, ctx, duration, resolution)
 	}
-	return fillArrayJoin(grouped, ctx, duration, valueCols)
+	return fillArrayJoin(grouped, ctx, duration, resolution, valueCols)
 }
 
 // fillStaleness densifies grouped with ORDER BY ... WITH FILL STALENESS, the
 // native path on clickhouse >= 24.11. Filled rows carry source = 0 by default.
 // TO is exclusive, hence ctx.To + 1: the step at ctx.To needs filling too.
-func fillStaleness(grouped sql.ISelect, ctx *shared.PlannerContext, duration time.Duration) sql.ISelect {
+func fillStaleness(grouped sql.ISelect, ctx *shared.PlannerContext, duration, resolution time.Duration) sql.ISelect {
 	grouped.Select(append(grouped.GetSelect(), sql.NewSimpleCol("1", "source"))...)
 	return grouped.OrderBy(
 		sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
 		sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC).
-			WithFillStaleness(ctx.To.UnixMilli()+1, ctx.Step.Milliseconds(), duration.Milliseconds()))
+			WithFillStaleness(ctx.To.UnixMilli()+1, resolution.Milliseconds(), duration.Milliseconds()))
 }
 
 // fillArrayJoin densifies grouped without WITH FILL STALENESS, for clickhouse <
@@ -67,7 +68,7 @@ func fillStaleness(grouped sql.ISelect, ctx *shared.PlannerContext, duration tim
 // Filled rows carry the source-bucket's values verbatim rather than a zero
 // default; that is harmless because every consumer masks them with an
 // -If(..., source = 1) form, exactly as it does the staleness path's zero rows.
-func fillArrayJoin(grouped sql.ISelect, ctx *shared.PlannerContext, duration time.Duration,
+func fillArrayJoin(grouped sql.ISelect, ctx *shared.PlannerContext, duration, resolution time.Duration,
 	valueCols []string) sql.ISelect {
 	withGrouped := sql.NewWith(grouped, "bv_grouped")
 
@@ -100,13 +101,13 @@ func fillArrayJoin(grouped sql.ISelect, ctx *shared.PlannerContext, duration tim
 			AddWindows(leadWnd),
 		"bv_lead")
 
-	// range(start, end, step) is [start, end): every step from the bucket up to,
-	// but excluding, whichever comes first of the next bucket, a duration later,
-	// or ctx.To + 1, the exclusive end that still covers the step at ctx.To.
-	// next_ms is another bucket and so already step aligned.
+	// range(start, end, step) is [start, end): every resolution-wide step from the
+	// bucket up to, but excluding, whichever comes first of the next bucket, a
+	// duration later, or ctx.To + 1, the exclusive end that still covers the step
+	// at ctx.To. next_ms is another bucket and so already resolution aligned.
 	tsExpr := fmt.Sprintf(
 		"arrayJoin(range(bucket_ms, least(bucket_ms + toInt64(%d), next_ms, toInt64(%d)), toInt64(%d)))",
-		durationMs, ctx.To.UnixMilli()+1, ctx.Step.Milliseconds())
+		durationMs, ctx.To.UnixMilli()+1, resolution.Milliseconds())
 
 	finalSel := []sql.SQLObject{
 		sql.NewSimpleCol("fingerprint", "fingerprint"),

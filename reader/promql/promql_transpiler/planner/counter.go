@@ -22,7 +22,7 @@ func prevValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 	// final bucket of a query is truncated by the read bound, so its last sample
 	// can be anywhere in it. Anything measuring an interval between values has to
 	// use val_ts; measuring between bucket keys would overstate it.
-	vals, err := bucketedValues(ctx, fpPlanner, duration+staleness,
+	vals, err := bucketedValues(ctx, fpPlanner, duration+staleness, bucketResolution(ctx.Step, duration),
 		sql.NewSimpleCol("argMaxMerge(last)", "val"),
 		sql.NewSimpleCol("intDiv(max(timestamp_ns), 1000000)", "val_ts"))
 	if err != nil {
