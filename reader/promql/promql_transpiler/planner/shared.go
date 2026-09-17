@@ -54,7 +54,7 @@ func windowOffset(d time.Duration) (int32, error) {
 	return int32(ms), nil
 }
 
-// bucketedValues builds the per-step value CTE over the 15s downsampled table:
+// bucketedValues builds the per-bucket value CTE over the 15s downsampled table:
 // a BucketProducer read densified by FillGapsPlanner. cols are the bucket level
 // partial aggregates to expose.
 //
@@ -68,7 +68,7 @@ func windowOffset(d time.Duration) (int32, error) {
 // furthest a sample can influence a step, so it is exactly what the first steps
 // must be able to reach back to and exactly how long a sample stays relevant.
 //
-// resolution is the width real samples are bucketed to -- see bucketResolution.
+// resolution is the width real samples are bucketed to -- see BucketResolution.
 func bucketedValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 	lookback, resolution time.Duration, cols ...sql.SQLObject) (sql.ISelect, error) {
 	producer := &BucketProducer{Fp: fpPlanner, Lookback: lookback, Resolution: resolution, Cols: cols}
@@ -80,27 +80,50 @@ func bucketedValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlann
 	}).Process(ctx)
 }
 
-// bucketResolution returns the width real samples are grouped to before a
-// range function evaluates them.
+// changeFunctions are the range functions that measure a change across samples
+// rather than reducing over every sample of the window: rate, irate and deriv
+// compute a slope, delta and idelta a difference, resets and changes a count of
+// transitions, increase a counter's growth.
 //
-// ctx.Step is used whenever it already leaves room for at least two buckets
-// inside any (t-duration, t] window -- the normal case, where the query's step
-// is finer than the function's own range. Once step reaches or exceeds
-// duration, every bucket lands exactly on the query's step grid and a whole
-// (t-duration, t] window can hold at most one of them: a function that
-// measures a change between two samples (rate, increase, delta, resets,
-// changes) then never sees more than a single point and always yields
-// nothing, silently, however healthy the underlying data is. Falling back to
-// duration/2 keeps at least two buckets in reach regardless of how coarse the
-// query's step is.
-func bucketResolution(step, duration time.Duration) time.Duration {
-	if step < duration {
-		return step
+// They are exactly the functions that cannot answer from a single sample, which
+// is the whole reason a bucket has to be sized against the range rather than
+// against the query's step. The *_over_time reducers are not here: they reduce
+// over whatever the window holds, so one sample is already an answer.
+//
+// This is the single list. Both the request layer (which caps the step so the
+// routing in transpileLabelMatchers can see it) and the planners below consult
+// it; they must agree, or the SQL buckets at a width the request never chose.
+var changeFunctions = map[string]bool{
+	"rate": true, "irate": true, "deriv": true, "delta": true, "idelta": true,
+	"resets": true, "increase": true, "changes": true,
+}
+
+// NeedsDistinctSamples reports whether fn needs two distinct samples inside its
+// window to produce a value at all. See changeFunctions.
+func NeedsDistinctSamples(fn string) bool {
+	return changeFunctions[fn]
+}
+
+// BucketResolution returns the width real samples must be grouped to before a
+// function that NeedsDistinctSamples evaluates them over a window of duration.
+//
+// step is used whenever it is already fine enough. Once it reaches half the
+// duration, a whole (t-duration, t] window can stop holding two buckets: every
+// bucket lands on the step grid, first and last collapse onto the same row, and
+// the function silently yields nothing however healthy the data is. Half the
+// duration always leaves two buckets in reach, wherever the window boundary
+// falls relative to the grid.
+//
+// It is idempotent -- applying it to its own result changes nothing -- so the
+// request layer and the planners can both call it without fighting.
+func BucketResolution(step, duration time.Duration) time.Duration {
+	half := duration / 2
+	if half < time.Millisecond {
+		// A duration too small to halve on the millisecond grid the SQL is
+		// expressed on. Nothing finer can be asked for.
+		half = time.Millisecond
 	}
-	if half := duration / 2; half > 0 {
-		return half
-	}
-	return time.Millisecond
+	return min(step, half)
 }
 
 // rangeFrame is the frame covering (t-duration, t], the sample set a prometheus
