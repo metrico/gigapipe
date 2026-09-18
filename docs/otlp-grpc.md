@@ -85,7 +85,7 @@ compression working.
 
 The maximum accepted request size is **64 MiB** by default. Both transports
 read the same configured value — `system_settings.otlp_max_message_size`
-(env: `QRYN_SYSTEM_SETTINGS_OTLP_MAX_MESSAGE_SIZE`, bytes) — so a batch
+(env: `GIGAPIPE_SYSTEM_SETTINGS_OTLP_MAX_MESSAGE_SIZE`, bytes) — so a batch
 accepted over OTLP/HTTP is never rejected over OTLP/gRPC or vice versa.
 Batches larger than the limit are rejected with a `ResourceExhausted` error;
 if you hit it, consider tuning the collector's `batch` processor to emit

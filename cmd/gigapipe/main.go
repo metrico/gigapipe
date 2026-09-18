@@ -28,6 +28,7 @@ import (
 	rulerrouter "github.com/metrico/qryn/v5/ruler/router"
 	"github.com/metrico/qryn/v5/shared/commonroutes"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/envalias"
 	"github.com/metrico/qryn/v5/view"
 	"github.com/metrico/qryn/v5/writer"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
@@ -279,6 +280,12 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 }
 
 func main() {
+	// Before anything reads configuration: make the GIGAPIPE_ variables new
+	// deployments should use feed the legacy names cloki-config and the call
+	// sites below still read. See shared/envalias.
+	for _, w := range envalias.Apply() {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
 	initFlags()
 	initPyro()
 	start()
