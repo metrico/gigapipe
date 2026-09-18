@@ -87,3 +87,46 @@ func TestOverTimeTilesItsRangeWhateverTheStep(t *testing.T) {
 		})
 	}
 }
+
+// TestCounterForwardEdgeCannotGoNegative ties the keying to the one column that
+// measured how wrong it was.
+//
+// c_fwd_edge is how far the range's last real sample sits before the timestamp
+// being evaluated, (timestamp_ms - last_ts) / 1000, and it feeds c_reach, which
+// carries the observed change out to the edges of the range. last_ts is an
+// argMax over a frame ending at the current row, so for a row carrying data it
+// is that row's own val_ts -- the newest sample in its bucket. A bucket keyed by
+// the floor of its samples holds [key, key+width), so that sample is routinely
+// NEWER than the key, and c_fwd_edge goes negative: measured against the e2e
+// fixture at a 150s bucket over 15s samples, 61 of 62 buckets, worst case -135s,
+// which is bucket minus sample interval exactly. Keyed by the ceiling the same
+// data gives 0 of 61.
+//
+// (For a uniform series the error cancels -- a back edge enlarged by the same
+// shift puts c_reach back at 1 -- so this was a malformed intermediate rather
+// than a demonstrated wrong rate. The cancellation is a property of the fixture,
+// not of the arithmetic, which is why the keying is asserted instead.)
+func TestCounterForwardEdgeCannotGoNegative(t *testing.T) {
+	for _, fn := range []string{"rate", "increase", "delta"} {
+		t.Run(fn, func(t *testing.T) {
+			ctx := rangeTestCtx()
+			ctx.Step = time.Minute
+			got := transpileRangeCtx(t, fn+`(x{job="j"}[5m])`, ctx)
+
+			// The column whose sign this is about.
+			if want := "(timestamp_ms - last_ts) / 1000 as c_fwd_edge"; !strings.Contains(got, want) {
+				t.Fatalf("expected %q; this test is anchored to that column:\n%s", want, got)
+			}
+			// Its sign is guaranteed by where the bucket sits relative to its key,
+			// and by nothing else in the query.
+			if bad := bucketExpr(time.Minute); strings.Contains(got,
+				strings.Replace(bad, "timestamp_ns + 59999999999", "timestamp_ns", 1)) {
+				t.Errorf("buckets keyed by the floor of their samples: last_ts can then\n"+
+					"exceed timestamp_ms and c_fwd_edge goes negative:\n%s", got)
+			}
+			if !strings.Contains(got, bucketExpr(time.Minute)) {
+				t.Errorf("expected ceiling-keyed buckets so no sample outlives its key:\n%s", got)
+			}
+		})
+	}
+}
