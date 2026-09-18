@@ -21,8 +21,8 @@ func (s SetupState) ToLogLines() []string {
 		shards = "can't retrieve"
 	}
 	return []string{
-		"QRYN-WRITER SETTINGS:",
-		"qryn-writer version: " + s.Version,
+		"GIGAPIPE WRITER SETTINGS:",
+		"gigapipe writer version: " + s.Version,
 		"clickhouse setup type: " + s.Type,
 		"shards: " + shards,
 		"samples channels: " + strconv.FormatInt(int64(s.SamplesChannels), 10),
