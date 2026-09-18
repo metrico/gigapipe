@@ -4,6 +4,11 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: read
+  # Allows the lint job's only-new-issues option to read the PR diff.
+  pull-requests: read
+
 jobs:
 
   build:
@@ -25,5 +30,44 @@ jobs:
         CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
 
     - name: Unit tests
-      run: go test ./...
+      run: go test -race ./...
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+        # Must be built with a Go toolchain >= go.mod's `go` directive, or
+        # golangci-lint refuses to run at all.
+        version: v2.13.1
+        # Grandfather in pre-existing findings; gate only newly introduced
+        # ones so adoption doesn't require cleaning up the whole repo first.
+        only-new-issues: true
+
+  arch-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+
+    - name: Install go-arch-lint
+      run: go install github.com/fe3dback/go-arch-lint@v1.15.0
+
+    # Report-only: baselines current package coupling against
+    # .go-arch-lint.yml without gating the merge. continue-on-error keeps
+    # this from blocking a PR while still surfacing the report.
+    - name: go-arch-lint check (report-only)
+      continue-on-error: true
+      run: go-arch-lint check
