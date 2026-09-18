@@ -71,11 +71,11 @@ func initDB(cfg *clconfig.ClokiConfig) {
 	if bVal {
 		return
 	}
-	err = ctrl.Init(cfg, "qryn")
+	err = ctrl.Init(cfg, "gigapipe")
 	if err != nil {
 		panic(err)
 	}
-	err = ctrl.Rotate(cfg, "qryn")
+	err = ctrl.Rotate(cfg, "gigapipe")
 	if err != nil {
 		panic(err)
 	}

@@ -1,5 +1,5 @@
-# TODO! Change the way qryn runs
-name: K6 Test qxip/qryn
+# TODO! Change the way gigapipe runs
+name: K6 Test metrico/gigapipe
 on:
   push:
     branches: [ master ]
