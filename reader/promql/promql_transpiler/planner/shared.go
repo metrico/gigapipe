@@ -107,23 +107,63 @@ func NeedsDistinctSamples(fn string) bool {
 // BucketResolution returns the width real samples must be grouped to before a
 // function that NeedsDistinctSamples evaluates them over a window of duration.
 //
-// step is used whenever it is already fine enough. Once it reaches half the
-// duration, a whole (t-duration, t] window can stop holding two buckets: every
-// bucket lands on the step grid, first and last collapse onto the same row, and
-// the function silently yields nothing however healthy the data is. Half the
-// duration always leaves two buckets in reach, wherever the window boundary
-// falls relative to the grid.
+// Buckets are keyed by their right edge, so a bucket keyed T covers (T-b, T],
+// and the frame reaches the keys T, T-b, ... down to the smallest at or above
+// t-duration+1ms. Their union is the window the function actually sees, so the
+// width is chosen to make those buckets tile (t-duration, t]: a whole number of
+// them across the range, rather than whatever the query's step happens to be.
+//
+// Two constraints, in order. At most half the duration, so at least two buckets
+// are always in reach -- a function measuring a change between samples needs
+// two, and at one bucket per window it silently returns nothing however healthy
+// the data is. No coarser than the query's own step, so a step finer than the
+// range still gets the detail it asked for.
+//
+// Then the range is divided into a whole number of buckets of at most that
+// width. Where the division is exact -- the ordinary case, a round range with a
+// round step -- the union is exactly (t-duration, t]. Where it cannot be, the
+// bucket is the next size down and the union over-includes less than one bucket
+// of extra history: the floor of bucketing at all, since the alternative is a
+// partial bucket at the back edge.
 //
 // It is idempotent -- applying it to its own result changes nothing -- so the
 // request layer and the planners can both call it without fighting.
 func BucketResolution(step, duration time.Duration) time.Duration {
-	half := duration / 2
-	if half < time.Millisecond {
+	if duration <= 0 {
+		return time.Millisecond
+	}
+	widest := duration / 2
+	if widest < time.Millisecond {
 		// A duration too small to halve on the millisecond grid the SQL is
 		// expressed on. Nothing finer can be asked for.
-		half = time.Millisecond
+		return time.Millisecond
 	}
-	return min(step, half)
+	if step > 0 && step < widest {
+		widest = step
+	}
+
+	// The fewest buckets that fit the range without exceeding widest, then the
+	// first count at or above it that divides the range evenly. Dividing evenly
+	// is what makes the buckets tile the window exactly, and it is also what
+	// makes this idempotent: re-applying it finds the same count and returns the
+	// same width, so the request layer and the planners cannot disagree.
+	//
+	// A range given in whole seconds is a multiple of 1000ms and so has a divisor
+	// within easy reach; the search is bounded for the ranges that are not, and
+	// falls back to the unrounded width, which still tiles to within one bucket.
+	first := (duration + widest - 1) / widest
+	for n, limit := first, 2*first+64; n <= limit; n++ {
+		if duration%n == 0 {
+			if b := duration / n; b >= time.Millisecond {
+				return b
+			}
+			break
+		}
+	}
+	if b := duration / first; b >= time.Millisecond {
+		return b
+	}
+	return time.Millisecond
 }
 
 // rangeFrame is the frame covering (t-duration, t], the sample set a prometheus

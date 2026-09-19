@@ -80,11 +80,23 @@ func TestDownsampleHintsCapsChangeFunctionBucket(t *testing.T) {
 
 	for _, fn := range []string{"rate", "irate", "deriv", "delta", "idelta", "resets", "increase"} {
 		t.Run(fn, func(t *testing.T) {
-			// A step already finer than range/2 needs no correction: the common
-			// case, where the bug never reproduced, must render unchanged.
-			fineStep := halfRange - 1000
+			// A step already finer than range/2 keeps its own width, so long as it
+			// divides the range. 60s does; the bucket must not be narrowed for a
+			// step that is already fine enough, which would multiply the row count
+			// for no gain.
+			fineStep := int64(60000)
 			if got := renderHints(t, fn, fineStep, rng); !strings.Contains(got, uncappedBucket(fineStep)) {
-				t.Errorf("step=%d (< range/2): must bucket at the query's own step:\n%s", fineStep, got)
+				t.Errorf("step=%d (divides the range): must bucket at the query's own step:\n%s", fineStep, got)
+			}
+
+			// A fine step that does NOT divide the range rounds down to the next
+			// width that does. Buckets are keyed by their right edge, so the frame
+			// tiles (t-range, t] out of whole buckets; at 149s the frame would
+			// reach three of them, back to t-447s, over-including 147s of a 300s
+			// window. 100s tiles it exactly.
+			if got := renderHints(t, fn, halfRange-1000, rng); !strings.Contains(got, uncappedBucket(100000)) {
+				t.Errorf("step=%d (not a divisor): expected the next width that tiles "+
+					"the range (%s):\n%s", halfRange-1000, uncappedBucket(100000), got)
 			}
 
 			// Anywhere from just above range/2 up through and past range itself,

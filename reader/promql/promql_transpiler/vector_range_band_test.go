@@ -1,7 +1,6 @@
 package promql_transpiler
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +21,7 @@ import (
 // (adjustHintsForRate) and what the cap is documented to do, so the two agree
 // and the band keeps a third slot in reach.
 func TestCounterCapsTheBandBelowTheRange(t *testing.T) {
-	const half = "intDiv(timestamp_ns, 150000000000) * 150000"
+	half := bucketExpr(150 * time.Second)
 
 	for _, fn := range []string{"rate", "increase", "delta", "resets", "changes"} {
 		t.Run(fn, func(t *testing.T) {
@@ -35,8 +34,7 @@ func TestCounterCapsTheBandBelowTheRange(t *testing.T) {
 				ctx.Step = step
 				got := transpileRangeCtx(t, fn+`(x{job="j"}[5m])`, ctx)
 
-				stepBucket := fmt.Sprintf("intDiv(timestamp_ns, %d) * %d",
-					step.Nanoseconds(), step.Milliseconds())
+				stepBucket := bucketExpr(step)
 				if strings.Contains(got, stepBucket) {
 					t.Errorf("step=%s: bucketed at the query's own step (%s) -- leaves only two "+
 						"slots in (t-range, t], the outer one on its first millisecond:\n%s",
@@ -53,12 +51,17 @@ func TestCounterCapsTheBandBelowTheRange(t *testing.T) {
 // TestCounterLeavesStepsFinerThanHalfTheRangeAlone is the other side of the same
 // boundary: the cap must not reach down into steps that are already fine enough,
 // where it would multiply the row count for no correctness gain.
+//
+// Every step here divides the 5m range, so each keeps its own width. A step that
+// does not divide it rounds down to the next width that does -- see
+// TestBucketResolutionTilesTheRange -- because the frame tiles (t-range, t] out
+// of whole buckets and a remainder would be over-included.
 func TestCounterLeavesStepsFinerThanHalfTheRangeAlone(t *testing.T) {
-	for _, step := range []time.Duration{15 * time.Second, 60 * time.Second, 149 * time.Second, 150 * time.Second} {
+	for _, step := range []time.Duration{15 * time.Second, 60 * time.Second, 100 * time.Second, 150 * time.Second} {
 		ctx := rangeTestCtx()
 		ctx.Step = step
 		got := transpileRangeCtx(t, `rate(x{job="j"}[5m])`, ctx)
-		want := fmt.Sprintf("intDiv(timestamp_ns, %d) * %d", step.Nanoseconds(), step.Milliseconds())
+		want := bucketExpr(step)
 		if !strings.Contains(got, want) {
 			t.Errorf("step=%s: expected the query's own step bucket (%s):\n%s", step, want, got)
 		}
