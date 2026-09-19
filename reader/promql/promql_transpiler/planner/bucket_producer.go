@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -45,15 +44,9 @@ func (b *BucketProducer) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 	}
 	withFp := sql.NewWith(fp, "fp")
 
-	// Keyed by the ceiling of the sample's timestamp, so a bucket holds
-	// (key-Resolution, key] -- the interval ENDING at its key. The window frame
-	// layered on top reaches the keys inside (t-range, t], so with this keying
-	// those buckets tile backwards from exactly t. Keying by the floor instead
-	// would make a bucket hold [key, key+Resolution), and the frame at t would
-	// then take in samples up to t+Resolution: a window shifted a whole bucket
-	// into the future, reporting data the caller could not yet have seen.
-	timestampCol := fmt.Sprintf("intDiv(timestamp_ns + %d, %d) * %d",
-		b.Resolution.Nanoseconds()-1, b.Resolution.Nanoseconds(), b.Resolution.Milliseconds())
+	// The window frame layered on top reaches the keys inside (t-range, t], so
+	// with this keying those buckets tile backwards from exactly t.
+	timestampCol := bucketTimestampCol("timestamp_ns", b.Resolution)
 
 	sel := []sql.SQLObject{
 		sql.NewSimpleCol("fingerprint", "fingerprint"),

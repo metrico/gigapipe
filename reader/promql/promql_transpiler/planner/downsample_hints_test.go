@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/reader/config"
@@ -129,7 +130,8 @@ func TestDownsampleHintsLeavesPlainAggregatesAtTheQueryStep(t *testing.T) {
 			// its own; kept to <= range here to isolate this assertion to the one
 			// this fix touches.
 			for _, step := range []int64{rng / 2, rng} {
-				want := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d", step, step)
+				want := bucketTimestampCol("samples.timestamp_ns",
+					time.Duration(step)*time.Millisecond)
 				if got := renderHints(t, fn, step, rng); !strings.Contains(got, want) {
 					t.Errorf("step=%d: expected the uncapped step bucket (%s):\n%s", step, want, got)
 				}

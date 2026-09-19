@@ -80,8 +80,15 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 		))
 
 	default:
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d%s",
-			hints.Step, hints.Step, compat4019)
+		// A bare selector, or a function the engine evaluates itself over the
+		// bucketed series. The value reported at t must be the newest sample at
+		// or before t, so the bucket has to hold (key-Step, key]. Keyed by the
+		// floor it held [key, key+Step) and argMaxMerge(last) then returned the
+		// newest sample inside it -- the value belonging to t+Step. Measured
+		// against Prometheus over the same data, every sample came back one step
+		// early: value[i] was Prometheus's value[i+1] for the whole series.
+		timeField := bucketTimestampCol("samples.timestamp_ns",
+			time.Duration(hints.Step)*time.Millisecond) + compat4019
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
 	}
