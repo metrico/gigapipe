@@ -13,6 +13,23 @@ import (
 // mirroring the prometheus staleness delta.
 const staleness = time.Minute * 5
 
+// bucketTimestampCol renders the column that keys a metrics_15s bucket, keyed
+// by the CEILING of its samples' timestamps so a bucket holds (key-width, key]
+// -- the interval ENDING at its key -- and buckets tile backwards from the
+// timestamp being evaluated. Keying by the floor instead would make a bucket
+// hold [key, key+width), and every read would take in samples up to width past
+// the timestamp being evaluated: a window shifted a whole bucket into the
+// future, reporting data the caller could not yet have seen.
+//
+// The width is the caller's: a range function sizes its bucket against its
+// range (BucketResolution), a bare selector against the query step. The keying
+// is not -- it is one rule, and lives here so it cannot be corrected in one
+// read path and left behind in another.
+func bucketTimestampCol(col string, width time.Duration) string {
+	return fmt.Sprintf("intDiv(%s + %d, %d) * %d",
+		col, width.Nanoseconds()-1, width.Nanoseconds(), width.Milliseconds())
+}
+
 func patchField(query sql.ISelect, alias string, newField sql.Aliased) sql.ISelect {
 	_select := make([]sql.SQLObject, len(query.GetSelect()))
 	for i, f := range query.GetSelect() {
