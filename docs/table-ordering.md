@@ -105,18 +105,33 @@ So the question is which predicate is more selective for your data:
   window across many series — typical log search.
 - **`(fingerprint, timestamp_ns)`** suits workloads where each query touches few
   series out of a large total — typical high-cardinality metrics. It also
-  aligns `samples_v3` with the layout `metrics_15s` already uses.
+  aligns `samples_v3` with the layout `metrics_15s` already uses, and it is the
+  shape in which the `fingerprint` column compresses — a storage effect separate
+  from the scan-selectivity argument, covered below.
 - **Adding `type`** can help deployments that mix heavy log and metric volume in
   one database, since every query filters on it.
+
+The sort key decides compression as well as scan cost, and the two do not always
+point the same way. A codec only helps when adjacent rows are similar, and what
+lands adjacent is exactly what the sort key says. Under the default
+`timestamp_ns` ordering consecutive rows belong to different series, so
+`fingerprint` is interleaved noise and stays near-incompressible whatever codec
+it carries — PR #976 measured this directly and reported that the column only
+compresses once `ADVANCED_SAMPLES_ORDERING` groups by it. PR #977 chose the
+shipped per-column codecs on the same basis: `DoubleDelta` for timestamps in
+tables that are sorted by time, `Delta` for the ones that are not.
 
 Note that `PARTITION BY` is per-day regardless of sort key, so time-range pruning
 happens at the partition level either way. Fingerprint-first ordering does not
 turn a narrow time query into a full-table scan — it scans whole days' granules
 for the matched fingerprints instead of a contiguous time slice.
 
-These are directional guidelines, not benchmark results: gigapipe ships no
-benchmark comparing these layouts. Measure against your own data and query mix
-before committing, since the choice is effectively permanent (see below).
+The compression side of this tradeoff has been measured — see PR #976 and
+PR #977. The query-latency side has not: gigapipe ships no benchmark comparing
+scan performance across these layouts, so the guidance above about which
+predicate is more selective is directional rather than measured. Test it against
+your own data and query mix before committing, since the choice is effectively
+permanent (see below).
 
 ## Changing the ordering of an existing deployment
 
@@ -138,7 +153,9 @@ The safe shape is create-copy-swap, never drop-and-restart:
    schema maintenance and rotation passes from touching tables mid-migration.
 2. Create `samples_v3_new` with the same columns, codecs, and `PARTITION BY`,
    changing only `ORDER BY`. Take the current definition from
-   `SHOW CREATE TABLE samples_v3` so you inherit any TTL and storage policy.
+   `SHOW CREATE TABLE samples_v3` so you inherit the per-column codecs added by
+   PR #977 along with any TTL and storage policy. Hand-writing the column list is
+   the easy way to silently drop them.
 3. Copy the data, partition by partition, so a failure is resumable:
    `INSERT INTO samples_v3_new SELECT * FROM samples_v3 WHERE …`
 4. Swap atomically: `EXCHANGE TABLES samples_v3 AND samples_v3_new`.
