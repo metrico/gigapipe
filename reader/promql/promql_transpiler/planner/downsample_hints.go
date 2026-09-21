@@ -56,11 +56,10 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 		// The trailing-window shape below is not an option here, however coarse the
 		// step: it collapses every sample of the window onto a single bucket key,
 		// which is precisely the one input these functions cannot work from.
-		step := BucketResolution(
+		width := BucketResolution(
 			time.Duration(hints.Step)*time.Millisecond,
-			time.Duration(hints.Range)*time.Millisecond).Milliseconds()
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d%s",
-			step, step, compat4019)
+			time.Duration(hints.Range)*time.Millisecond)
+		timeField := bucketTimestampCol("samples.timestamp_ns", width) + compat4019
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
 

@@ -1,9 +1,9 @@
 package service
 
 import (
-	"fmt"
 	"os"
-	"strings"
+	"regexp"
+	"strconv"
 	"testing"
 
 	clconfig "github.com/metrico/cloki-config"
@@ -71,10 +71,28 @@ func TestBucketCapAgreesAcrossLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d", hints.Step, hints.Step)
-	if !strings.Contains(got, want) {
-		t.Errorf("request layer settled on step=%dms, planner must bucket at that width.\nwant: %s\ngot:  %s",
-			hints.Step, want, got)
+	// What this pins is the width, so it reads the width back out of the
+	// rendered column rather than matching the column's whole text. How a
+	// bucket is keyed -- by the floor of its samples' timestamps or by the
+	// ceiling -- is a separate rule, owned by the planner and guarded there;
+	// spelling the full expression out here would pin that too, by accident,
+	// and this test would fail for a change it has no opinion about.
+	m := regexp.MustCompile(`intDiv\(samples\.timestamp_ns[^,]*, (\d+)[^)]*\) \* (\d+)`).FindStringSubmatch(got)
+	if m == nil {
+		t.Fatalf("no bucket column in the rendered query:\n%s", got)
+	}
+	divisorNs, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	multiplierMs, err := strconv.ParseInt(m[2], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if divisorNs != hints.Step*1000000 || multiplierMs != hints.Step {
+		t.Errorf("request layer settled on step=%dms, planner must bucket at that width.\n"+
+			"want: divisor %dns, multiplier %dms\ngot:  divisor %dns, multiplier %dms\n%s",
+			hints.Step, hints.Step*1000000, hints.Step, divisorNs, multiplierMs, got)
 	}
 }
 
