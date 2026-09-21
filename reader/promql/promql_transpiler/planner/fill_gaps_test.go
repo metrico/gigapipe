@@ -98,3 +98,29 @@ func TestFillGapsCoversLastStep(t *testing.T) {
 		}
 	}
 }
+
+// TestFillGapsRejectsZeroResolution guards a required field with an unsafe zero
+// value. Resolution is the grid the fill densifies onto; Go zeroes it by
+// default, and a planner constructed without it renders STEP 0 -- an interval
+// ClickHouse cannot step by, from a struct literal that compiles cleanly. Both
+// current callers set it, so this is about the next one.
+func TestFillGapsRejectsZeroResolution(t *testing.T) {
+	for _, res := range []time.Duration{0, -time.Second} {
+		p := &FillGapsPlanner{
+			Main:      stubProducer{},
+			Duration:  5 * time.Minute,
+			ValueCols: []string{"val"},
+			// Resolution deliberately left at res.
+			Resolution: res,
+		}
+		req, err := p.Process(fillTestCtx(true))
+		if err == nil {
+			got, _ := req.String(sql.DefaultCtx())
+			t.Errorf("resolution %s: expected an error, got a query: %s", res, got)
+			continue
+		}
+		if !strings.Contains(err.Error(), "resolution") {
+			t.Errorf("resolution %s: error should name the field, got: %v", res, err)
+		}
+	}
+}
