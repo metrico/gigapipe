@@ -5,6 +5,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/storage"
 )
 
 // TestBucketCoversTheIntervalEndingAtItsKey pins which samples a bucket holds,
@@ -128,5 +132,49 @@ func TestCounterForwardEdgeCannotGoNegative(t *testing.T) {
 				t.Errorf("expected ceiling-keyed buckets so no sample outlives its key:\n%s", got)
 			}
 		})
+	}
+}
+
+// TestSelectorBucketCoversTheIntervalEndingAtItsKey is
+// TestBucketCoversTheIntervalEndingAtItsKey for the other read of the same
+// table. A bare selector carries no range function, so it is planned by
+// DownsampleValuesPlanner rather than by a BucketProducer -- a separate path
+// that was keying its buckets by the floor while the range functions were
+// corrected to the ceiling.
+//
+// The consequence is visible without any function at all: the bucket keyed at t
+// held [t, t+Step), and argMaxMerge(last) reports the newest sample in a bucket,
+// so the value returned for t was the one belonging to t+Step. Against
+// Prometheus over the same data every sample was one step early -- value[i]
+// equal to Prometheus's value[i+1] for the whole series.
+func TestSelectorBucketCoversTheIntervalEndingAtItsKey(t *testing.T) {
+	ctx := rangeTestCtx()
+	ctx.Step = time.Minute
+
+	resp, err := TranspileLabelMatchersDownsample(
+		&storage.SelectHints{Step: ctx.Step.Milliseconds()},
+		ctx,
+		&labels.Matcher{Type: labels.MatchEqual, Name: "__name__", Value: "aaa"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resp.Query.String(sql.DefaultCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	floorKey := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d",
+		ctx.Step.Milliseconds(), ctx.Step.Milliseconds())
+	if strings.Contains(got, floorKey) {
+		t.Errorf("selector bucket keyed by the floor of its samples (%s): it then holds\n"+
+			"[key, key+Step), so the value reported at t is one belonging after t:\n%s",
+			floorKey, got)
+	}
+	ceilKey := fmt.Sprintf("intDiv(samples.timestamp_ns + %d, %d) * %d",
+		ctx.Step.Nanoseconds()-1, ctx.Step.Nanoseconds(), ctx.Step.Milliseconds())
+	if !strings.Contains(got, ceilKey) {
+		t.Errorf("expected a bucket keyed by the ceiling (%s), so it holds the\n"+
+			"interval ending at its key:\n%s", ceilKey, got)
 	}
 }
