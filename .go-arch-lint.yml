@@ -1,0 +1,52 @@
+# go-arch-lint configuration, report-only baseline (schema v3).
+#
+# This describes the current *rough* top-level layering of the repo
+# (reader/, writer/, ruler/, shared/, ctrl/, cmd/, view/) so that
+# `go-arch-lint check` runs cleanly today and can be tightened later.
+# Dependency rules are deliberately permissive (anyProjectDeps/anyVendorDeps)
+# — the point of this pass is to baseline current package coupling, not to
+# enforce boundaries that don't exist yet. Run "go-arch-lint check" locally
+# to see the current dependency graph; this is not wired as a CI gate.
+version: 3
+
+allow:
+  depOnAnyVendor: true
+
+components:
+  cmd:
+    in: cmd/**
+  ctrl:
+    in: ctrl/**
+  reader:
+    in: reader/**
+  writer:
+    in: writer/**
+  ruler:
+    in: ruler/**
+  shared:
+    in: shared/**
+  view:
+    in: view/**
+  test:
+    in: test/**
+
+deps:
+  cmd:
+    anyProjectDeps: true
+  ctrl:
+    anyProjectDeps: true
+  reader:
+    anyProjectDeps: true
+  writer:
+    anyProjectDeps: true
+  ruler:
+    anyProjectDeps: true
+  shared:
+    # shared already imports from reader/ and writer/ today (e.g.
+    # shared/commonroutes/controller.go); left permissive rather than
+    # inventing a boundary that doesn't exist yet.
+    anyProjectDeps: true
+  view:
+    anyProjectDeps: true
+  test:
+    anyProjectDeps: true

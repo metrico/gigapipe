@@ -69,6 +69,17 @@ For end-to-end tests:
 make e2e-full
 ```
 
+The Makefile also wraps the same build/test/lint lanes CI runs, plus
+parser-fuzz helpers for the query transpilers:
+
+```bash
+make build                          # build the gigapipe binary the way CI does
+make test-unit                      # go test -race ./..., matching CI
+make lint                           # golangci-lint, gated to issues new since origin/master
+make arch-lint                      # go-arch-lint report against .go-arch-lint.yml
+make fuzz HEAD=promql DURATION=60s  # run the native Go parser fuzz target for a query head
+```
+
 ## Submitting a Pull Request
 
 1. Create a branch:
