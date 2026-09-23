@@ -13,6 +13,23 @@ import (
 // mirroring the prometheus staleness delta.
 const staleness = time.Minute * 5
 
+// bucketTimestampCol renders the column that keys a metrics_15s bucket, keyed
+// by the CEILING of its samples' timestamps so a bucket holds (key-width, key]
+// -- the interval ENDING at its key -- and buckets tile backwards from the
+// timestamp being evaluated. Keying by the floor instead would make a bucket
+// hold [key, key+width), and every read would take in samples up to width past
+// the timestamp being evaluated: a window shifted a whole bucket into the
+// future, reporting data the caller could not yet have seen.
+//
+// The width is the caller's: a range function sizes its bucket against its
+// range (BucketResolution), a bare selector against the query step. The keying
+// is not -- it is one rule, and lives here so it cannot be corrected in one
+// read path and left behind in another.
+func bucketTimestampCol(col string, width time.Duration) string {
+	return fmt.Sprintf("intDiv(%s + %d, %d) * %d",
+		col, width.Nanoseconds()-1, width.Nanoseconds(), width.Milliseconds())
+}
+
 func patchField(query sql.ISelect, alias string, newField sql.Aliased) sql.ISelect {
 	_select := make([]sql.SQLObject, len(query.GetSelect()))
 	for i, f := range query.GetSelect() {
@@ -54,7 +71,7 @@ func windowOffset(d time.Duration) (int32, error) {
 	return int32(ms), nil
 }
 
-// bucketedValues builds the per-step value CTE over the 15s downsampled table:
+// bucketedValues builds the per-bucket value CTE over the 15s downsampled table:
 // a BucketProducer read densified by FillGapsPlanner. cols are the bucket level
 // partial aggregates to expose.
 //
@@ -68,7 +85,7 @@ func windowOffset(d time.Duration) (int32, error) {
 // furthest a sample can influence a step, so it is exactly what the first steps
 // must be able to reach back to and exactly how long a sample stays relevant.
 //
-// resolution is the width real samples are bucketed to -- see bucketResolution.
+// resolution is the width real samples are bucketed to -- see BucketResolution.
 func bucketedValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 	lookback, resolution time.Duration, cols ...sql.SQLObject) (sql.ISelect, error) {
 	producer := &BucketProducer{Fp: fpPlanner, Lookback: lookback, Resolution: resolution, Cols: cols}
@@ -80,25 +97,88 @@ func bucketedValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlann
 	}).Process(ctx)
 }
 
-// bucketResolution returns the width real samples are grouped to before a
-// range function evaluates them.
+// changeFunctions are the range functions that measure a change across samples
+// rather than reducing over every sample of the window: rate, irate and deriv
+// compute a slope, delta and idelta a difference, resets and changes a count of
+// transitions, increase a counter's growth.
 //
-// ctx.Step is used whenever it already leaves room for at least two buckets
-// inside any (t-duration, t] window -- the normal case, where the query's step
-// is finer than the function's own range. Once step reaches or exceeds
-// duration, every bucket lands exactly on the query's step grid and a whole
-// (t-duration, t] window can hold at most one of them: a function that
-// measures a change between two samples (rate, increase, delta, resets,
-// changes) then never sees more than a single point and always yields
-// nothing, silently, however healthy the underlying data is. Falling back to
-// duration/2 keeps at least two buckets in reach regardless of how coarse the
-// query's step is.
-func bucketResolution(step, duration time.Duration) time.Duration {
-	if step < duration {
-		return step
+// They are exactly the functions that cannot answer from a single sample, which
+// is the whole reason a bucket has to be sized against the range rather than
+// against the query's step. The *_over_time reducers are not here: they reduce
+// over whatever the window holds, so one sample is already an answer.
+//
+// This is the single list. Both the request layer (which caps the step so the
+// routing in transpileLabelMatchers can see it) and the planners below consult
+// it; they must agree, or the SQL buckets at a width the request never chose.
+var changeFunctions = map[string]bool{
+	"rate": true, "irate": true, "deriv": true, "delta": true, "idelta": true,
+	"resets": true, "increase": true, "changes": true,
+}
+
+// NeedsDistinctSamples reports whether fn needs two distinct samples inside its
+// window to produce a value at all. See changeFunctions.
+func NeedsDistinctSamples(fn string) bool {
+	return changeFunctions[fn]
+}
+
+// BucketResolution returns the width real samples must be grouped to before a
+// function that NeedsDistinctSamples evaluates them over a window of duration.
+//
+// Buckets are keyed by their right edge, so a bucket keyed T covers (T-b, T],
+// and the frame reaches the keys T, T-b, ... down to the smallest at or above
+// t-duration+1ms. Their union is the window the function actually sees, so the
+// width is chosen to make those buckets tile (t-duration, t]: a whole number of
+// them across the range, rather than whatever the query's step happens to be.
+//
+// Two constraints, in order. At most half the duration, so at least two buckets
+// are always in reach -- a function measuring a change between samples needs
+// two, and at one bucket per window it silently returns nothing however healthy
+// the data is. No coarser than the query's own step, so a step finer than the
+// range still gets the detail it asked for.
+//
+// Then the range is divided into a whole number of buckets of at most that
+// width. Where the division is exact -- the ordinary case, a round range with a
+// round step -- the union is exactly (t-duration, t]. Where it cannot be, the
+// bucket is the next size down and the union over-includes less than one bucket
+// of extra history: the floor of bucketing at all, since the alternative is a
+// partial bucket at the back edge.
+//
+// It is idempotent -- applying it to its own result changes nothing -- so the
+// request layer and the planners can both call it without fighting.
+func BucketResolution(step, duration time.Duration) time.Duration {
+	if duration <= 0 {
+		return time.Millisecond
 	}
-	if half := duration / 2; half > 0 {
-		return half
+	widest := duration / 2
+	if widest < time.Millisecond {
+		// A duration too small to halve on the millisecond grid the SQL is
+		// expressed on. Nothing finer can be asked for.
+		return time.Millisecond
+	}
+	if step > 0 && step < widest {
+		widest = step
+	}
+
+	// The fewest buckets that fit the range without exceeding widest, then the
+	// first count at or above it that divides the range evenly. Dividing evenly
+	// is what makes the buckets tile the window exactly, and it is also what
+	// makes this idempotent: re-applying it finds the same count and returns the
+	// same width, so the request layer and the planners cannot disagree.
+	//
+	// A range given in whole seconds is a multiple of 1000ms and so has a divisor
+	// within easy reach; the search is bounded for the ranges that are not, and
+	// falls back to the unrounded width, which still tiles to within one bucket.
+	first := (duration + widest - 1) / widest
+	for n, limit := first, 2*first+64; n <= limit; n++ {
+		if duration%n == 0 {
+			if b := duration / n; b >= time.Millisecond {
+				return b
+			}
+			break
+		}
+	}
+	if b := duration / first; b >= time.Millisecond {
+		return b
 	}
 	return time.Millisecond
 }

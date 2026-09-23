@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -20,7 +19,7 @@ import (
 // Resolution is the bucket width. It is usually ctx.Step, but callers that need
 // to tell two samples apart within a window narrower than ctx.Step -- the range
 // functions in CounterPlanner and CounterFlagsPlanner -- pass a finer one; see
-// bucketResolution.
+// BucketResolution.
 type BucketProducer struct {
 	Fp         shared.SQLRequestPlanner
 	Lookback   time.Duration
@@ -45,8 +44,9 @@ func (b *BucketProducer) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 	}
 	withFp := sql.NewWith(fp, "fp")
 
-	timestampCol := fmt.Sprintf("intDiv(timestamp_ns, %d) * %d",
-		b.Resolution.Nanoseconds(), b.Resolution.Milliseconds())
+	// The window frame layered on top reaches the keys inside (t-range, t], so
+	// with this keying those buckets tile backwards from exactly t.
+	timestampCol := bucketTimestampCol("timestamp_ns", b.Resolution)
 
 	sel := []sql.SQLObject{
 		sql.NewSimpleCol("fingerprint", "fingerprint"),

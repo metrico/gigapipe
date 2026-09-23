@@ -2,6 +2,7 @@ package planner
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -34,59 +35,64 @@ func (d *DownsampleHintsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 	patchField(query, "val",
 		sql.NewSimpleCol(d.getValueMerge(hints.Func), "val").(sql.Aliased))
 
-	step := hints.Step
-	if changeFunctions[hints.Func] {
-		// This bucket is handed to the engine's own implementation of the
-		// function as if it were the raw series, one point per bucket picked by
-		// argMax(last, ts) -- so a change-across-samples function only ever sees
-		// as many samples as there are buckets inside the (t-range, t] window it
-		// evaluates. Buckets are aligned to epoch, not to the query's own
-		// evaluation timestamps, so how many of them a given window happens to
-		// catch depends on an alignment the caller never controls: at step close
-		// to (or above) range this could come back empty, come back with one
-		// point, or work, essentially at random, and irate/idelta -- which read
-		// only the last two samples of whatever the window catches -- are
-		// exactly as exposed to it as rate/deriv/delta, which need the window's
-		// full span. Capping the bucket to at most range/2 guarantees at least
-		// two land inside any (t-range, t] window regardless of that alignment.
-		if half := hints.Range / 2; half > 0 && half < step {
-			step = half
-		}
+	compat4019 := ""
+	if config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
+		compat4019 = " - 1 "
 	}
 
-	if rangeVectors[hints.Func] && step > hints.Range {
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns + %d * 1000000, %d * 1000000) * %d",
-			hints.Range, step, step)
+	// Three shapes, and which one applies is decided by what the function needs
+	// from its window -- not by the step alone.
+	switch {
+	case NeedsDistinctSamples(hints.Func):
+		// The bucket is handed to the engine's own implementation of the function
+		// as if it were the raw series, one point per bucket picked by
+		// argMax(last, ts), so the function sees only as many samples as there are
+		// buckets inside the (t-range, t] window it evaluates. Buckets are aligned
+		// to epoch, not to the query's evaluation timestamps, so how many a window
+		// catches depends on an alignment the caller never controls: near or above
+		// step == range this came back empty, or with one point, or worked, at
+		// random. BucketResolution is what keeps two in reach.
+		//
+		// The trailing-window shape below is not an option here, however coarse the
+		// step: it collapses every sample of the window onto a single bucket key,
+		// which is precisely the one input these functions cannot work from.
+		width := BucketResolution(
+			time.Duration(hints.Step)*time.Millisecond,
+			time.Duration(hints.Range)*time.Millisecond)
+		timeField := bucketTimestampCol("samples.timestamp_ns", width) + compat4019
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
-		msInStep := sql.NewRawObject(fmt.Sprintf("timestamp_ns %% %d000000", step))
+
+	case rangeVectors[hints.Func] && hints.Step > hints.Range:
+		// A reducer whose step outruns its range: only the trailing range of each
+		// step can contribute, so read just that and snap it forward onto the step
+		// it belongs to. One bucket is all a reducer needs, and the WHERE keeps the
+		// scan proportional to the range rather than to the whole span.
+		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns + %d * 1000000, %d * 1000000) * %d",
+			hints.Range, hints.Step, hints.Step)
+		patchField(query, "timestamp_ms",
+			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
+		msInStep := sql.NewRawObject(fmt.Sprintf("timestamp_ns %% %d000000", hints.Step))
 		query.AndWhere(sql.Or(
 			sql.Eq(msInStep, sql.NewIntVal(0)),
-			sql.Gt(msInStep, sql.NewIntVal(step*1000000-hints.Range*1000000)),
+			sql.Gt(msInStep, sql.NewIntVal(hints.Step*1000000-hints.Range*1000000)),
 		))
-	} else {
-		compat4019 := ""
-		if config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
-			compat4019 = " - 1 "
-		}
-		timeField := fmt.Sprintf("intDiv(samples.timestamp_ns, %d * 1000000) * %d%s",
-			step, step, compat4019)
+
+	default:
+		// A bare selector, or a function the engine evaluates itself over the
+		// bucketed series. The value reported at t must be the newest sample at
+		// or before t, so the bucket has to hold (key-Step, key]. Keyed by the
+		// floor it held [key, key+Step) and argMaxMerge(last) then returned the
+		// newest sample inside it -- the value belonging to t+Step. Measured
+		// against Prometheus over the same data, every sample came back one step
+		// early: value[i] was Prometheus's value[i+1] for the whole series.
+		timeField := bucketTimestampCol("samples.timestamp_ns",
+			time.Duration(hints.Step)*time.Millisecond) + compat4019
 		patchField(query, "timestamp_ms",
 			sql.NewSimpleCol(timeField, "timestamp_ms").(sql.Aliased))
 	}
 
 	return query, nil
-}
-
-// changeFunctions are the rangeVectors entries that measure a change across
-// samples rather than reducing over every sample in the window: rate, irate
-// and deriv compute a slope, delta/idelta a difference, resets a count of
-// decreases. increase and changes are included defensively even though the
-// ClickHouse pushdown (CounterPlanner/CounterFlagsPlanner) accelerates them
-// before a query reaches this planner in the common case.
-var changeFunctions = map[string]bool{
-	"rate": true, "irate": true, "deriv": true, "delta": true, "idelta": true,
-	"resets": true, "increase": true, "changes": true,
 }
 
 func (d *DownsampleHintsPlanner) getValueMerge(fn string) string {
