@@ -3,7 +3,7 @@ package controller
 import (
 	"net/http"
 
-	jsoniter "github.com/json-iterator/go"
+	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	watchdog "github.com/metrico/qryn/v5/reader/watchdog"
 )
@@ -49,23 +49,21 @@ func (uc *MiscController) Buildinfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
-	stream.WriteObjectStart()
-	stream.WriteObjectField("status")
-	stream.WriteString("success")
-	stream.WriteMore()
+	stream := &jx.Writer{}
+	stream.ObjStart()
+	stream.FieldStart("status")
+	stream.Str("success")
+	stream.Comma()
 
-	stream.WriteObjectField("data")
-	stream.WriteObjectStart()
+	stream.FieldStart("data")
+	stream.ObjStart()
 
-	stream.WriteObjectField("version")
-	stream.WriteString(uc.Version)
+	stream.FieldStart("version")
+	stream.Str(uc.Version)
 
-	stream.WriteObjectEnd()
-	stream.WriteObjectEnd()
+	stream.ObjEnd()
+	stream.ObjEnd()
 
-	w.Write(stream.Buffer())
+	w.Write(stream.Buf)
 
 }

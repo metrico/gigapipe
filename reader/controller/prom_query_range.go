@@ -11,8 +11,8 @@ import (
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 
+	"github.com/go-faster/jx"
 	"github.com/gorilla/schema"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/prometheus/common/model"
@@ -198,27 +198,25 @@ func PromError(code int, msg string, w http.ResponseWriter) {
 func writeResponse(res *promql.Result, w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
+	stream := &jx.Writer{}
 
-	stream.WriteObjectStart()
-	stream.WriteObjectField("status")
-	stream.WriteString("success")
-	stream.WriteMore()
-	stream.WriteObjectField("data")
-	stream.WriteObjectStart()
-	stream.WriteObjectField("resultType")
-	stream.WriteString(string(res.Value.Type()))
-	stream.WriteMore()
-	stream.WriteObjectField("result")
-	stream.WriteArrayStart()
+	stream.ObjStart()
+	stream.FieldStart("status")
+	stream.Str("success")
+	stream.Comma()
+	stream.FieldStart("data")
+	stream.ObjStart()
+	stream.FieldStart("resultType")
+	stream.Str(string(res.Value.Type()))
+	stream.Comma()
+	stream.FieldStart("result")
+	stream.ArrStart()
 
-	_, err := w.Write(stream.Buffer())
+	_, err := w.Write(stream.Buf)
 	if err != nil {
 		return err
 	}
-	stream.Reset(nil)
+	stream.Reset()
 
 	switch res.Value.(type) {
 	case promql.Matrix:
@@ -269,51 +267,49 @@ func writeScalar(res *promql.Result, w http.ResponseWriter) error {
 //	}
 func writeMatrix(res *promql.Result, w http.ResponseWriter) error {
 	val := res.Value.(promql.Matrix)
-
-	json := jsoniter.ConfigFastest
+	stream := &jx.Writer{}
 
 	for i, s := range val {
 		if i > 0 {
 			w.Write([]byte(","))
 		}
 
-		stream := json.BorrowStream(nil)
+		stream.Reset()
 
-		stream.WriteObjectStart()
-		stream.WriteObjectField("metric")
-		stream.WriteObjectStart()
+		stream.ObjStart()
+		stream.FieldStart("metric")
+		stream.ObjStart()
 
 		j := 0
 		for name, value := range s.Metric.Map() {
 			if j > 0 {
-				stream.WriteMore()
+				stream.Comma()
 			}
-			stream.WriteObjectField(name)
-			stream.WriteString(value)
+			stream.FieldStart(name)
+			stream.Str(value)
 			j++
 		}
 
-		stream.WriteObjectEnd()
-		stream.WriteMore()
-		stream.WriteObjectField("values")
-		stream.WriteArrayStart()
+		stream.ObjEnd()
+		stream.Comma()
+		stream.FieldStart("values")
+		stream.ArrStart()
 
 		for j, v := range s.Floats {
 			if j > 0 {
-				stream.WriteMore()
+				stream.Comma()
 			}
-			stream.WriteArrayStart()
-			stream.WriteFloat64(float64(v.T) / 1000)
-			stream.WriteMore()
-			stream.WriteString(strconv.FormatFloat(v.F, 'f', -1, 64))
-			stream.WriteArrayEnd()
+			stream.ArrStart()
+			stream.Float64(float64(v.T) / 1000)
+			stream.Comma()
+			stream.Str(strconv.FormatFloat(v.F, 'f', -1, 64))
+			stream.ArrEnd()
 		}
 
-		stream.WriteArrayEnd()
-		stream.WriteObjectEnd()
+		stream.ArrEnd()
+		stream.ObjEnd()
 
-		w.Write(stream.Buffer())
-		json.ReturnStream(stream)
+		w.Write(stream.Buf)
 	}
 
 	return nil
@@ -339,42 +335,40 @@ func writeMatrix(res *promql.Result, w http.ResponseWriter) error {
 
 func writeVector(res *promql.Result, w http.ResponseWriter) error {
 	val := res.Value.(promql.Vector)
-
-	json := jsoniter.ConfigFastest
+	stream := &jx.Writer{}
 
 	for i, s := range val {
 		if i > 0 {
 			w.Write([]byte(","))
 		}
 
-		stream := json.BorrowStream(nil)
+		stream.Reset()
 
-		stream.WriteObjectStart()
-		stream.WriteObjectField("metric")
-		stream.WriteObjectStart()
+		stream.ObjStart()
+		stream.FieldStart("metric")
+		stream.ObjStart()
 
 		j := 0
 		for name, value := range s.Metric.Map() {
 			if j > 0 {
-				stream.WriteMore()
+				stream.Comma()
 			}
-			stream.WriteObjectField(name)
-			stream.WriteString(value)
+			stream.FieldStart(name)
+			stream.Str(value)
 			j++
 		}
 
-		stream.WriteObjectEnd()
-		stream.WriteMore()
-		stream.WriteObjectField("value")
-		stream.WriteArrayStart()
-		stream.WriteFloat64(float64(s.T) / 1000)
-		stream.WriteMore()
-		stream.WriteString(strconv.FormatFloat(s.F, 'f', -1, 64))
-		stream.WriteArrayEnd()
-		stream.WriteObjectEnd()
+		stream.ObjEnd()
+		stream.Comma()
+		stream.FieldStart("value")
+		stream.ArrStart()
+		stream.Float64(float64(s.T) / 1000)
+		stream.Comma()
+		stream.Str(strconv.FormatFloat(s.F, 'f', -1, 64))
+		stream.ArrEnd()
+		stream.ObjEnd()
 
-		w.Write(stream.Buffer())
-		json.ReturnStream(stream)
+		w.Write(stream.Buf)
 	}
 
 	return nil

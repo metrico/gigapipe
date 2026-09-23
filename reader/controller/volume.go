@@ -4,7 +4,10 @@ import (
 	"net/http"
 	"strings"
 
-	jsoniter "github.com/json-iterator/go"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+
+	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/writer/config"
 )
@@ -46,31 +49,29 @@ func (q *VolumeController) Volume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	bRes, err := jsoniter.Marshal(res)
+	bRes, err := json.Marshal(res, jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
 
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
+	stream := &jx.Writer{}
 
-	stream.WriteObjectStart()
-	stream.WriteObjectField("status")
-	stream.WriteString("success")
-	stream.WriteMore()
-	stream.WriteObjectField("data")
-	stream.WriteObjectStart()
-	stream.WriteObjectField("resultType")
-	stream.WriteString("vector")
-	stream.WriteMore()
-	stream.WriteObjectField("result")
-	stream.WriteRaw(string(bRes))
-	stream.WriteObjectEnd()
-	stream.WriteObjectEnd()
+	stream.ObjStart()
+	stream.FieldStart("status")
+	stream.Str("success")
+	stream.Comma()
+	stream.FieldStart("data")
+	stream.ObjStart()
+	stream.FieldStart("resultType")
+	stream.Str("vector")
+	stream.Comma()
+	stream.FieldStart("result")
+	stream.Raw(bRes)
+	stream.ObjEnd()
+	stream.ObjEnd()
 
-	w.Write(stream.Buffer())
+	w.Write(stream.Buf)
 }
 
 func (q *VolumeController) DetectedLabels(w http.ResponseWriter, r *http.Request) {
@@ -95,36 +96,32 @@ func (q *VolumeController) DetectedLabels(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	bRes, err := jsoniter.Marshal(res)
+	bRes, err := json.Marshal(res, jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
 
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
+	stream := &jx.Writer{}
 
-	stream.WriteObjectStart()
-	stream.WriteObjectField("detectedLabels")
-	stream.WriteRaw(string(bRes))
-	stream.WriteObjectEnd()
+	stream.ObjStart()
+	stream.FieldStart("detectedLabels")
+	stream.Raw(bRes)
+	stream.ObjEnd()
 
-	w.Write(stream.Buffer())
+	w.Write(stream.Buf)
 }
 
 func (q *VolumeController) DetectedFields(w http.ResponseWriter, r *http.Request) {
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
+	stream := &jx.Writer{}
 
-	stream.WriteObjectStart()
-	stream.WriteObjectField("fields")
-	stream.WriteArrayStart()
-	stream.WriteArrayEnd()
-	stream.WriteObjectEnd()
+	stream.ObjStart()
+	stream.FieldStart("fields")
+	stream.ArrStart()
+	stream.ArrEnd()
+	stream.ObjEnd()
 
-	w.Write(stream.Buffer())
+	w.Write(stream.Buf)
 }
 
 func (q *VolumeController) Patterns(w http.ResponseWriter, r *http.Request) {
@@ -156,23 +153,21 @@ func (q *VolumeController) Patterns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	bRes, err := jsoniter.Marshal(res)
+	bRes, err := json.Marshal(res, jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
 
-	json := jsoniter.ConfigFastest
-	stream := json.BorrowStream(nil)
-	defer json.ReturnStream(stream)
+	stream := &jx.Writer{}
 
-	stream.WriteObjectStart()
-	stream.WriteObjectField("status")
-	stream.WriteString("success")
-	stream.WriteMore()
-	stream.WriteObjectField("data")
-	stream.WriteRaw(string(bRes))
-	stream.WriteObjectEnd()
+	stream.ObjStart()
+	stream.FieldStart("status")
+	stream.Str("success")
+	stream.Comma()
+	stream.FieldStart("data")
+	stream.Raw(bRes)
+	stream.ObjEnd()
 
-	w.Write(stream.Buffer())
+	w.Write(stream.Buf)
 }
