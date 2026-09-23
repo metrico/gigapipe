@@ -29,7 +29,6 @@ require (
 	github.com/prometheus/prometheus v0.314.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
-	github.com/valyala/fastjson v1.6.10
 	go.opentelemetry.io/collector/pdata v1.67.0
 	go.opentelemetry.io/collector/pdata/pprofile v0.161.0
 	go.opentelemetry.io/proto/otlp v1.11.0
