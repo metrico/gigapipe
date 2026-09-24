@@ -3,12 +3,12 @@ package router
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
 	readermodel "github.com/metrico/qryn/v5/reader/model"
 	readerregistry "github.com/metrico/qryn/v5/reader/registry"
@@ -63,7 +63,7 @@ func maxLogQLResultBytes() int {
 // It must be called after writer.Init and reader.Init so the writer's insert
 // registry / fingerprint cache / ClickHouse client and the reader's registry
 // are all ready.
-func Init(cfg *clconfig.ClokiConfig, app *mux.Router) {
+func Init(cfg *clconfig.ClokiConfig, app *http.ServeMux) {
 	if !Enabled() {
 		return
 	}

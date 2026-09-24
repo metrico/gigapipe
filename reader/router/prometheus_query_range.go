@@ -2,9 +2,9 @@ package router
 
 import (
 	"log/slog"
+	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/reader/config"
 	controllerv1 "github.com/metrico/qryn/v5/reader/controller"
 	"github.com/metrico/qryn/v5/reader/model"
@@ -41,7 +41,7 @@ func NewPromEngine(maxSamples int) *promql.Engine {
 	})
 }
 
-func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
+func RoutePrometheusQueryRange(app *http.ServeMux, dataSession model.IDBRegistry,
 	stats bool,
 ) {
 	eng := NewPromEngine(config.Cloki.Setting.SYSTEM_SETTINGS.MetricsMaxSamples)
@@ -54,6 +54,8 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 		Storage:    &svc,
 		Stats:      stats,
 	}
-	app.HandleFunc("/api/v1/query_range", ctrl.QueryRange).Methods("GET", "POST", "OPTIONS")
-	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST", "OPTIONS")
+	app.HandleFunc("GET /api/v1/query_range", ctrl.QueryRange)
+	app.HandleFunc("POST /api/v1/query_range", ctrl.QueryRange)
+	app.HandleFunc("GET /api/v1/query", ctrl.QueryInstant)
+	app.HandleFunc("POST /api/v1/query", ctrl.QueryInstant)
 }

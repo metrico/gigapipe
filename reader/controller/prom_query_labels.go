@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/metrico/qryn/v5/reader/service"
 )
@@ -65,7 +64,7 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 		PromError(400, err.Error(), w)
 		return
 	}
-	name := mux.Vars(r)["name"]
+	name := r.PathValue("name")
 	if name == "" {
 		PromError(400, "label name is required", w)
 		return

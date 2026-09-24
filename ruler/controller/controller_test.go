@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/ruler"
 	"gopkg.in/yaml.v3"
 )
@@ -47,13 +46,13 @@ func (f *fakeStore) GetAllRuleGroups(ctx context.Context) (ruler.NamespaceRuleGr
 	return f.allGroups, nil
 }
 
-func newRouter(c *Controller) *mux.Router {
-	r := mux.NewRouter()
-	r.HandleFunc("/loki/api/v1/rules/{namespace}", c.SetRuleGroup).Methods("POST")
-	r.HandleFunc("/loki/api/v1/rules/{namespace}/{group}", c.GetRuleGroup).Methods("GET")
-	r.HandleFunc("/loki/api/v1/rules/{namespace}", c.DeleteNamespace).Methods("DELETE")
-	r.HandleFunc("/loki/api/v1/rules/{namespace}/{group}", c.DeleteRuleGroup).Methods("DELETE")
-	r.HandleFunc("/api/v1/rules", c.PrometheusRules).Methods("GET")
+func newRouter(c *Controller) *http.ServeMux {
+	r := http.NewServeMux()
+	r.HandleFunc("POST /loki/api/v1/rules/{namespace}", c.SetRuleGroup)
+	r.HandleFunc("GET /loki/api/v1/rules/{namespace}/{group}", c.GetRuleGroup)
+	r.HandleFunc("DELETE /loki/api/v1/rules/{namespace}", c.DeleteNamespace)
+	r.HandleFunc("DELETE /loki/api/v1/rules/{namespace}/{group}", c.DeleteRuleGroup)
+	r.HandleFunc("GET /api/v1/rules", c.PrometheusRules)
 	return r
 }
 

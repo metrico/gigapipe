@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/writer/utils"
 	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
 )
@@ -16,8 +15,7 @@ func TargetDocV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Reque
 		append(cfg.ExtraMiddleware,
 			withTSAndSampleService,
 			withParserContext(func(w http.ResponseWriter, req *http.Request, parserCtx context.Context) (context.Context, error) {
-				vars := mux.Vars(req)
-				target := vars["target"]
+				target := req.PathValue("target")
 				firstSlash := strings.Index(target, "/")
 				if firstSlash != -1 {
 					target = target[:firstSlash]
@@ -25,7 +23,7 @@ func TargetDocV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Reque
 				_ctx := context.WithValue(parserCtx, utils.ContextKeyTarget, target)
 				// An absent {id} must not reach the parser: an empty value there
 				// is still a value, and the document gets an _id="" label.
-				if id := vars["id"]; id != "" {
+				if id := req.PathValue("id"); id != "" {
 					_ctx = context.WithValue(_ctx, utils.ContextKeyID, id)
 				}
 				return _ctx, nil
@@ -41,7 +39,7 @@ func TargetBulkV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 	return Build(append(cfg.ExtraMiddleware,
 		withTSAndSampleService,
 		withParserContext(func(w http.ResponseWriter, req *http.Request, parserCtx context.Context) (context.Context, error) {
-			_ctx := context.WithValue(parserCtx, utils.ContextKeyTarget, mux.Vars(req)["target"])
+			_ctx := context.WithValue(parserCtx, utils.ContextKeyTarget, req.PathValue("target"))
 			return _ctx, nil
 		}),
 		withSimpleParser("*", Parser(unmarshal.ElasticBulkUnmarshalV2)),
