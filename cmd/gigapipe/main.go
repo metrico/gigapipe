@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/grafana/pyroscope-go"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
@@ -318,35 +317,39 @@ func start() {
 		return
 	}
 
-	app := mux.NewRouter()
-	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
-	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
-		app.Use(middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin))
-	}
+	app := http.NewServeMux()
 	commonroutes.RegisterCommonRoutes(app)
-	app.Use(middleware.AcceptEncodingMiddleware)
-	if cfg.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
-		cfg.Setting.AUTH_SETTINGS.BASIC.Password != "" {
-		app.Use(middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
-			cfg.Setting.AUTH_SETTINGS.BASIC.Password))
-	}
 	cfg.Setting.LOG_SETTINGS.Stdout = true
 	for _, step := range bootSequence(cfg.Setting.SYSTEM_SETTINGS.Mode) {
 		step.run(cfg, app)
 	}
+
+	// Built inside out. The gzip writer depends on the logging writer's
+	// Flush/Unwrap sitting between it and the transport.
+	var handler http.Handler = app
+	if cfg.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
+		cfg.Setting.AUTH_SETTINGS.BASIC.Password != "" {
+		handler = middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
+			cfg.Setting.AUTH_SETTINGS.BASIC.Password)(handler)
+	}
+	handler = middleware.AcceptEncodingMiddleware(handler)
+	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
+		handler = middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin)(handler)
+	}
+	handler = middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}")(handler)
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	grpcOpts := writergrpc.Options{
 		BasicAuthUser: cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 		BasicAuthPass: cfg.Setting.AUTH_SETTINGS.BASIC.Password,
 	}
-	httpStart(app, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
+	httpStart(handler, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
 
 }
 
 // bootStep is one subsystem initializer in the HTTP boot sequence.
 type bootStep struct {
 	name string
-	run  func(cfg *clconfig.ClokiConfig, app *mux.Router)
+	run  func(cfg *clconfig.ClokiConfig, app *http.ServeMux)
 }
 
 // bootSequence returns the subsystem initializers to run, in order, for a mode.
@@ -358,22 +361,20 @@ type bootStep struct {
 //   - reader before ruler: the ruler evaluates rules through the reader registry
 //     that reader.Init populates; a ruler built before it captures a nil session
 //     and fails only later, when a rule is evaluated.
-//   - view last: it registers a catch-all "/" route that would otherwise shadow
-//     any API route registered after it.
 func bootSequence(mode string) []bootStep {
 	in := func(modes ...string) bool { return slices.Contains(modes, mode) }
 	var steps []bootStep
 	if in("all", "writer", "") {
-		steps = append(steps, bootStep{"writer", func(cfg *clconfig.ClokiConfig, app *mux.Router) { writer.Init(cfg, app) }})
+		steps = append(steps, bootStep{"writer", func(cfg *clconfig.ClokiConfig, app *http.ServeMux) { writer.Init(cfg, app) }})
 	}
 	if in("all", "reader", "") {
-		steps = append(steps, bootStep{"reader", func(cfg *clconfig.ClokiConfig, app *mux.Router) { reader.Init(cfg, app) }})
+		steps = append(steps, bootStep{"reader", func(cfg *clconfig.ClokiConfig, app *http.ServeMux) { reader.Init(cfg, app) }})
 	}
 	if in("all", "") {
-		steps = append(steps, bootStep{"ruler", func(cfg *clconfig.ClokiConfig, app *mux.Router) { rulerrouter.Init(cfg, app) }})
+		steps = append(steps, bootStep{"ruler", func(cfg *clconfig.ClokiConfig, app *http.ServeMux) { rulerrouter.Init(cfg, app) }})
 	}
 	if in("all", "reader", "") {
-		steps = append(steps, bootStep{"view", func(cfg *clconfig.ClokiConfig, app *mux.Router) { view.Init(cfg, app) }})
+		steps = append(steps, bootStep{"view", func(cfg *clconfig.ClokiConfig, app *http.ServeMux) { view.Init(cfg, app) }})
 	}
 	return steps
 }
@@ -413,7 +414,7 @@ func httpRoot(server http.Handler, mode string, grpcOpts writergrpc.Options) (ht
 	return writergrpc.Mux(server, grpcOpts), writergrpc.Protocols()
 }
 
-func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writergrpc.Options) {
+func httpStart(server http.Handler, httpURL string, mode string, grpcOpts writergrpc.Options) {
 	logger.Info("Starting service")
 	var err error
 	listener, err = net.Listen("tcp", httpURL)
