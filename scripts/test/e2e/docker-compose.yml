@@ -18,9 +18,13 @@ services:
       CLUSTER_NAME: "test_cluster_two_shards"
       CLICKHOUSE_SERVER: "e2e.clickhouse"
       CLICKHOUSE_AUTH: "qryn:q1w2e3r4"
-      QRYN_LOGIN: a
-      QRYN_PASSWORD: b
-      QRYN_RULER_ENABLED: "${QRYN_RULER_ENABLED:-true}"
+      # The stack is configured with the current GIGAPIPE_ names, so a green
+      # e2e run exercises shared/envalias against a real deployment. The
+      # interpolation source stays QRYN_RULER_ENABLED because that is what the
+      # Makefile exports.
+      GIGAPIPE_LOGIN: a
+      GIGAPIPE_PASSWORD: b
+      GIGAPIPE_RULER_ENABLED: "${QRYN_RULER_ENABLED:-true}"
       METRICS_15S_ENABLED: "${METRICS_15S_ENABLED:-true}"
       BULK_MAX_AGE_MS: "100"
       PORT: "9080"
