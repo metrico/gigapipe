@@ -11,7 +11,6 @@ func RouteMiscApis(app *mux.Router) {
 	}
 	// app.HandleFunc("/ready", m.Ready).Methods("GET")
 	// app.HandleFunc("/config", m.Config).Methods("GET")
-	app.HandleFunc("/api/v1/metadata", m.Metadata).Methods("GET", "OPTIONS")
 	app.HandleFunc("/api/v1/status/buildinfo", m.Buildinfo).Methods("GET", "OPTIONS")
 	// app.Handle("/metrics", promhttp.Handler()).Methods("GET")
 }
