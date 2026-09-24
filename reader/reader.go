@@ -1,10 +1,10 @@
 package reader
 
 import (
+	"net/http"
 	"runtime"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/model"
@@ -14,7 +14,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/watchdog"
 )
 
-func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
+func Init(cnf *clconfig.ClokiConfig, app *http.ServeMux) {
 	config.Cloki = cnf
 
 	// Set to max cpu if the value is equals 0
@@ -40,7 +40,7 @@ func Stop() {
 	logger.Info("Reader module stopped.")
 }
 
-func performV1APIRouting(acc *mux.Router) {
+func performV1APIRouting(acc *http.ServeMux) {
 	registry.Init()
 	watchdog.Init(&model.ServiceData{Session: registry.Registry})
 

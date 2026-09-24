@@ -5,13 +5,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
 )
 
 var config *clconfig.ClokiConfig
 
-func Init(cfg *clconfig.ClokiConfig, mux *mux.Router) {
+func Init(cfg *clconfig.ClokiConfig, mux *http.ServeMux) {
 	if !HaveStatic {
 		return
 	}
@@ -32,7 +31,7 @@ func Init(cfg *clconfig.ClokiConfig, mux *mux.Router) {
 	// Serve static files
 	viewPath := strings.TrimSuffix(config.Setting.ClokiReader.ViewPath, "/")
 	for _, path := range []string{
-		viewPath + "/",
+		viewPath + "/{$}",
 		viewPath + "/plugins",
 		viewPath + "/users",
 		viewPath + "/datasources",
@@ -47,5 +46,5 @@ func Init(cfg *clconfig.ClokiConfig, mux *mux.Router) {
 			w.Write(contents)
 		})
 	}
-	mux.PathPrefix(prefix).Handler(fileServer)
+	mux.Handle(strings.TrimSuffix(prefix, "/")+"/", fileServer)
 }

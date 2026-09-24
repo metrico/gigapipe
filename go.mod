@@ -15,7 +15,6 @@ require (
 	github.com/go-logfmt/logfmt v0.6.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/pprof v0.0.0-20260709232956-b9395ee17fa0
-	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/schema v1.4.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/grafana/pyroscope-go v1.4.2

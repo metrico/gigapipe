@@ -1,13 +1,14 @@
 package router
 
 import (
-	"github.com/gorilla/mux"
+	"net/http"
+
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/plugins"
 	"github.com/metrico/qryn/v5/reader/service"
 )
 
-func PluggableRoutes(app *mux.Router, dataSession model.IDBRegistry) {
+func PluggableRoutes(app *http.ServeMux, dataSession model.IDBRegistry) {
 	sd := model.ServiceData{
 		Session: dataSession,
 	}
