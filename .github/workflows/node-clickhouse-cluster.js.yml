@@ -1,4 +1,4 @@
-# This workflow will validate qryn using nodejs + clickhouse
+# This workflow will validate gigapipe using nodejs + clickhouse
 
 name: QRYN CI CLUSTER
 
@@ -21,12 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Checkout qryn-test repository
-      uses: actions/checkout@v4
-      with:
-        repository: metrico/qryn-test
-        path: ./deps/qryn-test
-        ref: main
+    - name: Check out the e2e test suite
+      run: make e2e-deps
     - name: Install Compose
       uses: ndeloof/install-compose-action@v0.0.1
       with:
