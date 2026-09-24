@@ -7,14 +7,12 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"net/http"
 	"time"
-
-	"github.com/gorilla/schema"
 )
 
 type queryInstantProps struct {
 	Raw struct {
-		Time  string `form:"time"`
-		Query string `form:"query"`
+		Time  string
+		Query string
 	}
 	Time  time.Time
 	Query string
@@ -85,19 +83,9 @@ func parseQueryInstantProps(r *http.Request) (queryInstantProps, error) {
 		if err != nil {
 			return res, err
 		}
-
-		dec := schema.NewDecoder()
-		err = dec.Decode(&res.Raw, r.Form)
-		if err != nil {
-			return res, err
-		}
 	}
-	if res.Raw.Query == "" {
-		res.Raw.Query = r.URL.Query().Get("query")
-	}
-	if res.Raw.Time == "" {
-		res.Raw.Time = r.URL.Query().Get("time")
-	}
+	res.Raw.Query = r.FormValue("query")
+	res.Raw.Time = r.FormValue("time")
 	res.Time, err = ParseTimeSecOrRFC(res.Raw.Time, time.Now())
 	if err != nil {
 		return res, err
