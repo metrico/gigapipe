@@ -37,7 +37,7 @@ func Init(cfg *clconfig.ClokiConfig, mux *http.ServeMux) {
 		viewPath + "/datasources",
 		viewPath + "/datasources/{ds}"} {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			contents, err := Static.ReadFile("/dist/index.html")
+			contents, err := Static.ReadFile("dist/index.html")
 			if err != nil {
 				w.WriteHeader(404)
 				return
