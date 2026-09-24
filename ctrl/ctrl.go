@@ -13,7 +13,7 @@ var projects = map[string]struct {
 	upgrade func(config []config.ClokiBaseDataBase, logger logger.ILogger) error
 	rotate  func(base []config.ClokiBaseDataBase, logger logger.ILogger) error
 }{
-	"qryn": {
+	"gigapipe": {
 		maintenance.InitDB,
 		maintenance.UpgradeAll,
 		maintenance.RotateAll,

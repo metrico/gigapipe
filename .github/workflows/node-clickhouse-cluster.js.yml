@@ -1,6 +1,6 @@
 # This workflow will validate gigapipe using nodejs + clickhouse
 
-name: QRYN CI CLUSTER
+name: Gigapipe CI Cluster
 
 on:
   push:
