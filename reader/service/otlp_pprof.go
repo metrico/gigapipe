@@ -105,6 +105,10 @@ func otlpToPProf(payload []byte) (*prof.Profile, error) {
 		for k := 0; k < s.Values().Len(); k++ {
 			v += s.Values().At(k)
 		}
+		// Timestamps-only sample (no values): one observation per timestamp.
+		if s.Values().Len() == 0 {
+			v = int64(s.TimestampsUnixNano().Len())
+		}
 		outSample := &prof.Sample{Value: []int64{v}}
 		if idx := s.StackIndex(); idx >= 0 && int(idx) < stacks.Len() {
 			li := stacks.At(int(idx)).LocationIndices()
