@@ -1030,3 +1030,51 @@ func TestFrameNameEmptyFunctionNameFallsBackToMapping(t *testing.T) {
 	}
 	t.Fatalf("expected %q, got %+v", want, functions)
 }
+
+// TestBuildOTLPTreeTimestampsOnly covers samples that carry only
+// timestamps_unix_nano and no values, as the OpenTelemetry eBPF profiler emits
+// for CPU samples: each timestamp is one observation.
+func TestBuildOTLPTreeTimestampsOnly(t *testing.T) {
+	profs := pprofile.NewProfiles()
+	dict := profs.Dictionary()
+	st := dict.StringTable()
+	st.Append("", "samples", "count", "main", "work") // 3=main, 4=work
+
+	f0 := dict.FunctionTable().AppendEmpty()
+	f0.SetNameStrindex(3)
+	f1 := dict.FunctionTable().AppendEmpty()
+	f1.SetNameStrindex(4)
+
+	l0 := dict.LocationTable().AppendEmpty()
+	l0.Lines().AppendEmpty().SetFunctionIndex(0)
+	l1 := dict.LocationTable().AppendEmpty()
+	l1.Lines().AppendEmpty().SetFunctionIndex(1)
+
+	stk := dict.StackTable().AppendEmpty()
+	stk.LocationIndices().Append(1, 0)
+
+	rp := profs.ResourceProfiles().AppendEmpty()
+	sp := rp.ScopeProfiles().AppendEmpty()
+	p := sp.Profiles().AppendEmpty()
+	p.SampleType().SetTypeStrindex(1)
+	p.SampleType().SetUnitStrindex(2)
+	s := p.Samples().AppendEmpty()
+	s.SetStackIndex(0)
+	s.TimestampsUnixNano().Append(100, 200, 300) // no values: 3 observations
+
+	_, tree, valuesAgg := buildOTLPTree(p, newOTLPFrameNamer(dict))
+
+	if len(valuesAgg) != 1 || valuesAgg[0].ValueInt64 != 3 || valuesAgg[0].ValueInt32 != 1 {
+		t.Fatalf("valuesAgg: %+v", valuesAgg)
+	}
+	workId := city.CH64([]byte("work"))
+	for _, n := range tree {
+		if n.Field2 == workId {
+			if got := n.ValueArrTuple[0]; got.FirstValueInt64 != 3 || got.SecondValueInt64 != 3 {
+				t.Fatalf("leaf self/total = %d/%d, want 3/3", got.FirstValueInt64, got.SecondValueInt64)
+			}
+			return
+		}
+	}
+	t.Fatalf("leaf node not found: %+v", tree)
+}
