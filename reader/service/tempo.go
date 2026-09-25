@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-faster/jx"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/plugins"
@@ -17,7 +19,6 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sqlselect "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
-	"github.com/valyala/fastjson"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
@@ -106,7 +107,6 @@ func (t *TempoService) OutputQuery(binIds bool, rows *sql.Rows) (chan *model.Spa
 	res := make(chan *model.SpanResponse)
 	go func() {
 		defer close(res)
-		parser := fastjson.Parser{}
 		for rows.Next() {
 			var zipkin zipkinPayload
 			err := rows.Scan(&zipkin.traceId, &zipkin.spanId, &zipkin.parentId,
@@ -121,7 +121,7 @@ func (t *TempoService) OutputQuery(binIds bool, rows *sql.Rows) (chan *model.Spa
 			)
 			switch zipkin.payloadType {
 			case 1:
-				span, serviceName, err = parseZipkinJSON(&zipkin, &parser, binIds)
+				span, serviceName, err = parseZipkinJSON(&zipkin)
 			case 2:
 				span, serviceName, err = parseOTLP(&zipkin)
 			}
@@ -412,129 +412,177 @@ func decodeParentId(parentId []byte) ([]byte, error) {
 	return res, err
 }
 
-func parseZipkinJSON(payload *zipkinPayload, parser *fastjson.Parser, _ bool) (*v1.Span, string, error) {
-	root, err := parser.Parse(payload.payload)
+// zipkinEndpoint holds the string fields of a zipkin endpoint in the order
+// they become span attributes: serviceName, ipv4, ipv6.
+type zipkinEndpoint struct {
+	vals [3]string
+	set  [3]bool
+	port int64
+}
+
+var zipkinEndpointAttrs = [3]string{"serviceName", "ipv4", "ipv6"}
+
+func (e *zipkinEndpoint) decode(d *jx.Decoder) error {
+	return zipkinObj(d, func(d *jx.Decoder, key string) (err error) {
+		for i, attr := range zipkinEndpointAttrs {
+			if key == attr {
+				e.vals[i], e.set[i], err = zipkinStr(d)
+				return err
+			}
+		}
+		if key == "port" {
+			e.port, err = zipkinInt(d)
+			return err
+		}
+		return d.Skip()
+	})
+}
+
+// zipkinStr, zipkinInt, zipkinObj and zipkinArr skip values of an unexpected
+// type instead of failing: a stored span with an odd field is still shown.
+func zipkinStr(d *jx.Decoder) (string, bool, error) {
+	if d.Next() != jx.String {
+		return "", false, d.Skip()
+	}
+	s, err := d.Str()
+	return s, err == nil, err
+}
+
+// zipkinInt returns 0 for anything but a plain decimal integer.
+func zipkinInt(d *jx.Decoder) (int64, error) {
+	if d.Next() != jx.Number {
+		return 0, d.Skip()
+	}
+	n, err := d.Num()
+	if err != nil {
+		return 0, err
+	}
+	v, _ := strconv.ParseInt(n.String(), 10, 64)
+	return v, nil
+}
+
+func zipkinObj(d *jx.Decoder, f func(d *jx.Decoder, key string) error) error {
+	if d.Next() != jx.Object {
+		return d.Skip()
+	}
+	return d.Obj(f)
+}
+
+func zipkinArr(d *jx.Decoder, f func(d *jx.Decoder) error) error {
+	if d.Next() != jx.Array {
+		return d.Skip()
+	}
+	return d.Arr(f)
+}
+
+func stringAttr(key, val string) *common.KeyValue {
+	return &common.KeyValue{
+		Key:   key,
+		Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: val}},
+	}
+}
+
+func parseZipkinJSON(payload *zipkinPayload) (*v1.Span, string, error) {
+	var (
+		kindStr, name, parentId string
+		hasParentId             bool
+		endpoints               [2]zipkinEndpoint
+	)
+	span := v1.Span{
+		TraceId:           []byte(payload.traceId[:16]),
+		SpanId:            []byte(payload.spanId[:8]),
+		StartTimeUnixNano: uint64(payload.startTimeNs),
+		EndTimeUnixNano:   uint64(payload.startTimeNs + payload.durationNs),
+		Attributes:        make([]*common.KeyValue, 0, 10),
+		Events:            make([]*v1.Span_Event, 0, 10),
+		Status:            &v1.Status{Code: v1.Status_STATUS_CODE_UNSET},
+	}
+	err := zipkinObj(jx.DecodeStr(payload.payload), func(d *jx.Decoder, key string) (err error) {
+		switch key {
+		case "kind":
+			kindStr, _, err = zipkinStr(d)
+		case "name":
+			name, _, err = zipkinStr(d)
+		case "parentId":
+			parentId, hasParentId, err = zipkinStr(d)
+		case "tags":
+			err = zipkinObj(d, func(d *jx.Decoder, key string) error {
+				val, ok, err := zipkinStr(d)
+				if ok {
+					span.Attributes = append(span.Attributes, stringAttr(key, val))
+				}
+				return err
+			})
+		case "localEndpoint":
+			err = endpoints[0].decode(d)
+		case "remoteEndpoint":
+			err = endpoints[1].decode(d)
+		case "annotations":
+			err = zipkinArr(d, func(d *jx.Decoder) error {
+				var (
+					ts  int64
+					val string
+				)
+				err := zipkinObj(d, func(d *jx.Decoder, key string) (err error) {
+					switch key {
+					case "timestamp":
+						ts, err = zipkinInt(d)
+					case "value":
+						val, _, err = zipkinStr(d)
+					default:
+						err = d.Skip()
+					}
+					return err
+				})
+				if ts > 0 {
+					span.Events = append(span.Events, &v1.Span_Event{TimeUnixNano: uint64(ts) * 1000, Name: val})
+				}
+				return err
+			})
+		default:
+			err = d.Skip()
+		}
+		return err
+	})
 	if err != nil {
 		return nil, "", err
 	}
-	kind := v1.Span_SPAN_KIND_UNSPECIFIED
-	switch string(root.GetStringBytes("kind")) {
+
+	span.Name = name
+	switch kindStr {
 	case "CLIENT":
-		kind = v1.Span_SPAN_KIND_CLIENT
+		span.Kind = v1.Span_SPAN_KIND_CLIENT
 	case "SERVER":
-		kind = v1.Span_SPAN_KIND_SERVER
+		span.Kind = v1.Span_SPAN_KIND_SERVER
 	case "PRODUCER":
-		kind = v1.Span_SPAN_KIND_PRODUCER
+		span.Kind = v1.Span_SPAN_KIND_PRODUCER
 	case "CONSUMER":
-		kind = v1.Span_SPAN_KIND_CONSUMER
+		span.Kind = v1.Span_SPAN_KIND_CONSUMER
 	}
-	traceId := payload.traceId
-	/*if binIds {
-		_traceId := make([]byte, 32)
-		_, err := hex.Decode(_traceId, traceId)
-		if err != nil {
-			fmt.Println(traceId)
-			fmt.Println(err)
-			return nil, "", err
-		}
-		traceId = _traceId
-	}*/
-	id := payload.spanId
-	/*if binIds {
-		_id := make([]byte, 16)
-		_, err := hex.Decode(_id, id)
-		if err != nil {
-			fmt.Println(id)
-			fmt.Println(err)
-			return nil, "", err
-		}
-		id = _id
-	}*/
-	span := v1.Span{
-		TraceId:                []byte(traceId[:16]),
-		SpanId:                 []byte(id[:8]),
-		TraceState:             "",
-		ParentSpanId:           nil,
-		Name:                   string(root.GetStringBytes("name")),
-		Kind:                   kind,
-		StartTimeUnixNano:      uint64(payload.startTimeNs),
-		EndTimeUnixNano:        uint64(payload.startTimeNs + payload.durationNs),
-		Attributes:             make([]*common.KeyValue, 0, 10),
-		DroppedAttributesCount: 0,
-		Events:                 make([]*v1.Span_Event, 0, 10),
-		DroppedEventsCount:     0,
-		Links:                  nil,
-		DroppedLinksCount:      0,
-		Status:                 nil, // todo we set status here.
-	}
-	parentId := root.GetStringBytes("parentId")
-	if parentId != nil {
-		bParentId, err := decodeParentId(parentId)
-		if err == nil {
+	if hasParentId {
+		if bParentId, err := decodeParentId([]byte(parentId)); err == nil {
 			span.ParentSpanId = bParentId
-		}
-	}
-	attrs := root.GetObject("tags")
-	serviceName := ""
-	if attrs != nil {
-		attrs.Visit(func(key []byte, v *fastjson.Value) {
-			if v.Type() != fastjson.TypeString {
-				return
-			}
-			span.Attributes = append(span.Attributes, &common.KeyValue{
-				Key: string(key),
-				Value: &common.AnyValue{
-					Value: &common.AnyValue_StringValue{StringValue: string(v.GetStringBytes())},
-				},
-			})
-		})
-	}
-	for _, endpoint := range []string{"localEndpoint", "remoteEndpoint"} {
-		ep := root.GetObject(endpoint)
-		if ep == nil {
-			continue
-		}
-		for _, attr := range []string{"serviceName", "ipv4", "ipv6"} {
-			_val := ep.Get(attr)
-			if _val == nil || _val.Type() != fastjson.TypeString {
-				continue
-			}
-			if serviceName == "" && attr == "serviceName" {
-				serviceName = string(_val.GetStringBytes())
-			}
-			span.Attributes = append(span.Attributes, &common.KeyValue{
-				Key: endpoint + "." + attr,
-				Value: &common.AnyValue{
-					Value: &common.AnyValue_StringValue{StringValue: string(_val.GetStringBytes())},
-				},
-			})
-		}
-		port := root.GetInt64(endpoint, "port")
-		if port != 0 {
-			span.Attributes = append(span.Attributes, &common.KeyValue{
-				Key: endpoint + ".port",
-				Value: &common.AnyValue{
-					Value: &common.AnyValue_IntValue{IntValue: port},
-				},
-			})
 		}
 	}
 	// service.name belongs in the resource (added by tempoController), not in span attributes.
 	// Adding it here would cause Grafana to emit duplicate service_name matchers in trace-to-logs queries.
-	for _, anno := range root.GetArray("annotations") {
-		ts := anno.GetUint64("timestamp") * 1000
-		if ts == 0 {
-			continue
+	serviceName := ""
+	for i, prefix := range [2]string{"localEndpoint", "remoteEndpoint"} {
+		ep := &endpoints[i]
+		for j, attr := range zipkinEndpointAttrs {
+			if !ep.set[j] {
+				continue
+			}
+			if serviceName == "" && j == 0 {
+				serviceName = ep.vals[j]
+			}
+			span.Attributes = append(span.Attributes, stringAttr(prefix+"."+attr, ep.vals[j]))
 		}
-		span.Events = append(span.Events, &v1.Span_Event{
-			TimeUnixNano: ts,
-			Name:         string(anno.GetStringBytes("value")),
-		})
-	}
-
-	if span.Status == nil {
-		span.Status = &v1.Status{
-			Code: v1.Status_STATUS_CODE_UNSET,
+		if ep.port != 0 {
+			span.Attributes = append(span.Attributes, &common.KeyValue{
+				Key:   prefix + ".port",
+				Value: &common.AnyValue{Value: &common.AnyValue_IntValue{IntValue: ep.port}},
+			})
 		}
 	}
 	return &span, serviceName, nil
