@@ -321,13 +321,13 @@ func (p *parserDoer) discoverServiceName(labels *[][]string) {
 	}
 }
 
-// stripSpecialLabels drops the __metric_*__ labels and, while ttlDays is 0,
-// the __ttl_days__ label, taking ttlDays from it. It returns the kept labels
-// and ttlDays.
-func stripSpecialLabels(labels [][]string, ttlDays uint16) ([][]string, uint16) {
+// stripSpecialLabels drops the __metric_*__ labels and, while ttlDays is 0 or
+// stripAllTTL is set, the __ttl_days__ label, taking ttlDays from it. It
+// returns the kept labels and ttlDays.
+func stripSpecialLabels(labels [][]string, ttlDays uint16, stripAllTTL bool) ([][]string, uint16) {
 	filtered := make([][]string, 0, len(labels)+1)
 	for _, label := range labels {
-		if label[0] == "__ttl_days__" && ttlDays == 0 {
+		if label[0] == "__ttl_days__" && (ttlDays == 0 || stripAllTTL) {
 			if ttl, err := strconv.ParseInt(label[1], 10, 16); err == nil {
 				ttlDays = uint16(ttl)
 			}
@@ -347,7 +347,7 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	// Extract metadata from labels
 	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
 
-	filtered, ttlDays := stripSpecialLabels(labels, p.ttlDays)
+	filtered, ttlDays := stripSpecialLabels(labels, p.ttlDays, false)
 
 	p.discoverServiceName(&filtered)
 
