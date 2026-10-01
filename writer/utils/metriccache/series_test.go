@@ -1,6 +1,10 @@
 package metriccache
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/metrico/qryn/v5/writer/utils/metadata"
+)
 
 func TestSeriesFirstSightAndReset(t *testing.T) {
 	s := NewSeries()
@@ -21,7 +25,7 @@ func TestSeriesFirstSightAndReset(t *testing.T) {
 
 func TestSeriesMetadataChanged(t *testing.T) {
 	s := NewSeries()
-	m := Metadata{Type: "counter", Help: "Requests.", Unit: ""}
+	m := metadata.Entry{Type: "counter", Help: "Requests.", Unit: ""}
 	if !s.MetadataChanged("http_requests_total", m) {
 		t.Fatal("first metadata of a family must emit its row")
 	}
