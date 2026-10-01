@@ -236,9 +236,9 @@ func TestQueryExemplarsGroupsExemplarsPerSeries(t *testing.T) {
 	}
 }
 
-func TestQueryExemplarsWithoutASelectorIsEmpty(t *testing.T) {
+func TestQueryExemplarsWithoutASelectorIsNull(t *testing.T) {
 	app, db := serveLabels(t, fakeclickhouse.Result{})
-	if res := getLabels(t, app, "/api/v1/query_exemplars?query=1", http.StatusOK); string(res.Data) != `[]` {
+	if res := getLabels(t, app, "/api/v1/query_exemplars?query=1", http.StatusOK); string(res.Data) != `null` {
 		t.Fatalf("data = %s", res.Data)
 	}
 	if q := db.Queries(); len(q) != 0 {
@@ -250,4 +250,17 @@ func TestQueryExemplarsRejectBadParameters(t *testing.T) {
 	app, _ := serveLabels(t, fakeclickhouse.Result{})
 	getLabels(t, app, "/api/v1/query_exemplars?query=up{", http.StatusBadRequest)
 	getLabels(t, app, "/api/v1/query_exemplars?query=up&start=20&end=10", http.StatusBadRequest)
+}
+
+func TestLabelValuesUnescapeAUTF8Name(t *testing.T) {
+	app, db := serveLabels(t, strings1("value", "GET"))
+	res := getLabels(t, app, "/api/v1/label/U__http_2e_method/values", http.StatusOK)
+	if string(res.Data) != `["GET"]` {
+		t.Fatalf("data = %s", res.Data)
+	}
+	want := "SELECT DISTINCT labels['http.method'] AS value FROM metric_series " +
+		"WHERE labels['http.method'] != '' ORDER BY value"
+	if q := onlyQuery(t, db); q != want {
+		t.Fatalf("query = %s", q)
+	}
 }
