@@ -2,6 +2,7 @@ package metricread
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/metrico/qryn/v5/reader/utils/tables"
@@ -15,7 +16,8 @@ type IndexQuery struct {
 	Selectors [][]*labels.Matcher
 	// StartMs and EndMs bound the series' lifetime in unix milliseconds; nil drops the bound.
 	StartMs, EndMs *int64
-	// Limit reads one row more than it, for the truncation warning; 0 reads every row.
+	// Limit reads one row more than it, for the truncation warning; 0 or math.MaxInt reads
+	// every row.
 	Limit int
 	// Cluster reads the distributed table.
 	Cluster bool
@@ -118,7 +120,7 @@ func (q IndexQuery) where(extra ...string) string {
 }
 
 func (q IndexQuery) limit() string {
-	if q.Limit <= 0 {
+	if q.Limit <= 0 || q.Limit == math.MaxInt {
 		return ""
 	}
 	return fmt.Sprintf(" LIMIT %d", q.Limit+1)

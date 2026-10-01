@@ -1,6 +1,7 @@
 package metricread
 
 import (
+	"math"
 	"testing"
 
 	"github.com/prometheus/prometheus/model/labels"
@@ -142,6 +143,14 @@ func TestExemplarsSQLOnAClusterReadsLocalSeriesUnderTheDistributedTable(t *testi
 		"WHERE e.fingerprint IN (SELECT fingerprint FROM fp) " +
 		"ORDER BY e.fingerprint, e.timestamp " +
 		"LIMIT 1 BY e.fingerprint, e.timestamp, e.trace_id"
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestTheLargestLimitReadsEveryRow(t *testing.T) {
+	got := LabelNamesSQL(IndexQuery{Limit: math.MaxInt})
+	want := "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
