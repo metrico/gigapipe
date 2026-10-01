@@ -10,8 +10,6 @@ import (
 	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 )
 
-const metricBatchFlushBytes = 1 * 1024 * 1024
-
 type metricExemplar struct {
 	labels [][]string
 	tsMs   int64
@@ -34,8 +32,8 @@ type metricSampleKey struct {
 	tsMs int64
 }
 
-// metricBatch accumulates the rows of the four metric insert services until
-// a flush hands them to the parser's response channel.
+// metricBatch accumulates one request's rows for the four metric insert
+// services; flush hands them to the parser's response channel.
 type metricBatch struct {
 	node      *metriccache.Node
 	res       chan *model.ParserResponse
@@ -58,10 +56,6 @@ func (b *metricBatch) reset() {
 	b.series = &model.MetricSeriesData{}
 	b.metadata = &model.MetricMetadataData{}
 	b.exemplars = &model.MetricExemplarsData{}
-}
-
-func (b *metricBatch) size() int {
-	return b.samples.Size + b.series.Size + b.metadata.Size + b.exemplars.Size
 }
 
 // flush fills each staging row's predecessor columns in row order and sends
@@ -125,7 +119,7 @@ func (p *parserDoer) onMetricMetadata(name string, m metadata.Entry) error {
 // onMetricSamples is the metric entry point: it strips __ttl_days__ and the
 // __metric_*__ labels, adds service_name, fingerprints the label set and
 // batches the series' staging, series, metadata and exemplar rows. A later
-// sample of the same (series, ms) in the batch replaces the earlier one.
+// sample of the same (series, ms) in the request replaces the earlier one.
 func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, values []float64,
 	exemplars []metricExemplar,
 ) error {
@@ -198,9 +192,6 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 		e.Size += 24 + len(traceID) + len(encoded)
 	}
 
-	if b.size() > metricBatchFlushBytes {
-		b.flush()
-	}
 	return nil
 }
 
