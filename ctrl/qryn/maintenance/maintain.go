@@ -153,8 +153,12 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 		}
 		metrics15sTTLDays = n
 	}
+	tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+	if err != nil {
+		return err
+	}
 	return Rotate(connDb, dbObject.ClusterName, dbObject.ClusterName != "",
-		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, dbObject.StoragePolicy, logger.Logger)
+		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, tiers, dbObject.StoragePolicy, logger.Logger)
 }
 
 func RecodecDB(dbObject *config.ClokiBaseDataBase) error {
