@@ -24,22 +24,6 @@ func (v VersionInfo) IsVersionSupported(ver string, fromNS int64, toNS int64) bo
 // distributed wrapper) exists in the database.
 const CapMetrics15s = "cap_metrics_15s"
 
-// MarkerMetrics15s is the settings marker holding the unix time the metrics_15s
-// aggregation pipeline was last enabled. Absent on installs that never toggled
-// the pipeline; set to a far-future time while it is disabled.
-const MarkerMetrics15s = "metrics_15s"
-
-// Metrics15sAvailable reports whether metrics_15s can serve a query window
-// starting at fromNS: the table must exist, and the window must not reach back
-// before the pipeline was last enabled (older buckets were never materialized).
-func (v VersionInfo) Metrics15sAvailable(fromNS int64) bool {
-	if !v.HasCapability(CapMetrics15s) {
-		return false
-	}
-	t, ok := v[MarkerMetrics15s]
-	return !ok || fromNS >= t*1000000000
-}
-
 // CapStaleness is the server capability key for ORDER BY ... WITH FILL STALENESS,
 // which clickhouse added in 24.11. Below that the clause is a parse error, so it
 // must never be emitted; callers fall back to arrayJoin range expansion instead.

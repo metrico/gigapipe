@@ -60,11 +60,9 @@ func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.
 }
 
 func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	// Log rows flow into metrics_15s even when metric aggregation is opted
-	// out, so only a missing table forces the raw path here.
 	if ctx.VersionInfo != nil && !ctx.VersionInfo.HasCapability(dbversion.CapMetrics15s) {
-		// Same query shape over raw samples: count() per row replaces the
-		// merged count state.
+		// Without the rollup table, the same query shape reads raw log rows:
+		// count() per row replaces the merged count state.
 		var col sql.SQLObject
 		switch m.Function {
 		case "rate":
