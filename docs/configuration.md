@@ -68,7 +68,6 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 - **`ADVANCED_PROMETHEUS_MAX_SAMPLES`** - Maximum number of samples returned in Prometheus queries
 - **`ADVANCED_OMIT_EMPTY_VALUES`** - Omit empty values in query results (`true`, `false`)
 - **`OMIT_CREATE_TABLES`** - Skip table creation on startup (`true`, `false`)
-- **`COMPAT_4_0_19`** - Enable compatibility mode for v4.0.19 behavior (`true`, `false`)
 
 ## Storage and Retention
 
