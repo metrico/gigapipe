@@ -293,23 +293,29 @@ func parseLimit(s string) (int, error) {
 	}
 	limit, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, fmt.Errorf("invalid parameter 'limit': %w", err)
+		return 0, fmt.Errorf("invalid parameter %q: %w", "limit", err)
 	}
 	if limit < 0 {
-		return 0, errors.New("invalid parameter 'limit': limit must be non-negative")
+		return 0, fmt.Errorf("invalid parameter %q: limit must be non-negative", "limit")
 	}
 	return limit, nil
 }
 
+// Prometheus's formatted MinTime and MaxTime, which clients send for an open bound.
+const (
+	promMinTime = "-292273086-05-16T16:47:06Z"
+	promMaxTime = "292277025-08-18T07:12:54.999999999Z"
+)
+
 // optionalTimeMs parses a time in Unix seconds with fractions or RFC3339 into unix
-// milliseconds; an empty value is nil.
+// milliseconds; an empty value or Prometheus's MinTime or MaxTime is nil.
 func optionalTimeMs(s string, name string) (*int64, error) {
-	if s == "" {
+	if s == "" || s == promMinTime || s == promMaxTime {
 		return nil, nil
 	}
 	t, err := parsePromTime(s)
 	if err != nil {
-		return nil, fmt.Errorf("invalid parameter '%s': %w", name, err)
+		return nil, fmt.Errorf("invalid parameter %q: invalid time value for '%s': %w", name, name, err)
 	}
 	ms := t.UnixMilli()
 	return &ms, nil
