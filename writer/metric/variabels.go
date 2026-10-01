@@ -14,6 +14,10 @@ var (
 		Name: "connection_reset_by_peer_count",
 		Help: "The total number of connections reset by peer",
 	})
+	IngestRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ingest_rejected_count",
+		Help: "The total number of ingested items dropped, by reason",
+	}, []string{"reason"})
 	SentRows = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "sent_rows",
 		Help: "The total number of rows sent",

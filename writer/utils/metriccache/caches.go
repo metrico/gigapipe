@@ -1,6 +1,7 @@
 package metriccache
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -78,4 +79,17 @@ func (c *Caches) run() {
 			return
 		}
 	}
+}
+
+type ctxKey struct{}
+
+// NewContext returns ctx carrying the node's metric caches.
+func NewContext(ctx context.Context, n *Node) context.Context {
+	return context.WithValue(ctx, ctxKey{}, n)
+}
+
+// FromContext returns the metric caches ctx carries, or nil.
+func FromContext(ctx context.Context) *Node {
+	n, _ := ctx.Value(ctxKey{}).(*Node)
+	return n
 }

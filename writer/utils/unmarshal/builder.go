@@ -91,6 +91,7 @@ type parserBuilder struct {
 	LogsParser    func(ctx *ParserCtx) iLogsParser
 	ProfileParser func(ctx *ParserCtx) iProfilesParser
 	SpansParser   func(ctx *ParserCtx) iSpansParser
+	MetricsParser func(ctx *ParserCtx) iMetricsParser
 	payloadType   int8
 }
 
@@ -99,6 +100,7 @@ type parserDoer struct {
 	LogsParser    iLogsParser
 	SpansParser   iSpansParser
 	ProfileParser iProfilesParser
+	MetricsParser iMetricsParser
 	ctx           *ParserCtx
 	ttlDays       uint16
 
@@ -109,6 +111,7 @@ type parserDoer struct {
 	profile     *model.ProfileData
 	spans       *model.TempoSamples
 	attrs       *model.TempoTag
+	metrics     *metricBatch
 }
 
 func (p *parserDoer) Do() chan *model.ParserResponse {
@@ -127,6 +130,8 @@ func (p *parserDoer) Do() chan *model.ParserResponse {
 		p.doParseSpans()
 	} else if p.ProfileParser != nil {
 		p.doParseProfile()
+	} else if p.MetricsParser != nil {
+		p.doParseMetrics()
 	}
 
 	return p.res
@@ -460,6 +465,8 @@ func Build(options ...buildOption) ParsingFunction {
 			doer.LogsParser = builder.LogsParser(doer.ctx)
 		} else if builder.SpansParser != nil {
 			doer.SpansParser = builder.SpansParser(doer.ctx)
+		} else if builder.MetricsParser != nil {
+			doer.MetricsParser = builder.MetricsParser(doer.ctx)
 		} else {
 			doer.ProfileParser = builder.ProfileParser(doer.ctx)
 		}

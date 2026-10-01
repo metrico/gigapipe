@@ -5,29 +5,23 @@ import (
 	"unsafe"
 
 	"github.com/VictoriaMetrics/fastcache"
+	"github.com/metrico/qryn/v5/writer/utils/metadata"
 )
 
 const seriesCacheBytes = 100 * 1024 * 1024
-
-// Metadata is a metric family's type, help and unit.
-type Metadata struct {
-	Type string
-	Help string
-	Unit string
-}
 
 // Series remembers the series and family metadata already written, until its
 // next Reset.
 type Series struct {
 	seen *fastcache.Cache
 	mtx  sync.Mutex
-	meta map[string]Metadata
+	meta map[string]metadata.Entry
 }
 
 func NewSeries() *Series {
 	return &Series{
 		seen: fastcache.New(seriesCacheBytes),
-		meta: make(map[string]Metadata),
+		meta: make(map[string]metadata.Entry),
 	}
 }
 
@@ -45,7 +39,7 @@ func (s *Series) FirstSight(fp uint64) bool {
 
 // MetadataChanged reports whether m differs from the family's recorded
 // metadata, and records it.
-func (s *Series) MetadataChanged(name string, m Metadata) bool {
+func (s *Series) MetadataChanged(name string, m metadata.Entry) bool {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 	if old, ok := s.meta[name]; ok && old == m {
@@ -60,5 +54,5 @@ func (s *Series) Reset() {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 	s.seen.Reset()
-	s.meta = make(map[string]Metadata)
+	s.meta = make(map[string]metadata.Entry)
 }
