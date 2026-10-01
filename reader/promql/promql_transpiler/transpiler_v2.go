@@ -1,18 +1,26 @@
 package promql_transpiler
 
 import (
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/optimizer"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-// optimizers replace the nodes they apply to with substitute selectors.
-var optimizers []func() optimizer.Optimizer
+// optimizers replace the nodes they apply to with substitute selectors evaluated at the
+// query's evaluation timestamps.
+var optimizers = []func(metricread.Grid) optimizer.Optimizer{
+	func(grid metricread.Grid) optimizer.Optimizer {
+		return &optimizer.Pushdown{Grid: grid, Lookback: engineLookbackDelta}
+	},
+}
 
-func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error) {
+// TranspileExpressionV2 replaces every node an optimizer applies to, outermost first, with a
+// substitute selector. grid holds the timestamps the query is evaluated at.
+func TranspileExpressionV2(expr *promql_parser.Expr, grid metricread.Grid) (*promql_parser.Expr, error) {
 	_expr, err := Walk(expr, expr.Expr, func(node parser.Expr) (parser.Expr, error) {
 		for _, opt := range optimizers {
-			_opt := opt()
+			_opt := opt(grid)
 			if _opt.Applicable(node) {
 				return _opt.Optimize(expr, node)
 			}
@@ -26,61 +34,51 @@ func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error
 	return expr, nil
 }
 
+// Walk calls fn on node, then, unless fn replaced it, on its children. It visits only nodes
+// evaluated at the query's own timestamps for their values: it does not enter range or
+// subquery selectors, nor the arguments of timestamp and absent.
 func Walk(expr *promql_parser.Expr, node parser.Expr, fn func(parser.Expr) (parser.Expr, error)) (parser.Expr, error) {
-	var err error
-	iterate := func(ps []*parser.Expr) {
-		for i := range ps {
-			var _child parser.Expr
-			_child, err = Walk(expr, *ps[i], fn)
+	res, err := fn(node)
+	if err != nil || res != node {
+		return res, err
+	}
+	iterate := func(ps ...*parser.Expr) error {
+		for _, p := range ps {
+			if *p == nil {
+				continue
+			}
+			child, err := Walk(expr, *p, fn)
 			if err != nil {
-				return
+				return err
 			}
-			if _child != *ps[i] {
-				*ps[i] = _child
-			}
+			*p = child
 		}
+		return nil
 	}
 
-	switch node.(type) {
+	switch n := node.(type) {
 	case *parser.AggregateExpr:
-		_node := node.(*parser.AggregateExpr)
-		iterate([]*parser.Expr{&_node.Expr, &_node.Param})
+		err = iterate(&n.Expr, &n.Param)
 	case *parser.BinaryExpr:
-		_node := node.(*parser.BinaryExpr)
-		iterate([]*parser.Expr{&_node.LHS, &_node.RHS})
+		err = iterate(&n.LHS, &n.RHS)
 	case *parser.Call:
-		_node := node.(*parser.Call)
-		_exprs := make([]*parser.Expr, len(_node.Args))
-		for i := range _node.Args {
-			_exprs[i] = &_node.Args[i]
+		if n.Func.Name == "timestamp" || n.Func.Name == "absent" {
+			break
 		}
-		iterate(_exprs)
-	case *parser.MatrixSelector:
-		_node := node.(*parser.MatrixSelector)
-		iterate([]*parser.Expr{&_node.VectorSelector})
-	case *parser.SubqueryExpr:
-		_node := node.(*parser.SubqueryExpr)
-		iterate([]*parser.Expr{&_node.Expr})
-	case *parser.NumberLiteral:
-		// No-op
+		for i := range n.Args {
+			if err = iterate(&n.Args[i]); err != nil {
+				break
+			}
+		}
 	case *parser.ParenExpr:
-		_node := node.(*parser.ParenExpr)
-		iterate([]*parser.Expr{&_node.Expr})
-		// No-op
-	case *parser.StringLiteral:
-		// No-op
+		err = iterate(&n.Expr)
 	case *parser.UnaryExpr:
-		_node := node.(*parser.UnaryExpr)
-		iterate([]*parser.Expr{&_node.Expr})
-	case *parser.VectorSelector:
-		// No-op
+		err = iterate(&n.Expr)
 	case *parser.StepInvariantExpr:
-		_node := node.(*parser.StepInvariantExpr)
-		iterate([]*parser.Expr{&_node.Expr})
+		err = iterate(&n.Expr)
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return fn(node)
+	return node, nil
 }
