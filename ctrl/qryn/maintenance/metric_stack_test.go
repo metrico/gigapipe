@@ -1,6 +1,7 @@
 package maintenance
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -70,29 +71,52 @@ func TestAggregateTiersTakeOnlyRowsMarkedAggregate(t *testing.T) {
 	}
 }
 
+// selectList returns a view's SELECT items keyed by their alias.
+func selectList(t *testing.T, view string) map[string]string {
+	t.Helper()
+	_, body, ok := strings.Cut(view, "\nSELECT\n")
+	body, _, ok2 := strings.Cut(body, "\nFROM ")
+	if !ok || !ok2 {
+		t.Fatalf("no SELECT list in:\n%s", view)
+	}
+	items := map[string]string{}
+	for _, item := range strings.Split(body, ",\n") {
+		item = strings.TrimSpace(item)
+		alias := item
+		if i := strings.LastIndex(item, " AS "); i >= 0 {
+			alias = item[i+len(" AS "):]
+		}
+		items[alias] = item
+	}
+	return items
+}
+
+var positiveStale = regexp.MustCompile(`\bstale\b`)
+
 func TestStaleMarkersAreKeptOutOfEveryAggregateState(t *testing.T) {
 	scripts := renderedMetricStack(t)
-	want := []string{
-		"reinterpretAsUInt64(value) = 0x7ff0000000000002 AS stale",
-		"reinterpretAsUInt64(prev_value) = 0x7ff0000000000002 AS prev_stale",
-		"AND NOT stale AND NOT prev_stale AS paired",
-		"minIfState((timestamp, value), NOT stale) AS first",
-		"maxIfState((timestamp, value), NOT stale) AS last",
-		"countIf(NOT stale) AS count",
-		"sumIf(value, NOT stale) AS sum",
-		"sumIf(value * value, NOT stale) AS sum_sq",
-		"minIfState(value, NOT stale) AS min",
-		"maxIfState(value, NOT stale) AS max",
-		"countIf(paired AND value < prev_value) AS resets",
-		"sumIf(prev_value, paired AND value < prev_value) AS reset_drop",
-		"countIf(paired AND value != prev_value AND NOT (isNaN(value) AND isNaN(prev_value))) AS changes",
-		"maxIf(timestamp, stale) AS stale_at",
-	}
 	for _, mv := range []string{"metrics_5m_mv", "metrics_1h_mv"} {
 		s := statement(t, scripts, mv)
-		for _, w := range want {
-			if !strings.Contains(s, w) {
-				t.Errorf("%s lacks %q", mv, w)
+		if !strings.Contains(s, "reinterpretAsUInt64(value) = 0x7ff0000000000002 AS stale") ||
+			!strings.Contains(s, "NOT stale AND NOT prev_stale AS paired") {
+			t.Errorf("%s does not define stale and paired over the stale marker:\n%s", mv, s)
+		}
+		items := selectList(t, s)
+		if len(items) != 13 {
+			t.Errorf("%s selects %d columns, want 13", mv, len(items))
+		}
+		for alias, item := range items {
+			if alias == "fingerprint" || alias == "bucket" {
+				continue
+			}
+			takesStale := positiveStale.MatchString(strings.ReplaceAll(item, "NOT stale", ""))
+			switch {
+			case alias == "stale_at" && !takesStale:
+				t.Errorf("%s: stale_at does not take the stale markers: %s", mv, item)
+			case alias != "stale_at" && takesStale:
+				t.Errorf("%s: %s takes the stale markers: %s", mv, alias, item)
+			case alias != "stale_at" && !strings.Contains(item, "NOT stale") && !strings.Contains(item, "paired"):
+				t.Errorf("%s: %s does not leave the stale markers out: %s", mv, alias, item)
 			}
 		}
 	}
