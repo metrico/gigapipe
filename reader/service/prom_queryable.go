@@ -17,6 +17,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/utils/cityhash102"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/annotations"
@@ -72,6 +73,15 @@ type CLokiQueriable struct {
 	Ctx   context.Context
 	Stats *StatsStore
 	Expr  *promql_parser.Expr
+	// Tiers routes each query to one tier; without it every read is raw.
+	Tiers *TierRouting
+}
+
+// TierRouting holds what tier selection reads besides the query: the tier lifetimes and the
+// METRICS_READ_TIER knob.
+type TierRouting struct {
+	Lifetimes metricretention.Tiers
+	Forced    string
 }
 
 func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
@@ -82,7 +92,23 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 	return &CLokiQuerier{
 		db:   db,
 		expr: c.Expr,
+		tier: c.tier(),
 	}, nil
+}
+
+// tier is the one tier the query is served from. A query that was not transpiled reads raw
+// unless a tier is forced.
+func (c *CLokiQueriable) tier() metricread.Tier {
+	if c.Tiers == nil {
+		return metricread.RawTier
+	}
+	if c.Expr == nil {
+		if t, ok := metricread.TierNamed(c.Tiers.Forced); ok {
+			return t
+		}
+		return metricread.RawTier
+	}
+	return metricread.SelectTier(c.Expr.Read, c.Tiers.Lifetimes, time.Now(), c.Tiers.Forced)
 }
 
 func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Expr) *CLokiQueriable {
@@ -90,12 +116,14 @@ func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Ex
 		ServiceData: c.ServiceData,
 		Ctx:         ctx,
 		Expr:        expr,
+		Tiers:       c.Tiers,
 	}
 }
 
 type CLokiQuerier struct {
 	db   *model.DataDatabasesMap
 	expr *promql_parser.Expr
+	tier metricread.Tier
 }
 
 // appendStaleMarker ends each run of a substitute series' points, taken one step apart, with a
@@ -161,15 +189,20 @@ func (c *CLokiQuerier) substitute(matchers []*labels.Matcher) *promql_parser.Sub
 	return nil
 }
 
-// selectRaw reads the selected series from the series index and hands the engine their raw
-// samples in the hinted interval [Start, End].
+// selectRaw reads the selected series from the series index and hands the engine their samples
+// in the hinted interval [Start, End]: raw samples, or from a tier each bucket's last sample
+// and the stale marker that follows it.
 func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints, matchers []*labels.Matcher) ([]*model.SeriesV2, error) {
 	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End}
 	lbls, err := c.readSeries(ctx, metricread.SeriesSQL(window, matchers))
 	if err != nil || len(lbls) == 0 {
 		return nil, err
 	}
-	rows, err := c.query(ctx, metricread.RawSamplesSQL(window, matchers))
+	samples := metricread.RawSamplesSQL(window, matchers)
+	if c.tier.WidthMs > 0 {
+		samples = metricread.TierSamplesSQL(window, c.tier, matchers)
+	}
+	rows, err := c.query(ctx, samples)
 	if err != nil {
 		return nil, err
 	}
@@ -191,9 +224,12 @@ func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints
 	return series, rows.Err()
 }
 
-// selectSubstitute evaluates a substitute's pushdown at the query's own timestamps.
+// selectSubstitute evaluates a substitute's pushdown at the query's own timestamps, from the
+// query's tier.
 func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute) ([]*model.SeriesV2, error) {
-	rows, err := c.query(ctx, metricread.PushdownSQL(sub.Pushdown))
+	pushdown := sub.Pushdown
+	pushdown.Tier = c.tier
+	rows, err := c.query(ctx, metricread.PushdownSQL(pushdown))
 	if err != nil {
 		return nil, err
 	}
