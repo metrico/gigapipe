@@ -72,7 +72,12 @@ func writeProbeAt(t *testing.T, t0 int64) (string, int64) {
 
 func remoteWrite(t *testing.T, series ...*prompb.TimeSeries) {
 	t.Helper()
-	body, err := proto.Marshal(&prompb.WriteRequest{Timeseries: series})
+	remoteWriteRequest(t, &prompb.WriteRequest{Timeseries: series})
+}
+
+func remoteWriteRequest(t *testing.T, req *prompb.WriteRequest) {
+	t.Helper()
+	body, err := proto.Marshal(req)
 	if err != nil {
 		t.Fatal(err)
 	}
