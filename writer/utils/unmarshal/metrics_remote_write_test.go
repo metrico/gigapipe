@@ -129,6 +129,9 @@ func samples(tv ...float64) []*prompb.Sample {
 	return res
 }
 
+// staleMarkerBits is the Prometheus stale marker NaN.
+const staleMarkerBits uint64 = 0x7ff0000000000002
+
 // Fingerprints computed with master's fingerprintLabels (CityHash) over the
 // label set with service_name added.
 const (
@@ -227,7 +230,7 @@ func TestRemoteWriteInBatchDuplicatesLastWins(t *testing.T) {
 func TestRemoteWritePredecessorsAcrossRequests(t *testing.T) {
 	withCityHashFingerprints(t)
 	node := newNode(t)
-	staleNaN := math.Float64frombits(metriccache.StaleMarkerBits)
+	staleNaN := math.Float64frombits(staleMarkerBits)
 	pushRemoteWrite(t, node, &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
 		{Labels: lbls("__name__", "up"), Samples: samples(1000, 1, 2000, 2)},
 	}})
@@ -254,7 +257,7 @@ func TestRemoteWritePredecessorsAcrossRequests(t *testing.T) {
 		}
 	}
 	marker := rows.staging[2]
-	if math.Float64bits(marker.value) != metriccache.StaleMarkerBits {
+	if math.Float64bits(marker.value) != staleMarkerBits {
 		t.Fatalf("stale marker must reach the staging row bit-exact, got %#x", math.Float64bits(marker.value))
 	}
 	if marker.tsMs != 3000 || marker.prevTsMs != 2000 || marker.prevValue != 2 || marker.aggregate != 1 {

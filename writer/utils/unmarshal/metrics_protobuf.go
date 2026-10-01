@@ -56,14 +56,11 @@ func (l *promMetricsProtoDec) Decode() error {
 		}
 	}
 	for _, m := range req.GetMetadata() {
-		err := l.onMetricMetadata(m.GetMetricFamilyName(), metadata.Entry{
+		l.onMetricMetadata(m.GetMetricFamilyName(), metadata.Entry{
 			Type: strings.ToLower(m.GetType().String()),
 			Help: m.GetHelp(),
 			Unit: m.GetUnit(),
 		})
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }

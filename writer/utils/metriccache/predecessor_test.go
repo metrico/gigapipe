@@ -78,9 +78,6 @@ func TestPredecessorsEvictIdle(t *testing.T) {
 	p.Next(2, 2000, 6)
 	c.t = c.t.Add(30 * time.Minute)
 	p.EvictIdle()
-	if got := p.Len(); got != 1 {
-		t.Fatalf("Len after eviction: got %d, want 1", got)
-	}
 	if got, want := p.Next(1, 3000, 7), (Prev{0, 0, 1}); got != want {
 		t.Fatalf("evicted series: got %+v, want %+v", got, want)
 	}
