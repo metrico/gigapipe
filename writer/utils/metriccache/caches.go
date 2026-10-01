@@ -15,11 +15,12 @@ const (
 // Node is the metric caches of one database node.
 type Node struct {
 	Predecessors *Predecessors
-	Series       *Series
+	Fingerprints *Fingerprints
+	Metadata     *Metadata
 }
 
-// Caches holds a Node per database node. The series caches are reset every
-// SeriesResetEvery and idle predecessors are evicted every minute.
+// Caches holds a Node per database node. The fingerprint and metadata caches
+// are reset every SeriesResetEvery and idle predecessors are evicted every minute.
 type Caches struct {
 	mtx   sync.Mutex
 	nodes map[string]*Node
@@ -41,7 +42,8 @@ func (c *Caches) Node(name string) *Node {
 	if !ok {
 		n = &Node{
 			Predecessors: NewPredecessors(PredecessorIdle, nil),
-			Series:       NewSeries(),
+			Fingerprints: NewFingerprints(),
+			Metadata:     NewMetadata(),
 		}
 		c.nodes[name] = n
 	}
@@ -72,7 +74,10 @@ func (c *Caches) run() {
 	for {
 		select {
 		case <-reset.C:
-			c.each(func(n *Node) { n.Series.Reset() })
+			c.each(func(n *Node) {
+				n.Fingerprints.Reset()
+				n.Metadata.Reset()
+			})
 		case <-evict.C:
 			c.each(func(n *Node) { n.Predecessors.EvictIdle() })
 		case <-c.stop:
