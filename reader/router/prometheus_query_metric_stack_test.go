@@ -148,7 +148,7 @@ func TestInstantQueryPushesDownTheAggregation(t *testing.T) {
 	}
 	q := onlyQuery(t, db)
 	for _, part := range []string{"WITH 120000 AS start_ms, 120000 AS end_ms, 1 AS step_ms, 300000 AS range_ms",
-		"has(['job'], x.1)", "sumKahan(value)"} {
+		"has(['job'], x.1)", "if(isFinite(sum(value)), sumKahan(value), sum(value))"} {
 		if !strings.Contains(q, part) {
 			t.Errorf("pushdown %s lacks %s", q, part)
 		}

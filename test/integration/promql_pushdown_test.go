@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,13 +25,18 @@ import (
 )
 
 // gaugeSamples is a gauge every 20s with negative values, rises and falls, ending at 06:40.
-// It is NaN at 00:20 and 03:00.
+// It is NaN at 00:20 and 03:00, +Inf at 04:00 and -Inf at 05:20.
 func gaugeSamples(t0 int64) []*prompb.Sample {
 	var res []*prompb.Sample
 	for n := int64(1); n <= 20; n++ {
 		v := float64(n*7%23) - 9.5
-		if n == 1 || n == 9 {
+		switch n {
+		case 1, 9:
 			v = math.NaN()
+		case 12:
+			v = math.Inf(1)
+		case 16:
+			v = math.Inf(-1)
 		}
 		res = append(res, &prompb.Sample{Timestamp: t0 + n*20000, Value: v})
 	}
@@ -104,8 +110,8 @@ func resultSeries(t *testing.T, res promResponse, shiftMs int64) series {
 			points = [][2]any{r.Value}
 		}
 		for _, p := range points {
-			var f float64
-			if _, err := fmt.Sscan(p[1].(string), &f); err != nil {
+			f, err := strconv.ParseFloat(p[1].(string), 64)
+			if err != nil {
 				t.Fatal(err)
 			}
 			pts[int64(math.Round(p[0].(float64)*1000))-shiftMs] = f
@@ -144,7 +150,8 @@ func sameSeries(got, want series) string {
 		}
 		for ts, w := range wp {
 			g, ok := gp[ts]
-			if !ok || math.IsNaN(g) != math.IsNaN(w) || math.Abs(g-w) > 1e-9*math.Max(1, math.Abs(w)) {
+			if !ok || math.IsNaN(g) != math.IsNaN(w) || math.IsInf(w, 0) && g != w ||
+				!math.IsInf(w, 0) && math.Abs(g-w) > 1e-9*math.Max(1, math.Abs(w)) {
 				return fmt.Sprintf("%s at %d: %v, want %v", lbls, ts, g, w)
 			}
 		}
