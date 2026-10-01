@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metrico/qryn/v5/writer/utils/metadata"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlpmetrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
@@ -76,6 +77,7 @@ type otlpMetricsDec struct {
 	onMetricSamples  onMetricSamplesHandler
 	onMetricMetadata onMetricMetadataHandler
 	stats            *OTLPMetricsStats
+	stored           int
 }
 
 func (d *otlpMetricsDec) SetOnMetricSamples(h onMetricSamplesHandler) {
@@ -195,40 +197,54 @@ func (d *otlpMetricsDec) Decode() error {
 	return nil
 }
 
+// decodeMetric stores one metric's points and, when any was stored, one
+// metadata row under the family name.
 func (d *otlpMetricsDec) decodeMetric(metric *otlpmetrics.Metric, rs *resourceScope) error {
+	stored := d.stored
+	name, metricType, err := d.decodePoints(metric, rs)
+	if err != nil || d.stored == stored {
+		return err
+	}
+	unit, _ := unitWords(metric.Unit)
+	d.onMetricMetadata(name, metadata.Entry{Type: metricType, Help: metric.Description, Unit: unit})
+	return nil
+}
+
+// decodePoints stores a metric's points and returns its family name and type.
+func (d *otlpMetricsDec) decodePoints(metric *otlpmetrics.Metric, rs *resourceScope) (string, string, error) {
 	switch data := metric.Data.(type) {
 	case *otlpmetrics.Metric_Gauge:
 		name := buildMetricName(metric.Name, metric.Unit, false)
-		return d.decodeNumberPoints(data.Gauge.DataPoints, name, "gauge", metric, rs)
+		return name, "gauge", d.decodeNumberPoints(data.Gauge.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_Sum:
 		if !d.checkTemporality(metric.Name, data.Sum.AggregationTemporality, len(data.Sum.DataPoints)) {
-			return nil
+			return "", "", nil
 		}
 		metricType := "gauge"
 		if data.Sum.IsMonotonic {
 			metricType = "counter"
 		}
 		name := buildMetricName(metric.Name, metric.Unit, data.Sum.IsMonotonic)
-		return d.decodeNumberPoints(data.Sum.DataPoints, name, metricType, metric, rs)
+		return name, metricType, d.decodeNumberPoints(data.Sum.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_Histogram:
 		if !d.checkTemporality(metric.Name, data.Histogram.AggregationTemporality, len(data.Histogram.DataPoints)) {
-			return nil
+			return "", "", nil
 		}
 		name := buildMetricName(metric.Name, metric.Unit, false)
-		return d.decodeHistogram(data.Histogram.DataPoints, name, metric, rs)
+		return name, "histogram", d.decodeHistogram(data.Histogram.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_ExponentialHistogram:
 		if !d.checkTemporality(metric.Name, data.ExponentialHistogram.AggregationTemporality, len(data.ExponentialHistogram.DataPoints)) {
-			return nil
+			return "", "", nil
 		}
 		name := buildMetricName(metric.Name, metric.Unit, false)
-		return d.decodeExponentialHistogram(data.ExponentialHistogram.DataPoints, name, metric, rs)
+		return name, "histogram", d.decodeExponentialHistogram(data.ExponentialHistogram.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_Summary:
 		name := buildMetricName(metric.Name, metric.Unit, false)
-		return d.decodeSummary(data.Summary.DataPoints, name, metric, rs)
+		return name, "summary", d.decodeSummary(data.Summary.DataPoints, name, metric, rs)
 	default:
 		d.stats.reject(0, fmt.Sprintf("metric %q: unknown data type", metric.Name))
 	}
-	return nil
+	return "", "", nil
 }
 
 // checkTemporality enforces the cumulative-only storage model: data points
@@ -244,10 +260,9 @@ func (d *otlpMetricsDec) checkTemporality(name string, t otlpmetrics.Aggregation
 
 // seriesLabels assembles the full label set of one stored series. Precedence,
 // lowest to highest: scope labels, data point attributes, identity labels
-// (__name__, job, instance) and explicitly passed extras (le, quantile),
-// metric metadata labels.
+// (__name__, job, instance) and explicitly passed extras (le, quantile).
 func (d *otlpMetricsDec) seriesLabels(name string, rs *resourceScope, pointAttrs []*otlpcommon.KeyValue,
-	extra [][2]string, metricType string, metric *otlpmetrics.Metric) [][]string {
+	extra [][2]string) [][]string {
 	merged := make(map[string]string, len(rs.scopeLabels)+len(pointAttrs)+len(extra)+8)
 	for _, p := range rs.scopeLabels {
 		merged[p[0]] = p[1]
@@ -262,13 +277,6 @@ func (d *otlpMetricsDec) seriesLabels(name string, rs *resourceScope, pointAttrs
 	}
 	for _, p := range extra {
 		merged[p[0]] = p[1]
-	}
-	merged["__metric_type__"] = metricType
-	if metric.Description != "" {
-		merged["__metric_help__"] = metric.Description
-	}
-	if u, _ := unitWords(metric.Unit); u != "" {
-		merged["__metric_unit__"] = u
 	}
 
 	lbls := make([][]string, 0, len(merged))
@@ -348,10 +356,11 @@ func bucketExemplars(exemplars []*otlpmetrics.Exemplar, bounds []float64, pointT
 // emit hands one sample to the metric entry point with its timestamp floored
 // to the millisecond.
 func (d *otlpMetricsDec) emit(lbls [][]string, tsNs int64, val float64, exemplars []metricExemplar) error {
+	d.stored++
 	return d.onMetricSamples(lbls, []int64{tsNs / int64(time.Millisecond)}, []float64{val}, exemplars)
 }
 
-func (d *otlpMetricsDec) decodeNumberPoints(points []*otlpmetrics.NumberDataPoint, name, metricType string,
+func (d *otlpMetricsDec) decodeNumberPoints(points []*otlpmetrics.NumberDataPoint, name string,
 	metric *otlpmetrics.Metric, rs *resourceScope) error {
 	for _, pt := range points {
 		if noRecordedValue(pt.Flags) {
@@ -375,7 +384,7 @@ func (d *otlpMetricsDec) decodeNumberPoints(points []*otlpmetrics.NumberDataPoin
 		for _, ex := range pt.Exemplars {
 			exemplars = append(exemplars, otlpExemplar(ex, ts))
 		}
-		lbls := d.seriesLabels(name, rs, pt.Attributes, nil, metricType, metric)
+		lbls := d.seriesLabels(name, rs, pt.Attributes, nil)
 		if err := d.emit(lbls, ts, val, exemplars); err != nil {
 			return err
 		}
@@ -422,25 +431,25 @@ func (d *otlpMetricsDec) decodeHistogram(points []*otlpmetrics.HistogramDataPoin
 				// _bucket{le="+Inf"} != _count.
 				infEmitted = true
 			}
-			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}}, "histogram", metric)
+			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}})
 			if err := d.emit(lbls, ts, float64(cumulative), exemplars[i]); err != nil {
 				return err
 			}
 		}
 		if !infEmitted {
-			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}}, "histogram", metric)
+			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}})
 			if err := d.emit(lbls, ts, float64(dp.Count), exemplars[len(bounds)]); err != nil {
 				return err
 			}
 		}
 
 		if dp.Sum != nil {
-			lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil, "histogram", metric)
+			lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil)
 			if err := d.emit(lbls, ts, *dp.Sum, nil); err != nil {
 				return err
 			}
 		}
-		lbls := d.seriesLabels(name+"_count", rs, dp.Attributes, nil, "histogram", metric)
+		lbls := d.seriesLabels(name+"_count", rs, dp.Attributes, nil)
 		if err := d.emit(lbls, ts, float64(dp.Count), nil); err != nil {
 			return err
 		}
@@ -481,7 +490,7 @@ func (d *otlpMetricsDec) decodeExponentialHistogram(points []*otlpmetrics.Expone
 		for i, upperBound := range bounds {
 			cumulative += dp.Positive.BucketCounts[i]
 			le := strconv.FormatFloat(upperBound, 'f', -1, 64)
-			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}}, "histogram", metric)
+			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}})
 			if err := d.emit(lbls, ts, float64(cumulative), exemplars[i]); err != nil {
 				return err
 			}
@@ -495,17 +504,17 @@ func (d *otlpMetricsDec) decodeExponentialHistogram(points []*otlpmetrics.Expone
 		if dp.Positive == nil || len(dp.Positive.BucketCounts) == 0 {
 			infValue = dp.Count
 		}
-		lblsInf := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}}, "histogram", metric)
+		lblsInf := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}})
 		if err := d.emit(lblsInf, ts, float64(infValue), exemplars[len(bounds)]); err != nil {
 			return err
 		}
 		if dp.Sum != nil {
-			lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil, "histogram", metric)
+			lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil)
 			if err := d.emit(lbls, ts, *dp.Sum, nil); err != nil {
 				return err
 			}
 		}
-		lbls := d.seriesLabels(name+"_count", rs, dp.Attributes, nil, "histogram", metric)
+		lbls := d.seriesLabels(name+"_count", rs, dp.Attributes, nil)
 		if err := d.emit(lbls, ts, float64(dp.Count), nil); err != nil {
 			return err
 		}
@@ -525,16 +534,16 @@ func (d *otlpMetricsDec) decodeSummary(points []*otlpmetrics.SummaryDataPoint, n
 		}
 		for _, q := range dp.QuantileValues {
 			quantile := strconv.FormatFloat(q.Quantile, 'f', -1, 64)
-			lbls := d.seriesLabels(name, rs, dp.Attributes, [][2]string{{"quantile", quantile}}, "summary", metric)
+			lbls := d.seriesLabels(name, rs, dp.Attributes, [][2]string{{"quantile", quantile}})
 			if err := d.emit(lbls, ts, q.Value, nil); err != nil {
 				return err
 			}
 		}
-		lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil, "summary", metric)
+		lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil)
 		if err := d.emit(lbls, ts, dp.Sum, nil); err != nil {
 			return err
 		}
-		lbls = d.seriesLabels(name+"_count", rs, dp.Attributes, nil, "summary", metric)
+		lbls = d.seriesLabels(name+"_count", rs, dp.Attributes, nil)
 		if err := d.emit(lbls, ts, float64(dp.Count), nil); err != nil {
 			return err
 		}
@@ -561,14 +570,17 @@ func (d *otlpMetricsDec) emitTargetInfo(rs *resourceScope) error {
 	if rs.instance != "" {
 		merged["instance"] = rs.instance
 	}
-	merged["__metric_type__"] = "gauge"
 	lbls := make([][]string, 0, len(merged))
 	for k, v := range merged {
 		lbls = append(lbls, []string{k, v})
 	}
 	slices.SortFunc(lbls, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
 
-	return d.emit(lbls, rs.lastTs, 1, nil)
+	if err := d.emit(lbls, rs.lastTs, 1, nil); err != nil {
+		return err
+	}
+	d.onMetricMetadata("target_info", metadata.Entry{Type: "gauge"})
+	return nil
 }
 
 // OTLPMetricsFromData builds a parser over an already-decoded MetricsData.
