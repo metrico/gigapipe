@@ -97,7 +97,7 @@ func instantValue(t *testing.T, query string, at int64) (string, bool) {
 func TestPromQLOverRemoteWrittenSamplesMatchesPrometheus(t *testing.T) {
 	waitReady(t)
 	name := fmt.Sprintf("it_probe_%d_total", time.Now().UnixNano())
-	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Minute).UnixMilli()
+	t0 := offFiveMinuteGrid()
 	body, err := proto.Marshal(&prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{{
 		Labels:  []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "probe"}},
 		Samples: probeSamples(t0),

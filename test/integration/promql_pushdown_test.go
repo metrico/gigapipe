@@ -48,7 +48,12 @@ func gaugeSamples(t0 int64) []*prompb.Sample {
 // 5m grid, so no query on a one-minute grid is an aligned read.
 func writeProbe(t *testing.T) (string, int64) {
 	t.Helper()
-	return writeProbeAt(t, time.Now().Add(-2*time.Hour).Truncate(5*time.Minute).Add(time.Minute).UnixMilli())
+	return writeProbeAt(t, offFiveMinuteGrid())
+}
+
+// offFiveMinuteGrid is a t0 about two hours back, one minute off the 5m grid.
+func offFiveMinuteGrid() int64 {
+	return time.Now().Add(-2 * time.Hour).Truncate(5 * time.Minute).Add(time.Minute).UnixMilli()
 }
 
 func writeProbeAt(t *testing.T, t0 int64) (string, int64) {
@@ -291,7 +296,7 @@ func counterSamples(t0, from, to int64) []*prompb.Sample {
 func TestPromQLPushdownOnSeriesSharingALabelSetOnceNamesAreDropped(t *testing.T) {
 	waitReady(t)
 	base := fmt.Sprintf("it_dup_%d", time.Now().UnixNano())
-	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Minute).UnixMilli()
+	t0 := offFiveMinuteGrid()
 	series := func(name, job string, from, to int64) *prompb.TimeSeries {
 		return &prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: base + name}, {Name: "job", Value: job}},
 			Samples: counterSamples(t0, from, to)}
