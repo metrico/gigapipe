@@ -22,6 +22,12 @@ func TestSelectTier(t *testing.T) {
 	instant := func(at int64) Read {
 		return Read{Grid: Grid{StartMs: at, EndMs: at}, EarliestMs: at - 5*minute}
 	}
+	// boundary is an unaligned read whose earliest instant lies offset ms after now − days.
+	boundary := func(days, offset int64) Read {
+		r := read(inRaw+minute, minute, minute)
+		r.EarliestMs = now.UnixMilli() - days*day + offset
+		return r
+	}
 	engine := read(inRaw, 5*minute, 5*minute)
 	engine.EngineReads = true
 
@@ -44,6 +50,10 @@ func TestSelectTier(t *testing.T) {
 		{"aligned to both grids past 5m", read(past(40), 60*minute, 60*minute), "", Tier1h},
 		{"unaligned past 5m", read(past(40)+minute, minute, minute), "", Tier1h},
 		{"past the 1h tier", read(past(400), 5*minute, 5*minute), "", Tier1h},
+		{"earliest read on raw's lifetime boundary", boundary(7, 0), "", RawTier},
+		{"earliest read 1ms past raw's lifetime", boundary(7, -1), "", Tier5m},
+		{"earliest read on the 5m tier's lifetime boundary", boundary(30, 0), "", Tier5m},
+		{"earliest read 1ms past the 5m tier's lifetime", boundary(30, -1), "", Tier1h},
 		{"raw forced past raw", read(past(40), 60*minute, 60*minute), "raw", RawTier},
 		{"5m forced unaligned inside raw", read(inRaw+minute, minute, minute), "5m", Tier5m},
 		{"5m forced past 5m", read(past(40), 60*minute, 60*minute), "5m", Tier5m},
