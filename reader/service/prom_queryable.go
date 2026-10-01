@@ -129,49 +129,13 @@ type CLokiQuerier struct {
 	versionInfo dbversion.VersionInfo
 }
 
-var supportedFunctions = map[string]bool{
-	// Over time
-	"avg_over_time":      true,
-	"min_over_time":      true,
-	"max_over_time":      true,
-	"sum_over_time":      true,
-	"count_over_time":    true,
-	"quantile_over_time": false,
-	"stddev_over_time":   false,
-	"stdvar_over_time":   false,
-	"last_over_time":     true,
-	"present_over_time":  true,
-	"absent_over_time":   true,
-	//instant
-	"":    true,
-	"abs": true, "absent": true, "ceil": true, "exp": true, "floor": true,
-	"ln": true, "log2": true, "log10": true, "round": true, "scalar": true,
-	"sgn": true, "sort": true, "sqrt": true, "timestamp": true, "atan": true,
-	"cos": true, "cosh": true, "sin": true, "sinh": true, "tan": true,
-	"tanh": true, "deg": true, "rad": true,
-	//agg
-	"sum":   true,
-	"min":   true,
-	"max":   true,
-	"group": true,
-	"avg":   true,
-}
-
 func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
-	isSupported, ok := supportedFunctions[hints.Func]
-
 	c.adjustHintsForRate(hints)
 
 	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
 		hints.Start = hints.Start / 15000 * 15000
 	}
-
-	useRawData := !versionInfo.Metrics15sAvailable((hints.Start-hints.Range)*1000000) ||
-		hints.Start%15000 != 0 ||
-		hints.Step < 15000 ||
-		(hints.Range > 0 && hints.Range < 15000) ||
-		!(isSupported || !ok)
 
 	start := hints.Start - hints.Range
 
@@ -201,10 +165,7 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		}
 	}
 
-	if useRawData {
-		return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
-	}
-	return promql_transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
+	return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
 }
 
 // prolongFunctions are the functions whose series the raw iterator carries
