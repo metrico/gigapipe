@@ -62,3 +62,30 @@ func TestInstantQueryWithNegativeOffset(t *testing.T) {
 		t.Fatalf("result = %s", rec.Body)
 	}
 }
+
+func TestRangeQueryEvaluatesAtTheRequestedTimestamps(t *testing.T) {
+	app := serveOneSeries(t)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/query_range?start=61&end=121&step=60&query=x", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var res struct {
+		Data struct {
+			Result []struct {
+				Values [][2]any `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Data.Result) != 1 {
+		t.Fatalf("result = %s", rec.Body)
+	}
+	want := [][2]any{{61.0, "7"}, {121.0, "8"}}
+	got := res.Data.Result[0].Values
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("values = %v, want %v", got, want)
+	}
+}
