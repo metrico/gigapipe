@@ -33,7 +33,7 @@ func (l *promMetricsProtoDec) Decode() error {
 		if n := len(ts.GetHistograms()); n > 0 {
 			metric.IngestRejected.WithLabelValues(RejectRemoteWriteNativeHistogram).Add(float64(n))
 		}
-		if len(ts.GetSamples()) == 0 {
+		if len(ts.GetSamples()) == 0 && len(ts.GetExemplars()) == 0 {
 			continue
 		}
 		labels := sanitizeLabels(protoLabels(ts.GetLabels()))
