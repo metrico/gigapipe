@@ -2,10 +2,8 @@ package plugins
 
 import (
 	"context"
-	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v5/reader/model"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -44,21 +42,6 @@ func RegisterGetTracesQueryPlugin(plugin GetTracesQueryPlugin) {
 
 func GetGetTracesQueryPlugin() *GetTracesQueryPlugin {
 	return getTracesQueryPlugin
-}
-
-type LabelsGetterPlugin interface {
-	GetLabelsQuery(ctx context.Context, conn *model.DataDatabasesMap,
-		fingerprints map[uint64]bool, from time.Time, to time.Time) sql.ISelect
-}
-
-var labelsGetterPlugin *LabelsGetterPlugin
-
-func RegisterLabelsGetterPlugin(plugin LabelsGetterPlugin) {
-	labelsGetterPlugin = &plugin
-}
-
-func GetLabelsGetterPlugin() *LabelsGetterPlugin {
-	return labelsGetterPlugin
 }
 
 type InitIndexPlannerPlugin func() shared.SQLRequestPlanner
