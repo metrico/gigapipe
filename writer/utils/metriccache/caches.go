@@ -4,11 +4,13 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/metrico/qryn/v5/shared/metricindex"
 )
 
 const (
 	predecessorIdle = time.Hour
-	resetEvery      = 30 * time.Minute
+	resetEvery      = metricindex.SeriesIndexLag
 	evictEvery      = time.Minute
 )
 
