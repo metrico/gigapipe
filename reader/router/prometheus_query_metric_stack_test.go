@@ -16,11 +16,18 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/fakeclickhouse"
 )
 
-// serveOneSeries routes the Prometheus query endpoints over a fake ClickHouse holding the
-// series x{job="probe"} with value 7 at 00:01 and 8 at 00:02, which answers every pushdown
-// with pushedDown.
+// serveOneSeries routes the Prometheus query endpoints, reading raw samples, over a fake
+// ClickHouse holding the series x{job="probe"} with value 7 at 00:01 and 8 at 00:02, which
+// answers every pushdown with pushedDown.
 func serveOneSeries(t *testing.T, pushedDown ...[]driver.Value) (*mux.Router, *fakeclickhouse.DB) {
 	t.Helper()
+	return serveOneSeriesFrom(t, "raw", pushedDown...)
+}
+
+// serveOneSeriesFrom is serveOneSeries with METRICS_READ_TIER set to tier.
+func serveOneSeriesFrom(t *testing.T, tier string, pushedDown ...[]driver.Value) (*mux.Router, *fakeclickhouse.DB) {
+	t.Helper()
+	t.Setenv("METRICS_READ_TIER", tier)
 	if config.Cloki == nil {
 		config.Cloki = clconfig.New(clconfig.CLOKI_READER, nil, "", "")
 	}
@@ -169,5 +176,13 @@ func TestRangeQueryRejectsAStepThePushdownCannotServe(t *testing.T) {
 		if q := db.Queries(); len(q) != 0 {
 			t.Errorf("%s: queries reached ClickHouse: %q", target, q)
 		}
+	}
+}
+
+func TestReadTierForcesTheTableEveryQueryReads(t *testing.T) {
+	app, db := serveOneSeriesFrom(t, "5m")
+	get(t, app, "/api/v1/query_range?start=60&end=300&step=60&query="+url.QueryEscape("rate(x[1m])"))
+	if q := onlyQuery(t, db); !strings.Contains(q, " FROM metrics_5m ") || strings.Contains(q, "metric_samples") {
+		t.Errorf("pushdown %s does not read the 5m tier only", q)
 	}
 }

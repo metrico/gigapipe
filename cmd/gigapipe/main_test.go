@@ -212,3 +212,11 @@ func TestStartRejectsACoarserTierShorterThanAFinerOne(t *testing.T) {
 		t.Errorf("portEnv = %v, want a METRICS_5M_DAYS error", err)
 	}
 }
+
+func TestStartRejectsAnUnknownReadTier(t *testing.T) {
+	t.Setenv("METRICS_READ_TIER", "15s")
+	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
+	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "METRICS_READ_TIER") {
+		t.Errorf("portEnv = %v, want a METRICS_READ_TIER error", err)
+	}
+}
