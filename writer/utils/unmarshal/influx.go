@@ -37,10 +37,9 @@ func getMessage(fields map[string]any) (string, error) {
 // influxDec reads line protocol: a line with a message field is a log entry,
 // any other line is one metric sample per numeric field.
 type influxDec struct {
-	ctx              *ParserCtx
-	onEntries        onEntriesHandler
-	onMetricSamples  onMetricSamplesHandler
-	onMetricMetadata onMetricMetadataHandler
+	ctx       *ParserCtx
+	onEntries onEntriesHandler
+	metricSink
 }
 
 func (e *influxDec) Decode() error {
@@ -134,14 +133,6 @@ func sanitizeMetricName(metricName string) string {
 
 func (e *influxDec) SetOnEntries(h onEntriesHandler) {
 	e.onEntries = h
-}
-
-func (e *influxDec) SetOnMetricSamples(h onMetricSamplesHandler) {
-	e.onMetricSamples = h
-}
-
-func (e *influxDec) SetOnMetricMetadata(h onMetricMetadataHandler) {
-	e.onMetricMetadata = h
 }
 
 var UnmarshalInfluxDBLogsV2 = Build(

@@ -28,6 +28,20 @@ type iMetricSink interface {
 	SetOnMetricMetadata(h onMetricMetadataHandler)
 }
 
+// metricSink holds a metric parser's entry-point handlers.
+type metricSink struct {
+	onMetricSamples  onMetricSamplesHandler
+	onMetricMetadata onMetricMetadataHandler
+}
+
+func (s *metricSink) SetOnMetricSamples(h onMetricSamplesHandler) {
+	s.onMetricSamples = h
+}
+
+func (s *metricSink) SetOnMetricMetadata(h onMetricMetadataHandler) {
+	s.onMetricMetadata = h
+}
+
 type iMetricsParser interface {
 	Decode() error
 	iMetricSink
