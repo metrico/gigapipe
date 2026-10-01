@@ -30,6 +30,8 @@ type MetricImportOptions struct {
 	Dist bool
 	// Instance names this instance in the lease.
 	Instance string
+	// Database names the database in each unit's query id.
+	Database string
 	// SamplesDays and RollupDays are the lifetimes of samples_v3 and metrics_15s.
 	SamplesDays int
 	RollupDays  int
@@ -69,16 +71,19 @@ func (o MetricImportOptions) withDefaults() MetricImportOptions {
 	return o
 }
 
-// RunMetricImport repeats ImportMetrics until the import is complete or ctx ends.
+// RunMetricImport repeats ImportMetrics until the import is complete or ctx ends,
+// logging each failure once until a different one occurs.
 func RunMetricImport(ctx context.Context, db clickhouse.Conn, opts MetricImportOptions) {
 	opts = opts.withDefaults()
+	logged := ""
 	for {
 		err := ImportMetrics(ctx, db, opts)
 		if err == nil {
 			return
 		}
-		if !errors.Is(err, ErrImportLeaseHeld) {
+		if !errors.Is(err, ErrImportLeaseHeld) && err.Error() != logged {
 			opts.Logger.Error("metric import: ", err.Error())
+			logged = err.Error()
 		}
 		if sleepCtx(ctx, opts.Retry) != nil {
 			return
@@ -111,8 +116,9 @@ func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOpt
 		return ErrImportLeaseHeld
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	renewed := make(chan struct{})
 	go func() {
+		defer close(renewed)
 		for sleepCtx(runCtx, opts.Renew) == nil {
 			if ok, err := lease.renew(runCtx); err != nil || !ok {
 				opts.Logger.Error("metric import: lease lost")
@@ -121,9 +127,14 @@ func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOpt
 			}
 		}
 	}()
-	defer lease.release(context.WithoutCancel(ctx))
-	job := &metricImport{db: db, records: records, tables: localImportTables, opts: opts}
-	if err = job.run(runCtx); err != nil {
+	job := &metricImport{db: db, records: records, lease: lease, tables: localImportTables, opts: opts}
+	err = job.run(runCtx)
+	cancel()
+	<-renewed
+	if releaseErr := lease.release(context.WithoutCancel(ctx)); err == nil {
+		err = releaseErr
+	}
+	if err != nil {
 		return err
 	}
 	if err = putSetting(db, "update", importRecordType, strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
@@ -133,11 +144,16 @@ func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOpt
 	return nil
 }
 
+// errImportLeaseLost reports that the lease passed to another instance during the run.
+var errImportLeaseLost = errors.New("the metric import lease passed to another instance")
+
 type metricImport struct {
 	db      clickhouse.Conn
 	records importRecords
+	lease   *importLease
 	tables  importTables
 	opts    MetricImportOptions
+	rollup  bool
 }
 
 func (j *metricImport) run(ctx context.Context) error {
@@ -145,11 +161,10 @@ func (j *metricImport) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	rollup, err := tableExists(j.db, j.tables.rollup)
-	if err != nil {
+	if j.rollup, err = tableExists(j.db, j.tables.rollup); err != nil {
 		return err
 	}
-	has, err := j.anyMetricRows(ctx, rollup)
+	has, err := j.anyMetricRows(ctx)
 	if err != nil || !has {
 		return err
 	}
@@ -167,7 +182,7 @@ func (j *metricImport) run(ctx context.Context) error {
 		}
 	}
 	var oldest15s time.Time
-	if rollup {
+	if j.rollup {
 		ns, ok, err := j.minNs(ctx, fmt.Sprintf("SELECT minOrNull(timestamp_ns) FROM %s WHERE %s AND timestamp_ns < %d",
 			j.tables.rollup, metricRows, floor.UnixNano()))
 		if err != nil {
@@ -178,21 +193,12 @@ func (j *metricImport) run(ctx context.Context) error {
 		}
 	}
 	plan := planImport(h0, floor, oldest15s, j.opts.RollupDays)
-	for _, p := range pendingUnits(append(plan.chunks, plan.spans...), recs) {
-		u := p.unit
-		if p.redo {
-			for _, q := range redoSQL(j.tables, u) {
-				if err = j.db.Exec(ctx, q); err != nil {
-					return err
-				}
-			}
-		}
+	for _, u := range append(plan.chunks, plan.spans...) {
 		query := chunkSQL(j.tables, u.from, u.to)
 		if u.kind == "15s" {
 			query = spanSQL(j.tables, u.from, u.to, floor)
 		}
-		j.opts.Logger.Info(fmt.Sprintf("metric import: %s (%s, %s]", u.kind, u.from.Format(time.RFC3339), u.to.Format(time.RFC3339)))
-		if err = j.unit(ctx, u.name(), func(ctx context.Context) error { return j.db.Exec(ctx, query) }); err != nil {
+		if err = j.copyUnit(ctx, u, query); err != nil {
 			return err
 		}
 	}
@@ -200,6 +206,38 @@ func (j *metricImport) run(ctx context.Context) error {
 		return err
 	}
 	return j.series(ctx)
+}
+
+// copyUnit runs a unit not recorded done, as read just before it while the lease is held.
+// A unit recorded started has its query killed and its tier buckets deleted first.
+func (j *metricImport) copyUnit(ctx context.Context, u importUnit, query string) error {
+	held, err := j.lease.held(ctx)
+	if err != nil {
+		return err
+	}
+	if !held {
+		return errImportLeaseLost
+	}
+	recs, err := j.records.all(ctx)
+	if err != nil {
+		return err
+	}
+	pending := pendingUnits([]importUnit{u}, recs)
+	if len(pending) == 0 {
+		return nil
+	}
+	queryID := unitQueryID(j.opts.Database, u.name())
+	if pending[0].redo {
+		for _, q := range append([]string{killSQL(queryID)}, redoSQL(j.tables, u)...) {
+			if err = j.db.Exec(ctx, q); err != nil {
+				return err
+			}
+		}
+	}
+	j.opts.Logger.Info(fmt.Sprintf("metric import: %s (%s, %s]", u.kind, u.from.Format(time.RFC3339), u.to.Format(time.RFC3339)))
+	return j.unit(ctx, u.name(), func(ctx context.Context) error {
+		return j.db.Exec(clickhouse.Context(ctx, clickhouse.WithQueryID(queryID)), query)
+	})
 }
 
 // unit records name started, runs it and records it done.
@@ -214,7 +252,7 @@ func (j *metricImport) unit(ctx context.Context, name string, run func(context.C
 }
 
 func (j *metricImport) series(ctx context.Context) error {
-	if err := j.db.Exec(ctx, seriesSQL(j.tables)); err != nil {
+	if err := j.db.Exec(ctx, seriesSQL(j.tables, j.rollup)); err != nil {
 		return err
 	}
 	return j.db.Exec(ctx, metadataSQL(j.tables))
@@ -239,9 +277,9 @@ func (j *metricImport) h0(ctx context.Context) (time.Time, error) {
 	return time.Unix(sec, 0).UTC().Truncate(time.Hour).Add(-time.Hour), nil
 }
 
-func (j *metricImport) anyMetricRows(ctx context.Context, rollup bool) (bool, error) {
+func (j *metricImport) anyMetricRows(ctx context.Context) (bool, error) {
 	tables := []string{j.tables.timeSeries, j.tables.samples}
-	if rollup {
+	if j.rollup {
 		tables = append(tables, j.tables.rollup)
 	}
 	for _, t := range tables {
@@ -309,7 +347,8 @@ func (j *metricImport) tail(ctx context.Context, h0 time.Time, recorded string) 
 		hour := int64(time.Hour)
 		upper := min(*hi, *lo-*lo%hour+hour)
 		j.opts.Logger.Info(fmt.Sprintf("metric import: tail above %d", w))
-		if err = j.db.Exec(ctx, tailSQL(j.tables, w, upper)); err != nil {
+		tailCtx := clickhouse.Context(ctx, clickhouse.WithQueryID(unitQueryID(j.opts.Database, watermarkRecord)))
+		if err = j.db.Exec(tailCtx, tailSQL(j.tables, w, upper)); err != nil {
 			return err
 		}
 		w = upper
@@ -349,10 +388,24 @@ func (s *settingsRecords) all(ctx context.Context) (map[string]string, error) {
 }
 
 func (s *settingsRecords) put(ctx context.Context, name, value string) error {
-	fp := helputils.FingerprintLabelsDJBHashPrometheus(
-		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(importRecordType), strconv.Quote(name)))
 	return s.db.Exec(ctx, `INSERT INTO settings (fingerprint, type, name, value, inserted_at)
-VALUES ($1, $2, $3, $4, now64(9))`, fp, importRecordType, name, value)
+VALUES ($1, $2, $3, $4, now64(9))`, importRecordFingerprint(name), importRecordType, name, value)
+}
+
+func (s *settingsRecords) age(ctx context.Context, name string) (time.Duration, error) {
+	settings := "settings"
+	if s.dist {
+		settings += distconfig.Suffix()
+	}
+	var ms int64
+	err := s.db.QueryRow(ctx, fmt.Sprintf("SELECT dateDiff('millisecond', max(inserted_at), now64(9)) "+
+		"FROM %s WHERE fingerprint = $1", settings), importRecordFingerprint(name)).Scan(&ms)
+	return time.Duration(ms) * time.Millisecond, err
+}
+
+func importRecordFingerprint(name string) uint32 {
+	return helputils.FingerprintLabelsDJBHashPrometheus(
+		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(importRecordType), strconv.Quote(name)))
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
