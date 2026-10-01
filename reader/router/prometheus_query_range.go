@@ -8,6 +8,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/config"
 	controllerv1 "github.com/metrico/qryn/v5/reader/controller"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/prometheus/prometheus/promql"
@@ -29,7 +30,7 @@ func NewPromEngine(maxSamples int) *promql.Engine {
 		MaxSamples:         maxSamples,
 		Timeout:            time.Second * 30,
 		ActiveQueryTracker: nil,
-		LookbackDelta:      0,
+		LookbackDelta:      promql_transpiler.EngineLookbackDelta,
 		// A non-nil function is required: the engine calls it for subqueries
 		// that omit a resolution step (e.g. `up[1h:]`). Leaving it nil panics
 		// with a nil pointer dereference in getLastSubqueryInterval.
