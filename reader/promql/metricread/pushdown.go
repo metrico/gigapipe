@@ -53,14 +53,21 @@ func Aggregable(op string) bool {
 // PushdownSQL evaluates p from raw samples. Rows: fingerprint UInt64,
 // labels Map(String, String), t_ms Int64, value Float64, ordered by fingerprint and t_ms.
 func PushdownSQL(p Pushdown) string {
+	return pushdownSQL(p, rawRowsSQL(p))
+}
+
+// pushdownSQL evaluates p from rows, the row shape per (fingerprint, t), which may read the fp
+// series CTE.
+func pushdownSQL(p Pushdown, rows string) string {
 	window := Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs}
 	series := fmt.Sprintf("SELECT fingerprint, %s AS labels, t_ms, value FROM (%s) AS points "+
 		"INNER JOIN fp USING (fingerprint)", outputLabels(p), valueSQL(p))
 	return fmt.Sprintf("WITH fp AS (%s), rows AS (%s) %s ORDER BY fingerprint, t_ms",
-		SeriesSQL(window, p.Matchers), rawRowsSQL(p), aggregate(p.Aggregation, series))
+		SeriesSQL(window, p.Matchers), rows, aggregate(p.Aggregation, series))
 }
 
-// aggregate groups the series by the labels a kept, keyed by the hash of the kept set.
+// aggregate applies a to the series, grouped by the labels it keeps; a group's fingerprint is
+// the hash of its label set.
 func aggregate(a *Aggregation, series string) string {
 	if a == nil {
 		return series
