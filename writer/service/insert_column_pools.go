@@ -182,6 +182,8 @@ func CreateColPools(size int32) {
 	}).OnGetSize(func(col *PooledColumn[*proto.ColDateTime64]) int {
 		return col.Data.Rows()
 	})
+	MinDateTime64MsPool = simpleAggDateTime64Pool("min", size)
+	MaxDateTime64MsPool = simpleAggDateTime64Pool("max", size)
 	LowCardinalityStrPool = newColPool(func() *proto.ColLowCardinality[string] {
 		return (&proto.ColStr{}).LowCardinality()
 	}, size).OnRelease(func(col *PooledColumn[*proto.ColLowCardinality[string]]) {
@@ -214,6 +216,8 @@ var UInt32ArrayPool *colPool[*proto.ColArr[uint32]]
 var UInt32Pool *colPool[proto.ColUInt32]
 var StrArrayPool *colPool[*proto.ColArr[string]]
 var DateTime64MsPool *colPool[*proto.ColDateTime64]
+var MinDateTime64MsPool *colPool[*ColSimpleAggDateTime64]
+var MaxDateTime64MsPool *colPool[*ColSimpleAggDateTime64]
 var LowCardinalityStrPool *colPool[*proto.ColLowCardinality[string]]
 var LabelsMapPool *colPool[*proto.ColMap[string, string]]
 
@@ -229,4 +233,14 @@ func StartAcq() {
 
 func FinishAcq() {
 	acqMtx.Unlock()
+}
+
+func simpleAggDateTime64Pool(fn string, size int32) *colPool[*ColSimpleAggDateTime64] {
+	return newColPool(func() *ColSimpleAggDateTime64 {
+		return NewColSimpleAggDateTime64(fn)
+	}, size).OnRelease(func(col *PooledColumn[*ColSimpleAggDateTime64]) {
+		col.Data.Reset()
+	}).OnGetSize(func(col *PooledColumn[*ColSimpleAggDateTime64]) int {
+		return col.Data.Rows()
+	})
 }

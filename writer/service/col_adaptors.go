@@ -1,8 +1,10 @@
 package service
 
 import (
-	"github.com/ClickHouse/ch-go/proto"
+	"fmt"
 	"time"
+
+	"github.com/ClickHouse/ch-go/proto"
 )
 
 type DateAppender struct {
@@ -92,4 +94,28 @@ type F64Adaptor struct {
 
 func (u F64Adaptor) AppendArr(arr []float64) {
 	*u.ColFloat64 = append(*u.ColFloat64, arr...)
+}
+
+// ColSimpleAggDateTime64 is a millisecond DateTime64 column inserted into a
+// SimpleAggregateFunction(Fn, DateTime64(3)) table column.
+type ColSimpleAggDateTime64 struct {
+	Fn string
+	proto.ColDateTime64
+}
+
+func NewColSimpleAggDateTime64(fn string) *ColSimpleAggDateTime64 {
+	c := &ColSimpleAggDateTime64{Fn: fn}
+	c.WithPrecision(proto.PrecisionMilli)
+	return c
+}
+
+func (c *ColSimpleAggDateTime64) Type() proto.ColumnType {
+	return proto.ColumnType("SimpleAggregateFunction(" + c.Fn + ", " + string(c.ColDateTime64.Type()) + ")")
+}
+
+func (c *ColSimpleAggDateTime64) Infer(t proto.ColumnType) error {
+	if t != c.Type() {
+		return fmt.Errorf("column type %s, want %s", t, c.Type())
+	}
+	return nil
 }
