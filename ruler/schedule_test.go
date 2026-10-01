@@ -114,3 +114,17 @@ func TestSchedule_TicksLandOnTheIntervalGrid(t *testing.T) {
 		}
 	}
 }
+
+func TestSchedule_SkipsIntervalsOffTheMillisecondGrid(t *testing.T) {
+	m := NewRuleManager(&fakeEvaluator{}, &fakeReader{}, &fakeWriter{}, time.Hour)
+	m.ctx = context.Background()
+
+	m.updateRoutines(NamespaceRuleGroups{"ns": {
+		{Name: "frac", Interval: "1500us", Rules: []Rule{{Record: "a", Expr: "up"}}},
+		{Name: "sub", Interval: "500us", Rules: []Rule{{Record: "b", Expr: "up"}}},
+	}})
+
+	if n := len(m.routines); n != 0 {
+		t.Errorf("started %d routines, want none", n)
+	}
+}
