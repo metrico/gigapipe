@@ -4,30 +4,23 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	gosql "database/sql"
 	"fmt"
-	"github.com/metrico/qryn/v5/reader/config"
-	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
-	"github.com/prometheus/prometheus/util/annotations"
 	"slices"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
-	"github.com/metrico/qryn/v5/reader/plugins"
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/utils/cityhash102"
-	"github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
-	"github.com/metrico/qryn/v5/reader/utils/tables"
-
-	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
-	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 type StatsStore struct {
@@ -80,10 +73,6 @@ type CLokiQueriable struct {
 	Ctx   context.Context
 	Stats *StatsStore
 	Expr  *promql_parser.Expr
-	// VersionInfo, when set, is the version info resolved once for the whole
-	// query; Select uses it instead of fetching its own so every routing
-	// decision within one query sees the same snapshot.
-	VersionInfo dbversion.VersionInfo
 }
 
 func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
@@ -92,10 +81,9 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 		return nil, err
 	}
 	return &CLokiQuerier{
-		db:          db,
-		ctx:         c.Ctx,
-		expr:        c.Expr,
-		versionInfo: c.VersionInfo,
+		db:   db,
+		ctx:  c.Ctx,
+		expr: c.Expr,
 	}, nil
 }
 
@@ -107,162 +95,23 @@ func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Ex
 	}
 }
 
-// ResolveVersionInfo returns the version info for the request's database, or
-// nil when the probe fails; callers treat nil as unknown and let the query
-// path surface the underlying error.
-func (c *CLokiQueriable) ResolveVersionInfo(ctx context.Context) dbversion.VersionInfo {
-	db, err := c.ServiceData.Session.GetDB(ctx)
-	if err != nil {
-		return nil
-	}
-	versionInfo, err := dbversion.GetVersionInfo(ctx, db.Config.ClusterName != "", db.Session)
-	if err != nil {
-		return nil
-	}
-	return versionInfo
-}
-
 type CLokiQuerier struct {
-	db          *model.DataDatabasesMap
-	ctx         context.Context
-	expr        *promql_parser.Expr
-	versionInfo dbversion.VersionInfo
+	db   *model.DataDatabasesMap
+	ctx  context.Context
+	expr *promql_parser.Expr
 }
 
-func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
-	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
-	c.adjustHintsForRate(hints)
-
-	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
-		hints.Start = hints.Start / 15000 * 15000
-	}
-
-	start := hints.Start - hints.Range
-
-	ctx := shared.PlannerContext{
-		IsCluster:   c.db.Config.ClusterName != "",
-		From:        time.Unix(0, start*1000000),
-		To:          time.Unix(0, hints.End*1000000),
-		Ctx:         c.ctx,
-		CHDb:        c.db.Session,
-		CancelCtx:   nil,
-		Step:        time.Millisecond * time.Duration(hints.Step),
-		Type:        2,
-		VersionInfo: versionInfo,
-	}
-	tables.PopulateTableNames(&ctx, c.db)
-
-	for _, m := range matchers {
-		if m.Name != "__name__" {
-			continue
-		}
-		if _, ok := c.expr.Substitutes[m.Value]; ok {
-			q, err := c.expr.Substitutes[m.Value].Request.Process(&ctx)
-			if err != nil {
-				return nil, err
-			}
-			return &promql_transpiler.TranspileResponse{Query: q}, nil
-		}
-	}
-
-	return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
-}
-
-// prolongFunctions are the functions whose series the raw iterator carries
-// forward from one step to the next (see model.SeriesV2.Iterator). It is not a
-// statement about bucket sizing -- that is planner.NeedsDistinctSamples, which
-// covers a different, larger set -- and the two must not be conflated back into
-// one list.
-var prolongFunctions = []string{"deriv", "rate", "delta"}
-
-// adjustHintsForRate settles the step the rest of the request runs on.
-//
-// An instant query, or a change function the engine reports no range for (its
-// argument is a subquery rather than a matrix selector), takes half its range
-// as the step, and at least 15s.
-//
-// Otherwise a function that measures a change across samples has its step
-// capped to planner.BucketResolution; every other function keeps the query's
-// own step.
-func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
-	if hints.Step != 0 && !planner.NeedsDistinctSamples(hints.Func) {
-		return
-	}
-	if hints.Step == 0 || hints.Range == 0 {
-		hints.Step = max(hints.Range/2, 15000)
-		return
-	}
-	hints.Step = planner.BucketResolution(
-		time.Duration(hints.Step)*time.Millisecond,
-		time.Duration(hints.Range)*time.Millisecond).Milliseconds()
-}
-
-func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.Matcher) bool {
-	for _, m := range matchers {
-		if m.Name == "__name__" && m.Type == labels.MatchEqual && c.expr.Substitutes[m.Value] != nil {
-			return false
-		}
-	}
-	return (slices.Contains(prolongFunctions, hints.Func) || hints.Func == "") && hints.Step != 0
-}
-
-// isSQLFilled reports whether the series was forward-filled 5m by
-// FillGapsPlanner. That is exactly the substitute-backed set (created only by
-// the vector_range/vector_agg optimizers, all of which route through the fill).
-//
-// It is the correct gate for appendStaleMarker, not !isProlong: non-substitute
-// instant-vector functions (abs, topk, histogram_quantile, ...) are also
-// Prolong=false but are regrouped by HintsPlanner without a fill, so their rows
-// were never carried 5m and must not be capped.
-func (c *CLokiQuerier) isSQLFilled(matchers []*labels.Matcher) bool {
-	for _, m := range matchers {
-		if m.Name == "__name__" && m.Type == labels.MatchEqual && c.expr.Substitutes[m.Value] != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// appendStaleMarker caps a SQL-filled series (see isSQLFilled) with a stale
-// marker one step past its last row.
-//
-// The SQL densifier already forward-fills each bucket 5m, so the last row sits
-// at lastReal + 5m. Without a terminator the engine adds its own 5m
-// LookbackDelta on top, stacking to ~10m (issue #931); the marker stops it at
-// the boundary. (The raw iterator path in reader/model instead places its
-// marker at lastReal + LookbackDeltaMs, providing the 5m carry itself.)
-//
-// sqlFilled gates the whole thing: only SQL-filled (substitute-backed) series
-// carry the baked-in 5m, so only they may be capped.
-//
-// No marker is appended when the series is not SQL-filled, is still live at the
-// query edge (last sample within one step of queryEndMs), or the step is
-// unknown (0).
-func appendStaleMarker(samples []model.Sample, sqlFilled bool, stepMs int64, queryEndMs int64) []model.Sample {
-	if !sqlFilled || len(samples) == 0 || stepMs <= 0 {
+// appendStaleMarker caps a substitute series with a stale marker one step past its last
+// point, unless the series reaches the query end or the step is unknown (0).
+func appendStaleMarker(samples []model.Sample, stepMs int64, queryEndMs int64) []model.Sample {
+	if len(samples) == 0 || stepMs <= 0 {
 		return samples
 	}
 	markerTs := samples[len(samples)-1].TimestampMs + stepMs
 	if markerTs > queryEndMs {
-		// The series runs up to (or past) the query edge; it did not stop, so
-		// no stale marker - the query window itself truncates it.
 		return samples
 	}
 	return append(samples, model.Sample{TimestampMs: markerTs, Value: model.StaleMarkerValue})
-}
-
-// applyStaleMarkers caps every series with a stale marker via appendStaleMarker,
-// the single post-processing pass Select() runs before ReshuffleSeries (mirroring
-// how ReshuffleSeries is itself a pure, DB-independent pass over the built
-// series). sqlFilled is the query-level gate from isSQLFilled: when false (e.g.
-// abs/topk and other non-substitute instant-vector functions, which are not
-// SQL-filled) no series is marked, so the engine's own 5m lookback is preserved.
-func (c *CLokiQuerier) applyStaleMarkers(series []*model.SeriesV2, sqlFilled bool,
-	stepMs int64, queryEndMs int64) []*model.SeriesV2 {
-	for _, s := range series {
-		s.Samples = appendStaleMarker(s.Samples, sqlFilled, stepMs, queryEndMs)
-	}
-	return series
 }
 
 func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints,
@@ -277,124 +126,169 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	}
 	matchers = _matchers
 
-	versionInfo := c.versionInfo
-	if versionInfo == nil {
-		var err error
-		versionInfo, err = dbversion.GetVersionInfo(c.ctx, c.db.Config.ClusterName != "", c.db.Session)
-		if err != nil {
-			return &model.SeriesSet{Error: err}
-		}
+	var (
+		series []*model.SeriesV2
+		err    error
+	)
+	if sub := c.substitute(matchers); sub != nil {
+		series, err = c.selectSubstitute(sub, hints)
+	} else {
+		series, err = c.selectRaw(hints, matchers)
 	}
-
-	q, err := c.transpileLabelMatchers(hints, matchers, versionInfo)
 	if err != nil {
 		return &model.SeriesSet{Error: err}
 	}
-	sqlCtx := sql.Ctx{
-		Params: map[string]sql.SQLObject{},
+	res := model.SeriesSet{Series: c.sortSeries(c.ReshuffleSeries(series))}
+	res.Reset()
+	return &res
+}
+
+// substitute returns the substitute a matcher names, if any.
+func (c *CLokiQuerier) substitute(matchers []*labels.Matcher) *promql_parser.Substitute {
+	if c.expr == nil {
+		return nil
+	}
+	for _, m := range matchers {
+		if m.Name == labels.MetricName && m.Type == labels.MatchEqual {
+			if sub, ok := c.expr.Substitutes[m.Value]; ok {
+				return sub
+			}
+		}
+	}
+	return nil
+}
+
+// selectRaw reads the selected series from the series index and hands the engine their raw
+// samples in the hinted interval [Start, End].
+func (c *CLokiQuerier) selectRaw(hints *storage.SelectHints, matchers []*labels.Matcher) ([]*model.SeriesV2, error) {
+	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End}
+	lbls, err := c.readSeries(metricread.SeriesSQL(window, matchers))
+	if err != nil || len(lbls) == 0 {
+		return nil, err
+	}
+	rows, err := c.query(metricread.RawSamplesSQL(window, matchers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var (
+		series []*model.SeriesV2
+		fp     uint64
+		ts     time.Time
+		val    float64
+	)
+	for rows.Next() {
+		if err := rows.Scan(&fp, &ts, &val); err != nil {
+			return nil, err
+		}
+		if _, ok := lbls[fp]; ok {
+			series = appendSample(series, lbls, fp, ts.UnixMilli(), val)
+		}
+	}
+	return series, rows.Err()
+}
+
+// selectSubstitute runs a substitute's request, whose rows are
+// (fingerprint UInt64, label_set Map(String, String), timestamp DateTime64(3), value Float64)
+// ordered by fingerprint and timestamp.
+func (c *CLokiQuerier) selectSubstitute(sub *promql_parser.Substitute, hints *storage.SelectHints) ([]*model.SeriesV2, error) {
+	plannerCtx := shared.PlannerContext{
+		IsCluster: c.db.Config.ClusterName != "",
+		From:      time.UnixMilli(hints.Start),
+		To:        time.UnixMilli(hints.End),
+		Step:      time.Duration(hints.Step) * time.Millisecond,
+		Ctx:       c.ctx,
+		CHDb:      c.db.Session,
+	}
+	req, err := sub.Request.Process(&plannerCtx)
+	if err != nil {
+		return nil, err
 	}
 	var opts []int
-	if c.db.Config.ClusterName != "" {
+	if plannerCtx.IsCluster {
 		opts = []int{sql.STRING_OPT_INLINE_WITH}
 	}
-	str, err := q.Query.String(&sqlCtx, opts...)
+	str, err := req.String(&sql.Ctx{Params: map[string]sql.SQLObject{}}, opts...)
 	if err != nil {
-		return &model.SeriesSet{Error: err}
+		return nil, err
 	}
-	logger.Debug("[ PromQuerier ] ", str)
-	rows, err := c.db.Session.QueryCtx(c.ctx, str)
+	rows, err := c.query(str)
 	if err != nil {
-		fmt.Println(str)
-		return &model.SeriesSet{Error: err}
+		return nil, err
 	}
+	defer rows.Close()
 	var (
-		fp         uint64  = 0
-		val        float64 = 0
-		ts         int64   = 0
-		lastLabels uint64  = 0
-		tp         int8    = 0
-		lbls       string
+		series []*model.SeriesV2
+		lbls   = seriesLabels{}
+		fp     uint64
+		set    map[string]string
+		ts     time.Time
+		val    float64
 	)
-	res := model.SeriesSet{
-		Error:  nil,
-		Series: make([]*model.SeriesV2, 0, 1000),
-	}
-	res.Reset()
-	cntRows := 0
-	cntSeries := 0
-	lblsGetter := newLabelsGetter(time.UnixMilli(hints.Start), time.UnixMilli(hints.End), c.db, c.ctx)
-	isProlong := c.isProlong(hints, matchers)
-	isSQLFilled := c.isSQLFilled(matchers)
 	for rows.Next() {
-		err = rows.Scan(&tp, &fp, &ts, &val, &lbls)
-		if err != nil {
-			return &model.SeriesSet{Error: err}
+		if err := rows.Scan(&fp, &set, &ts, &val); err != nil {
+			return nil, err
 		}
-		if tp == 2 {
-			var mLables map[string]string
-			err = json.Unmarshal([]byte(lbls), &mLables)
-			if err != nil {
-				return &model.SeriesSet{Error: err}
-			}
-			var arrLbls [][]string
-			for k, v := range mLables {
-				arrLbls = append(arrLbls, []string{k, v})
-			}
-			lblsGetter.Save(fp, arrLbls)
-			continue
+		if _, ok := lbls[fp]; !ok {
+			lbls[fp] = labelsFromMap(set)
 		}
+		series = appendSample(series, lbls, fp, ts.UnixMilli(), val)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, s := range series {
+		s.Samples = appendStaleMarker(s.Samples, hints.Step, hints.End)
+	}
+	return series, nil
+}
 
-		if len(res.Series) == 0 || fp != lastLabels {
-			lblsGetter.Plan(fp)
-			lastLabels = fp
-			if len(res.Series) > 0 && q.MapResult != nil {
-				res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
-			}
-			res.Series = append(res.Series, &model.SeriesV2{
-				LabelsGetter: lblsGetter,
-				Fp:           fp,
-				Samples:      make([]model.Sample, 0, 500),
-				StepMs:       hints.Step,
-				Prolong:      isProlong,
-			})
-			cntSeries++
-		}
-		res.Series[len(res.Series)-1].Samples = append(res.Series[len(res.Series)-1].Samples,
-			model.Sample{TimestampMs: ts, Value: val})
-		cntRows++
-	}
-	if len(res.Series) > 0 && q.MapResult != nil {
-		res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
-	}
-	res.Series = c.applyStaleMarkers(res.Series, isSQLFilled, hints.Step, hints.End)
-	err = lblsGetter.Fetch()
+// readSeries returns the label set of every fingerprint the series query selects.
+func (c *CLokiQuerier) readSeries(query string) (seriesLabels, error) {
+	rows, err := c.query(query)
 	if err != nil {
-		return &model.SeriesSet{Error: err}
+		return nil, err
 	}
-	res.Series = c.ReshuffleSeries(res.Series)
-	// LabelsArray() is not a field read: it rebuilds the label set from the
-	// fingerprint and sorts it on every call. Fetch it once per series instead
-	// of twice per comparison.
-	type keyedSeries struct {
-		lbls   model.Labels
-		series *model.SeriesV2
+	defer rows.Close()
+	res := seriesLabels{}
+	var (
+		fp  uint64
+		set map[string]string
+	)
+	for rows.Next() {
+		if err := rows.Scan(&fp, &set); err != nil {
+			return nil, err
+		}
+		res[fp] = labelsFromMap(set)
 	}
-	keyed := make([]keyedSeries, len(res.Series))
-	for i, s := range res.Series {
-		keyed[i] = keyedSeries{s.LabelsArray(), s}
+	return res, rows.Err()
+}
+
+func (c *CLokiQuerier) query(query string) (*gosql.Rows, error) {
+	logger.Debug("[ PromQuerier ] ", query)
+	return c.db.Session.QueryCtx(c.ctx, query)
+}
+
+// appendSample adds a sample to the series of fp, starting a new series when fp changes.
+// Rows arrive ordered by fingerprint and timestamp; a repeated instant keeps its first row.
+func appendSample(series []*model.SeriesV2, lbls seriesLabels, fp uint64, ts int64, val float64) []*model.SeriesV2 {
+	if len(series) == 0 || series[len(series)-1].Fp != fp {
+		series = append(series, &model.SeriesV2{LabelsGetter: lbls, Fp: fp})
 	}
-	slices.SortFunc(keyed, func(a, b keyedSeries) int {
-		return slices.CompareFunc(a.lbls, b.lbls, func(l1, l2 labels.Label) int {
-			if c := cmp.Compare(l1.Name, l2.Name); c != 0 {
-				return c
-			}
-			return cmp.Compare(l1.Value, l2.Value)
-		})
+	last := series[len(series)-1]
+	if n := len(last.Samples); n > 0 && last.Samples[n-1].TimestampMs == ts {
+		return series
+	}
+	last.Samples = append(last.Samples, model.Sample{TimestampMs: ts, Value: val})
+	return series
+}
+
+// sortSeries orders series by label set, as the engine expects.
+func (c *CLokiQuerier) sortSeries(series []*model.SeriesV2) []*model.SeriesV2 {
+	slices.SortFunc(series, func(a, b *model.SeriesV2) int {
+		return labels.Compare(a.Labels(), b.Labels())
 	})
-	for i := range keyed {
-		res.Series[i] = keyed[i].series
-	}
-	return &res
+	return series
 }
 
 // ReshuffleSeries merges series that resolve to the same label set (this can
@@ -444,128 +338,18 @@ func (c *CLokiQuerier) Close() error {
 	return nil
 }
 
-type labelsGetter struct {
-	DateFrom           time.Time
-	DateTo             time.Time
-	Conn               *model.DataDatabasesMap
-	Ctx                context.Context
-	fingerprintsHas    map[uint64][][]string
-	fingerprintToFetch map[uint64]bool
-	Distributed        bool
-	plugin             plugins.LabelsGetterPlugin
-}
+// seriesLabels maps a fingerprint to its label set.
+type seriesLabels map[uint64]model.Labels
 
-func newLabelsGetter(from time.Time, to time.Time, conn *model.DataDatabasesMap, ctx context.Context) *labelsGetter {
-	res := &labelsGetter{
-		DateFrom:           from,
-		DateTo:             to,
-		Conn:               conn,
-		Ctx:                ctx,
-		Distributed:        conn.Config.ClusterName != "",
-		fingerprintsHas:    make(map[uint64][][]string),
-		fingerprintToFetch: make(map[uint64]bool),
-	}
-	p := plugins.GetLabelsGetterPlugin()
-	if p != nil {
-		res.plugin = *p
-	}
-	return res
-}
+func (s seriesLabels) Get(fp uint64) model.Labels { return s[fp] }
 
-func (l *labelsGetter) Get(fingerprint uint64) model.Labels {
-	strLabels, ok := l.fingerprintsHas[fingerprint]
-	if !ok {
-		logger.Error(fmt.Sprintf("Warning: no fingerprint %d found", fingerprint))
-		return model.Labels{}
-	}
-	res := make(model.Labels, len(strLabels))
-	for i, label := range strLabels {
-		res[i] = labels.Label{
-			Name:  label[0],
-			Value: label[1],
-		}
+func (s seriesLabels) GetNative(fp uint64) labels.Labels { return labels.New(s[fp]...) }
+
+func labelsFromMap(m map[string]string) model.Labels {
+	res := make(model.Labels, 0, len(m))
+	for k, v := range m {
+		res = append(res, labels.Label{Name: k, Value: v})
 	}
 	slices.SortFunc(res, func(a, b labels.Label) int { return cmp.Compare(a.Name, b.Name) })
 	return res
-}
-
-func (l *labelsGetter) GetNative(fingerprint uint64) labels.Labels {
-	_, ok := l.fingerprintsHas[fingerprint]
-	if !ok {
-		logger.Error(fmt.Sprintf("Warning: no fingerprint %d found", fingerprint))
-		return labels.EmptyLabels()
-	}
-	res := l.Get(fingerprint)
-	return labels.New(res...)
-}
-
-func (l *labelsGetter) Save(fingerprint uint64, labels [][]string) {
-	l.fingerprintsHas[fingerprint] = labels
-}
-
-func (l *labelsGetter) Plan(fingerprint uint64) {
-	l.fingerprintToFetch[fingerprint] = true
-}
-
-func (l *labelsGetter) getFetchRequest(fingerprints map[uint64]bool) sql.ISelect {
-	if l.plugin != nil {
-		return l.plugin.GetLabelsQuery(l.Ctx, l.Conn, fingerprints, l.DateFrom, l.DateTo)
-	}
-	tableName := tables.GetTableName("time_series")
-	if l.Distributed {
-		tableName = tables.GetTableName("time_series_dist")
-	}
-	fps := make([]sql.SQLObject, 0, len(fingerprints))
-	for fp := range l.fingerprintToFetch {
-		if _, ok := l.fingerprintsHas[fp]; !ok {
-			fps = append(fps, sql.NewRawObject(strconv.FormatUint(fp, 10)))
-		}
-	}
-	if len(fps) == 0 {
-		return nil
-	}
-	req := sql.NewSelect().
-		Select(sql.NewRawObject("fingerprint"), sql.NewSimpleCol("JSONExtractKeysAndValues(labels, 'String')", "labels")).
-		From(sql.NewRawObject(tableName)).
-		AndWhere(
-			sql.NewIn(sql.NewRawObject("fingerprint"), fps...),
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(l.DateFrom))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(l.DateTo.Format("2006-01-02"))))
-	return req
-}
-
-func (l *labelsGetter) Fetch() error {
-	if len(l.fingerprintToFetch) == 0 {
-		return nil
-	}
-	req := l.getFetchRequest(l.fingerprintToFetch)
-	if req == nil {
-		return nil
-	}
-	strReq, err := req.String(&sql.Ctx{})
-	if err != nil {
-		return err
-	}
-	rows, err := l.Conn.Session.QueryCtx(l.Ctx, strReq)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var (
-			fingerprint uint64
-			labels      [][]any
-		)
-		err := rows.Scan(&fingerprint, &labels)
-		if err != nil {
-			return err
-		}
-		strLabels := make([][]string, len(labels))
-		for i, label := range labels {
-			strLabels[i] = []string{label[0].(string), label[1].(string)}
-		}
-		slices.SortFunc(strLabels, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
-		l.fingerprintsHas[fingerprint] = strLabels
-		//cache.Set(l.getIdx(fingerprint), bLabels)
-	}
-	return nil
 }
