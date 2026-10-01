@@ -6,6 +6,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/prometheus/prometheus/model/labels"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -45,6 +46,11 @@ func (p *Pushdown) pushdown(expr prom_parser.Expr) (pushdown, bool) {
 		return pushdown{}, false
 	}
 	pd, ok := p.leaf(agg.Expr)
+	if ok && !metricread.KeepsName(pd.Func) && !namesOne(pd.Matchers) {
+		// Series of several names may share a label set once __name__ is dropped, which the
+		// engine rejects before aggregating.
+		return pushdown{}, false
+	}
 	pd.Aggregation = &metricread.Aggregation{Op: agg.Op.String(), Grouping: agg.Grouping, Without: agg.Without}
 	return pd, ok
 }
@@ -77,6 +83,16 @@ func (p *Pushdown) leaf(expr prom_parser.Expr) (pushdown, bool) {
 // and no anchored or smoothed modifier.
 func onGrid(vs *prom_parser.VectorSelector) bool {
 	return vs.OriginalOffset == 0 && vs.Timestamp == nil && vs.StartOrEnd == 0 && !vs.Anchored && !vs.Smoothed
+}
+
+// namesOne reports whether the matchers select a single metric name.
+func namesOne(matchers []*labels.Matcher) bool {
+	for _, m := range matchers {
+		if m.Name == labels.MetricName && m.Type == labels.MatchEqual {
+			return true
+		}
+	}
+	return false
 }
 
 func unwrap(expr prom_parser.Expr) prom_parser.Expr {

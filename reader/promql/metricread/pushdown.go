@@ -196,10 +196,16 @@ func extrapolatedSQL(rangeMs int64, counter, perSecond bool) string {
 
 // outputLabels is the label set Prometheus returns for p's function.
 func outputLabels(p Pushdown) string {
-	if p.Func == "" || p.Func == "last_over_time" {
+	if KeepsName(p.Func) {
 		return "label_set"
 	}
 	return "mapFilter((k, v) -> k != '__name__', label_set)"
+}
+
+// KeepsName reports whether fn's result keeps the series' __name__, as the instant selector
+// ("") and last_over_time do.
+func KeepsName(fn string) bool {
+	return fn == "" || fn == "last_over_time"
 }
 
 func flag(b bool) int {
