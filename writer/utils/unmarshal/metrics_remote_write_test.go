@@ -342,3 +342,22 @@ func TestRemoteWriteExemplarOnHistogramOnlyEntry(t *testing.T) {
 		t.Fatalf("a histogram-only entry must add no sample or series row, got %+v %+v", rows.staging, rows.series)
 	}
 }
+
+func TestRemoteWriteDuplicatesCollapseAcrossALargeRequest(t *testing.T) {
+	withCityHashFingerprints(t)
+	const n = 40000
+	big := make([]*prompb.Sample, n)
+	for i := range big {
+		big[i] = &prompb.Sample{Timestamp: int64(i+1) * 1000, Value: 1}
+	}
+	rows := pushRemoteWrite(t, newNode(t), &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
+		{Labels: lbls("__name__", "up"), Samples: big},
+		{Labels: lbls("__name__", "up"), Samples: samples(1000, 7)},
+	}})
+	if len(rows.staging) != n {
+		t.Fatalf("staging rows: got %d, want %d", len(rows.staging), n)
+	}
+	if got := rows.staging[0]; got.tsMs != 1000 || got.value != 7 {
+		t.Fatalf("the later duplicate must replace the earlier one, got %+v", got)
+	}
+}
