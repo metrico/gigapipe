@@ -5,11 +5,8 @@ import (
 	"time"
 )
 
-const (
-	SAMPLE_TYPE_LOG    = 1
-	SAMPLE_TYPE_METRIC = 2
-	SAMPLE_TYPE_UNDEF  = 0
-)
+// SAMPLE_TYPE_LOG is the type of every row the writer puts in the log tables.
+const SAMPLE_TYPE_LOG = 1
 
 // Our replacement for gofaster.ch StrCol
 type StrColumn interface {

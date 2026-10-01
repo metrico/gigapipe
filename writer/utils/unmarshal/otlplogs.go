@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/metrico/qryn/v5/writer/model"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlplogs "go.opentelemetry.io/proto/otlp/logs/v1"
 	"google.golang.org/protobuf/proto"
@@ -75,8 +74,6 @@ func (e *otlpLogDec) Decode() error {
 					labels,
 					[]int64{int64(timestamp)},
 					[]string{message},
-					[]float64{0},
-					[]uint8{model.SAMPLE_TYPE_LOG},
 				)
 				if err != nil {
 					return err

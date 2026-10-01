@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"text/scanner"
@@ -16,7 +15,6 @@ import (
 	clcwriter "github.com/metrico/cloki-config/config/writer"
 	"github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/metric"
-	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 	"github.com/metrico/qryn/v5/writer/utils/helputils"
 	"github.com/metrico/qryn/v5/writer/utils/helputils/cityhash102"
@@ -72,9 +70,7 @@ func (p *pushRequestDec) Decode() error {
 		return err
 	}
 	for _, s := range p.streams {
-		err := p.onEntries(s.labels, s.tsNs, s.lines, make([]float64, len(s.tsNs)),
-			slices.Repeat([]uint8{model.SAMPLE_TYPE_LOG}, len(s.tsNs)))
-		if err != nil {
+		if err := p.onEntries(s.labels, s.tsNs, s.lines); err != nil {
 			return err
 		}
 	}

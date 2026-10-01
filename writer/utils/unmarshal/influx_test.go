@@ -69,37 +69,6 @@ func TestJsonError(t *testing.T) {
 	//fmt.Println(r.Str())
 }
 
-type influxEntry struct {
-	labels    map[string]string
-	nLabels   int
-	timestamp int64
-	message   string
-	value     float64
-	tp        uint8
-}
-
-func decodeInflux(t *testing.T, body string, precision lineprotocol.Precision) []influxEntry {
-	t.Helper()
-	dec := &influxDec{ctx: &ParserCtx{
-		bodyReader: strings.NewReader(body),
-		ctx:        context.WithValue(context.Background(), utils.ContextKeyPrecision, precision),
-	}}
-	var res []influxEntry
-	dec.SetOnEntries(func(labels [][]string, timestampsNS []int64, message []string,
-		value []float64, types []uint8) error {
-		lbls := map[string]string{}
-		for _, l := range labels {
-			lbls[l[0]] = l[1]
-		}
-		res = append(res, influxEntry{lbls, len(labels), timestampsNS[0], message[0], value[0], types[0]})
-		return nil
-	})
-	if err := dec.Decode(); err != nil {
-		t.Fatalf("decode %q: %v", body, err)
-	}
-	return res
-}
-
 type influxLogRow struct {
 	tsNs    int64
 	message string
@@ -194,17 +163,17 @@ func TestInfluxLineWithMessageStaysALog(t *testing.T) {
 }
 
 func TestInfluxLogs(t *testing.T) {
-	entries := decodeInflux(t, "syslog,host=a message=\"hello\",severity=\"warn\" 1600000000000000000\n",
+	rows, logs := pushInflux(t, "syslog,host=a message=\"hello\",severity=\"warn\" 1600000000000000000\n",
 		lineprotocol.Nanosecond)
-	if len(entries) != 1 {
-		t.Fatalf("want 1 entry, got %d", len(entries))
+	if len(logs) != 1 || len(rows.staging) != 0 {
+		t.Fatalf("want 1 log row and no samples, got %+v and %+v", logs, rows.staging)
 	}
-	e := entries[0]
-	if e.tp != model.SAMPLE_TYPE_LOG || e.timestamp != 1600000000000000000 {
-		t.Fatalf("unexpected entry: %+v", e)
+	l := logs[0]
+	if l.tp != model.SAMPLE_TYPE_LOG || l.tsNs != 1600000000000000000 {
+		t.Fatalf("unexpected log row: %+v", l)
 	}
-	if !strings.Contains(e.message, "message=hello") || !strings.Contains(e.message, "severity=warn") {
-		t.Fatalf("unexpected message: %q", e.message)
+	if !strings.Contains(l.message, "message=hello") || !strings.Contains(l.message, "severity=warn") {
+		t.Fatalf("unexpected message: %q", l.message)
 	}
 }
 
@@ -224,7 +193,7 @@ func TestInfluxParseError(t *testing.T) {
 		bodyReader: strings.NewReader("cpu,host=a\n"),
 		ctx:        context.WithValue(context.Background(), utils.ContextKeyPrecision, lineprotocol.Nanosecond),
 	}}
-	dec.SetOnEntries(func([][]string, []int64, []string, []float64, []uint8) error { return nil })
+	dec.SetOnEntries(func([][]string, []int64, []string) error { return nil })
 	if err := dec.Decode(); err == nil {
 		t.Fatal("want an error for a line without fields")
 	}
