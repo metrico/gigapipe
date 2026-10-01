@@ -52,3 +52,33 @@ func TestDatadogMetricsRouteUsesTheMetricServices(t *testing.T) {
 		t.Fatal("Datadog metrics reached a log insert service")
 	}
 }
+
+func TestInfluxRouteSplitsLogsAndMetrics(t *testing.T) {
+	reg := installMetricRouteRegistry(t)
+	handler := PushInfluxV2(NewMiddlewareConfig(WithOverallContextMiddleware))
+	body := "syslog,host=a message=\"hello\" 1600000000000000000\n" +
+		"cpu,host=a idle=99.5 1600000000000000000\n"
+	req := httptest.NewRequest("POST", "/influx/api/v2/write", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status: got %d, want 204: %s", w.Code, w.Body.String())
+	}
+	if got := stagingValues(t, reg.staging); len(got) != 1 || got[0] != 99.5 {
+		t.Fatalf("staging values: got %v, want [99.5]", got)
+	}
+	var messages []string
+	for _, r := range reg.samples.reqs() {
+		d := r.(*model.TimeSamplesData)
+		messages = append(messages, d.MMessage...)
+		for _, tp := range d.MType {
+			if tp != model.SAMPLE_TYPE_LOG {
+				t.Fatalf("log row typed %d, want %d", tp, model.SAMPLE_TYPE_LOG)
+			}
+		}
+	}
+	if len(messages) != 1 || messages[0] != "hello" {
+		t.Fatalf("log messages: got %q, want [hello]", messages)
+	}
+}

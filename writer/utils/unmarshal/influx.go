@@ -35,9 +35,13 @@ func getMessage(fields map[string]any) (string, error) {
 	return buf.String(), nil
 }
 
+// influxDec reads line protocol: a line with a message field is a log entry,
+// any other line is one metric sample per numeric field.
 type influxDec struct {
-	ctx       *ParserCtx
-	onEntries onEntriesHandler
+	ctx              *ParserCtx
+	onEntries        onEntriesHandler
+	onMetricSamples  onMetricSamplesHandler
+	onMetricMetadata onMetricMetadataHandler
 }
 
 func (e *influxDec) Decode() error {
@@ -88,23 +92,18 @@ func (e *influxDec) Decode() error {
 		if err != nil {
 			return errors.NewUnmarshalError(err)
 		}
-		timestamp := tm.UnixNano()
-
 		if _, ok := fields["message"]; ok {
 			message, err := getMessage(fields)
 			if err != nil {
 				return err
 			}
-			err = e.onEntries(labels, []int64{timestamp}, []string{message}, []float64{0},
+			err = e.onEntries(labels, []int64{tm.UnixNano()}, []string{message}, []float64{0},
 				[]uint8{model.SAMPLE_TYPE_LOG})
 			if err != nil {
 				return err
 			}
 			continue
 		}
-
-		labels = append(labels, []string{"__name__", ""})
-		nameIdx := len(labels) - 1
 
 		for k, v := range fields {
 			var fVal float64
@@ -116,9 +115,8 @@ func (e *influxDec) Decode() error {
 			default:
 				continue
 			}
-			labels[nameIdx][1] = sanitizeMetricName(k)
-			err = e.onEntries(labels, []int64{timestamp}, []string{""}, []float64{fVal},
-				[]uint8{model.SAMPLE_TYPE_METRIC})
+			series := append(slices.Clone(labels), []string{"__name__", sanitizeMetricName(k)})
+			err = e.onMetricSamples(series, []int64{tm.UnixMilli()}, []float64{fVal}, nil)
 			if err != nil {
 				return err
 			}
@@ -138,6 +136,14 @@ func sanitizeMetricName(metricName string) string {
 
 func (e *influxDec) SetOnEntries(h onEntriesHandler) {
 	e.onEntries = h
+}
+
+func (e *influxDec) SetOnMetricSamples(h onMetricSamplesHandler) {
+	e.onMetricSamples = h
+}
+
+func (e *influxDec) SetOnMetricMetadata(h onMetricMetadataHandler) {
+	e.onMetricMetadata = h
 }
 
 var UnmarshalInfluxDBLogsV2 = Build(

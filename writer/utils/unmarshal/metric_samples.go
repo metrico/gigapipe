@@ -21,10 +21,16 @@ type onMetricSamplesHandler func(labels [][]string, timestampsMs []int64, values
 
 type onMetricMetadataHandler func(name string, m metadata.Entry)
 
-type iMetricsParser interface {
-	Decode() error
+// iMetricSink receives a parser's metric samples. A logs parser that
+// implements it feeds onMetricSamples alongside onEntries.
+type iMetricSink interface {
 	SetOnMetricSamples(h onMetricSamplesHandler)
 	SetOnMetricMetadata(h onMetricMetadataHandler)
+}
+
+type iMetricsParser interface {
+	Decode() error
+	iMetricSink
 }
 
 type metricSampleKey struct {
@@ -188,19 +194,28 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 	return nil
 }
 
-func (p *parserDoer) doParseMetrics() {
-	parser := p.MetricsParser
+// initMetrics points sink at the metric entry point over the request's
+// metric caches.
+func (p *parserDoer) initMetrics(sink iMetricSink) error {
 	node := metriccache.FromContext(p.ctx.ctx)
 	if node == nil {
+		return fmt.Errorf("metric caches are not set")
+	}
+	p.metrics = newMetricBatch(node, p.res)
+	sink.SetOnMetricSamples(p.onMetricSamples)
+	sink.SetOnMetricMetadata(p.onMetricMetadata)
+	return nil
+}
+
+func (p *parserDoer) doParseMetrics() {
+	parser := p.MetricsParser
+	if err := p.initMetrics(parser); err != nil {
 		go func() {
-			p.res <- &model.ParserResponse{Error: fmt.Errorf("metric caches are not set")}
+			p.res <- &model.ParserResponse{Error: err}
 			close(p.res)
 		}()
 		return
 	}
-	p.metrics = newMetricBatch(node, p.res)
-	parser.SetOnMetricSamples(p.onMetricSamples)
-	parser.SetOnMetricMetadata(p.onMetricMetadata)
 
 	go func() {
 		defer p.tamePanic()

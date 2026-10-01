@@ -178,6 +178,15 @@ func (p *parserDoer) doParseLogs() {
 
 	parser.SetOnEntries(p.onEntries)
 	p.tsSpl.reset()
+	if sink, ok := parser.(iMetricSink); ok {
+		if err := p.initMetrics(sink); err != nil {
+			go func() {
+				p.res <- &model.ParserResponse{Error: err}
+				close(p.res)
+			}()
+			return
+		}
+	}
 
 	go func() {
 		defer p.tamePanic()
@@ -189,6 +198,9 @@ func (p *parserDoer) doParseLogs() {
 		}
 		p.tsSpl.flush()
 		p.tsSpl.reset()
+		if p.metrics != nil {
+			p.metrics.flush()
+		}
 		close(p.res)
 	}()
 }
