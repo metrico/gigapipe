@@ -73,19 +73,10 @@ var identifyingResourceAttrs = map[string]bool{
 }
 
 type otlpMetricsDec struct {
-	ctx              *ParserCtx
-	onMetricSamples  onMetricSamplesHandler
-	onMetricMetadata onMetricMetadataHandler
-	stats            *OTLPMetricsStats
-	stored           int
-}
-
-func (d *otlpMetricsDec) SetOnMetricSamples(h onMetricSamplesHandler) {
-	d.onMetricSamples = h
-}
-
-func (d *otlpMetricsDec) SetOnMetricMetadata(h onMetricMetadataHandler) {
-	d.onMetricMetadata = h
+	ctx *ParserCtx
+	metricSink
+	stats  *OTLPMetricsStats
+	stored int
 }
 
 // resourceScope carries the per-resource and per-scope label context every

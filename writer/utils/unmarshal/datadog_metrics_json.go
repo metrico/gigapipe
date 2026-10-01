@@ -18,8 +18,7 @@ type datadogMetricsRequestDec struct {
 
 	path []any
 
-	onMetricSamples  onMetricSamplesHandler
-	onMetricMetadata onMetricMetadataHandler
+	metricSink
 }
 
 func (d *datadogMetricsRequestDec) Decode() error {
@@ -41,14 +40,6 @@ func (d *datadogMetricsRequestDec) Decode() error {
 		}
 		return d.WrapError(dec.Skip())
 	}))
-}
-
-func (d *datadogMetricsRequestDec) SetOnMetricSamples(h onMetricSamplesHandler) {
-	d.onMetricSamples = h
-}
-
-func (d *datadogMetricsRequestDec) SetOnMetricMetadata(h onMetricMetadataHandler) {
-	d.onMetricMetadata = h
 }
 
 func (d *datadogMetricsRequestDec) DecodeSeriesItem(dec *jx.Decoder, key string) error {

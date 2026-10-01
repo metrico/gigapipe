@@ -14,9 +14,8 @@ import (
 const RejectRemoteWriteNativeHistogram = "remote_write_native_histogram"
 
 type promMetricsProtoDec struct {
-	ctx              *ParserCtx
-	onMetricSamples  onMetricSamplesHandler
-	onMetricMetadata onMetricMetadataHandler
+	ctx *ParserCtx
+	metricSink
 }
 
 func protoLabels(lbls []*prompb.Label) [][]string {
@@ -63,14 +62,6 @@ func (l *promMetricsProtoDec) Decode() error {
 		})
 	}
 	return nil
-}
-
-func (l *promMetricsProtoDec) SetOnMetricSamples(h onMetricSamplesHandler) {
-	l.onMetricSamples = h
-}
-
-func (l *promMetricsProtoDec) SetOnMetricMetadata(h onMetricMetadataHandler) {
-	l.onMetricMetadata = h
 }
 
 var UnmarshallMetricsWriteProtoV2 = Build(
