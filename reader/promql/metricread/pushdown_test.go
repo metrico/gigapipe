@@ -143,3 +143,42 @@ func TestPushdownSQLFunctionValues(t *testing.T) {
 		})
 	}
 }
+
+func TestPushdownSQLAggregation(t *testing.T) {
+	const perSeries = "SELECT fingerprint, label_set AS labels, t_ms, value FROM (" +
+		"SELECT fingerprint, t_ms, last.2 AS value FROM rows WHERE last.1 > stale_at) AS points " +
+		"INNER JOIN fp USING (fingerprint)"
+	for _, tc := range []struct {
+		name string
+		agg  Aggregation
+		want string
+	}{
+		{"sum by", Aggregation{Op: "sum", Grouping: []string{"job", "env"}},
+			"SELECT cityHash64(grp) AS fingerprint, " +
+				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, sum(value) AS value " +
+				"FROM (SELECT arraySort(arrayFilter(x -> has(['job', 'env'], x.1), " +
+				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
+				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
+		{"without drops the name too", Aggregation{Op: "max", Grouping: []string{"instance"}, Without: true},
+			"SELECT cityHash64(grp) AS fingerprint, " +
+				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, max(value) AS value " +
+				"FROM (SELECT arraySort(arrayFilter(x -> NOT has(['instance', '__name__'], x.1), " +
+				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
+				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
+		{"count without grouping", Aggregation{Op: "count"},
+			"SELECT cityHash64(grp) AS fingerprint, " +
+				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, toFloat64(count()) AS value " +
+				"FROM (SELECT arraySort(arrayFilter(x -> has([], x.1), " +
+				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
+				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agg := tc.agg
+			sql := PushdownSQL(Pushdown{Grid: probeGrid, RangeMs: 300000, Matchers: probeSelector(), Aggregation: &agg})
+			i := strings.Index(sql, "HAVING count > 0) ")
+			if got := sql[i+len("HAVING count > 0) "):]; got != tc.want {
+				t.Fatalf("got  %s\nwant %s", got, tc.want)
+			}
+		})
+	}
+}

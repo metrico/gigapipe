@@ -2,6 +2,7 @@ package metricread
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/metrico/qryn/v5/reader/utils/tables"
 	"github.com/prometheus/prometheus/model/labels"
@@ -16,23 +17,69 @@ type Grid struct {
 }
 
 // Pushdown is a range function over one selector, or the instant selector itself when Func
-// is empty, evaluated at every timestamp of Grid over (t − RangeMs, t].
+// is empty, evaluated at every timestamp of Grid over (t − RangeMs, t] and optionally
+// wrapped in one aggregation.
 type Pushdown struct {
-	Grid     Grid
-	Func     string
-	RangeMs  int64
-	Matchers []*labels.Matcher
+	Grid        Grid
+	Func        string
+	RangeMs     int64
+	Matchers    []*labels.Matcher
+	Aggregation *Aggregation
+}
+
+// Aggregation is a sum, min, max, count or avg by, or without, the Grouping labels.
+type Aggregation struct {
+	Op       string
+	Grouping []string
+	Without  bool
+}
+
+// aggregations maps each pushed-down aggregation to its ClickHouse aggregate.
+var aggregations = map[string]string{
+	"sum":   "sum(value)",
+	"min":   "min(value)",
+	"max":   "max(value)",
+	"avg":   "avg(value)",
+	"count": "toFloat64(count())",
+}
+
+// Aggregable reports whether the aggregation op is evaluated by PushdownSQL.
+func Aggregable(op string) bool {
+	_, ok := aggregations[op]
+	return ok
 }
 
 // PushdownSQL evaluates p from raw samples. Rows: fingerprint UInt64,
 // labels Map(String, String), t_ms Int64, value Float64, ordered by fingerprint and t_ms.
 func PushdownSQL(p Pushdown) string {
 	window := Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs}
-	return fmt.Sprintf("WITH fp AS (%s), rows AS (%s) "+
-		"SELECT fingerprint, %s AS labels, t_ms, value FROM (%s) AS points "+
-		"INNER JOIN fp USING (fingerprint) "+
-		"ORDER BY fingerprint, t_ms",
-		SeriesSQL(window, p.Matchers), rawRowsSQL(p), outputLabels(p), valueSQL(p))
+	series := fmt.Sprintf("SELECT fingerprint, %s AS labels, t_ms, value FROM (%s) AS points "+
+		"INNER JOIN fp USING (fingerprint)", outputLabels(p), valueSQL(p))
+	return fmt.Sprintf("WITH fp AS (%s), rows AS (%s) %s ORDER BY fingerprint, t_ms",
+		SeriesSQL(window, p.Matchers), rawRowsSQL(p), aggregate(p.Aggregation, series))
+}
+
+// aggregate groups the series by the labels a kept, keyed by the hash of the kept set.
+func aggregate(a *Aggregation, series string) string {
+	if a == nil {
+		return series
+	}
+	grouping := a.Grouping
+	keep := "has"
+	if a.Without {
+		grouping = append(append([]string(nil), grouping...), labels.MetricName)
+		keep = "NOT has"
+	}
+	names := make([]string, len(grouping))
+	for i, g := range grouping {
+		names[i] = quote(g)
+	}
+	return fmt.Sprintf("SELECT cityHash64(grp) AS fingerprint, "+
+		"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, %s AS value "+
+		"FROM (SELECT arraySort(arrayFilter(x -> %s([%s], x.1), "+
+		"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (%s)) "+
+		"GROUP BY grp, t_ms",
+		aggregations[a.Op], keep, strings.Join(names, ", "), series)
 }
 
 // rawRowsSQL is the row shape per (fingerprint, t) from raw samples: each sample joined to
