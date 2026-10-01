@@ -34,6 +34,8 @@ func init() {
 	tableNames["metrics_15s"] = "metrics_15s"
 	tableNames["metric_series"] = "metric_series"
 	tableNames["metric_samples"] = "metric_samples"
+	tableNames["metrics_5m"] = "metrics_5m"
+	tableNames["metrics_1h"] = "metrics_1h"
 	tableNames["profiles_series"] = "profiles_series"
 	tableNames["profiles_series_gin"] = "profiles_series_gin"
 	tableNames["profiles"] = "profiles"

@@ -18,13 +18,14 @@ type Grid struct {
 
 // Pushdown is a range function over one selector, or the instant selector itself when Func
 // is empty, evaluated at every timestamp of Grid over (t − RangeMs, t] and optionally
-// wrapped in one aggregation.
+// wrapped in one aggregation. It reads Tier; the zero Tier reads raw samples.
 type Pushdown struct {
 	Grid        Grid
 	Func        string
 	RangeMs     int64
 	Matchers    []*labels.Matcher
 	Aggregation *Aggregation
+	Tier        Tier
 }
 
 // Aggregation is a sum, min, max, count or avg by, or without, the Grouping labels.
@@ -53,9 +54,12 @@ func Aggregable(op string) bool {
 	return ok
 }
 
-// PushdownSQL evaluates p from raw samples. Rows: fingerprint UInt64,
+// PushdownSQL evaluates p from its tier. Rows: fingerprint UInt64,
 // labels Map(String, String), t_ms Int64, value Float64, ordered by fingerprint and t_ms.
 func PushdownSQL(p Pushdown) string {
+	if p.Tier.WidthMs > 0 {
+		return tierPushdownSQL(p)
+	}
 	return pushdownSQL(p, rawRowsSQL(p))
 }
 
