@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	PredecessorIdle  = time.Hour
-	SeriesResetEvery = 30 * time.Minute
-	evictEvery       = time.Minute
+	predecessorIdle = time.Hour
+	resetEvery      = 30 * time.Minute
+	evictEvery      = time.Minute
 )
 
 // Node is the metric caches of one database node.
@@ -20,7 +20,7 @@ type Node struct {
 }
 
 // Caches holds a Node per database node. The fingerprint and metadata caches
-// are reset every SeriesResetEvery and idle predecessors are evicted every minute.
+// are reset every resetEvery and idle predecessors are evicted every minute.
 type Caches struct {
 	mtx   sync.Mutex
 	nodes map[string]*Node
@@ -41,7 +41,7 @@ func (c *Caches) Node(name string) *Node {
 	n, ok := c.nodes[name]
 	if !ok {
 		n = &Node{
-			Predecessors: NewPredecessors(PredecessorIdle, nil),
+			Predecessors: NewPredecessors(predecessorIdle, nil),
 			Fingerprints: NewFingerprints(),
 			Metadata:     NewMetadata(),
 		}
@@ -67,7 +67,7 @@ func (c *Caches) each(fn func(n *Node)) {
 }
 
 func (c *Caches) run() {
-	reset := time.NewTicker(SeriesResetEvery)
+	reset := time.NewTicker(resetEvery)
 	evict := time.NewTicker(evictEvery)
 	defer reset.Stop()
 	defer evict.Stop()

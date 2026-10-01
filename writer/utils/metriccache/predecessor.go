@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// StaleMarkerBits is the bit pattern of the Prometheus stale marker NaN.
-const StaleMarkerBits uint64 = 0x7ff0000000000002
+// staleMarkerBits is the bit pattern of the Prometheus stale marker NaN.
+const staleMarkerBits uint64 = 0x7ff0000000000002
 
-// IsStaleMarker reports whether v is the stale marker, bit for bit.
-func IsStaleMarker(v float64) bool {
-	return math.Float64bits(v) == StaleMarkerBits
+// isStaleMarker reports whether v is the stale marker, bit for bit.
+func isStaleMarker(v float64) bool {
+	return math.Float64bits(v) == staleMarkerBits
 }
 
 // Prev is a staging row's predecessor columns. TimestampMs 0 means unknown.
@@ -71,7 +71,7 @@ func (p *Predecessors) Next(fp uint64, tsMs int64, value float64) Prev {
 	}
 	if !ok || tsMs > e.tsMs {
 		prev.Aggregate = 1
-		if !IsStaleMarker(value) {
+		if !isStaleMarker(value) {
 			s.entries[fp] = predEntry{tsMs: tsMs, value: value, seenAt: now}
 			return prev
 		}
@@ -96,16 +96,4 @@ func (p *Predecessors) EvictIdle() {
 		}
 		s.mtx.Unlock()
 	}
-}
-
-// Len returns the number of series held.
-func (p *Predecessors) Len() int {
-	n := 0
-	for i := range p.shards {
-		s := &p.shards[i]
-		s.mtx.Lock()
-		n += len(s.entries)
-		s.mtx.Unlock()
-	}
-	return n
 }

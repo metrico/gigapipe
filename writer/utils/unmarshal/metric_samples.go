@@ -19,7 +19,7 @@ type metricExemplar struct {
 type onMetricSamplesHandler func(labels [][]string, timestampsMs []int64, values []float64,
 	exemplars []metricExemplar) error
 
-type onMetricMetadataHandler func(name string, m metadata.Entry) error
+type onMetricMetadataHandler func(name string, m metadata.Entry)
 
 type iMetricsParser interface {
 	Decode() error
@@ -111,9 +111,8 @@ func labelValue(labels [][]string, name string) string {
 	return ""
 }
 
-func (p *parserDoer) onMetricMetadata(name string, m metadata.Entry) error {
+func (p *parserDoer) onMetricMetadata(name string, m metadata.Entry) {
 	p.metrics.addMetadata(name, m)
-	return nil
 }
 
 // onMetricSamples is the metric entry point: it strips __ttl_days__ and the
