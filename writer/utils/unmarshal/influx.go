@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-logfmt/logfmt"
 	"github.com/influxdata/line-protocol/v2/lineprotocol"
-	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 )
@@ -97,8 +96,7 @@ func (e *influxDec) Decode() error {
 			if err != nil {
 				return err
 			}
-			err = e.onEntries(labels, []int64{tm.UnixNano()}, []string{message}, []float64{0},
-				[]uint8{model.SAMPLE_TYPE_LOG})
+			err = e.onEntries(labels, []int64{tm.UnixNano()}, []string{message})
 			if err != nil {
 				return err
 			}

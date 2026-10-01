@@ -29,8 +29,7 @@ type OrgCheckerFactory interface {
 	CreateOrgChecker() OrgChecker
 }
 
-type onEntriesHandler func(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8) error
+type onEntriesHandler func(labels [][]string, timestampsNS []int64, message []string) error
 
 type onProfileHandler func(timestampNs uint64,
 	Type string,
@@ -353,9 +352,9 @@ func stripSpecialLabels(labels [][]string, ttlDays uint16, stripAllTTL bool) ([]
 	return filtered, ttlDays
 }
 
-func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8,
-) error {
+// onEntries is the log entry point: every row it produces is typed
+// SAMPLE_TYPE_LOG with value 0.
+func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64, message []string) error {
 	// Extract metadata from labels
 	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
 
@@ -367,16 +366,11 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	fp := fingerprintLabels(filtered)
 
 	p.tsSpl.spl.MMessage = append(p.tsSpl.spl.MMessage, message...)
-	p.tsSpl.spl.MValue = append(p.tsSpl.spl.MValue, value...)
+	p.tsSpl.spl.MValue = append(p.tsSpl.spl.MValue, make([]float64, len(timestampsNS))...)
 	p.tsSpl.spl.MTimestampNS = append(p.tsSpl.spl.MTimestampNS, timestampsNS...)
 	p.tsSpl.spl.MFingerprint = append(p.tsSpl.spl.MFingerprint, slices.Repeat([]uint64{fp}, len(timestampsNS))...)
 	p.tsSpl.spl.MTTLDays = append(p.tsSpl.spl.MTTLDays, slices.Repeat([]uint16{ttlDays}, len(timestampsNS))...)
-	p.tsSpl.spl.MType = append(p.tsSpl.spl.MType, types...)
-
-	var tps [3]bool
-	for _, t := range types {
-		tps[t] = true
-	}
+	p.tsSpl.spl.MType = append(p.tsSpl.spl.MType, slices.Repeat([]uint8{model.SAMPLE_TYPE_LOG}, len(timestampsNS))...)
 
 	for i, tsns := range timestampsNS {
 		dates[time.Unix(tsns/1000000000, 0).Truncate(time.Hour*24)] = true
@@ -392,19 +386,13 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	for d := range dates {
 		if maybeAddFp(d, fp, p.ctx.fpCache) {
 			_labels := encodeLabels(filtered)
-			for t := range tps {
-				if !tps[t] {
-					continue
-				}
-
-				p.tsSpl.ts.MDate = append(p.tsSpl.ts.MDate, d)
-				p.tsSpl.ts.MLabels = append(p.tsSpl.ts.MLabels, _labels)
-				p.tsSpl.ts.MFingerprint = append(p.tsSpl.ts.MFingerprint, fp)
-				p.tsSpl.ts.MType = append(p.tsSpl.ts.MType, uint8(t))
-				p.tsSpl.ts.MTTLDays = append(p.tsSpl.ts.MTTLDays, ttlDays)
-				p.tsSpl.ts.MMetadata = append(p.tsSpl.ts.MMetadata, metadataJSON)
-				p.tsSpl.ts.Size += 14 + len(_labels) + len(metadataJSON)
-			}
+			p.tsSpl.ts.MDate = append(p.tsSpl.ts.MDate, d)
+			p.tsSpl.ts.MLabels = append(p.tsSpl.ts.MLabels, _labels)
+			p.tsSpl.ts.MFingerprint = append(p.tsSpl.ts.MFingerprint, fp)
+			p.tsSpl.ts.MType = append(p.tsSpl.ts.MType, model.SAMPLE_TYPE_LOG)
+			p.tsSpl.ts.MTTLDays = append(p.tsSpl.ts.MTTLDays, ttlDays)
+			p.tsSpl.ts.MMetadata = append(p.tsSpl.ts.MMetadata, metadataJSON)
+			p.tsSpl.ts.Size += 14 + len(_labels) + len(metadataJSON)
 		}
 	}
 

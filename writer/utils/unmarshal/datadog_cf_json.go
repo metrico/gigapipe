@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 )
@@ -42,8 +41,7 @@ func (d *datadogCFRequestDec) Decode() error {
 		if d.TsNs != 0 {
 			t = time.Unix(d.TsNs/1000000000, d.TsNs%1000000000)
 		}
-		err = d.onEntries(d.GetLabels(), []int64{t.UnixNano()}, []string{scanner.Text()}, []float64{0},
-			[]uint8{model.SAMPLE_TYPE_LOG})
+		err = d.onEntries(d.GetLabels(), []int64{t.UnixNano()}, []string{scanner.Text()})
 		if err != nil {
 			return err
 		}

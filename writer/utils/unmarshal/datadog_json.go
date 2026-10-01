@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 )
 
@@ -91,8 +90,7 @@ func (d *datadogRequestDec) DecodeEntry(dec *jx.Decoder) error {
 	if d.TsMs != 0 {
 		t = time.Unix(d.TsMs/1000, d.TsMs%1000*1000000)
 	}
-	return d.onEntries(d.Tags, []int64{t.UnixNano()}, []string{d.Message}, []float64{0},
-		[]uint8{model.SAMPLE_TYPE_LOG})
+	return d.onEntries(d.Tags, []int64{t.UnixNano()}, []string{d.Message})
 }
 
 var UnmarshallDatadogV2JSONV2 = Build(
