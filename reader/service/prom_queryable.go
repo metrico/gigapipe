@@ -11,13 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/utils/cityhash102"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
-	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/annotations"
@@ -99,17 +97,23 @@ type CLokiQuerier struct {
 	expr *promql_parser.Expr
 }
 
-// appendStaleMarker caps a substitute series with a stale marker one step past its last
-// point, unless the series reaches the query end or the step is unknown (0).
+// appendStaleMarker ends each run of a substitute series' points, taken one step apart, with a
+// stale marker one step past its last point, unless that is past the query end or the step is
+// unknown (0).
 func appendStaleMarker(samples []model.Sample, stepMs int64, queryEndMs int64) []model.Sample {
 	if len(samples) == 0 || stepMs <= 0 {
 		return samples
 	}
-	markerTs := samples[len(samples)-1].TimestampMs + stepMs
-	if markerTs > queryEndMs {
-		return samples
+	res := make([]model.Sample, 0, len(samples)+1)
+	for i, s := range samples {
+		res = append(res, s)
+		markerTs := s.TimestampMs + stepMs
+		if markerTs > queryEndMs || i+1 < len(samples) && samples[i+1].TimestampMs <= markerTs {
+			continue
+		}
+		res = append(res, model.Sample{TimestampMs: markerTs, Value: model.StaleMarkerValue})
 	}
-	return append(samples, model.Sample{TimestampMs: markerTs, Value: model.StaleMarkerValue})
+	return res
 }
 
 func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints,
@@ -129,7 +133,7 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		err    error
 	)
 	if sub := c.substitute(matchers); sub != nil {
-		series, err = c.selectSubstitute(ctx, sub, hints)
+		series, err = c.selectSubstitute(ctx, sub)
 	} else {
 		series, err = c.selectRaw(ctx, hints, matchers)
 	}
@@ -186,31 +190,9 @@ func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints
 	return series, rows.Err()
 }
 
-// selectSubstitute runs a substitute's request, whose rows are
-// (fingerprint UInt64, label_set Map(String, String), timestamp DateTime64(3), value Float64)
-// ordered by fingerprint and timestamp.
-func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute, hints *storage.SelectHints) ([]*model.SeriesV2, error) {
-	plannerCtx := shared.PlannerContext{
-		IsCluster: c.db.Config.ClusterName != "",
-		From:      time.UnixMilli(hints.Start),
-		To:        time.UnixMilli(hints.End),
-		Step:      time.Duration(hints.Step) * time.Millisecond,
-		Ctx:       ctx,
-		CHDb:      c.db.Session,
-	}
-	req, err := sub.Request.Process(&plannerCtx)
-	if err != nil {
-		return nil, err
-	}
-	var opts []int
-	if plannerCtx.IsCluster {
-		opts = []int{sql.STRING_OPT_INLINE_WITH}
-	}
-	str, err := req.String(&sql.Ctx{Params: map[string]sql.SQLObject{}}, opts...)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := c.query(ctx, str)
+// selectSubstitute evaluates a substitute's pushdown at the query's own timestamps.
+func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute) ([]*model.SeriesV2, error) {
+	rows, err := c.query(ctx, metricread.PushdownSQL(sub.Pushdown))
 	if err != nil {
 		return nil, err
 	}
@@ -220,23 +202,24 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 		lbls   = seriesLabels{}
 		fp     uint64
 		set    map[string]string
-		ts     time.Time
+		tMs    int64
 		val    float64
 	)
 	for rows.Next() {
-		if err := rows.Scan(&fp, &set, &ts, &val); err != nil {
+		if err := rows.Scan(&fp, &set, &tMs, &val); err != nil {
 			return nil, err
 		}
 		if _, ok := lbls[fp]; !ok {
 			lbls[fp] = labelsFromMap(set)
 		}
-		series = appendSample(series, lbls, fp, ts.UnixMilli(), val)
+		series = appendSample(series, lbls, fp, tMs, val)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	grid := sub.Pushdown.Grid
 	for _, s := range series {
-		s.Samples = appendStaleMarker(s.Samples, hints.Step, hints.End)
+		s.Samples = appendStaleMarker(s.Samples, grid.StepMs, grid.EndMs)
 	}
 	return series, nil
 }

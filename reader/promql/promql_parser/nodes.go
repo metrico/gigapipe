@@ -1,7 +1,7 @@
 package promql_parser
 
 import (
-	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -11,12 +11,12 @@ type Expr struct {
 	Substitutes map[string]*Substitute
 }
 
-// Substitute is an expression the querier answers with Request's rows instead of the
+// Substitute is an expression the querier answers with its pushdown's points instead of the
 // engine, selected by a matcher on its MetricName.
 type Substitute struct {
 	MetricName string
 	Node       parser.Node
-	Request    shared.SQLRequestPlanner
+	Pushdown   metricread.Pushdown
 }
 
 const (
