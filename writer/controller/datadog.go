@@ -65,7 +65,7 @@ func PushDatadogMetricsV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *h
 
 	return Build(
 		append(cfg.ExtraMiddleware,
-			withTSAndSampleService,
+			withMetricServices,
 			withSimpleParser("application/json", Parser(unmarshal.UnmarshallDatadogMetricsV2JSONV2)),
 			withOkStatusAndBody(202, []byte("{}")))...)
 
