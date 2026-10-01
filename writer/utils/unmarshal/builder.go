@@ -118,7 +118,7 @@ func (p *parserDoer) Do() chan *model.ParserResponse {
 	for _, fn := range p.PreParse {
 		err := fn(p.ctx)
 		if err != nil {
-			go func() { p.res <- &model.ParserResponse{Error: err}; close(p.res) }()
+			p.fail(err)
 			return p.res
 		}
 	}
@@ -134,6 +134,14 @@ func (p *parserDoer) Do() chan *model.ParserResponse {
 	}
 
 	return p.res
+}
+
+// fail reports err as the parser's only response.
+func (p *parserDoer) fail(err error) {
+	go func() {
+		p.res <- &model.ParserResponse{Error: err}
+		close(p.res)
+	}()
 }
 
 func (p *parserDoer) doParseProfile() {
@@ -179,10 +187,7 @@ func (p *parserDoer) doParseLogs() {
 	p.tsSpl.reset()
 	if sink, ok := parser.(iMetricSink); ok {
 		if err := p.initMetrics(sink); err != nil {
-			go func() {
-				p.res <- &model.ParserResponse{Error: err}
-				close(p.res)
-			}()
+			p.fail(err)
 			return
 		}
 	}
