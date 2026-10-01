@@ -321,35 +321,33 @@ func (p *parserDoer) discoverServiceName(labels *[][]string) {
 	}
 }
 
-func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8,
-) error {
-	ttlDays := p.ttlDays
-
-	// Extract metadata from labels
-	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
-
-	// Filter special labels (__ttl_days__, __metric_type__, __metric_help__, __metric_unit__)
-	filtered := make([][]string, 0, len(labels))
+// stripSpecialLabels drops the __metric_*__ labels and, while ttlDays is 0,
+// the __ttl_days__ label, taking ttlDays from it. It returns the kept labels
+// and ttlDays.
+func stripSpecialLabels(labels [][]string, ttlDays uint16) ([][]string, uint16) {
+	filtered := make([][]string, 0, len(labels)+1)
 	for _, label := range labels {
-		lname := label[0]
-		lval := label[1]
-
-		// Check for TTL override if not already set
-		if lname == "__ttl_days__" && ttlDays == 0 {
-			if ttl, err := strconv.ParseInt(lval, 10, 16); err == nil {
+		if label[0] == "__ttl_days__" && ttlDays == 0 {
+			if ttl, err := strconv.ParseInt(label[1], 10, 16); err == nil {
 				ttlDays = uint16(ttl)
 			}
 			continue
 		}
-
-		// Skip metadata labels
-		if metadata.IsMetadataLabel(lname) {
+		if metadata.IsMetadataLabel(label[0]) {
 			continue
 		}
-
 		filtered = append(filtered, label)
 	}
+	return filtered, ttlDays
+}
+
+func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
+	message []string, value []float64, types []uint8,
+) error {
+	// Extract metadata from labels
+	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
+
+	filtered, ttlDays := stripSpecialLabels(labels, p.ttlDays)
 
 	p.discoverServiceName(&filtered)
 
