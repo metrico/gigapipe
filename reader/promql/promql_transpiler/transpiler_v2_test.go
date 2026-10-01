@@ -1,7 +1,7 @@
 package promql_transpiler
 
 import (
-	"reflect"
+	"fmt"
 	"testing"
 
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
@@ -54,6 +54,16 @@ func TestTranspilePushesDownRangeFunctionsInstantSelectorsAndTheirAggregation(t 
 		{"histogram_quantile(0.9, sum by (le) (rate(x[5m])))", "histogram_quantile(0.9, __metric_subst__1)",
 			[]metricread.Pushdown{{Grid: grid, Func: "rate", RangeMs: 300000, Matchers: selector("x"),
 				Aggregation: &metricread.Aggregation{Op: "sum", Grouping: []string{"le"}}}}},
+		{`sum(rate({__name__=~"a|b"}[5m]))`, "sum(__metric_subst__1)", []metricread.Pushdown{{Grid: grid,
+			Func: "rate", RangeMs: 300000, Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, labels.MetricName, "a|b")}}}},
+		{`sum by (job) (increase({job="x"}[5m]))`, "sum by (job) (__metric_subst__1)", []metricread.Pushdown{{Grid: grid,
+			Func: "increase", RangeMs: 300000, Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "job", "x")}}}},
+		{`max(last_over_time({__name__=~"a|b"}[5m]))`, "__metric_subst__1", []metricread.Pushdown{{Grid: grid,
+			Func: "last_over_time", RangeMs: 300000, Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, labels.MetricName, "a|b")},
+			Aggregation: &metricread.Aggregation{Op: "max"}}}},
+		{`count({__name__=~"a|b"})`, "__metric_subst__1", []metricread.Pushdown{{Grid: grid, RangeMs: 300000,
+			Matchers:    []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, labels.MetricName, "a|b")},
+			Aggregation: &metricread.Aggregation{Op: "count"}}}},
 		{"sum(sum by (job) (x))", "sum(__metric_subst__1)", []metricread.Pushdown{{Grid: grid, RangeMs: 300000,
 			Matchers: selector("x"), Aggregation: &metricread.Aggregation{Op: "sum", Grouping: []string{"job"}}}}},
 	} {
@@ -71,12 +81,21 @@ func TestTranspilePushesDownRangeFunctionsInstantSelectorsAndTheirAggregation(t 
 				if !ok || sub.MetricName != name {
 					t.Fatalf("no substitute %s in %v", name, expr.Substitutes)
 				}
-				if !reflect.DeepEqual(sub.Pushdown, want) {
-					t.Errorf("%s = %+v, want %+v", name, sub.Pushdown, want)
+				if got, want := describe(sub.Pushdown), describe(want); got != want {
+					t.Errorf("%s = %s, want %s", name, got, want)
 				}
 			}
 		})
 	}
+}
+
+// describe renders a pushdown with its matchers as PromQL text.
+func describe(p metricread.Pushdown) string {
+	agg := "none"
+	if p.Aggregation != nil {
+		agg = fmt.Sprintf("%+v", *p.Aggregation)
+	}
+	return fmt.Sprintf("%+v %q %d %v %s", p.Grid, p.Func, p.RangeMs, p.Matchers, agg)
 }
 
 func TestTranspileLeavesTheEngineWhatItCannotPushDown(t *testing.T) {
