@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql/driver"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -87,7 +88,7 @@ func TestSelectReadsRawSamplesOfTheSelectedSeries(t *testing.T) {
 			{uint64(1), ms(45000), 3.0},
 			{uint64(2), ms(15000), 7.0},
 		}))
-	got := selectSeries(t, db, parse(t, "x"), &storage.SelectHints{Start: 1000, End: 60000},
+	got := selectSeries(t, db, parse(t, "x"), &storage.SelectHints{Start: 1000, End: 60000, Step: 15000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "x"))
 
 	want := map[string][]point{
@@ -157,5 +158,27 @@ func TestSelectEndsASubstituteSeriesOneStepAfterItsLastPoint(t *testing.T) {
 	}
 	if q := db.Queries(); len(q) != 1 || strings.TrimSpace(q[0]) != "SELECT 1" {
 		t.Errorf("queries = %q, want the substitute's request only", q)
+	}
+}
+
+func TestSelectStopsWhenTheEngineCancelsTheQuery(t *testing.T) {
+	db := fakeclickhouse.New(metricStack(
+		[][]driver.Value{{uint64(1), map[string]string{"__name__": "x"}}},
+		[][]driver.Value{{uint64(1), ms(15000), 1.0}}))
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
+		SetOidAndDB(context.Background(), parse(t, "x"))
+	querier, err := queryable.Querier(0, 60000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	set := querier.Select(ctx, true, &storage.SelectHints{Start: 0, End: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "x"))
+	if set.Next() || !errors.Is(set.Err(), context.Canceled) {
+		t.Fatalf("Select under a cancelled context: err = %v", set.Err())
+	}
+	if q := db.Queries(); len(q) != 0 {
+		t.Fatalf("queries reached ClickHouse: %q", q)
 	}
 }
