@@ -212,3 +212,52 @@ func TestSelectStopsWhenTheEngineCancelsTheQuery(t *testing.T) {
 		t.Fatalf("queries reached ClickHouse: %q", q)
 	}
 }
+
+// substituteRows answers every query with pushdown rows (fingerprint, labels, t_ms, value).
+func substituteRows(rows ...[]driver.Value) *fakeclickhouse.DB {
+	return fakeclickhouse.New(func(string) (fakeclickhouse.Result, error) {
+		return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels", "t_ms", "value"}, Rows: rows}, nil
+	})
+}
+
+func rateSubstitute(t *testing.T) *promql_parser.Expr {
+	expr := parse(t, "__metric_subst__1")
+	expr.Substitutes["__metric_subst__1"] = &promql_parser.Substitute{MetricName: "__metric_subst__1",
+		Pushdown: metricread.Pushdown{Grid: metricread.Grid{StartMs: 60000, EndMs: 300000, StepMs: 60000},
+			Func: "rate", RangeMs: 300000,
+			Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "__name__", "a|b")}}}
+	return expr
+}
+
+func TestSelectRejectsSubstituteSeriesSharingALabelSetAtOneTimestamp(t *testing.T) {
+	db := substituteRows(
+		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(60000), 1.0},
+		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(120000), 2.0},
+		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(120000), 3.0})
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
+		SetOidAndDB(context.Background(), rateSubstitute(t))
+	querier, err := queryable.Querier(0, 300000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := querier.Select(context.Background(), true, &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	if set.Next() || set.Err() == nil || set.Err().Error() != "vector cannot contain metrics with the same labelset" {
+		t.Fatalf("err = %v, want the same-labelset error", set.Err())
+	}
+}
+
+func TestSelectJoinsSubstituteSeriesSharingALabelSetAtDisjointTimestamps(t *testing.T) {
+	db := substituteRows(
+		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(60000), 1.0},
+		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(120000), 2.0},
+		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(180000), 3.0},
+		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(240000), 4.0})
+	got := selectSeries(t, db, rateSubstitute(t), &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	want := []point{{60000, math.Float64bits(1)}, {120000, math.Float64bits(2)}, {180000, math.Float64bits(3)},
+		{240000, math.Float64bits(4)}, {300000, staleMarkerBits}}
+	if len(got) != 1 || !equalPoints(got[`{job="x"}`], want) {
+		t.Fatalf("got %v, want {job=\"x\"} %v", got, want)
+	}
+}
