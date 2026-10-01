@@ -218,8 +218,7 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	series, err = joinSameLabelSets(series)
-	if err != nil {
+	if err := uniqueLabelSets(series); err != nil {
 		return nil, err
 	}
 	grid := sub.Pushdown.Grid
@@ -229,45 +228,22 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 	return series, nil
 }
 
-// errSameLabelset is the engine's error for two series with one label set at one timestamp.
+// errSameLabelset is the engine's error for a function result holding two series with one
+// label set.
 var errSameLabelset = errors.New("vector cannot contain metrics with the same labelset")
 
-// joinSameLabelSets makes one series of the series that share a label set, which they may only
-// do at disjoint timestamps.
-func joinSameLabelSets(series []*model.SeriesV2) ([]*model.SeriesV2, error) {
-	byLabels := make(map[string]*model.SeriesV2, len(series))
-	res := series[:0]
+// uniqueLabelSets fails when two series share a label set, which the engine rejects in a range
+// function's result whatever their timestamps.
+func uniqueLabelSets(series []*model.SeriesV2) error {
+	seen := make(map[string]struct{}, len(series))
 	for _, s := range series {
 		key := labels.New(s.LabelsGetter.Get(s.Fp)...).String()
-		first, ok := byLabels[key]
-		if !ok {
-			byLabels[key] = s
-			res = append(res, s)
-			continue
+		if _, ok := seen[key]; ok {
+			return errSameLabelset
 		}
-		merged, ok := mergeSamples(first.Samples, s.Samples)
-		if !ok {
-			return nil, errSameLabelset
-		}
-		first.Samples = merged
+		seen[key] = struct{}{}
 	}
-	return res, nil
-}
-
-// mergeSamples merges two time-ordered sample lists, failing on a shared timestamp.
-func mergeSamples(a, b []model.Sample) ([]model.Sample, bool) {
-	res := make([]model.Sample, 0, len(a)+len(b))
-	for len(a) > 0 && len(b) > 0 {
-		switch {
-		case a[0].TimestampMs == b[0].TimestampMs:
-			return nil, false
-		case a[0].TimestampMs < b[0].TimestampMs:
-			res, a = append(res, a[0]), a[1:]
-		default:
-			res, b = append(res, b[0]), b[1:]
-		}
-	}
-	return append(append(res, a...), b...), true
+	return nil
 }
 
 // readSeries returns the label set of every fingerprint the series query selects.

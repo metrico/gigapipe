@@ -247,17 +247,21 @@ func TestSelectRejectsSubstituteSeriesSharingALabelSetAtOneTimestamp(t *testing.
 	}
 }
 
-func TestSelectJoinsSubstituteSeriesSharingALabelSetAtDisjointTimestamps(t *testing.T) {
+// The engine checks a range function's whole result, so disjoint timestamps do not help.
+func TestSelectRejectsSubstituteSeriesSharingALabelSetAtDisjointTimestamps(t *testing.T) {
 	db := substituteRows(
 		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(60000), 1.0},
-		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(120000), 2.0},
-		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(180000), 3.0},
-		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(240000), 4.0})
-	got := selectSeries(t, db, rateSubstitute(t), &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(240000), 4.0},
+		[]driver.Value{uint64(3), map[string]string{"job": "y"}, int64(240000), 5.0})
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
+		SetOidAndDB(context.Background(), rateSubstitute(t))
+	querier, err := queryable.Querier(0, 300000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := querier.Select(context.Background(), true, &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
-	want := []point{{60000, math.Float64bits(1)}, {120000, math.Float64bits(2)}, {180000, math.Float64bits(3)},
-		{240000, math.Float64bits(4)}, {300000, staleMarkerBits}}
-	if len(got) != 1 || !equalPoints(got[`{job="x"}`], want) {
-		t.Fatalf("got %v, want {job=\"x\"} %v", got, want)
+	if set.Next() || set.Err() == nil || set.Err().Error() != "vector cannot contain metrics with the same labelset" {
+		t.Fatalf("err = %v, want the same-labelset error", set.Err())
 	}
 }
