@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/metrico/qryn/v5/reader/utils/tables"
+	"github.com/metrico/qryn/v5/shared/metricindex"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -13,10 +14,6 @@ type Window struct {
 	ToMs   int64
 }
 
-// seriesIndexLagMs is how far a live series' last_seen may trail its newest sample: the
-// writer emits a series row once per 30-minute fingerprint cache period.
-const seriesIndexLagMs = 30 * 60 * 1000
-
 // SeriesSQL selects the fingerprint and label set of every series matching the selectors
 // that may have samples in w. Rows: fingerprint UInt64, label_set Map(String, String).
 func SeriesSQL(w Window, selectors ...[]*labels.Matcher) string {
@@ -25,7 +22,7 @@ func SeriesSQL(w Window, selectors ...[]*labels.Matcher) string {
 		"AND last_seen >= fromUnixTimestamp64Milli(%d) "+
 		"AND first_seen <= fromUnixTimestamp64Milli(%d) "+
 		"GROUP BY fingerprint",
-		tables.GetTableName("metric_series"), SelectorPredicate(selectors...), w.FromMs-seriesIndexLagMs, w.ToMs)
+		tables.GetTableName("metric_series"), SelectorPredicate(selectors...), w.FromMs-metricindex.SeriesIndexLag.Milliseconds(), w.ToMs)
 }
 
 // RawSamplesSQL selects the raw samples in w of the series SeriesSQL selects, one row per
