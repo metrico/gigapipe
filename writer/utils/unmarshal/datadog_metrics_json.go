@@ -77,12 +77,12 @@ func (d *datadogMetricsRequestDec) DecodeSeriesItem(dec *jx.Decoder, key string)
 		return d.WrapError(err)
 	case "points":
 		d.path = append(d.path, "points")
-		tsMs := time.Now().UnixMilli()
-		val := float64(0)
 		i := -1
 		d.path = append(d.path, &i)
 		err := d.WrapError(dec.Arr(func(dec *jx.Decoder) error {
 			i++
+			tsMs := time.Now().UnixMilli()
+			val := float64(0)
 			err := d.WrapError(dec.Obj(func(dec *jx.Decoder, key string) error {
 				var err error
 				switch key {

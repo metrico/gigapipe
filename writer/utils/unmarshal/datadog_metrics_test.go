@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 )
@@ -41,5 +42,22 @@ func TestDatadogMetricsReachTheMetricEntryPoint(t *testing.T) {
 		if r.fp != s.fp || r.tsMs != want.tsMs || r.value != want.value {
 			t.Errorf("staging row %d: got %+v, want ts %d value %v", i, r, want.tsMs, want.value)
 		}
+	}
+}
+
+func TestDatadogPointWithoutTimestampTakesTheCurrentTime(t *testing.T) {
+	withCityHashFingerprints(t)
+	body := `{"series":[{"metric":"m","points":[{"timestamp":1700000000,"value":1},{"value":2}]}]}`
+	ctx := metriccache.NewContext(context.Background(), newNode(t))
+	before := time.Now().UnixMilli()
+	rows := collectMetricRows(t, UnmarshallDatadogMetricsV2JSONV2(ctx, strings.NewReader(body), nil))
+	if len(rows.staging) != 2 {
+		t.Fatalf("staging rows: got %+v, want 2", rows.staging)
+	}
+	if r := rows.staging[0]; r.tsMs != 1700000000_000 || r.value != 1 {
+		t.Errorf("first point: got %+v", r)
+	}
+	if r := rows.staging[1]; r.tsMs < before || r.value != 2 {
+		t.Errorf("second point: got %+v, want value 2 at or after %d", r, before)
 	}
 }
