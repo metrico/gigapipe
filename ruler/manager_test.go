@@ -25,22 +25,17 @@ func (f *fakeEvaluator) Evaluate(ctx context.Context, expr string, t time.Time) 
 	return f.vec, f.err
 }
 
-type writeCall struct {
-	record string
-	labels map[string]string
-	vec    promql.Vector
-}
-
 type fakeWriter struct {
 	mu     sync.Mutex
-	writes []writeCall
+	writes []promql.Vector
+	err    error
 }
 
-func (f *fakeWriter) Write(record string, ruleLabels map[string]string, v promql.Vector) error {
+func (f *fakeWriter) Write(v promql.Vector) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.writes = append(f.writes, writeCall{record, ruleLabels, v})
-	return nil
+	f.writes = append(f.writes, v)
+	return f.err
 }
 
 type fakeReader struct {
@@ -83,8 +78,8 @@ func TestEvaluateInterval_EvaluatesMatchingRecordingRuleAndWritesBack(t *testing
 		t.Fatalf("expected 1 write, got %d", len(writer.writes))
 	}
 	w := writer.writes[0]
-	if w.record != "rec" || w.labels["k"] != "v" {
-		t.Errorf("write record/labels mismatch: %+v", w)
+	if want := labels.FromStrings("__name__", "rec", "k", "v"); len(w) != 1 || !labels.Equal(w[0].Metric, want) {
+		t.Errorf("written vector = %v, want one sample labelled %s", w, want)
 	}
 }
 
@@ -218,5 +213,19 @@ func TestGetPrometheusRules_RecordingOnlyWithHealth(t *testing.T) {
 	pr := groups[0].Rules[0]
 	if pr.Name != "rec" || pr.Type != "recording" || pr.Health != "ok" {
 		t.Errorf("prometheus rule mismatch: %+v", pr)
+	}
+}
+
+func TestEvaluateRecordingRule_FailedWriteRecordsHealth(t *testing.T) {
+	eval := &fakeEvaluator{vec: sampleVec()}
+	writer := &fakeWriter{err: errors.New("insert failed")}
+	m := NewRuleManager(eval, &fakeReader{}, writer, time.Minute)
+	m.ctx = context.Background()
+
+	m.evaluateRecordingRule("ns", "g", Rule{Record: "rec", Expr: "up"}, time.Now())
+
+	h, ok := m.getRuleHealth("ns", "g", "rec")
+	if !ok || h.Health != "err" || h.LastError != "insert failed" {
+		t.Errorf("health not recorded as err: %+v ok=%v", h, ok)
 	}
 }

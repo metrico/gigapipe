@@ -3,103 +3,85 @@ package ruler
 import (
 	"testing"
 
-	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 )
 
-func labelMap(ls []*prompb.Label) map[string]string {
-	m := make(map[string]string, len(ls))
-	for _, l := range ls {
-		m[l.GetName()] = l.GetValue()
+func TestRecordedVector_NamesSeriesMergesLabelsAndStampsTheTick(t *testing.T) {
+	v := promql.Vector{{
+		T:      1700000000123,
+		F:      42,
+		Metric: labels.FromStrings("__name__", "http_requests_total", "instance", "a"),
+	}}
+
+	got, err := recordedVector("job:http:rate5m", map[string]string{"team": "infra"}, v, 1700000000000)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return m
+
+	want := labels.FromStrings("__name__", "job:http:rate5m", "instance", "a", "team", "infra")
+	if len(got) != 1 {
+		t.Fatalf("got %d samples, want 1", len(got))
+	}
+	if !labels.Equal(got[0].Metric, want) {
+		t.Errorf("labels = %s, want %s", got[0].Metric, want)
+	}
+	if got[0].F != 42 || got[0].T != 1700000000000 {
+		t.Errorf("sample = (%d, %v), want (1700000000000, 42)", got[0].T, got[0].F)
+	}
 }
 
-func TestVectorToWriteRequest_NamesSeriesAndMergesLabels(t *testing.T) {
+func TestRecordedVector_RuleLabelsOverrideSampleLabels(t *testing.T) {
+	v := promql.Vector{{
+		T:      1700000000000,
+		F:      1,
+		Metric: labels.FromStrings("__name__", "up", "job", "api", "instance", "a"),
+	}}
+
+	got, err := recordedVector("job:up:count", map[string]string{"job": "aggregator", "__name__": "x"}, v, 1700000000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := labels.FromStrings("__name__", "job:up:count", "instance", "a", "job", "aggregator")
+	if !labels.Equal(got[0].Metric, want) {
+		t.Errorf("labels = %s, want %s", got[0].Metric, want)
+	}
+}
+
+func TestRecordedVector_EmptyVector(t *testing.T) {
+	got, err := recordedVector("r", nil, promql.Vector{}, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d samples for an empty vector, want 0", len(got))
+	}
+}
+
+func TestRecordedVector_UnlabelledSampleGetsTheRecordName(t *testing.T) {
+	v := promql.Vector{{T: 5, F: 7, Metric: labels.EmptyLabels()}}
+
+	got, err := recordedVector("logs:errors:count", nil, v, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := labels.FromStrings("__name__", "logs:errors:count"); !labels.Equal(got[0].Metric, want) {
+		t.Errorf("labels = %s, want %s", got[0].Metric, want)
+	}
+	if got[0].T != 1000 || got[0].F != 7 {
+		t.Errorf("sample = (%d, %v), want (1000, 7)", got[0].T, got[0].F)
+	}
+}
+
+func TestRecordedVector_RejectsALabelSetRepeatedByRuleLabels(t *testing.T) {
 	v := promql.Vector{
-		{
-			T:      1700000000000,
-			F:      42,
-			Metric: labels.FromStrings("__name__", "http_requests_total", "instance", "a"),
-		},
-	}
-	ruleLabels := map[string]string{"team": "infra"}
-
-	wr := vectorToWriteRequest("job:http:rate5m", ruleLabels, v)
-
-	if len(wr.GetTimeseries()) != 1 {
-		t.Fatalf("expected 1 series, got %d", len(wr.GetTimeseries()))
-	}
-	ts := wr.GetTimeseries()[0]
-
-	got := labelMap(ts.GetLabels())
-	want := map[string]string{
-		"__name__": "job:http:rate5m", // record name replaces the source metric name
-		"team":     "infra",           // rule labels are included
-		"instance": "a",               // sample labels are carried through
-	}
-	for k, wv := range want {
-		if got[k] != wv {
-			t.Errorf("label %q = %q, want %q", k, got[k], wv)
-		}
-	}
-	if _, ok := got["http_requests_total"]; ok {
-		t.Errorf("source __name__ leaked as a label: %v", got)
+		{F: 1, Metric: labels.FromStrings("job", "a")},
+		{F: 2, Metric: labels.FromStrings("job", "b")},
 	}
 
-	if len(ts.GetSamples()) != 1 {
-		t.Fatalf("expected 1 sample, got %d", len(ts.GetSamples()))
-	}
-	s := ts.GetSamples()[0]
-	if s.GetValue() != 42 {
-		t.Errorf("value = %v, want 42", s.GetValue())
-	}
-	if s.GetTimestamp() != 1700000000000 {
-		t.Errorf("timestamp = %d, want 1700000000000 (ms)", s.GetTimestamp())
-	}
-}
-
-func TestVectorToWriteRequest_RuleLabelsOverrideSampleLabels(t *testing.T) {
-	v := promql.Vector{
-		{
-			T:      1700000000000,
-			F:      1,
-			Metric: labels.FromStrings("__name__", "up", "job", "api", "instance", "a"),
-		},
-	}
-	ruleLabels := map[string]string{"job": "aggregator"}
-
-	wr := vectorToWriteRequest("job:up:count", ruleLabels, v)
-
-	ts := wr.GetTimeseries()[0]
-
-	// Each label name appears exactly once; a colliding key must not be emitted twice.
-	counts := make(map[string]int)
-	for _, l := range ts.GetLabels() {
-		counts[l.GetName()]++
-	}
-	for name, n := range counts {
-		if n != 1 {
-			t.Errorf("label %q emitted %d times, want 1", name, n)
-		}
-	}
-
-	got := labelMap(ts.GetLabels())
-	if got["job"] != "aggregator" {
-		t.Errorf("job = %q, want %q (rule label overrides sample label)", got["job"], "aggregator")
-	}
-	if got["__name__"] != "job:up:count" {
-		t.Errorf("__name__ = %q, want %q", got["__name__"], "job:up:count")
-	}
-	if got["instance"] != "a" {
-		t.Errorf("instance = %q, want %q (non-colliding sample label preserved)", got["instance"], "a")
-	}
-}
-
-func TestVectorToWriteRequest_EmptyVector(t *testing.T) {
-	wr := vectorToWriteRequest("r", nil, promql.Vector{})
-	if len(wr.GetTimeseries()) != 0 {
-		t.Fatalf("expected no series for empty vector, got %d", len(wr.GetTimeseries()))
+	if _, err := recordedVector("r", map[string]string{"job": "x"}, v, 1000); err == nil {
+		t.Fatal("expected an error for two samples with one label set after rule labels")
 	}
 }

@@ -41,8 +41,8 @@ type RuleEvaluator interface {
 	Evaluate(ctx context.Context, expr string, t time.Time) (promql.Vector, error)
 }
 
-// RecordingRuleWriter persists the result of a recording-rule evaluation back
-// into gigapipe's metrics tables under the rule's record name.
+// RecordingRuleWriter writes recorded samples, already named and stamped,
+// into gigapipe's metric tables and returns once they are inserted.
 type RecordingRuleWriter interface {
-	Write(record string, ruleLabels map[string]string, v promql.Vector) error
+	Write(v promql.Vector) error
 }
