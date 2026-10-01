@@ -33,6 +33,11 @@ func init() {
 	tableNames["samples_v3_dist"] = "samples_v3_dist"
 	tableNames["metrics_15s"] = "metrics_15s"
 	tableNames["metric_series"] = "metric_series"
+	tableNames["metric_series_dist"] = "metric_series_dist"
+	tableNames["metric_metadata"] = "metric_metadata"
+	tableNames["metric_metadata_dist"] = "metric_metadata_dist"
+	tableNames["metric_exemplars"] = "metric_exemplars"
+	tableNames["metric_exemplars_dist"] = "metric_exemplars_dist"
 	tableNames["metric_samples"] = "metric_samples"
 	tableNames["metrics_5m"] = "metrics_5m"
 	tableNames["metrics_1h"] = "metrics_1h"
@@ -57,6 +62,9 @@ func InitDistTableNames() {
 	tableNames["time_series_gin_dist"] = "time_series_gin" + suffix
 	tableNames["samples_v3_dist"] = "samples_v3" + suffix
 	tableNames["tempo_traces_attrs_gin_dist"] = "tempo_traces_attrs_gin" + suffix
+	tableNames["metric_series_dist"] = "metric_series" + suffix
+	tableNames["metric_metadata_dist"] = "metric_metadata" + suffix
+	tableNames["metric_exemplars_dist"] = "metric_exemplars" + suffix
 }
 
 func GetTableName(name string) string {
