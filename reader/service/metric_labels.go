@@ -4,11 +4,13 @@ import (
 	"context"
 	gosql "database/sql"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 // MetricLabelsService answers the Prometheus label, series, metadata and exemplar endpoints
@@ -96,7 +98,8 @@ type Exemplar struct {
 	TimestampMs int64
 }
 
-// Exemplars returns the exemplars in [q.StartMs, q.EndMs] of the series q picks, per series.
+// Exemplars returns the exemplars in [q.StartMs, q.EndMs] of the series q picks, per series,
+// sorted by the series' label set.
 func (s *MetricLabelsService) Exemplars(ctx context.Context, q metricread.IndexQuery) ([]ExemplarSeries, error) {
 	rows, _, err := s.query(ctx, q, metricread.ExemplarsSQL)
 	if err != nil {
@@ -130,7 +133,13 @@ func (s *MetricLabelsService) Exemplars(ctx context.Context, q metricread.IndexQ
 		last := &res[len(res)-1]
 		last.Exemplars = append(last.Exemplars, e)
 	}
-	return res, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(res, func(a, b ExemplarSeries) int {
+		return labels.Compare(labels.FromMap(a.SeriesLabels), labels.FromMap(b.SeriesLabels))
+	})
+	return res, nil
 }
 
 func (s *MetricLabelsService) strings(ctx context.Context, q metricread.IndexQuery,

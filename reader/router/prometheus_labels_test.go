@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -262,5 +263,60 @@ func TestLabelValuesUnescapeAUTF8Name(t *testing.T) {
 		"WHERE labels['http.method'] != '' ORDER BY value"
 	if q := onlyQuery(t, db); q != want {
 		t.Fatalf("query = %s", q)
+	}
+}
+
+func TestLabelBoundsAtPrometheusMinAndMaxTimeAreDropped(t *testing.T) {
+	app, db := serveLabels(t, strings1("label"))
+	getLabels(t, app, "/api/v1/labels?start="+url.QueryEscape("-292273086-05-16T16:47:06Z")+
+		"&end="+url.QueryEscape("292277025-08-18T07:12:54.999999999Z"), http.StatusOK)
+	if q := onlyQuery(t, db); q != "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series ORDER BY label" {
+		t.Fatalf("query = %s", q)
+	}
+}
+
+func TestLabelParameterErrorsReadAsPrometheus(t *testing.T) {
+	app, _ := serveLabels(t, strings1("label"))
+	for target, want := range map[string]string{
+		"/api/v1/labels?start=x":  `invalid parameter "start": invalid time value for 'start': cannot parse "x" to a valid timestamp`,
+		"/api/v1/labels?end=x":    `invalid parameter "end": invalid time value for 'end': cannot parse "x" to a valid timestamp`,
+		"/api/v1/labels?limit=-1": `invalid parameter "limit": limit must be non-negative`,
+		"/api/v1/labels?limit=x":  `invalid parameter "limit": strconv.Atoi: parsing "x": invalid syntax`,
+	} {
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		var res struct{ Error string }
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil || res.Error != want {
+			t.Errorf("%s: error = %q, want %q", target, res.Error, want)
+		}
+	}
+}
+
+func TestLabelValuesWarnWhenTheLimitTruncates(t *testing.T) {
+	app, db := serveLabels(t, strings1("value", "api", "db"))
+	res := getLabels(t, app, "/api/v1/label/job/values?limit=1", http.StatusOK)
+	if string(res.Data) != `["api"]` || !reflect.DeepEqual(res.Warnings, []string{"results truncated due to limit"}) {
+		t.Fatalf("data = %s, warnings = %q", res.Data, res.Warnings)
+	}
+	if q := onlyQuery(t, db); !strings.HasSuffix(q, "ORDER BY value LIMIT 2") {
+		t.Fatalf("query = %s", q)
+	}
+}
+
+func TestQueryExemplarsSortSeriesByLabelSet(t *testing.T) {
+	app, _ := serveLabels(t, fakeclickhouse.Result{
+		Columns: []string{"fingerprint", "label_set", "timestamp", "value", "labels"},
+		Rows: [][]driver.Value{
+			{uint64(1), map[string]string{"__name__": "x", "job": "b"}, time.UnixMilli(1000), 1.0, `{}`},
+			{uint64(2), map[string]string{"__name__": "x", "job": "a"}, time.UnixMilli(1000), 2.0, `{}`},
+		},
+	})
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/query_exemplars?query=x", nil))
+	want := `{"status":"success","data":[` +
+		`{"seriesLabels":{"__name__":"x","job":"a"},"exemplars":[{"labels":{},"value":"2","timestamp":1}]},` +
+		`{"seriesLabels":{"__name__":"x","job":"b"},"exemplars":[{"labels":{},"value":"1","timestamp":1}]}]}`
+	if rec.Body.String() != want {
+		t.Fatalf("body = %s\nwant = %s", rec.Body, want)
 	}
 }
