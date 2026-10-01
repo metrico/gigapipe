@@ -49,7 +49,7 @@ func OTLPMaxMessageSize() int {
 func OTLPMetricsV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {
 	return Build(
 		append(cfg.ExtraMiddleware,
-			withTSAndSampleService,
+			withMetricServices,
 			withOTLPMetricsParser(otlpContentTypeProto, func(body []byte, md *metricsv1.MetricsData) error {
 				return proto.Unmarshal(body, md)
 			}),

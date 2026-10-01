@@ -19,11 +19,11 @@ type metricsServer struct {
 	colmetricspb.UnimplementedMetricsServiceServer
 }
 
-// Export ingests the metrics into the tenant's samples and time-series services;
+// Export ingests the metrics into the tenant's metric insert services;
 // dropped data points are reported via partial_success.
 func (s *metricsServer) Export(ctx context.Context, req *colmetricspb.ExportMetricsServiceRequest) (*colmetricspb.ExportMetricsServiceResponse, error) {
 	dsn, ctx := dsnCtx(ctx)
-	svcs, err := controller.ResolveLogServices(dsn)
+	svcs, err := controller.ResolveMetricServices(dsn)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
