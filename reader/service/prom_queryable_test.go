@@ -148,7 +148,7 @@ func TestAppendStaleMarker_NoMarkerAtQueryEdge(t *testing.T) {
 	// Last sample is within one step of the query end -> still live.
 	const queryEnd = int64(130000 + 5000)
 	in := []model.Sample{
-		{TimestampMs: 100000, Value: 1},
+		{TimestampMs: 115000, Value: 1},
 		{TimestampMs: 130000, Value: 3},
 	}
 
