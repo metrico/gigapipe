@@ -71,9 +71,7 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(400, err.Error(), w)
 		return
 	}
-	versionInfo := q.Storage.ResolveVersionInfo(internalCtx)
 	queryStorage := q.Storage.SetOidAndDB(internalCtx, expr)
-	queryStorage.VersionInfo = versionInfo
 	rangeQuery, err := q.Engine.NewRangeQuery(internalCtx, queryStorage, nil,
 		expr.Expr.String(), req.Start, req.End, req.Step)
 	if err != nil {

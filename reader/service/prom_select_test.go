@@ -1,0 +1,161 @@
+package service
+
+import (
+	"context"
+	"database/sql/driver"
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/utils/fakeclickhouse"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
+)
+
+const staleMarkerBits = 0x7ff0000000000002
+
+type point struct {
+	ts   int64
+	bits uint64
+}
+
+// metricStack answers the series read with series and the raw read with samples.
+func metricStack(series, samples [][]driver.Value) fakeclickhouse.Handler {
+	return func(query string) (fakeclickhouse.Result, error) {
+		if strings.HasPrefix(query, "WITH fp AS") {
+			return fakeclickhouse.Result{Columns: []string{"fingerprint", "timestamp", "value"}, Rows: samples}, nil
+		}
+		return fakeclickhouse.Result{Columns: []string{"fingerprint", "label_set"}, Rows: series}, nil
+	}
+}
+
+func parse(t *testing.T, query string) *promql_parser.Expr {
+	t.Helper()
+	expr, err := promql_parser.Parse(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return expr
+}
+
+// selectSeries runs the querier's Select and returns each series' points by label set.
+func selectSeries(t *testing.T, db *fakeclickhouse.DB, expr *promql_parser.Expr, hints *storage.SelectHints,
+	matchers ...*labels.Matcher) map[string][]point {
+	t.Helper()
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).SetOidAndDB(context.Background(), expr)
+	querier, err := queryable.Querier(hints.Start, hints.End)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := querier.Select(context.Background(), true, hints, matchers...)
+	res := map[string][]point{}
+	for set.Next() {
+		s := set.At()
+		var pts []point
+		it := s.Iterator(nil)
+		for it.Next() == chunkenc.ValFloat {
+			ts, v := it.At()
+			pts = append(pts, point{ts, math.Float64bits(v)})
+		}
+		res[s.Labels().String()] = pts
+	}
+	if err := set.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func ms(v int64) time.Time { return time.UnixMilli(v).UTC() }
+
+func TestSelectReadsRawSamplesOfTheSelectedSeries(t *testing.T) {
+	stale := math.Float64frombits(staleMarkerBits)
+	db := fakeclickhouse.New(metricStack(
+		[][]driver.Value{
+			{uint64(1), map[string]string{"__name__": "x", "job": "probe"}},
+			{uint64(2), map[string]string{"__name__": "x", "job": "other"}},
+		},
+		[][]driver.Value{
+			{uint64(1), ms(15000), 1.0},
+			{uint64(1), ms(30000), stale},
+			{uint64(1), ms(45000), 2.0},
+			{uint64(1), ms(45000), 3.0},
+			{uint64(2), ms(15000), 7.0},
+		}))
+	got := selectSeries(t, db, parse(t, "x"), &storage.SelectHints{Start: 1000, End: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "x"))
+
+	want := map[string][]point{
+		`{__name__="x", job="probe"}`: {{15000, math.Float64bits(1)}, {30000, staleMarkerBits}, {45000, math.Float64bits(2)}},
+		`{__name__="x", job="other"}`: {{15000, math.Float64bits(7)}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d series %v, want %d", len(got), got, len(want))
+	}
+	for lbls, pts := range want {
+		if g := got[lbls]; !equalPoints(g, pts) {
+			t.Errorf("%s: got %v, want %v", lbls, g, pts)
+		}
+	}
+	queries := db.Queries()
+	if len(queries) != 2 {
+		t.Fatalf("queries = %q", queries)
+	}
+	for _, want := range []string{"WHERE (name = 'x')", "timestamp > fromUnixTimestamp64Milli(999)",
+		"timestamp <= fromUnixTimestamp64Milli(60000)"} {
+		if !strings.Contains(queries[1], want) {
+			t.Errorf("raw read %q lacks %q", queries[1], want)
+		}
+	}
+}
+
+func equalPoints(a, b []point) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+type rawRequest string
+
+func (r rawRequest) Process(*shared.PlannerContext) (sql.ISelect, error) {
+	return sql.NewSelect().Select(sql.NewRawObject(string(r))), nil
+}
+
+func TestSelectEndsASubstituteSeriesOneStepAfterItsLastPoint(t *testing.T) {
+	db := fakeclickhouse.New(func(query string) (fakeclickhouse.Result, error) {
+		return fakeclickhouse.Result{Columns: []string{"fingerprint", "label_set", "timestamp", "value"},
+			Rows: [][]driver.Value{
+				{uint64(1), map[string]string{"job": "a"}, ms(60000), 1.0},
+				{uint64(1), map[string]string{"job": "a"}, ms(120000), 2.0},
+				{uint64(2), map[string]string{"job": "b"}, ms(240000), 3.0},
+			}}, nil
+	})
+	expr := parse(t, "__metric_subst__1")
+	expr.Substitutes["__metric_subst__1"] = &promql_parser.Substitute{MetricName: "__metric_subst__1", Request: rawRequest("1")}
+	got := selectSeries(t, db, expr, &storage.SelectHints{Start: 0, End: 240000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+
+	want := map[string][]point{
+		`{job="a"}`: {{60000, math.Float64bits(1)}, {120000, math.Float64bits(2)}, {180000, staleMarkerBits}},
+		`{job="b"}`: {{240000, math.Float64bits(3)}},
+	}
+	for lbls, pts := range want {
+		if g := got[lbls]; !equalPoints(g, pts) {
+			t.Errorf("%s: got %v, want %v", lbls, g, pts)
+		}
+	}
+	if q := db.Queries(); len(q) != 1 || strings.TrimSpace(q[0]) != "SELECT 1" {
+		t.Errorf("queries = %q, want the substitute's request only", q)
+	}
+}

@@ -35,9 +35,7 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 		PromError(400, err.Error(), w)
 		return
 	}
-	versionInfo := q.Storage.ResolveVersionInfo(ctx)
 	queryStorage := q.Storage.SetOidAndDB(ctx, expr)
-	queryStorage.VersionInfo = versionInfo
 	promQuery, err := q.Engine.NewInstantQuery(ctx, queryStorage, nil,
 		expr.Expr.String(), req.Time)
 	if err != nil {
