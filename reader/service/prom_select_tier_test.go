@@ -68,6 +68,7 @@ func TestSelectHandsTheEngineATiersLastSamplesAndStaleMarkers(t *testing.T) {
 func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 	now := time.Now()
 	aligned := now.Add(-48 * time.Hour).Truncate(time.Hour).UnixMilli()
+	fortyDaysBack := now.Add(-40 * 24 * time.Hour).Truncate(time.Hour).UnixMilli()
 	read := func(startMs, stepMs int64) metricread.Read {
 		return metricread.Read{Grid: metricread.Grid{StartMs: startMs, EndMs: startMs + 12*stepMs, StepMs: stepMs},
 			EarliestMs: startMs - 600000, RangesMs: []int64{300000}}
@@ -81,7 +82,8 @@ func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 		{"no routing reads raw", nil, read(aligned, 300000), "metric_samples"},
 		{"aligned inside raw", &TierRouting{Lifetimes: lifetimes}, read(aligned, 300000), "metrics_5m"},
 		{"unaligned inside raw", &TierRouting{Lifetimes: lifetimes}, read(aligned, 60000), "metric_samples"},
-		{"past the 5m tier", &TierRouting{Lifetimes: lifetimes}, read(60000, 60000), "metrics_1h"},
+		{"past the 5m tier inside 1h", &TierRouting{Lifetimes: lifetimes}, read(fortyDaysBack, 60000), "metrics_1h"},
+		{"past the 1h tier", &TierRouting{Lifetimes: lifetimes}, read(60000, 60000), "metrics_1h"},
 		{"raw forced past raw", &TierRouting{Lifetimes: lifetimes, Forced: "raw"}, read(60000, 60000), "metric_samples"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
