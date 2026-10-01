@@ -331,10 +331,10 @@ func (m *RuleManager) pruneLastSeries(groups NamespaceRuleGroups) {
 	}
 }
 
-// ruleSeriesKey identifies a rule by its group, record name, expression and
-// labels, so an edited rule starts with no last result.
+// ruleSeriesKey identifies a rule by its group, record name and labels; a rule
+// whose expression changes keeps its last result.
 func ruleSeriesKey(namespace, groupName string, rule Rule) string {
-	return ruleHealthKey(namespace, groupName, rule.Record) + "\x00" + rule.Expr + "\x00" + labels.FromMap(rule.Labels).String()
+	return ruleHealthKey(namespace, groupName, rule.Record) + "\x00" + labels.FromMap(rule.Labels).String()
 }
 
 // GetPrometheusRules returns recording rules in the Prometheus API format,
