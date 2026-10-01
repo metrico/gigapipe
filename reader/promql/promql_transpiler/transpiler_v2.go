@@ -3,14 +3,11 @@ package promql_transpiler
 import (
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/optimizer"
-	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-var optimizers = []func() optimizer.Optimizer{
-	func() optimizer.Optimizer { return &optimizer.VectorRange{} },
-	func() optimizer.Optimizer { return &optimizer.Aggregate{} },
-}
+// optimizers replace the nodes they apply to with substitute selectors.
+var optimizers []func() optimizer.Optimizer
 
 func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error) {
 	_expr, err := Walk(expr, expr.Expr, func(node parser.Expr) (parser.Expr, error) {
@@ -26,12 +23,6 @@ func TranspileExpressionV2(expr *promql_parser.Expr) (*promql_parser.Expr, error
 		return nil, err
 	}
 	expr.Expr = _expr
-	for _, s := range expr.Substitutes {
-		if !s.Notes.NeedsLabelsValues {
-			continue
-		}
-		s.Request = &planner.LabelsPlanner{Main: s.Request, DropMetricName: s.Notes.DropMetricName}
-	}
 	return expr, nil
 }
 

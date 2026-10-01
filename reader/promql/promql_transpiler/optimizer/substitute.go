@@ -10,10 +10,6 @@ import (
 // Clone rather than build fresh: the engine derives the substitute's time window
 // from the modifier fields (offset, @, and whatever prometheus adds next), so a
 // dropped field is a silently wrong window rather than an error.
-//
-// @ resolves to 15s granularity, not to the instant: metrics_15s stamps every
-// sample with its 15s floor, so a sample landing after the @ instant but inside
-// the same bucket is read as though it were at the bucket start.
 func substituteSelector(src *prom_parser.VectorSelector, metricName string) *prom_parser.VectorSelector {
 	sub := *src
 	sub.Name = metricName

@@ -11,19 +11,12 @@ type Expr struct {
 	Substitutes map[string]*Substitute
 }
 
+// Substitute is an expression the querier answers with Request's rows instead of the
+// engine, selected by a matcher on its MetricName.
 type Substitute struct {
 	MetricName string
-	Notes      SubstituteNotes
 	Node       parser.Node
 	Request    shared.SQLRequestPlanner
-}
-
-type SubstituteNotes struct {
-	NeedsLabelsValues bool
-	// DropMetricName mirrors prometheus: range functions (rate, increase,
-	// *_over_time, ...) return an instant vector without __name__, whereas a
-	// bare selector keeps it. Only set for the range-function path.
-	DropMetricName bool
 }
 
 const (
