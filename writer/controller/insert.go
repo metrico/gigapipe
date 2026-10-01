@@ -72,7 +72,7 @@ func PushStreamV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Requ
 func PushInfluxV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {
 	return Build(
 		append(cfg.ExtraMiddleware,
-			withTSAndSampleService,
+			withLogAndMetricServices,
 			withParserContext(func(w http.ResponseWriter, req *http.Request, parserCtx context.Context) (context.Context, error) {
 				strPrecision := req.URL.Query().Get("precision")
 				if strPrecision == "" {

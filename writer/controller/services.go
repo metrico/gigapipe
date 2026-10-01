@@ -85,6 +85,22 @@ func ResolveMetricServices(dsn string) (InsertServices, error) {
 	return s, nil
 }
 
+// ResolveLogAndMetricServices resolves the log and the metric insert services
+// for a source that carries both, all on the staging service's node.
+func ResolveLogAndMetricServices(dsn string) (InsertServices, error) {
+	s, err := ResolveMetricServices(dsn)
+	if err != nil {
+		return s, err
+	}
+	if s.Spl, err = Registry.GetSamplesService(s.Node); err != nil {
+		return s, err
+	}
+	if s.Ts, err = Registry.GetTimeSeriesService(s.Node); err != nil {
+		return s, err
+	}
+	return s, nil
+}
+
 // ResolveProfileServices resolves only the profile insert service for a tenant.
 func ResolveProfileServices(dsn string) (InsertServices, error) {
 	var s InsertServices

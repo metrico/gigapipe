@@ -106,3 +106,37 @@ func TestResolveMetricServicesOneNode(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveLogAndMetricServicesOneNode pins the log and metric services of
+// a mixed source to one node, which keys both the fingerprint cache and the
+// metric caches.
+func TestResolveLogAndMetricServicesOneNode(t *testing.T) {
+	old := Registry
+	svcs := func() map[string]service.IInsertServiceV2 {
+		return map[string]service.IInsertServiceV2{
+			"n1": &namedSvc{node: "n1"}, "n2": &namedSvc{node: "n2"}, "n3": &namedSvc{node: "n3"},
+		}
+	}
+	Registry = registry.NewStaticServiceRegistry(registry.StaticServiceRegistryOpts{
+		SamplesSvcs:       svcs(),
+		TimeSeriesSvcs:    svcs(),
+		MetricStagingSvcs: svcs(),
+		MetricSeriesSvcs:  svcs(),
+		MetricMetaSvcs:    svcs(),
+		MetricExmplSvcs:   svcs(),
+	})
+	t.Cleanup(func() { Registry = old })
+
+	for range 20 {
+		s, err := ResolveLogAndMetricServices("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, svc := range []service.IInsertServiceV2{s.Spl, s.Ts, s.MetricStaging, s.MetricSeries,
+			s.MetricMetadata, s.MetricExemplars} {
+			if svc.GetNodeName() != s.Node {
+				t.Fatalf("service on %s, want every service on Node %s", svc.GetNodeName(), s.Node)
+			}
+		}
+	}
+}

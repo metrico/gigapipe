@@ -256,17 +256,37 @@ var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Reque
 // withMetricServices resolves the tenant's metric insert services; Node, which
 // keys the metric caches in IngestParsed, is the staging service's node.
 var withMetricServices = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	dsn := ctx.Value(utils.ContextKeyDSN).(string)
+	dsn := r.Context().Value(utils.ContextKeyDSN).(string)
 	svcs, err := ResolveMetricServices(dsn)
 	if err != nil {
 		return err
 	}
+	setServices(r, svcs)
+	return nil
+})
+
+// withLogAndMetricServices resolves the tenant's log and metric insert
+// services on one node, for a source that carries both.
+var withLogAndMetricServices = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
+	dsn := r.Context().Value(utils.ContextKeyDSN).(string)
+	svcs, err := ResolveLogAndMetricServices(dsn)
+	if err != nil {
+		return err
+	}
+	setServices(r, svcs)
+	return nil
+})
+
+// setServices puts the resolved log and metric services and Node on the
+// request context; unresolved services stay nil.
+func setServices(r *http.Request, svcs InsertServices) {
+	ctx := r.Context()
+	ctx = context.WithValue(ctx, utils.ContextKeySplService, svcs.Spl)
+	ctx = context.WithValue(ctx, utils.ContextKeyTsService, svcs.Ts)
 	ctx = context.WithValue(ctx, utils.ContextKeyMetricStagingService, svcs.MetricStaging)
 	ctx = context.WithValue(ctx, utils.ContextKeyMetricSeriesService, svcs.MetricSeries)
 	ctx = context.WithValue(ctx, utils.ContextKeyMetricMetadataService, svcs.MetricMetadata)
 	ctx = context.WithValue(ctx, utils.ContextKeyMetricExemplarsService, svcs.MetricExemplars)
 	ctx = context.WithValue(ctx, utils.ContextKeyNode, svcs.Node)
 	*r = *r.WithContext(ctx)
-	return nil
-})
+}
