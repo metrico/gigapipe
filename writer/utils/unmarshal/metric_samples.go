@@ -127,7 +127,7 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 	}
 	b := p.metrics
 	meta := metadata.ExtractMetadataFromLabels(labels)
-	filtered, _ := stripSpecialLabels(labels, 0)
+	filtered, _ := stripSpecialLabels(labels, 0, true)
 	p.discoverServiceName(&filtered)
 	fp := fingerprintLabels(filtered)
 	name := labelValue(filtered, "__name__")

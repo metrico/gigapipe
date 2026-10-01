@@ -365,3 +365,16 @@ func TestRemoteWriteDuplicatesCollapseAcrossALargeRequest(t *testing.T) {
 		t.Fatalf("the later duplicate must replace the earlier one, got %+v", got)
 	}
 }
+
+func TestRemoteWriteStripsEveryTTLDaysLabel(t *testing.T) {
+	withCityHashFingerprints(t)
+	rows := pushRemoteWrite(t, newNode(t), &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
+		{Labels: lbls("__name__", "up", "__ttl_days__", "7", "__ttl_days__", "30"), Samples: samples(1000, 1)},
+	}})
+	if len(rows.series) != 1 || rows.series[0].fp != fpUpUnknown || len(rows.series[0].labels) != 2 {
+		t.Fatalf("series row: got %+v, want fingerprint %d over __name__ and service_name only", rows.series, fpUpUnknown)
+	}
+	if _, ok := rows.series[0].labels["__ttl_days__"]; ok {
+		t.Fatal("__ttl_days__ must not reach the series row")
+	}
+}
