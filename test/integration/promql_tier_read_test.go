@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 )
 
 func tierURL(env, def string) string {
@@ -130,8 +132,24 @@ func TestPromQLTierReadReproducesTheProbe(t *testing.T) {
 // approximateFromATier lists the functions §5.4 of the spec serves approximately from a tier.
 var approximateFromATier = map[string]bool{"irate": true, "idelta": true}
 
+// largeSamples rises by step every 15s over (t0, t0+10m] from base, large next to its spread.
+func largeSamples(t0 int64, base, step float64) []*prompb.Sample {
+	var res []*prompb.Sample
+	for k := int64(0); k < 40; k++ {
+		res = append(res, &prompb.Sample{Timestamp: t0 + (k+1)*15000, Value: base + step*float64(k)})
+	}
+	return res
+}
+
 func TestPromQLForcedTierEqualsTheEngineOverRawSamplesAtAlignedReads(t *testing.T) {
 	name, t0 := writeTierProbe(t)
+	large := func(instance string, base, step float64) *prompb.TimeSeries {
+		return &prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: name},
+			{Name: "instance", Value: instance}, {Name: "job", Value: "probe"}}, Samples: largeSamples(t0, base, step)}
+	}
+	remoteWrite(t, large("1e9", 1e9, 1), large("ts", 1790796900, 15))
+	eventually(t, fmt.Sprintf("SELECT sum(count) FROM metrics_5m WHERE fingerprint IN "+
+		"(SELECT fingerprint FROM metric_series WHERE name = '%s')", name), "133")
 	start, end := t0-300000, t0+900000
 	type expr struct {
 		query string
@@ -140,7 +158,7 @@ func TestPromQLForcedTierEqualsTheEngineOverRawSamplesAtAlignedReads(t *testing.
 	var queries []expr
 	for _, fn := range []string{"rate", "increase", "delta", "irate", "idelta", "resets", "changes",
 		"count_over_time", "sum_over_time", "min_over_time", "max_over_time", "avg_over_time",
-		"stddev_over_time", "stdvar_over_time", "present_over_time", "last_over_time"} {
+		"stddev_over_time", "stdvar_over_time", "present_over_time", "last_over_time", "absent_over_time"} {
 		for _, r := range []string{"1m", "5m", "10m"} {
 			// A 1m range is widened to the 5m bucket (§5.3).
 			queries = append(queries, expr{fmt.Sprintf("%s(%s[%s]%%s)", fn, name, r), !approximateFromATier[fn] && r != "1m"})
