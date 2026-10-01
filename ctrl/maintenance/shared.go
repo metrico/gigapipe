@@ -12,6 +12,12 @@ import (
 )
 
 func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2.Conn, error) {
+	return ConnectV2ReadTimeout(dbObject, database, time.Second*30)
+}
+
+// ConnectV2ReadTimeout connects as ConnectV2 does, waiting up to readTimeout for each response.
+func ConnectV2ReadTimeout(dbObject *config.ClokiBaseDataBase, database bool,
+	readTimeout time.Duration) (clickhouse_v2.Conn, error) {
 	databaseName := ""
 	if database {
 		databaseName = dbObject.Name
@@ -25,7 +31,7 @@ func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2
 		},
 		Debug:           dbObject.Debug,
 		DialTimeout:     time.Second * 30,
-		ReadTimeout:     time.Second * 30,
+		ReadTimeout:     readTimeout,
 		MaxOpenConns:    10,
 		MaxIdleConns:    2,
 		ConnMaxLifetime: time.Hour,
