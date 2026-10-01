@@ -44,12 +44,17 @@ func gaugeSamples(t0 int64) []*prompb.Sample {
 }
 
 // writeProbe remote-writes the probe counter {job="probe"} and a gauge {job="probe",
-// instance="b"} under a fresh name, and waits until both are readable.
+// instance="b"} under a fresh name, and waits until both are readable. Its t0 lies off the
+// 5m grid, so no query on a one-minute grid is an aligned read.
 func writeProbe(t *testing.T) (string, int64) {
+	t.Helper()
+	return writeProbeAt(t, time.Now().Add(-2*time.Hour).Truncate(5*time.Minute).Add(time.Minute).UnixMilli())
+}
+
+func writeProbeAt(t *testing.T, t0 int64) (string, int64) {
 	t.Helper()
 	waitReady(t)
 	name := fmt.Sprintf("it_pushdown_%d", time.Now().UnixNano())
-	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Minute).UnixMilli()
 	remoteWrite(t,
 		&prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "probe"}},
 			Samples: probeSamples(t0)},
@@ -123,14 +128,26 @@ func resultSeries(t *testing.T, res promResponse, shiftMs int64) series {
 
 func rangeQuery(t *testing.T, query string, start, end, shiftMs int64) series {
 	t.Helper()
-	return resultSeries(t, promGet(t, "/api/v1/query_range", url.Values{"query": {query},
+	return rangeFrom(t, baseURL(), query, start, end, 60000, shiftMs)
+}
+
+// rangeFrom runs a range query at the gigapipe at base, its grid shifted by shiftMs and its
+// result shifted back.
+func rangeFrom(t *testing.T, base, query string, start, end, stepMs, shiftMs int64) series {
+	t.Helper()
+	return resultSeries(t, promGetFrom(t, base, "/api/v1/query_range", url.Values{"query": {query},
 		"start": {fmt.Sprint((start + shiftMs) / 1000)}, "end": {fmt.Sprint((end + shiftMs) / 1000)},
-		"step": {"60"}}), shiftMs)
+		"step": {fmt.Sprint(stepMs / 1000)}}), shiftMs)
 }
 
 func instantQuery(t *testing.T, query string, at, shiftMs int64) series {
 	t.Helper()
-	return resultSeries(t, promGet(t, "/api/v1/query", url.Values{"query": {query},
+	return instantFrom(t, baseURL(), query, at, shiftMs)
+}
+
+func instantFrom(t *testing.T, base, query string, at, shiftMs int64) series {
+	t.Helper()
+	return resultSeries(t, promGetFrom(t, base, "/api/v1/query", url.Values{"query": {query},
 		"time": {fmt.Sprint((at + shiftMs) / 1000)}}), shiftMs)
 }
 
