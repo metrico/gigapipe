@@ -1,206 +1,321 @@
 package controller
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/service"
+	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/prometheus/prometheus/util/jsonutil"
 )
 
+// PromQueryLabelsController serves the Prometheus label, series, metadata and exemplar
+// endpoints from the metric series index.
 type PromQueryLabelsController struct {
 	Controller
-	QueryLabelsService *service.QueryLabelsService
-	MetadataService    *service.MetadataService
+	MetricLabelsService *service.MetricLabelsService
 }
 
-type promLabelsParams struct {
-	start time.Time
-	end   time.Time
-	match []string
-}
+const truncatedWarning = "results truncated due to limit"
 
-type rawPromLabelsParams struct {
-	Start string   `form:"start"`
-	End   string   `form:"end"`
-	Match []string `form:"match[]"`
-}
-
-type promSeriesParams struct {
-	Match []string `form:"match"`
-}
+var promParser = parser.NewParser(parser.Options{})
 
 func (p *PromQueryLabelsController) PromLabels(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
-	internalCtx, err := RunPreRequestPlugins(r)
+	ctx, err := RunPreRequestPlugins(r)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := getLabelsParams(r)
+	q, err := indexQuery(r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return
 	}
-	res, err := p.QueryLabelsService.Labels(internalCtx, params.start.UnixMilli(), params.end.UnixMilli(), 2,
-		params.match)
+	names, truncated, err := p.MetricLabelsService.LabelNames(ctx, q)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	SmartBufferServeStrings(w, res)
+	promRespond(w, names, truncated)
 }
 
 func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
-	internalCtx, err := RunPreRequestPlugins(r)
+	ctx, err := RunPreRequestPlugins(r)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := ParseLogSeriesParamsV2(r, time.Second)
+	name := mux.Vars(r)["name"]
+	if !model.UTF8Validation.IsValidLabelName(name) {
+		PromError(400, fmt.Sprintf("invalid label name: %q", name), w)
+		return
+	}
+	q, err := indexQuery(r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return
 	}
-	name := mux.Vars(r)["name"]
-	if name == "" {
-		PromError(400, "label name is required", w)
-		return
-	}
-	res, err := p.QueryLabelsService.PromValues(internalCtx, name, params.Match,
-		params.ValuesParams.Start.UnixMilli(), params.ValuesParams.End.UnixMilli(), 2)
+	values, truncated, err := p.MetricLabelsService.LabelValues(ctx, name, q)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	SmartBufferServeStrings(w, res)
-}
-
-func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Request) {
-	defer tamePanic(w, r)
-	internalCtx, err := RunPreRequestPlugins(r)
-	if err != nil {
-		PromError(500, err.Error(), w)
-		return
-	}
-
-	metricFilter := r.URL.Query().Get("metric")
-	limitStr := r.URL.Query().Get("limit")
-	limitPerMetricStr := r.URL.Query().Get("limit_per_metric")
-
-	limit := 0
-	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
-		}
-	}
-
-	limitPerMetric := 0
-	if limitPerMetricStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitPerMetricStr); err == nil && parsedLimit > 0 {
-			limitPerMetric = parsedLimit
-		}
-	}
-
-	if p.MetadataService == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		w.Write([]byte(`{"status": "success", "data": {}}`))
-		return
-	}
-
-	res, err := p.MetadataService.Metadata(internalCtx, metricFilter, limit, limitPerMetric)
-	if err != nil {
-		PromError(500, err.Error(), w)
-		return
-	}
-	SmartBufferServeStrings(w, res)
+	promRespond(w, values, truncated)
 }
 
 func (p *PromQueryLabelsController) Series(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
-	internalCtx, err := RunPreRequestPlugins(r)
+	ctx, err := RunPreRequestPlugins(r)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := getLabelsParams(r)
+	q, err := indexQuery(r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return
 	}
-	seriesParams, err := getPromSeriesParamsV2(r)
-	if err != nil {
-		PromError(400, err.Error(), w)
+	if len(q.Selectors) == 0 {
+		PromError(400, "no match[] parameter provided", w)
 		return
 	}
-
-	res, err := p.QueryLabelsService.Series(internalCtx, seriesParams.Match, params.start.UnixMilli(),
-		params.end.UnixMilli(), 2)
+	series, truncated, err := p.MetricLabelsService.Series(ctx, q)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
 	}
-	SmartBufferServeStrings(w, res)
+	promRespond(w, series, truncated)
 }
 
-func getPromSeriesParamsV2(r *http.Request) (promSeriesParams, error) {
-	res := promSeriesParams{}
-	if r.Method == "POST" && r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
-		err := r.ParseForm()
-		if err != nil {
-			return res, err
-		}
-		for key, value := range r.Form {
-			if key == "match[]" {
-				res.Match = append(res.Match, value...)
-			}
+// Metadata answers with one entry per family; limit counts families and limit_per_metric is
+// accepted with no effect.
+func (p *PromQueryLabelsController) Metadata(w http.ResponseWriter, r *http.Request) {
+	defer tamePanic(w, r)
+	ctx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	limit := -1
+	if s := r.Form.Get("limit"); s != "" {
+		if limit, err = strconv.Atoi(s); err != nil {
+			PromError(400, "limit must be a number", w)
+			return
 		}
 	}
-	res.Match = append(res.Match, r.URL.Query()["match[]"]...)
+	if s := r.Form.Get("limit_per_metric"); s != "" {
+		if _, err := strconv.Atoi(s); err != nil {
+			PromError(400, "limit_per_metric must be a number", w)
+			return
+		}
+	}
+	res, err := p.MetricLabelsService.Metadata(ctx, r.Form.Get("metric"), limit)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	promRespond(w, res, false)
+}
+
+// QueryExemplars answers with the exemplars in [start, end] of the series the query's
+// selectors pick.
+func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *http.Request) {
+	defer tamePanic(w, r)
+	ctx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	q, err := exemplarQuery(r)
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	res := []service.ExemplarSeries{}
+	if len(q.Selectors) > 0 {
+		if res, err = p.MetricLabelsService.Exemplars(ctx, q); err != nil {
+			PromError(500, err.Error(), w)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(marshalExemplars(res))
+}
+
+// exemplarQuery reads the query, start and end parameters of /api/v1/query_exemplars.
+func exemplarQuery(r *http.Request) (metricread.IndexQuery, error) {
+	var q metricread.IndexQuery
+	if err := r.ParseForm(); err != nil {
+		return q, err
+	}
+	var err error
+	if q.StartMs, err = optionalTimeMs(r.Form.Get("start"), "start"); err != nil {
+		return q, err
+	}
+	if q.EndMs, err = optionalTimeMs(r.Form.Get("end"), "end"); err != nil {
+		return q, err
+	}
+	if q.StartMs != nil && q.EndMs != nil && *q.EndMs < *q.StartMs {
+		return q, errors.New("end timestamp must not be before start timestamp")
+	}
+	expr, err := promParser.ParseExpr(r.Form.Get("query"))
+	if err != nil {
+		return q, err
+	}
+	q.Selectors = parser.ExtractSelectors(expr)
+	return q, nil
+}
+
+// marshalExemplars writes Prometheus's exemplar response: values as strings, timestamps as
+// seconds with a millisecond fraction.
+func marshalExemplars(res []service.ExemplarSeries) []byte {
+	stream := jsoniter.ConfigCompatibleWithStandardLibrary.BorrowStream(nil)
+	defer jsoniter.ConfigCompatibleWithStandardLibrary.ReturnStream(stream)
+	stream.WriteRaw(`{"status":"success","data":[`)
+	for i, s := range res {
+		if i > 0 {
+			stream.WriteMore()
+		}
+		stream.WriteRaw(`{"seriesLabels":`)
+		stream.WriteVal(s.SeriesLabels)
+		stream.WriteRaw(`,"exemplars":[`)
+		for j, e := range s.Exemplars {
+			if j > 0 {
+				stream.WriteMore()
+			}
+			stream.WriteRaw(`{"labels":`)
+			stream.WriteVal(e.Labels)
+			stream.WriteRaw(`,"value":`)
+			jsonutil.MarshalFloat(e.Value, stream)
+			stream.WriteRaw(`,"timestamp":`)
+			jsonutil.MarshalTimestamp(e.TimestampMs, stream)
+			stream.WriteObjectEnd()
+		}
+		stream.WriteRaw(`]}`)
+	}
+	stream.WriteRaw(`]}`)
+	return append([]byte(nil), stream.Buffer()...)
+}
+
+// promRespond writes data in Prometheus's success envelope, with the truncation warning
+// when truncated.
+func promRespond(w http.ResponseWriter, data any, truncated bool) {
+	res := struct {
+		Status   string   `json:"status"`
+		Data     any      `json:"data"`
+		Warnings []string `json:"warnings,omitempty"`
+	}{Status: "success", Data: data}
+	if truncated {
+		res.Warnings = []string{truncatedWarning}
+	}
+	body, err := json.Marshal(res)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(body)
+}
+
+// indexQuery reads the match[], start, end and limit parameters of a label endpoint.
+func indexQuery(r *http.Request) (metricread.IndexQuery, error) {
+	var q metricread.IndexQuery
+	if err := r.ParseForm(); err != nil {
+		return q, err
+	}
+	var err error
+	if q.Limit, err = parseLimit(r.Form.Get("limit")); err != nil {
+		return q, err
+	}
+	if q.StartMs, err = optionalTimeMs(r.Form.Get("start"), "start"); err != nil {
+		return q, err
+	}
+	if q.EndMs, err = optionalTimeMs(r.Form.Get("end"), "end"); err != nil {
+		return q, err
+	}
+	q.Selectors, err = parseMatchers(r.Form["match[]"])
+	return q, err
+}
+
+// parseMatchers parses match[] selectors; each needs a matcher that rejects the empty string.
+func parseMatchers(matches []string) ([][]*labels.Matcher, error) {
+	var res [][]*labels.Matcher
+	for _, m := range matches {
+		sel, err := promParser.ParseMetricSelector(m)
+		if err != nil {
+			return nil, err
+		}
+		if !hasNonEmptyMatcher(sel) {
+			return nil, errors.New("match[] must contain at least one non-empty matcher")
+		}
+		res = append(res, sel)
+	}
 	return res, nil
 }
 
-func parserTimeString(strTime string, def time.Time) time.Time {
-	tTime, err := time.Parse(time.RFC3339, strTime)
-	if err == nil {
-		return tTime
+func hasNonEmptyMatcher(sel []*labels.Matcher) bool {
+	for _, m := range sel {
+		if !m.Matches("") {
+			return true
+		}
 	}
-	iTime, err := strconv.ParseInt(strTime, 10, 63)
-	if err == nil {
-		return time.Unix(iTime, 0)
-	}
-	return def
+	return false
 }
 
-func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
-	if r.Method == "POST" && r.Header.Get("content-type") == "application/x-www-form-urlencoded" {
-		rawParams := rawPromLabelsParams{}
-		dec := schema.NewDecoder()
-		dec.IgnoreUnknownKeys(true)
-		err := r.ParseForm()
-		if err != nil {
-			return nil, err
-		}
-		if matches, ok := r.Form["match[]"]; ok {
-			rawParams.Match = matches
-		}
-		err = dec.Decode(&rawParams, r.Form)
-		if err != nil {
-			return nil, err
-		}
-		return &promLabelsParams{
-			start: parserTimeString(rawParams.Start, time.Now().Add(time.Hour*-6)),
-			end:   parserTimeString(rawParams.End, time.Now()),
-			match: rawParams.Match,
-		}, nil
+// parseLimit reads a non-negative limit; 0 or absent is no limit.
+func parseLimit(s string) (int, error) {
+	if s == "" {
+		return 0, nil
 	}
-	return &promLabelsParams{
-		start: parserTimeString(r.URL.Query().Get("start"), time.Now().Add(time.Hour*-6)),
-		end:   parserTimeString(r.URL.Query().Get("end"), time.Now().Add(time.Hour*-6)),
-		match: r.URL.Query()["match[]"],
-	}, nil
+	limit, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid parameter 'limit': %w", err)
+	}
+	if limit < 0 {
+		return 0, errors.New("invalid parameter 'limit': limit must be non-negative")
+	}
+	return limit, nil
+}
+
+// optionalTimeMs parses a time in Unix seconds with fractions or RFC3339 into unix
+// milliseconds; an empty value is nil.
+func optionalTimeMs(s string, name string) (*int64, error) {
+	if s == "" {
+		return nil, nil
+	}
+	t, err := parsePromTime(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid parameter '%s': %w", name, err)
+	}
+	ms := t.UnixMilli()
+	return &ms, nil
+}
+
+func parsePromTime(s string) (time.Time, error) {
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		sec, frac := math.Modf(f)
+		return time.Unix(int64(sec), int64(math.Round(frac*1000))*int64(time.Millisecond)), nil
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("cannot parse %q to a valid timestamp", s)
 }
