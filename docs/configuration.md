@@ -73,6 +73,22 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 ## Storage and Retention
 
 - **`SAMPLES_DAYS`** - TTL in days for stored samples (default: `7`)
+
+Metric samples are kept in three retention tiers, each a table with its own lifetime in whole days:
+
+| Tier | Table | Resolution | Setting | Default |
+|---|---|---|---|---|
+| raw | `metric_samples` | as received | `METRICS_RAW_DAYS` | `SAMPLES_DAYS` |
+| 5m | `metrics_5m` | 5 minutes | `METRICS_5M_DAYS` | `30` |
+| 1h | `metrics_1h` | 1 hour | `METRICS_1H_DAYS` | `365` |
+
+- **`METRICS_RAW_DAYS`** - Lifetime in days of raw metric samples and their exemplars (default: `SAMPLES_DAYS`)
+- **`METRICS_5M_DAYS`** - Lifetime in days of the 5-minute tier (default: `30`)
+- **`METRICS_1H_DAYS`** - Lifetime in days of the 1-hour tier (default: `365`). The series index lives as long as this tier, so every stored bucket keeps its labels.
+
+All three are also accepted with the `GIGAPIPE_` prefix. Each value must be a positive whole number of days, and a coarser tier must live at least as long as a finer one: `METRICS_RAW_DAYS` ≤ `METRICS_5M_DAYS` ≤ `METRICS_1H_DAYS`. Start-up fails otherwise. Every tier is always written; to keep no long history, give the coarser tiers the same lifetime as raw. Raising `SAMPLES_DAYS` above `30` therefore needs `METRICS_5M_DAYS` (and, above `365`, `METRICS_1H_DAYS`) raised with it.
+
+The lifetimes are set on the tables when they are created; changing a setting afterwards does not alter an existing table's TTL.
 - **`STORAGE_POLICY`** - ClickHouse storage policy name for data placement
 - **`METRICS_15S_ENABLED`** - Aggregate metric samples into the `metrics_15s` rollup table (default: `true`). Set to `false` to stop the aggregation and delete the stored metric rollups; metric queries are then served from raw samples. Log queries keep using the table either way. At 15-second scrape resolution the rollup stores roughly one row per raw sample at several times the disk cost, so disabling it trades PromQL query speed on large windows for disk space. Re-enabling resumes aggregation from that moment: queries reaching back into the disabled period keep using raw samples.
 
