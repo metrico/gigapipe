@@ -37,7 +37,16 @@ func (f *metricsFakeRegistry) GetTimeSeriesService(id string) (service.IInsertSe
 func (f *metricsFakeRegistry) GetSamplesService(id string) (service.IInsertServiceV2, error) {
 	return f.samples, nil
 }
-func (f *metricsFakeRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
+func (f *metricsFakeRegistry) GetMetricStagingService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *metricsFakeRegistry) GetMetricSeriesService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *metricsFakeRegistry) GetMetricMetadataService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *metricsFakeRegistry) GetMetricExemplarsService(string) (service.IInsertServiceV2, error) {
 	return nil, nil
 }
 func (f *metricsFakeRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {

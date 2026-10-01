@@ -10,7 +10,6 @@ import (
 type NewTempoTracesService = func(opts model.InsertServiceOpts) service.IInsertServiceV2
 type NewSamplesInsertService = func(opts model.InsertServiceOpts) service.IInsertServiceV2
 type NewProfileInsertService = func(opts model.InsertServiceOpts) service.IInsertServiceV2
-type NewMetricInsertService = func(opts model.InsertServiceOpts) service.IInsertServiceV2
 type NewTimeSeriesInsertService = func(opts model.InsertServiceOpts) service.IInsertServiceV2
 type HealthCheck = func(conn chwrapper.IChClient, isDistributed bool)
 type DatabaseSession = func(config config.ClokiBaseSettingServer) ([]model.DataDatabasesMap, []chwrapper.IChClient, []chwrapper.IChClientFactory)
@@ -19,7 +18,6 @@ const (
 	tracesInsertServicePlugin  = "traces_insert"
 	samplesInsertServicePlugin = "samples_insert"
 	profileInsertServicePlugin = "profile_insert"
-	metricInsertServicePlugin  = "metric_insert"
 	timeInsertServicePlugin    = "time_insert"
 	HealthCheckPlugin          = "health_check"
 	databaseSessionPlugin      = "database_session"
@@ -30,9 +28,6 @@ var GetTracesInsertServicePlugin = getPlugin[NewTempoTracesService](tracesInsert
 
 var RegisterSamplesInsertServicePlugin = registerPlugin[NewSamplesInsertService](samplesInsertServicePlugin)
 var GetSamplesInsertServicePlugin = getPlugin[NewSamplesInsertService](samplesInsertServicePlugin)
-
-var RegisterMetricInsertServicePlugin = registerPlugin[NewMetricInsertService](metricInsertServicePlugin)
-var GetMetricInsertServicePlugin = getPlugin[NewMetricInsertService](metricInsertServicePlugin)
 
 var RegisterTimeSeriesInsertServicePlugin = registerPlugin[NewTimeSeriesInsertService](timeInsertServicePlugin)
 var GetTimeSeriesInsertServicePlugin = getPlugin[NewTimeSeriesInsertService](timeInsertServicePlugin)

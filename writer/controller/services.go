@@ -16,7 +16,13 @@ type InsertServices struct {
 	SpanAttrs service.IInsertServiceV2
 	Spans     service.IInsertServiceV2
 	Profile   service.IInsertServiceV2
-	Node      string
+
+	MetricStaging   service.IInsertServiceV2
+	MetricSeries    service.IInsertServiceV2
+	MetricMetadata  service.IInsertServiceV2
+	MetricExemplars service.IInsertServiceV2
+
+	Node string
 }
 
 // ResolveTraceServices resolves only the trace insert services for a tenant.
@@ -55,13 +61,28 @@ func ResolveLogServices(dsn string) (InsertServices, error) {
 	return s, nil
 }
 
-// ResolveMetricServices resolves only the metric insert services for a
-// tenant. Metrics and logs share the same storage (samples + time series), so
-// this delegates to ResolveLogServices; it exists so metric callers don't
-// appear to violate the SIGNAL ISOLATION contract by resolving another
-// signal's services.
+// ResolveMetricServices resolves the four metric insert services for a
+// tenant, all on the staging service's node, which also keys the metric caches.
 func ResolveMetricServices(dsn string) (InsertServices, error) {
-	return ResolveLogServices(dsn)
+	var s InsertServices
+	if Registry == nil {
+		return s, fmt.Errorf("service registry not initialized")
+	}
+	var err error
+	if s.MetricStaging, err = Registry.GetMetricStagingService(dsn); err != nil {
+		return s, err
+	}
+	s.Node = s.MetricStaging.GetNodeName()
+	if s.MetricSeries, err = Registry.GetMetricSeriesService(s.Node); err != nil {
+		return s, err
+	}
+	if s.MetricMetadata, err = Registry.GetMetricMetadataService(s.Node); err != nil {
+		return s, err
+	}
+	if s.MetricExemplars, err = Registry.GetMetricExemplarsService(s.Node); err != nil {
+		return s, err
+	}
+	return s, nil
 }
 
 // ResolveProfileServices resolves only the profile insert service for a tenant.

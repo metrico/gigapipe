@@ -40,7 +40,7 @@ func WriteStreamV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Req
 
 	return Build(
 		append(cfg.ExtraMiddleware,
-			withTSAndSampleService,
+			withMetricServices,
 			withUnsnappyRequest,
 			withSimpleParser("*", Parser(unmarshal.UnmarshallMetricsWriteProtoV2)),
 			withOkStatusAndBody(204, nil))...)

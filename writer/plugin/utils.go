@@ -15,6 +15,7 @@ import (
 	apirouterv1 "github.com/metrico/qryn/v5/writer/router"
 	"github.com/metrico/qryn/v5/writer/service/registry"
 	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	"github.com/metrico/qryn/v5/writer/utils/stat"
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,6 +25,7 @@ import (
 var (
 	ServiceRegistry registry.ServiceRegistry
 	GoCache         numbercache.ICache[uint64]
+	MetricCaches    *metriccache.Caches
 )
 
 type SetupState struct {

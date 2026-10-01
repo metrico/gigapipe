@@ -21,4 +21,9 @@ const (
 	ContextKeyFrom             ContextKey = "from"
 	ContextKeyName             ContextKey = "name"
 	ContextKeyUntil            ContextKey = "until"
+
+	ContextKeyMetricStagingService   ContextKey = "metricStagingService"
+	ContextKeyMetricSeriesService    ContextKey = "metricSeriesService"
+	ContextKeyMetricMetadataService  ContextKey = "metricMetadataService"
+	ContextKeyMetricExemplarsService ContextKey = "metricExemplarsService"
 )

@@ -20,6 +20,7 @@ func Init(cfg *clconfig.ClokiConfig, router *mux.Router) {
 	qrynPlugin.StartPushStat() // internal goroutine
 	controllerv1.Registry = plugin.ServiceRegistry
 	controllerv1.FPCache = plugin.GoCache
+	controllerv1.MetricCaches = plugin.MetricCaches
 	// Expose a ClickHouse client for in-process consumers (e.g. the ruler's
 	// rule-group storage), which the HTTP write path does not otherwise need.
 	if len(qrynPlugin.ServicesObject.Dbv2Map) > 0 {

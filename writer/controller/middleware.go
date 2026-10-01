@@ -252,3 +252,21 @@ var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Reque
 	*r = *r.WithContext(ctx)
 	return nil
 })
+
+// withMetricServices resolves the tenant's metric insert services; Node, which
+// keys the metric caches in IngestParsed, is the staging service's node.
+var withMetricServices = WithPreRequest(func(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	dsn := ctx.Value(utils.ContextKeyDSN).(string)
+	svcs, err := ResolveMetricServices(dsn)
+	if err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, utils.ContextKeyMetricStagingService, svcs.MetricStaging)
+	ctx = context.WithValue(ctx, utils.ContextKeyMetricSeriesService, svcs.MetricSeries)
+	ctx = context.WithValue(ctx, utils.ContextKeyMetricMetadataService, svcs.MetricMetadata)
+	ctx = context.WithValue(ctx, utils.ContextKeyMetricExemplarsService, svcs.MetricExemplars)
+	ctx = context.WithValue(ctx, utils.ContextKeyNode, svcs.Node)
+	*r = *r.WithContext(ctx)
+	return nil
+})
