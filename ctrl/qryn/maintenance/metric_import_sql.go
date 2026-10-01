@@ -28,13 +28,14 @@ const (
 )
 
 // stagedRows inserts rows (fingerprint, timestamp_ns, timestamp, value) into the staging table,
-// each with the previous non-stale sample of its series as its predecessor, filtered by where.
+// filtered by where. Each row's predecessor is the latest earlier non-stale sample of its series,
+// the first row by ns within its ms.
 func stagedRows(t importTables, rows, where string) string {
 	return fmt.Sprintf("INSERT INTO %s (fingerprint, timestamp, value, prev_timestamp, prev_value, aggregate) "+
 		"SELECT fingerprint, timestamp, value, "+
 		"prev.1 AS prev_timestamp, prev.2 AS prev_value, prev_timestamp < timestamp AS aggregate "+
 		"FROM (SELECT fingerprint, timestamp_ns, timestamp, value, "+
-		"maxIf((timestamp, value), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
+		"argMaxIf((timestamp, value), (timestamp, -timestamp_ns), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 		"OVER (PARTITION BY fingerprint ORDER BY timestamp_ns ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev "+
 		"FROM (%s)) "+
 		"WHERE %s", t.staging, rows, where)
@@ -85,16 +86,25 @@ func redoSQL(t importTables, u importUnit) []string {
 	return out
 }
 
-// seriesSQL copies each metric series, seen from its first day to the end of its last.
-func seriesSQL(t importTables) string {
+// seriesSQL copies each metric series, seen from its first day, or its oldest rollup row when
+// rollup is set and that is earlier, to the end of its last day.
+func seriesSQL(t importTables, rollup bool) string {
+	firstSeen := "toDateTime64(first_day, 3, 'UTC')"
+	join := ""
+	if rollup {
+		firstSeen = fmt.Sprintf("if(rollup_first_ns > 0, least(%s, "+
+			"fromUnixTimestamp64Milli(intDiv(rollup_first_ns, 1000000), 'UTC')), %s)", firstSeen, firstSeen)
+		join = fmt.Sprintf(" LEFT JOIN (SELECT fingerprint, min(timestamp_ns) AS rollup_first_ns FROM %s "+
+			"WHERE %s GROUP BY fingerprint) AS rollup USING fingerprint", t.rollup, metricRows)
+	}
 	return fmt.Sprintf("INSERT INTO %s (name, fingerprint, labels, first_seen, last_seen) "+
 		"SELECT if(series_name != '', series_name, JSONExtractString(series_labels, '__name__')) AS name, fingerprint, "+
 		"CAST(JSONExtractKeysAndValues(series_labels, 'String') AS Map(LowCardinality(String), String)) AS labels, "+
-		"toDateTime64(first_day, 3, 'UTC') AS first_seen, "+
+		"%s AS first_seen, "+
 		"toDateTime64(last_day + INTERVAL 1 DAY, 3, 'UTC') AS last_seen "+
 		"FROM (SELECT fingerprint, any(name) AS series_name, any(labels) AS series_labels, "+
 		"min(date) AS first_day, max(date) AS last_day "+
-		"FROM %s WHERE %s GROUP BY fingerprint)", t.series, t.timeSeries, metricRows)
+		"FROM %s WHERE %s GROUP BY fingerprint) AS series%s", t.series, firstSeen, t.timeSeries, metricRows, join)
 }
 
 // metadataSQL copies the latest metadata of each metric family.
@@ -104,4 +114,14 @@ func metadataSQL(t importTables) string {
 		"JSONExtractString(latest, 'unit') AS unit, fromUnixTimestamp64Milli(intDiv(latest_ns, 1000000)) AS updated_at "+
 		"FROM (SELECT name, argMax(metadata, updated_at_ns) AS latest, max(updated_at_ns) AS latest_ns "+
 		"FROM %s WHERE %s AND metadata != '' GROUP BY name)", t.metadata, t.timeSeries, metricRows)
+}
+
+// unitQueryID is the query id a unit's insert runs under, so one insert per unit runs at a time.
+func unitQueryID(db, name string) string {
+	return "metric_import-" + db + "-" + name
+}
+
+// killSQL stops a query by id and waits for it to end.
+func killSQL(queryID string) string {
+	return fmt.Sprintf("KILL QUERY WHERE query_id = '%s' SYNC", queryID)
 }

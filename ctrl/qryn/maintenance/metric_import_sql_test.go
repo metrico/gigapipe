@@ -22,7 +22,7 @@ func TestAChunkCopiesMetricRowsWithTheirPreviousNonStaleSample(t *testing.T) {
 	containsAll(t, "chunk", sql,
 		"INSERT INTO metric_samples_in (fingerprint, timestamp, value, prev_timestamp, prev_value, aggregate)",
 		"prev.1 AS prev_timestamp, prev.2 AS prev_value, prev_timestamp < timestamp AS aggregate",
-		"maxIf((timestamp, value), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
+		"argMaxIf((timestamp, value), (timestamp, -timestamp_ns), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 			"OVER (PARTITION BY fingerprint ORDER BY timestamp_ns ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev",
 		"fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp",
 		"FROM samples_v3 WHERE type IN (2, 0)",
@@ -39,7 +39,7 @@ func TestASpanTurnsEachRollupRowBelowTheFloorIntoOneSample(t *testing.T) {
 	sql := spanSQL(localImportTables, at("2026-09-22 00:00"), at("2026-09-29 00:00"), at("2026-09-29 00:00"))
 	containsAll(t, "span", sql,
 		"INSERT INTO metric_samples_in (fingerprint, timestamp, value, prev_timestamp, prev_value, aggregate)",
-		"maxIf((timestamp, value), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
+		"argMaxIf((timestamp, value), (timestamp, -timestamp_ns), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 			"OVER (PARTITION BY fingerprint ORDER BY timestamp_ns ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev",
 		"SELECT fingerprint, timestamp_ns, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, "+
 			"argMaxMerge(last) AS value FROM metrics_15s WHERE type IN (2, 0)",
@@ -53,7 +53,7 @@ func TestASpanTurnsEachRollupRowBelowTheFloorIntoOneSample(t *testing.T) {
 func TestTheTailCopiesRowsAboveTheWatermarkWithAnHourOfPredecessors(t *testing.T) {
 	sql := tailSQL(localImportTables, 1790931600000000000, 1790935200000000000)
 	containsAll(t, "tail", sql,
-		"maxIf((timestamp, value), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
+		"argMaxIf((timestamp, value), (timestamp, -timestamp_ns), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 			"OVER (PARTITION BY fingerprint ORDER BY timestamp_ns ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev",
 		"FROM samples_v3 WHERE type IN (2, 0) AND timestamp_ns > 1790928000000000000 AND timestamp_ns <= 1790935200000000000",
 		"WHERE timestamp_ns > 1790931600000000000",
@@ -67,16 +67,42 @@ func TestARedoneUnitDeletesItsBucketsFromBothTiers(t *testing.T) {
 }
 
 func TestSeriesAndMetadataComeFromMetricRowsOnly(t *testing.T) {
-	containsAll(t, "series", seriesSQL(localImportTables),
+	containsAll(t, "series", seriesSQL(localImportTables, false),
 		"INSERT INTO metric_series (name, fingerprint, labels, first_seen, last_seen)",
 		"CAST(JSONExtractKeysAndValues(series_labels, 'String') AS Map(LowCardinality(String), String)) AS labels",
 		"toDateTime64(first_day, 3, 'UTC') AS first_seen",
 		"toDateTime64(last_day + INTERVAL 1 DAY, 3, 'UTC') AS last_seen",
 		"min(date) AS first_day, max(date) AS last_day FROM time_series WHERE type IN (2, 0) GROUP BY fingerprint",
 	)
+	if sql := seriesSQL(localImportTables, false); strings.Contains(sql, "metrics_15s") {
+		t.Errorf("series reads the rollup when it is absent:\n%s", sql)
+	}
 	containsAll(t, "metadata", metadataSQL(localImportTables),
 		"INSERT INTO metric_metadata (name, type, help, unit, updated_at)",
 		"argMax(metadata, updated_at_ns) AS latest",
 		"FROM time_series WHERE type IN (2, 0) AND metadata != '' GROUP BY name",
 	)
+}
+
+func TestASeriesIsSeenFromItsOldestRollupRowWhenThatIsEarlier(t *testing.T) {
+	containsAll(t, "series", seriesSQL(localImportTables, true),
+		"LEFT JOIN (SELECT fingerprint, min(timestamp_ns) AS rollup_first_ns FROM metrics_15s "+
+			"WHERE type IN (2, 0) GROUP BY fingerprint) AS rollup USING fingerprint",
+		"if(rollup_first_ns > 0, least(toDateTime64(first_day, 3, 'UTC'), "+
+			"fromUnixTimestamp64Milli(intDiv(rollup_first_ns, 1000000), 'UTC')), toDateTime64(first_day, 3, 'UTC')) AS first_seen",
+	)
+}
+
+func TestEachUnitRunsUnderItsOwnQueryIDAndARedoKillsItFirst(t *testing.T) {
+	u := importUnit{kind: "chunk", from: at("2026-09-30 00:00"), to: at("2026-10-01 00:00")}
+	if got := unitQueryID("cloki", u.name()); got != "metric_import-cloki-chunk:"+chunkToMs {
+		t.Errorf("query id = %s", got)
+	}
+	if got := unitQueryID("cloki", "tail"); got != "metric_import-cloki-tail" {
+		t.Errorf("tail query id = %s", got)
+	}
+	want := "KILL QUERY WHERE query_id = 'metric_import-cloki-chunk:" + chunkToMs + "' SYNC"
+	if got := killSQL(unitQueryID("cloki", u.name())); got != want {
+		t.Errorf("kill = %s, want %s", got, want)
+	}
 }

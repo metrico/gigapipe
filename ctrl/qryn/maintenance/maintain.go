@@ -157,9 +157,14 @@ func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
 	return dbObject.TTLDays, nil
 }
 
-// ImportAllMetrics runs the metric import of each database in the background until it completes.
+// ImportAllMetrics runs the metric import of each single-node database in the background until
+// it completes.
 func ImportAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) {
 	for _, dbObject := range base {
+		if dbObject.ClusterName != "" {
+			logger.Info(fmt.Sprintf("metric import: not run on cluster %s", dbObject.ClusterName))
+			continue
+		}
 		go func() {
 			rollupDays, err := rollupTTLDays(&dbObject)
 			if err != nil {
@@ -173,7 +178,7 @@ func ImportAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) {
 			}
 			defer conn.Close()
 			RunMetricImport(context.Background(), conn, MetricImportOptions{
-				Dist:        dbObject.ClusterName != "",
+				Database:    dbObject.Name,
 				SamplesDays: dbObject.TTLDays,
 				RollupDays:  rollupDays,
 				Logger:      logger,
