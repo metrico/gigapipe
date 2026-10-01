@@ -29,8 +29,8 @@ func shortcutFrom(t *testing.T, versionInfo dbversion.VersionInfo) string {
 	return got
 }
 
-// A settings row named metrics_15s, as an older release wrote it, has no say in
-// the route: the log rollup serves the query whenever its table exists.
+// The route depends only on the rollup table's capability; a settings row named
+// metrics_15s has no effect.
 func TestLogRollupServesRateWhateverTheSettings(t *testing.T) {
 	for name, v := range map[string]dbversion.VersionInfo{
 		"no settings row":     {dbversion.CapMetrics15s: 0},
