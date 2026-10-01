@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -58,6 +59,9 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 		return
 	}
 	name := mux.Vars(r)["name"]
+	if strings.HasPrefix(name, "U__") {
+		name = model.UnescapeName(name, model.ValueEncodingEscaping)
+	}
 	if !model.UTF8Validation.IsValidLabelName(name) {
 		PromError(400, fmt.Sprintf("invalid label name: %q", name), w)
 		return
@@ -147,12 +151,14 @@ func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *htt
 		PromError(400, err.Error(), w)
 		return
 	}
-	res := []service.ExemplarSeries{}
-	if len(q.Selectors) > 0 {
-		if res, err = p.MetricLabelsService.Exemplars(ctx, q); err != nil {
-			PromError(500, err.Error(), w)
-			return
-		}
+	if len(q.Selectors) == 0 {
+		promRespond(w, nil, false)
+		return
+	}
+	res, err := p.MetricLabelsService.Exemplars(ctx, q)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
