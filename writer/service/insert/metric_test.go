@@ -112,8 +112,19 @@ func TestMetricSeriesRows(t *testing.T) {
 	if got := cols["name"].(*proto.ColLowCardinality[string]).Row(0); got != "up" {
 		t.Fatalf("name: got %q", got)
 	}
-	if !cols["first_seen"].(*proto.ColDateTime64).Row(0).Equal(ms(1000)) ||
-		!cols["last_seen"].(*proto.ColDateTime64).Row(0).Equal(ms(2000)) {
+	for col, want := range map[string]proto.ColumnType{
+		"first_seen": "SimpleAggregateFunction(min, DateTime64(3))",
+		"last_seen":  "SimpleAggregateFunction(max, DateTime64(3))",
+	} {
+		if got := cols[col].Type(); got != want {
+			t.Fatalf("%s type: got %s, want %s", col, got, want)
+		}
+		if err := cols[col].(proto.Inferable).Infer(want); err != nil {
+			t.Fatalf("%s must accept the table's column type: %v", col, err)
+		}
+	}
+	if !cols["first_seen"].(*service.ColSimpleAggDateTime64).Row(0).Equal(ms(1000)) ||
+		!cols["last_seen"].(*service.ColSimpleAggDateTime64).Row(0).Equal(ms(2000)) {
 		t.Fatal("first_seen/last_seen do not match the series' sample instants")
 	}
 }

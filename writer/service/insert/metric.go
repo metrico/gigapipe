@@ -89,8 +89,8 @@ func NewMetricSeriesInsertService(opts model.InsertServiceOpts) service.IInsertS
 				service.LowCardinalityStrPool.Acquire("name"),
 				service.UInt64Pool.Acquire("fingerprint"),
 				service.LabelsMapPool.Acquire("labels"),
-				service.DateTime64MsPool.Acquire("first_seen"),
-				service.DateTime64MsPool.Acquire("last_seen"),
+				service.MinDateTime64MsPool.Acquire("first_seen"),
+				service.MaxDateTime64MsPool.Acquire("last_seen"),
 			}
 		},
 		func(d *model.MetricSeriesData, cols []service.IColPoolRes) {
@@ -98,8 +98,8 @@ func NewMetricSeriesInsertService(opts model.InsertServiceOpts) service.IInsertS
 			fp := cols[1].(*service.PooledColumn[proto.ColUInt64])
 			fp.Data = append(fp.Data, d.MFingerprint...)
 			cols[2].(*service.PooledColumn[*proto.ColMap[string, string]]).Data.AppendArr(d.MLabels)
-			appendMs(cols[3].(*service.PooledColumn[*proto.ColDateTime64]).Data, d.MFirstSeenMs)
-			appendMs(cols[4].(*service.PooledColumn[*proto.ColDateTime64]).Data, d.MLastSeenMs)
+			appendMs(&cols[3].(*service.PooledColumn[*service.ColSimpleAggDateTime64]).Data.ColDateTime64, d.MFirstSeenMs)
+			appendMs(&cols[4].(*service.PooledColumn[*service.ColSimpleAggDateTime64]).Data.ColDateTime64, d.MLastSeenMs)
 		})
 }
 
