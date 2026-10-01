@@ -46,10 +46,11 @@ type collectedSample struct {
 }
 
 type metricsCollector struct {
-	samples   []collectedSample
-	metadata  map[string]metadataRow
-	exemplars []exemplarRow
-	fpLabels  map[uint64]string
+	samples      []collectedSample
+	metadata     map[string]metadataRow
+	metadataRows []metadataRow
+	exemplars    []exemplarRow
+	fpLabels     map[uint64]string
 }
 
 // collectMetrics runs the OTLP metrics parser over md through the metric
@@ -74,6 +75,7 @@ func collectMetrics(t *testing.T, md *metricsv1.MetricsData, stats *OTLPMetricsS
 	for _, m := range rows.metadata {
 		col.metadata[m.name] = m
 	}
+	col.metadataRows = rows.metadata
 	return col
 }
 
@@ -895,5 +897,46 @@ func TestOTLPMetrics_ExpHistogramInfBucketWithoutPositiveBuckets(t *testing.T) {
 	got := col.find(`"__name__":"zeros_only_bucket"`, `"le":"+Inf"`)
 	if len(got) != 1 || got[0].value != 3 {
 		t.Errorf(`+Inf bucket: want 3, got %+v`, got)
+	}
+}
+
+func TestOTLPMetrics_MetadataIsOneRowPerFamily(t *testing.T) {
+	md := wrapMetrics(testResource(),
+		&metricsv1.Metric{
+			Name: "req.duration", Unit: "s", Description: "Request latency.",
+			Data: &metricsv1.Metric_Histogram{Histogram: &metricsv1.Histogram{
+				AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+				DataPoints: []*metricsv1.HistogramDataPoint{{
+					TimeUnixNano: testTS, Count: 2, Sum: float64p(1), ExplicitBounds: []float64{1}, BucketCounts: []uint64{1, 1},
+				}},
+			}},
+		},
+		&metricsv1.Metric{
+			Name: "gc.pause", Description: "GC pauses.",
+			Data: &metricsv1.Metric_Summary{Summary: &metricsv1.Summary{DataPoints: []*metricsv1.SummaryDataPoint{{
+				TimeUnixNano: testTS, Count: 1, Sum: 0.5,
+				QuantileValues: []*metricsv1.SummaryDataPoint_ValueAtQuantile{{Quantile: 0.5, Value: 0.5}},
+			}}}},
+		},
+		&metricsv1.Metric{
+			Name: "never.stored",
+			Data: &metricsv1.Metric_Gauge{Gauge: &metricsv1.Gauge{DataPoints: []*metricsv1.NumberDataPoint{{
+				Value: &metricsv1.NumberDataPoint_AsDouble{AsDouble: 1},
+			}}}},
+		},
+	)
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+	want := map[string]metadataRow{
+		"req_duration_seconds": {"req_duration_seconds", "histogram", "Request latency.", "seconds"},
+		"gc_pause":             {"gc_pause", "summary", "GC pauses.", ""},
+		"target_info":          {"target_info", "gauge", "", ""},
+	}
+	if len(col.metadataRows) != len(want) {
+		t.Fatalf("metadata rows: got %+v, want %+v", col.metadataRows, want)
+	}
+	for name, w := range want {
+		if got := col.metadata[name]; got != w {
+			t.Errorf("metadata %s: got %+v, want %+v", name, got, w)
+		}
 	}
 }
