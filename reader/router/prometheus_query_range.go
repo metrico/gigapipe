@@ -37,7 +37,7 @@ func NewPromEngine(maxSamples int) *promql.Engine {
 			return defaultSubqueryInterval.Milliseconds()
 		},
 		EnableAtModifier:     true,
-		EnableNegativeOffset: false,
+		EnableNegativeOffset: true,
 	})
 }
 
