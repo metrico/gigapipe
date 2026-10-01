@@ -202,7 +202,8 @@ func TestRemoteWriteRequestMetadata(t *testing.T) {
 		changed.metadata[0] != (metadataRow{"up", "gauge", "Scrape target is up.", ""}) {
 		t.Fatalf("changed metadata: got %+v", changed.metadata)
 	}
-	node.Series.Reset()
+	node.Fingerprints.Reset()
+	node.Metadata.Reset()
 	if reset := pushRemoteWrite(t, node, req); len(reset.metadata) != 2 || len(reset.series) != 1 {
 		t.Fatalf("after the reset every family and series must be emitted again, got %+v %+v", reset.metadata, reset.series)
 	}

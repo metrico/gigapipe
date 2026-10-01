@@ -90,7 +90,7 @@ func (b *metricBatch) flush() {
 }
 
 func (b *metricBatch) addMetadata(name string, m metadata.Entry) {
-	if name == "" || !b.node.Series.MetadataChanged(name, m) {
+	if name == "" || !b.node.Metadata.Changed(name, m) {
 		return
 	}
 	d := b.metadata
@@ -143,7 +143,7 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 		b.addMetadata(name, meta)
 	}
 
-	if len(timestampsMs) > 0 && b.node.Series.FirstSight(fp) {
+	if len(timestampsMs) > 0 && b.node.Fingerprints.FirstSight(fp) {
 		minTs, maxTs := int64(math.MaxInt64), int64(math.MinInt64)
 		for _, ts := range timestampsMs {
 			minTs, maxTs = min(minTs, ts), max(maxTs, ts)
