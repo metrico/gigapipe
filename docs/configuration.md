@@ -72,29 +72,31 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 
 ## Storage and Retention
 
-- **`SAMPLES_DAYS`** - TTL in days for stored samples (default: `7`)
-
-Metric samples are kept in three retention tiers, each a table with its own lifetime in whole days:
-
-| Tier | Table | Resolution | Setting | Default |
-|---|---|---|---|---|
-| raw | `metric_samples` | as received | `METRICS_RAW_DAYS` | `SAMPLES_DAYS` |
-| 5m | `metrics_5m` | 5 minutes | `METRICS_5M_DAYS` | `30` |
-| 1h | `metrics_1h` | 1 hour | `METRICS_1H_DAYS` | `365` |
-
-- **`METRICS_RAW_DAYS`** - Lifetime in days of raw metric samples and their exemplars (default: `SAMPLES_DAYS`)
-- **`METRICS_5M_DAYS`** - Lifetime in days of the 5-minute tier (default: `30`)
-- **`METRICS_1H_DAYS`** - Lifetime in days of the 1-hour tier (default: `365`). The series index lives as long as this tier, so every stored bucket keeps its labels.
-
-All three are also accepted with the `GIGAPIPE_` prefix. Each value must be a positive whole number of days, and a coarser tier must live at least as long as a finer one: `METRICS_RAW_DAYS` ≤ `METRICS_5M_DAYS` ≤ `METRICS_1H_DAYS`. Start-up fails otherwise. Every tier is always written; to keep no long history, give the coarser tiers the same lifetime as raw. Raising `SAMPLES_DAYS` above `30` therefore needs `METRICS_5M_DAYS` (and, above `365`, `METRICS_1H_DAYS`) raised with it.
-
-The lifetimes are set on the tables when they are created; changing a setting afterwards does not alter an existing table's TTL.
+- **`SAMPLES_DAYS`** - TTL in days for logs, traces and profiles, and the default lifetime of raw metric samples (default: `7`)
 - **`STORAGE_POLICY`** - ClickHouse storage policy name for data placement
 - **`METRICS_15S_ENABLED`** - Aggregate metric samples into the `metrics_15s` rollup table (default: `true`). Set to `false` to stop the aggregation and delete the stored metric rollups; metric queries are then served from raw samples. Log queries keep using the table either way. At 15-second scrape resolution the rollup stores roughly one row per raw sample at several times the disk cost, so disabling it trades PromQL query speed on large windows for disk space. Re-enabling resumes aggregation from that moment: queries reaching back into the disabled period keep using raw samples.
 
   > **Warning:** disabling deletes the stored metric rollups permanently, and the delete cannot be undone by re-enabling. Metric history survives only where `samples_v3` still holds it, so check the raw retention first: if `samples_v3` has been given a shorter TTL than `metrics_15s` (`METRICS_15S_TTL_DAYS`, or a hand-edited TTL), the rollup is the only remaining copy of the older metric data and disabling destroys it.
 
 - **`METRICS_15S_TTL_DAYS`** - TTL in days for the `metrics_15s` rollup table (default: the database's samples TTL). This sets when rollup rows are dropped; any move-to-disk rules from the samples retention policy still apply to the table unchanged, so a longer rollup TTL keeps rows past the point where the policy has already moved them to colder storage.
+
+### Metric retention tiers
+
+Metric samples are kept in three retention tiers, each a table with its own lifetime in whole days:
+
+| Tier | Table | Resolution | Setting | Default |
+|---|---|---|---|---|
+| raw | `metric_samples` | as received | `METRICS_RAW_DAYS` | `SAMPLES_DAYS` |
+| 5m | `metrics_5m` | 5 minutes | `METRICS_5M_DAYS` | the larger of `30` and the raw tier's days |
+| 1h | `metrics_1h` | 1 hour | `METRICS_1H_DAYS` | the larger of `365` and the 5m tier's days |
+
+- **`METRICS_RAW_DAYS`** - Lifetime in days of raw metric samples and their exemplars (default: `SAMPLES_DAYS`)
+- **`METRICS_5M_DAYS`** - Lifetime in days of the 5-minute tier (default: the larger of `30` and the raw tier's days)
+- **`METRICS_1H_DAYS`** - Lifetime in days of the 1-hour tier (default: the larger of `365` and the 5m tier's days). The series index lives as long as this tier, so every stored bucket keeps its labels.
+
+All three are also accepted with the `GIGAPIPE_` prefix. Each value must be a positive whole number of days, and a coarser tier must live at least as long as a finer one: `METRICS_RAW_DAYS` ≤ `METRICS_5M_DAYS` ≤ `METRICS_1H_DAYS`. A default follows the finer tier up, so only values that are set can break the rule; start-up fails when they do. Every tier is always written; to keep no long history, give the coarser tiers the same lifetime as raw.
+
+The lifetimes, the `STORAGE_POLICY` and the move-to-disk rules of the retention policy are applied to the metric tables each time start-up initializes the database (every start in `all`, `writer` and `init_only` mode unless `OMIT_CREATE_TABLES` is set), as they are to the other tables.
 
 ## Mode
 
