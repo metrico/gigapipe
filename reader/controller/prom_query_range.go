@@ -61,7 +61,7 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 	// This is sufficient for 60s resolution for a week or 1h resolution for a year.
 	if req.End.Sub(req.Start)/req.Step > 11000 {
 		PromError(
-			500,
+			400,
 			"exceeded maximum resolution of 11,000 points per timeseries. Try decreasing the query resolution (?step=XX)",
 			w)
 		return

@@ -154,3 +154,20 @@ func TestInstantQueryPushesDownTheAggregation(t *testing.T) {
 		}
 	}
 }
+
+func TestRangeQueryRejectsAStepThePushdownCannotServe(t *testing.T) {
+	for _, target := range []string{
+		"/api/v1/query_range?start=0&end=600&step=0&query=" + url.QueryEscape("rate(x[5m])"),
+		"/api/v1/query_range?start=0&end=600&step=0.001&query=" + url.QueryEscape("rate(x[5m])"),
+	} {
+		app, db := serveOneSeries(t)
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400, body = %s", target, rec.Code, rec.Body)
+		}
+		if q := db.Queries(); len(q) != 0 {
+			t.Errorf("%s: queries reached ClickHouse: %q", target, q)
+		}
+	}
+}
