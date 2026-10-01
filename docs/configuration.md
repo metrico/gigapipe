@@ -97,6 +97,12 @@ A PromQL query is served whole from one tier. While its earliest read (the query
 
 - **`METRICS_READ_TIER`** - Test knob for compliance runs, not for production: `raw`, `5m` or `1h` makes every PromQL query read that table, a tier read snapping timestamps and widening ranges as above whether or not the query is aligned (default: unset, the rules above pick the table). Also accepted with the `GIGAPIPE_` prefix; any other value fails start-up.
 
+### Upgrading a deployment with metric history
+
+On first start the metric tables are created and the metric history held in `samples_v3`, `time_series` and `metrics_15s` is copied into them in the background, by one instance in `all` or `writer` mode at a time (a lease in the `settings` table, taken over when its holder stops renewing it). Metric history appears as the copy proceeds, newest day first: minutes to an hour at `INSERT SELECT` speed over at most `SAMPLES_DAYS` of data. `metrics_15s` history beyond that is imported approximately: each 15-second row becomes one sample carrying its last value, exact at a 15-second scrape, and a faster scrape undercounts samples and sums. After the history, rows that instances still running the earlier release add to `samples_v3` are copied until none has arrived for an hour; the import then records itself complete and does not run again. Progress is recorded per day, so a restart resumes where the copy stopped. A deployment without metric history completes the import at once.
+
+A stop-start upgrade loses nothing. A rolling upgrade can lose rows an instance of the earlier release delivers late, below what has already been copied, and can count twice in the aggregate tiers a remote-write batch both releases accepted. Metric rows in the old tables are never modified; they age out under their existing TTLs.
+
 ## Mode
 
 - **`MODE`** - Operating mode:
