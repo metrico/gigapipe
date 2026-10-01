@@ -67,6 +67,14 @@ gigapipe's query engine derives staleness from its own fill window.
 
 ## Exemplars
 
-The first exemplar carrying a valid trace ID is stored alongside the sample
-(on plain series and `_bucket` series), enabling metric-to-trace
-correlation queries over the stored trace IDs.
+Every exemplar is stored in `metric_exemplars` with its series' fingerprint
+(on plain series and `_bucket` series). The trace and span IDs are folded into
+the exemplar's labels as `trace_id` and `span_id`, next to its filtered
+attributes.
+
+`/api/v1/query_exemplars` answers in Prometheus's shape: the exemplars in
+`[start, end]` of every series the query's selectors pick, grouped per series
+with the series' label set. A missing `start` or `end` leaves that side
+unbounded. Exemplars live as long as raw samples (`METRICS_RAW_DAYS`), so the
+answer is the same whether a chart was served from raw samples or from an
+aggregate tier.
