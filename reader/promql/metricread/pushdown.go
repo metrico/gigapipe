@@ -34,13 +34,16 @@ type Aggregation struct {
 	Without  bool
 }
 
+// kahanSum is a compensated sum, plain where the sum is not finite so ±Inf survives.
+const kahanSum = "if(isFinite(sum(value)), sumKahan(value), sum(value))"
+
 // aggregations maps each pushed-down aggregation to its ClickHouse aggregate. Sums are
 // compensated; min and max skip NaN unless every value is NaN.
 var aggregations = map[string]string{
-	"sum":   "sumKahan(value)",
+	"sum":   kahanSum,
 	"min":   "ifNull(minIfOrNull(value, NOT isNaN(value)), nan)",
 	"max":   "ifNull(maxIfOrNull(value, NOT isNaN(value)), nan)",
-	"avg":   "sumKahan(value) / count()",
+	"avg":   kahanSum + " / count()",
 	"count": "toFloat64(count())",
 }
 
@@ -100,7 +103,7 @@ func rawRowsSQL(p Pushdown) string {
 		"minIf((timestamp, value), NOT stale) AS first, "+
 		"maxIf((timestamp, value), NOT stale) AS last, "+
 		"countIf(NOT stale) AS count, "+
-		"sumKahanIf(value, NOT stale) AS sum, "+
+		"if(isFinite(sumIf(value, NOT stale)), sumKahanIf(value, NOT stale), sumIf(value, NOT stale)) AS sum, "+
 		"ifNull(minIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS min, "+
 		"ifNull(maxIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS max, "+
 		"countIf(paired AND value < prev_value) AS resets, "+
