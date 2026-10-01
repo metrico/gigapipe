@@ -48,7 +48,15 @@ func parse(t *testing.T, query string) *promql_parser.Expr {
 func selectSeries(t *testing.T, db *fakeclickhouse.DB, expr *promql_parser.Expr, hints *storage.SelectHints,
 	matchers ...*labels.Matcher) map[string][]point {
 	t.Helper()
-	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).SetOidAndDB(context.Background(), expr)
+	return selectRouted(t, db, nil, expr, hints, matchers...)
+}
+
+// selectRouted runs Select on a queryable that selects tiers with routing.
+func selectRouted(t *testing.T, db *fakeclickhouse.DB, routing *TierRouting, expr *promql_parser.Expr,
+	hints *storage.SelectHints, matchers ...*labels.Matcher) map[string][]point {
+	t.Helper()
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}, Tiers: routing}).
+		SetOidAndDB(context.Background(), expr)
 	querier, err := queryable.Querier(hints.Start, hints.End)
 	if err != nil {
 		t.Fatal(err)
