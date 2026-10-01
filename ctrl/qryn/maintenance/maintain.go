@@ -161,24 +161,6 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, tiers, dbObject.StoragePolicy, logger.Logger)
 }
 
-func RecodecDB(dbObject *config.ClokiBaseDataBase) error {
-	connDb, err := maintenance.ConnectV2(dbObject, true)
-	if err != nil {
-		return err
-	}
-	defer connDb.Close()
-	return UpdateTextCodec(connDb, dbObject.ClusterName != "", dbObject.TextCodec)
-}
-
-func ReindexDB(dbObject *config.ClokiBaseDataBase) error {
-	connDb, err := maintenance.ConnectV2(dbObject, true)
-	if err != nil {
-		return err
-	}
-	defer connDb.Close()
-	return UpdateLogsIndex(connDb, dbObject.ClusterName != "", dbObject.LogsIndex, int(dbObject.LogsIndexGranularity))
-}
-
 func effectivePort(db *config.ClokiBaseDataBase) uint32 {
 	if db.HttpPort != 0 {
 		return db.HttpPort
