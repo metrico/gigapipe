@@ -30,8 +30,8 @@ func TestPushdownSQLRate(t *testing.T) {
 		"maxIf((timestamp, value), NOT stale) AS last, " +
 		"countIf(NOT stale) AS count, " +
 		"sumIf(value, NOT stale) AS sum, " +
-		"minIf(value, NOT stale) AS min, " +
-		"maxIf(value, NOT stale) AS max, " +
+		"ifNull(minIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS min, " +
+		"ifNull(maxIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS max, " +
 		"countIf(paired AND value < prev_value) AS resets, " +
 		"sumIf(prev_value, paired AND value < prev_value) AS reset_drop, " +
 		"countIf(paired AND value != prev_value AND NOT (isNaN(value) AND isNaN(prev_value))) AS changes, " +
@@ -161,7 +161,8 @@ func TestPushdownSQLAggregation(t *testing.T) {
 				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
 		{"without drops the name too", Aggregation{Op: "max", Grouping: []string{"instance"}, Without: true},
 			"SELECT cityHash64(grp) AS fingerprint, " +
-				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, max(value) AS value " +
+				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, " +
+				"ifNull(maxIfOrNull(value, NOT isNaN(value)), nan) AS value " +
 				"FROM (SELECT arraySort(arrayFilter(x -> NOT has(['instance', '__name__'], x.1), " +
 				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
 				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
