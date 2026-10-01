@@ -919,6 +919,26 @@ func TestOTLPMetrics_MetadataIsOneRowPerFamily(t *testing.T) {
 			}}}},
 		},
 		&metricsv1.Metric{
+			Name: "exp.latency", Unit: "ms", Description: "Exponential latency.",
+			Data: &metricsv1.Metric_ExponentialHistogram{ExponentialHistogram: &metricsv1.ExponentialHistogram{
+				AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+				DataPoints: []*metricsv1.ExponentialHistogramDataPoint{{
+					TimeUnixNano: testTS, Count: 3, Sum: float64p(4),
+					Positive: &metricsv1.ExponentialHistogramDataPoint_Buckets{BucketCounts: []uint64{1, 2}},
+				}},
+			}},
+		},
+		&metricsv1.Metric{
+			Name: "http.requests", Unit: "{requests}", Description: "Requests served.",
+			Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
+				AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+				IsMonotonic:            true,
+				DataPoints: []*metricsv1.NumberDataPoint{{
+					TimeUnixNano: testTS, Value: &metricsv1.NumberDataPoint_AsInt{AsInt: 7},
+				}},
+			}},
+		},
+		&metricsv1.Metric{
 			Name: "never.stored",
 			Data: &metricsv1.Metric_Gauge{Gauge: &metricsv1.Gauge{DataPoints: []*metricsv1.NumberDataPoint{{
 				Value: &metricsv1.NumberDataPoint_AsDouble{AsDouble: 1},
@@ -927,9 +947,11 @@ func TestOTLPMetrics_MetadataIsOneRowPerFamily(t *testing.T) {
 	)
 	col := collectMetrics(t, md, &OTLPMetricsStats{})
 	want := map[string]metadataRow{
-		"req_duration_seconds": {"req_duration_seconds", "histogram", "Request latency.", "seconds"},
-		"gc_pause":             {"gc_pause", "summary", "GC pauses.", ""},
-		"target_info":          {"target_info", "gauge", "", ""},
+		"req_duration_seconds":     {"req_duration_seconds", "histogram", "Request latency.", "seconds"},
+		"gc_pause":                 {"gc_pause", "summary", "GC pauses.", ""},
+		"exp_latency_milliseconds": {"exp_latency_milliseconds", "histogram", "Exponential latency.", "milliseconds"},
+		"http_requests_total":      {"http_requests_total", "counter", "Requests served.", ""},
+		"target_info":              {"target_info", "gauge", "", ""},
 	}
 	if len(col.metadataRows) != len(want) {
 		t.Fatalf("metadata rows: got %+v, want %+v", col.metadataRows, want)
