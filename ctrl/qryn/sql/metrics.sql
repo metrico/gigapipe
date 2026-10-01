@@ -153,5 +153,5 @@ WHERE aggregate
 GROUP BY fingerprint, bucket;
 
 INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
-SELECT cityHash64('update', 'metric_stack'), 'update', 'metric_stack', toString(toUnixTimestamp(NOW())), NOW()
+SELECT cityHash64('update_metric_stack'), 'update', 'metric_stack', toString(toUnixTimestamp(NOW())), NOW()
 WHERE (SELECT count() FROM {{.DB}}.settings WHERE type = 'update' AND name = 'metric_stack') = 0;
