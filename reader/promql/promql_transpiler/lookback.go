@@ -6,15 +6,15 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-// engineLookbackDelta mirrors the engine's default LookbackDelta: an instant
-// selector reads up to 5m behind its evaluation time.
-const engineLookbackDelta = 5 * time.Minute
+// EngineLookbackDelta is the engine's LookbackDelta: an instant selector reads up to 5m
+// behind its evaluation time.
+const EngineLookbackDelta = 5 * time.Minute
 
 // MaxLookback returns how far behind the query start time the expression can
 // read: the deepest chain of ranges and offsets among its selectors and
 // subqueries, plus the engine's instant-selector lookback delta.
 func MaxLookback(expr parser.Expr) time.Duration {
-	return nodeLookback(expr) + engineLookbackDelta
+	return nodeLookback(expr) + EngineLookbackDelta
 }
 
 // EarliestReadNS returns the earliest nanosecond timestamp the expression can

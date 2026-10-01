@@ -11,7 +11,7 @@ import (
 // query's evaluation timestamps.
 var optimizers = []func(metricread.Grid) optimizer.Optimizer{
 	func(grid metricread.Grid) optimizer.Optimizer {
-		return &optimizer.Pushdown{Grid: grid, Lookback: engineLookbackDelta}
+		return &optimizer.Pushdown{Grid: grid, Lookback: EngineLookbackDelta}
 	},
 }
 
