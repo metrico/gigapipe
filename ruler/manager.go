@@ -3,10 +3,14 @@ package ruler
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/value"
+	"github.com/prometheus/prometheus/promql"
 )
 
 // PrometheusRule is one recording rule in the Prometheus /api/v1/rules format.
@@ -60,6 +64,11 @@ type RuleManager struct {
 	// health keyed by namespace:group:record; always in memory.
 	health sync.Map
 
+	// lastSeries holds each rule's last written label sets, keyed by
+	// ruleSeriesKey and then by label-set hash.
+	lastSeries    map[string]map[uint64]labels.Labels
+	lastSeriesMtx sync.Mutex
+
 	routines    map[time.Duration]*intervalRoutine
 	routinesMtx sync.RWMutex
 
@@ -77,6 +86,7 @@ func NewRuleManager(evaluator RuleEvaluator, reader RuleReader, writer Recording
 		reader:       reader,
 		writer:       writer,
 		routines:     make(map[time.Duration]*intervalRoutine),
+		lastSeries:   make(map[string]map[uint64]labels.Labels),
 		pollInterval: pollInterval,
 	}
 }
@@ -159,6 +169,7 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	// Reconcile health with the live rule set so entries for rules that have
 	// been deleted or renamed do not accumulate in the map forever.
 	m.pruneHealth(groups)
+	m.pruneLastSeries(groups)
 }
 
 // pruneHealth drops health entries whose rule no longer exists in groups,
@@ -227,8 +238,12 @@ func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Ru
 	if err == nil {
 		result, err = recordedVector(rule.Record, rule.Labels, result, t.UnixMilli())
 	}
+	key := ruleSeriesKey(namespace, groupName, rule)
 	if err == nil {
-		err = m.writer.Write(result)
+		err = m.writer.Write(append(result, m.vanished(key, result, t.UnixMilli())...))
+	}
+	if err == nil {
+		m.setLastSeries(key, result)
 	}
 	h := RuleHealth{Health: "ok", LastEvalTime: t, EvaluationTime: time.Since(start).Seconds()}
 	if err != nil {
@@ -236,6 +251,65 @@ func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Ru
 		logger.Error("RuleManager: recording rule ", rule.Record, ": ", err.Error())
 	}
 	m.setRuleHealth(namespace, groupName, rule.Record, h)
+}
+
+// vanished returns a stale marker at ts for each label set the rule's last
+// written result held and result lacks.
+func (m *RuleManager) vanished(key string, result promql.Vector, ts int64) promql.Vector {
+	m.lastSeriesMtx.Lock()
+	defer m.lastSeriesMtx.Unlock()
+	last := m.lastSeries[key]
+	if len(last) == 0 {
+		return nil
+	}
+	present := make(map[uint64]struct{}, len(result))
+	for _, s := range result {
+		present[s.Metric.Hash()] = struct{}{}
+	}
+	var markers promql.Vector
+	for h, lbls := range last {
+		if _, ok := present[h]; !ok {
+			markers = append(markers, promql.Sample{Metric: lbls, T: ts, F: math.Float64frombits(value.StaleNaN)})
+		}
+	}
+	return markers
+}
+
+func (m *RuleManager) setLastSeries(key string, result promql.Vector) {
+	set := make(map[uint64]labels.Labels, len(result))
+	for _, s := range result {
+		set[s.Metric.Hash()] = s.Metric
+	}
+	m.lastSeriesMtx.Lock()
+	m.lastSeries[key] = set
+	m.lastSeriesMtx.Unlock()
+}
+
+// pruneLastSeries drops the last results of rules no longer in groups.
+func (m *RuleManager) pruneLastSeries(groups NamespaceRuleGroups) {
+	valid := make(map[string]struct{})
+	for namespace, gs := range groups {
+		for _, g := range gs {
+			for _, rule := range g.Rules {
+				if rule.IsRecording() {
+					valid[ruleSeriesKey(namespace, g.Name, rule)] = struct{}{}
+				}
+			}
+		}
+	}
+	m.lastSeriesMtx.Lock()
+	defer m.lastSeriesMtx.Unlock()
+	for k := range m.lastSeries {
+		if _, ok := valid[k]; !ok {
+			delete(m.lastSeries, k)
+		}
+	}
+}
+
+// ruleSeriesKey identifies a rule by its group, record name, expression and
+// labels, so an edited rule starts with no last result.
+func ruleSeriesKey(namespace, groupName string, rule Rule) string {
+	return ruleHealthKey(namespace, groupName, rule.Record) + "\x00" + rule.Expr + "\x00" + labels.FromMap(rule.Labels).String()
 }
 
 // GetPrometheusRules returns recording rules in the Prometheus API format,
