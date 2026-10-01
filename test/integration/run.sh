@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-COMPOSE="docker compose -f docker-compose.yml"
+COMPOSE="docker compose -f $PWD/docker-compose.yml"
 export GIGAPIPE_URL="${GIGAPIPE_URL:-http://localhost:3100}"
 
 # Use the legacy builder: some environments have a root-owned ~/.docker/buildx
