@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
@@ -68,6 +70,13 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		logger.Error("[PQRC004] " + err.Error())
 		PromError(400, err.Error(), w)
+		return
+	}
+	expr, err = promql_transpiler.TranspileExpressionV2(expr, metricread.Grid{
+		StartMs: req.Start.UnixMilli(), EndMs: req.End.UnixMilli(), StepMs: req.Step.Milliseconds()})
+	if err != nil {
+		logger.Error("[PQRC005] " + err.Error())
+		PromError(500, err.Error(), w)
 		return
 	}
 	queryStorage := q.Storage.SetOidAndDB(internalCtx, expr)

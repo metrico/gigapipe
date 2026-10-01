@@ -2,11 +2,13 @@ package controller
 
 import (
 	"fmt"
-	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/schema"
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
+	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 )
 
 type queryInstantProps struct {
@@ -33,6 +35,12 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 	expr, err := promql_parser.Parse(req.Query)
 	if err != nil {
 		PromError(400, err.Error(), w)
+		return
+	}
+	at := req.Time.UnixMilli()
+	expr, err = promql_transpiler.TranspileExpressionV2(expr, metricread.Grid{StartMs: at, EndMs: at})
+	if err != nil {
+		PromError(500, err.Error(), w)
 		return
 	}
 	queryStorage := q.Storage.SetOidAndDB(ctx, expr)
