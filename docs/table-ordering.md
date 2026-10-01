@@ -87,17 +87,14 @@ Definitions live in `ctrl/qryn/sql/log.sql`, `traces.sql`, and `profiles.sql`.
 
 ## Choosing a sort key for `samples_v3`
 
-Both read paths filter `samples_v3` the same way — a fingerprint set intersected
-with a timestamp range:
+LogQL filters `samples_v3` with a fingerprint set intersected with a timestamp
+range: it puts the `timestamp_ns` range in `PREWHERE`
+(`reader/logql/logql_transpiler/clickhouse_planner/planner_main_init.go`) and
+adds `samples.fingerprint IN (…)` whenever the query carries a stream selector
+(`planner_fingerprint_filter.go`). PromQL reads the metric tables, not
+`samples_v3`.
 
-- **PromQL** filters `fingerprint IN (…)` plus a `timestamp_ns` range
-  (`reader/promql/promql_transpiler/planner/values.go`).
-- **LogQL** puts the `timestamp_ns` range in `PREWHERE`
-  (`reader/logql/logql_transpiler/clickhouse_planner/planner_main_init.go`) and
-  adds `samples.fingerprint IN (…)` whenever the query carries a stream selector
-  (`planner_fingerprint_filter.go`).
-
-Both also filter on `type`, which is **not** part of the default sort key.
+LogQL also filters on `type`, which is **not** part of the default sort key.
 
 So the question is which predicate is more selective for your data:
 
