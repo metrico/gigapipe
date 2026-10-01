@@ -3,8 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_parser"
@@ -17,9 +15,6 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
-	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type QueryLabelsService struct {
@@ -103,25 +98,13 @@ func (q *QueryLabelsService) GetEstimateKVComplexityRequest(ctx context.Context,
 	return fpRequest
 }
 
-func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs int64, labelsType uint16,
-	matches []string) (chan string, error) {
+func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs int64,
+	labelsType uint16) (chan string, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var scripts []*logql_parser.LogQLScript
-	for _, m := range matches {
-		logqlQuery, err := q.Prom2LogqlMatch(m)
-		if err != nil {
-			return nil, err
-		}
-		script, err := logql_parser.Parse(logqlQuery)
-		if err != nil {
-			return nil, err
-		}
-		scripts = append(scripts, script)
-	}
-	planner, err := logql_transpiler.PlanLabels(scripts)
+	planner, err := logql_transpiler.PlanLabels(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -143,45 +126,6 @@ func (q *QueryLabelsService) Labels(ctx context.Context, startMs int64, endMs in
 		return nil, err
 	}
 	return q.GenericLabelReq(ctx, query)
-}
-
-func (q *QueryLabelsService) PromValues(ctx context.Context, label string, match []string, startMs int64, endMs int64,
-	labelsType uint16) (chan string, error) {
-	lMatchers := make([]string, len(match))
-	var err error
-	for i, m := range match {
-		lMatchers[i], err = q.Prom2LogqlMatch(m)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return q.Values(ctx, label, lMatchers, startMs, endMs, labelsType)
-}
-
-func (q *QueryLabelsService) Prom2LogqlMatch(match string) (string, error) {
-	e := promql.NewEngine(promql.EngineOpts{})
-	rq, err := e.NewRangeQuery(context.Background(), nil, nil, match, time.Now(), time.Now(), time.Second)
-	if err != nil {
-		panic(err)
-	}
-	var getMatchers func(node parser.Node) []*labels.Matcher
-	getMatchers = func(node parser.Node) []*labels.Matcher {
-		var res []*labels.Matcher
-		vs, ok := node.(*parser.VectorSelector)
-		if ok {
-			return vs.LabelMatchers
-		}
-		for _, c := range parser.Children(node) {
-			res = append(res, getMatchers(c)...)
-		}
-		return res
-	}
-	matchers := getMatchers(rq.Statement())
-	strMatchers := make([]string, len(matchers))
-	for i, m := range matchers {
-		strMatchers[i] = m.String()
-	}
-	return fmt.Sprintf("{%s}", strings.Join(strMatchers, ",")), nil
 }
 
 func (q *QueryLabelsService) Values(ctx context.Context, label string, match []string, startMs int64, endMs int64,

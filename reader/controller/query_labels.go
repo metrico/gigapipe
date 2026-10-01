@@ -36,8 +36,7 @@ func (q *QueryLabelsController) Labels(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	res, err := q.QueryLabelsService.Labels(internalCtx, params.Start.UnixMilli(), params.End.UnixMilli(), 1,
-		nil)
+	res, err := q.QueryLabelsService.Labels(internalCtx, params.Start.UnixMilli(), params.End.UnixMilli(), 1)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
