@@ -2,6 +2,8 @@ package metriccache
 
 import (
 	"math"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -83,5 +85,56 @@ func TestPredecessorsEvictIdle(t *testing.T) {
 	}
 	if got, want := p.Next(2, 3000, 7), (Prev{2000, 6, 1}); got != want {
 		t.Fatalf("live series: got %+v, want %+v", got, want)
+	}
+}
+
+// Concurrent samples of one series: the accepted non-stale samples form one
+// chain in timestamp order, each paired with the previous link.
+func TestPredecessorsConcurrentChain(t *testing.T) {
+	p, _ := newTestPredecessors()
+	const workers, perWorker = 8, 2000
+	type row struct {
+		ts   int64
+		v    float64
+		prev Prev
+	}
+	results := make([][]row, workers)
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := range perWorker {
+				ts := int64(k*workers+w) + 1
+				v := float64(ts)
+				if ts%7 == 0 {
+					v = staleNaN
+				}
+				results[w] = append(results[w], row{ts, v, p.Next(1, ts, v)})
+			}
+		}()
+	}
+	wg.Wait()
+
+	var chain []row
+	for _, rs := range results {
+		for _, r := range rs {
+			if r.prev.Aggregate == 1 && !math.IsNaN(r.v) {
+				chain = append(chain, r)
+			}
+		}
+	}
+	sort.Slice(chain, func(i, j int) bool { return chain[i].ts < chain[j].ts })
+	if len(chain) == 0 {
+		t.Fatal("no sample was aggregated")
+	}
+	if chain[0].prev.TimestampMs != 0 {
+		t.Fatalf("first link: got predecessor %+v, want none", chain[0].prev)
+	}
+	for i := 1; i < len(chain); i++ {
+		if chain[i].prev.TimestampMs != chain[i-1].ts || chain[i].prev.Value != chain[i-1].v {
+			t.Fatalf("link %d at %d: got predecessor %+v, want (%d, %v)",
+				i, chain[i].ts, chain[i].prev, chain[i-1].ts, chain[i-1].v)
+		}
 	}
 }
