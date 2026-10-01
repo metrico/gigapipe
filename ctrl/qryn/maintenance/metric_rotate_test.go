@@ -1,6 +1,7 @@
 package maintenance
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -65,10 +66,19 @@ func TestSeriesIndexRowsExpireOneByOne(t *testing.T) {
 	}
 }
 
+var createdTable = regexp.MustCompile(`^CREATE TABLE IF NOT EXISTS cloki\.(\w+) `)
+
 func TestStoragePolicyCoversEveryStoringMetricTable(t *testing.T) {
+	var want []string
+	for _, s := range renderedMetricStack(t) {
+		m := createdTable.FindStringSubmatch(s)
+		if m != nil && !strings.Contains(s, "ENGINE = Null") {
+			want = append(want, m[1])
+		}
+	}
+	slices.Sort(want)
 	got := slices.Sorted(slices.Values(metricStoringTables))
-	want := []string{"metric_exemplars", "metric_metadata", "metric_samples", "metric_series", "metrics_1h", "metrics_5m"}
-	if !slices.Equal(got, want) {
+	if len(want) == 0 || !slices.Equal(got, want) {
 		t.Errorf("storing metric tables = %v, want %v", got, want)
 	}
 	for _, r := range metricRotations(testTiers) {
