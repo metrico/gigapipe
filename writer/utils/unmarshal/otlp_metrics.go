@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/metrico/qryn/v5/writer/model"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlpmetrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
@@ -72,13 +72,18 @@ var identifyingResourceAttrs = map[string]bool{
 }
 
 type otlpMetricsDec struct {
-	ctx       *ParserCtx
-	onEntries onEntriesHandler
-	stats     *OTLPMetricsStats
+	ctx              *ParserCtx
+	onMetricSamples  onMetricSamplesHandler
+	onMetricMetadata onMetricMetadataHandler
+	stats            *OTLPMetricsStats
 }
 
-func (d *otlpMetricsDec) SetOnEntries(h onEntriesHandler) {
-	d.onEntries = h
+func (d *otlpMetricsDec) SetOnMetricSamples(h onMetricSamplesHandler) {
+	d.onMetricSamples = h
+}
+
+func (d *otlpMetricsDec) SetOnMetricMetadata(h onMetricMetadataHandler) {
+	d.onMetricMetadata = h
 }
 
 // resourceScope carries the per-resource and per-scope label context every
@@ -295,21 +300,55 @@ func noRecordedValue(flags uint32) bool {
 	return flags&noRecordedValueMask != 0
 }
 
-// firstExemplarTraceID returns the hex-encoded trace_id of the first exemplar
-// carrying a non-zero 16-byte trace_id, or "" if none exist. The ID is stored
-// in the sample's string column for metric-to-trace correlation.
-func firstExemplarTraceID(exemplars []*otlpmetrics.Exemplar) string {
-	for _, ex := range exemplars {
-		if len(ex.TraceId) == 16 && !isZeroBytes(ex.TraceId) {
-			return hex.EncodeToString(ex.TraceId)
-		}
+// otlpExemplar converts an OTLP exemplar; trace_id and span_id are folded
+// into its labels, and a zero time takes the data point's.
+func otlpExemplar(ex *otlpmetrics.Exemplar, pointTsNs int64) metricExemplar {
+	attrs := map[string]string{}
+	mergeSanitizedAttrs(attrs, "", ex.FilteredAttributes)
+	if len(ex.TraceId) == 16 && !isZeroBytes(ex.TraceId) {
+		attrs["trace_id"] = hex.EncodeToString(ex.TraceId)
 	}
-	return ""
+	if len(ex.SpanId) == 8 && !isZeroBytes(ex.SpanId) {
+		attrs["span_id"] = hex.EncodeToString(ex.SpanId)
+	}
+	lbls := make([][]string, 0, len(attrs))
+	for k, v := range attrs {
+		lbls = append(lbls, []string{k, v})
+	}
+	slices.SortFunc(lbls, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
+	var val float64
+	switch v := ex.Value.(type) {
+	case *otlpmetrics.Exemplar_AsDouble:
+		val = v.AsDouble
+	case *otlpmetrics.Exemplar_AsInt:
+		val = float64(v.AsInt)
+	}
+	tsNs := int64(ex.TimeUnixNano)
+	if tsNs == 0 {
+		tsNs = pointTsNs
+	}
+	return metricExemplar{labels: lbls, tsMs: tsNs / int64(time.Millisecond), value: val}
 }
 
-func (d *otlpMetricsDec) emit(lbls [][]string, ts int64, str string, val float64) error {
-	return d.onEntries(lbls, []int64{ts}, []string{str}, []float64{val},
-		[]uint8{model.SAMPLE_TYPE_METRIC})
+// bucketExemplars groups a histogram point's exemplars by the index of the
+// first upper bound at or above their value; len(bounds) is the +Inf bucket.
+func bucketExemplars(exemplars []*otlpmetrics.Exemplar, bounds []float64, pointTsNs int64) map[int][]metricExemplar {
+	if len(exemplars) == 0 {
+		return nil
+	}
+	res := make(map[int][]metricExemplar, len(exemplars))
+	for _, ex := range exemplars {
+		e := otlpExemplar(ex, pointTsNs)
+		idx, _ := slices.BinarySearch(bounds, e.value)
+		res[idx] = append(res[idx], e)
+	}
+	return res
+}
+
+// emit hands one sample to the metric entry point with its timestamp floored
+// to the millisecond.
+func (d *otlpMetricsDec) emit(lbls [][]string, tsNs int64, val float64, exemplars []metricExemplar) error {
+	return d.onMetricSamples(lbls, []int64{tsNs / int64(time.Millisecond)}, []float64{val}, exemplars)
 }
 
 func (d *otlpMetricsDec) decodeNumberPoints(points []*otlpmetrics.NumberDataPoint, name, metricType string,
@@ -332,8 +371,12 @@ func (d *otlpMetricsDec) decodeNumberPoints(points []*otlpmetrics.NumberDataPoin
 			d.stats.reject(1, fmt.Sprintf("metric %q: number data point with no value", metric.Name))
 			continue
 		}
+		var exemplars []metricExemplar
+		for _, ex := range pt.Exemplars {
+			exemplars = append(exemplars, otlpExemplar(ex, ts))
+		}
 		lbls := d.seriesLabels(name, rs, pt.Attributes, nil, metricType, metric)
-		if err := d.emit(lbls, ts, firstExemplarTraceID(pt.Exemplars), val); err != nil {
+		if err := d.emit(lbls, ts, val, exemplars); err != nil {
 			return err
 		}
 	}
@@ -355,7 +398,11 @@ func (d *otlpMetricsDec) decodeHistogram(points []*otlpmetrics.HistogramDataPoin
 		if !ok {
 			continue
 		}
-		traceID := firstExemplarTraceID(dp.Exemplars)
+		bounds := dp.ExplicitBounds
+		if len(dp.BucketCounts) == 0 {
+			bounds = nil
+		}
+		exemplars := bucketExemplars(dp.Exemplars, bounds, ts)
 
 		cumulative := uint64(0)
 		infEmitted := false
@@ -376,25 +423,25 @@ func (d *otlpMetricsDec) decodeHistogram(points []*otlpmetrics.HistogramDataPoin
 				infEmitted = true
 			}
 			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}}, "histogram", metric)
-			if err := d.emit(lbls, ts, traceID, float64(cumulative)); err != nil {
+			if err := d.emit(lbls, ts, float64(cumulative), exemplars[i]); err != nil {
 				return err
 			}
 		}
 		if !infEmitted {
 			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}}, "histogram", metric)
-			if err := d.emit(lbls, ts, traceID, float64(dp.Count)); err != nil {
+			if err := d.emit(lbls, ts, float64(dp.Count), exemplars[len(bounds)]); err != nil {
 				return err
 			}
 		}
 
 		if dp.Sum != nil {
 			lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil, "histogram", metric)
-			if err := d.emit(lbls, ts, "", *dp.Sum); err != nil {
+			if err := d.emit(lbls, ts, *dp.Sum, nil); err != nil {
 				return err
 			}
 		}
 		lbls := d.seriesLabels(name+"_count", rs, dp.Attributes, nil, "histogram", metric)
-		if err := d.emit(lbls, ts, "", float64(dp.Count)); err != nil {
+		if err := d.emit(lbls, ts, float64(dp.Count), nil); err != nil {
 			return err
 		}
 	}
@@ -415,24 +462,28 @@ func (d *otlpMetricsDec) decodeExponentialHistogram(points []*otlpmetrics.Expone
 		if !ok {
 			continue
 		}
-		traceID := firstExemplarTraceID(dp.Exemplars)
-
-		cumulative := dp.ZeroCount
+		var bounds []float64
 		if dp.Positive != nil {
 			offset := dp.Positive.Offset
-			for i, count := range dp.Positive.BucketCounts {
-				cumulative += count
+			bounds = make([]float64, len(dp.Positive.BucketCounts))
+			for i := range bounds {
 				// Bucket index k has upper bound 2^(k / 2^scale). Computing it
 				// as Exp2 of one product keeps the bound exact at every power
 				// of two, where the equivalent Pow(base, k) with a pre-computed
 				// inexact base accumulates floating-point error that would leak
 				// into the `le` label and break cross-source aggregation.
-				upperBound := math.Exp2(float64(int32(i)+offset+1) * math.Exp2(-float64(dp.Scale)))
-				le := strconv.FormatFloat(upperBound, 'f', -1, 64)
-				lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}}, "histogram", metric)
-				if err := d.emit(lbls, ts, traceID, float64(cumulative)); err != nil {
-					return err
-				}
+				bounds[i] = math.Exp2(float64(int32(i)+offset+1) * math.Exp2(-float64(dp.Scale)))
+			}
+		}
+		exemplars := bucketExemplars(dp.Exemplars, bounds, ts)
+
+		cumulative := dp.ZeroCount
+		for i, upperBound := range bounds {
+			cumulative += dp.Positive.BucketCounts[i]
+			le := strconv.FormatFloat(upperBound, 'f', -1, 64)
+			lbls := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", le}}, "histogram", metric)
+			if err := d.emit(lbls, ts, float64(cumulative), exemplars[i]); err != nil {
+				return err
 			}
 		}
 
@@ -445,17 +496,17 @@ func (d *otlpMetricsDec) decodeExponentialHistogram(points []*otlpmetrics.Expone
 			infValue = dp.Count
 		}
 		lblsInf := d.seriesLabels(name+"_bucket", rs, dp.Attributes, [][2]string{{"le", "+Inf"}}, "histogram", metric)
-		if err := d.emit(lblsInf, ts, traceID, float64(infValue)); err != nil {
+		if err := d.emit(lblsInf, ts, float64(infValue), exemplars[len(bounds)]); err != nil {
 			return err
 		}
 		if dp.Sum != nil {
 			lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil, "histogram", metric)
-			if err := d.emit(lbls, ts, "", *dp.Sum); err != nil {
+			if err := d.emit(lbls, ts, *dp.Sum, nil); err != nil {
 				return err
 			}
 		}
 		lbls := d.seriesLabels(name+"_count", rs, dp.Attributes, nil, "histogram", metric)
-		if err := d.emit(lbls, ts, "", float64(dp.Count)); err != nil {
+		if err := d.emit(lbls, ts, float64(dp.Count), nil); err != nil {
 			return err
 		}
 	}
@@ -475,16 +526,16 @@ func (d *otlpMetricsDec) decodeSummary(points []*otlpmetrics.SummaryDataPoint, n
 		for _, q := range dp.QuantileValues {
 			quantile := strconv.FormatFloat(q.Quantile, 'f', -1, 64)
 			lbls := d.seriesLabels(name, rs, dp.Attributes, [][2]string{{"quantile", quantile}}, "summary", metric)
-			if err := d.emit(lbls, ts, "", q.Value); err != nil {
+			if err := d.emit(lbls, ts, q.Value, nil); err != nil {
 				return err
 			}
 		}
 		lbls := d.seriesLabels(name+"_sum", rs, dp.Attributes, nil, "summary", metric)
-		if err := d.emit(lbls, ts, "", dp.Sum); err != nil {
+		if err := d.emit(lbls, ts, dp.Sum, nil); err != nil {
 			return err
 		}
 		lbls = d.seriesLabels(name+"_count", rs, dp.Attributes, nil, "summary", metric)
-		if err := d.emit(lbls, ts, "", float64(dp.Count)); err != nil {
+		if err := d.emit(lbls, ts, float64(dp.Count), nil); err != nil {
 			return err
 		}
 	}
@@ -517,7 +568,7 @@ func (d *otlpMetricsDec) emitTargetInfo(rs *resourceScope) error {
 	}
 	slices.SortFunc(lbls, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
 
-	return d.emit(lbls, rs.lastTs, "", 1)
+	return d.emit(lbls, rs.lastTs, 1, nil)
 }
 
 // OTLPMetricsFromData builds a parser over an already-decoded MetricsData.
@@ -528,7 +579,7 @@ func (d *otlpMetricsDec) emitTargetInfo(rs *resourceScope) error {
 func OTLPMetricsFromData(md *otlpmetrics.MetricsData, stats *OTLPMetricsStats) ParsingFunction {
 	return Build(
 		withPreParsedBody(md),
-		withLogsParser(func(ctx *ParserCtx) iLogsParser {
+		withMetricsParser(func(ctx *ParserCtx) iMetricsParser {
 			return &otlpMetricsDec{ctx: ctx, stats: stats}
 		}),
 	)

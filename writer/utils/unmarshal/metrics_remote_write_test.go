@@ -72,13 +72,20 @@ func pushRemoteWrite(t *testing.T, node *metriccache.Node, req *prompb.WriteRequ
 		t.Fatal(err)
 	}
 	ctx := metriccache.NewContext(context.Background(), node)
+	return collectMetricRows(t, UnmarshallMetricsWriteProtoV2(ctx, bytes.NewReader(body), nil))
+}
+
+// collectMetricRows drains a metric source's parser and collects the rows it
+// hands the metric insert services; a time_series or samples_v3 row fails t.
+func collectMetricRows(t *testing.T, ch chan *model.ParserResponse) metricRows {
+	t.Helper()
 	var rows metricRows
-	for resp := range UnmarshallMetricsWriteProtoV2(ctx, bytes.NewReader(body), nil) {
+	for resp := range ch {
 		if resp.Error != nil {
 			t.Fatalf("parser error: %v", resp.Error)
 		}
 		if resp.TimeSeriesRequest != nil || resp.SamplesRequest != nil {
-			t.Fatal("remote write must not produce time_series or samples_v3 rows")
+			t.Fatal("a metric source must not produce time_series or samples_v3 rows")
 		}
 		if d, ok := resp.MetricSamplesRequest.(*model.MetricSamplesData); ok {
 			for i := range d.MFingerprint {
