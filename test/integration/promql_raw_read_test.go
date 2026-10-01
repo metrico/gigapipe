@@ -53,7 +53,13 @@ type promResponse struct {
 
 func promGet(t *testing.T, path string, params url.Values) promResponse {
 	t.Helper()
-	resp, err := http.Get(baseURL() + path + "?" + params.Encode())
+	return promGetFrom(t, baseURL(), path, params)
+}
+
+// promGetFrom queries the gigapipe at base.
+func promGetFrom(t *testing.T, base, path string, params url.Values) promResponse {
+	t.Helper()
+	resp, err := http.Get(base + path + "?" + params.Encode())
 	if err != nil {
 		t.Fatal(err)
 	}
