@@ -126,7 +126,11 @@ func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOpt
 	if err = job.run(runCtx); err != nil {
 		return err
 	}
-	return putSetting(db, "update", importRecordType, strconv.FormatInt(time.Now().Unix(), 10))
+	if err = putSetting(db, "update", importRecordType, strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
+		return err
+	}
+	opts.Logger.Info("metric import: complete")
+	return nil
 }
 
 type metricImport struct {
