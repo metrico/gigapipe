@@ -19,10 +19,8 @@ type metricsServer struct {
 	colmetricspb.UnimplementedMetricsServiceServer
 }
 
-// Export resolves the tenant's samples and time-series insert services, which
-// the OTLP metrics decoder writes to, from the request metadata and ingests the pre-decoded metrics through the transport-agnostic
-// core. Data points dropped by ingest policy (delta temporality, invalid
-// points) are reported via partial_success rather than failing the request.
+// Export ingests the metrics into the tenant's samples and time-series services;
+// dropped data points are reported via partial_success.
 func (s *metricsServer) Export(ctx context.Context, req *colmetricspb.ExportMetricsServiceRequest) (*colmetricspb.ExportMetricsServiceResponse, error) {
 	dsn, ctx := dsnCtx(ctx)
 	svcs, err := controller.ResolveLogServices(dsn)

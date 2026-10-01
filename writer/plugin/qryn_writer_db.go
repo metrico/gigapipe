@@ -272,6 +272,4 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			IsCluster: p.ServicesObject.DatabaseNodeMap[0].ClusterName != "",
 		})
 	}
-
-	// Run Prometheus Scaper
 }
