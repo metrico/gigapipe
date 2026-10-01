@@ -34,13 +34,13 @@ type Aggregation struct {
 	Without  bool
 }
 
-// aggregations maps each pushed-down aggregation to its ClickHouse aggregate. min and max
-// skip NaN unless every value is NaN.
+// aggregations maps each pushed-down aggregation to its ClickHouse aggregate. Sums are
+// compensated; min and max skip NaN unless every value is NaN.
 var aggregations = map[string]string{
-	"sum":   "sum(value)",
+	"sum":   "sumKahan(value)",
 	"min":   "ifNull(minIfOrNull(value, NOT isNaN(value)), nan)",
 	"max":   "ifNull(maxIfOrNull(value, NOT isNaN(value)), nan)",
-	"avg":   "avg(value)",
+	"avg":   "sumKahan(value) / count()",
 	"count": "toFloat64(count())",
 }
 
@@ -100,7 +100,7 @@ func rawRowsSQL(p Pushdown) string {
 		"minIf((timestamp, value), NOT stale) AS first, "+
 		"maxIf((timestamp, value), NOT stale) AS last, "+
 		"countIf(NOT stale) AS count, "+
-		"sumIf(value, NOT stale) AS sum, "+
+		"sumKahanIf(value, NOT stale) AS sum, "+
 		"ifNull(minIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS min, "+
 		"ifNull(maxIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS max, "+
 		"countIf(paired AND value < prev_value) AS resets, "+

@@ -29,7 +29,7 @@ func TestPushdownSQLRate(t *testing.T) {
 		"minIf((timestamp, value), NOT stale) AS first, " +
 		"maxIf((timestamp, value), NOT stale) AS last, " +
 		"countIf(NOT stale) AS count, " +
-		"sumIf(value, NOT stale) AS sum, " +
+		"sumKahanIf(value, NOT stale) AS sum, " +
 		"ifNull(minIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS min, " +
 		"ifNull(maxIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS max, " +
 		"countIf(paired AND value < prev_value) AS resets, " +
@@ -155,7 +155,7 @@ func TestPushdownSQLAggregation(t *testing.T) {
 	}{
 		{"sum by", Aggregation{Op: "sum", Grouping: []string{"job", "env"}},
 			"SELECT cityHash64(grp) AS fingerprint, " +
-				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, sum(value) AS value " +
+				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, sumKahan(value) AS value " +
 				"FROM (SELECT arraySort(arrayFilter(x -> has(['job', 'env'], x.1), " +
 				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
 				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
@@ -164,6 +164,12 @@ func TestPushdownSQLAggregation(t *testing.T) {
 				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, " +
 				"ifNull(maxIfOrNull(value, NOT isNaN(value)), nan) AS value " +
 				"FROM (SELECT arraySort(arrayFilter(x -> NOT has(['instance', '__name__'], x.1), " +
+				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
+				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
+		{"avg", Aggregation{Op: "avg"},
+			"SELECT cityHash64(grp) AS fingerprint, " +
+				"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, sumKahan(value) / count() AS value " +
+				"FROM (SELECT arraySort(arrayFilter(x -> has([], x.1), " +
 				"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (" + perSeries + ")) " +
 				"GROUP BY grp, t_ms ORDER BY fingerprint, t_ms"},
 		{"count without grouping", Aggregation{Op: "count"},
