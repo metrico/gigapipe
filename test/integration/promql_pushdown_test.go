@@ -9,6 +9,7 @@ package integration
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -43,12 +44,19 @@ func writeProbe(t *testing.T) (string, int64) {
 	waitReady(t)
 	name := fmt.Sprintf("it_pushdown_%d", time.Now().UnixNano())
 	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Minute).UnixMilli()
-	body, err := proto.Marshal(&prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
-		{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "probe"}},
+	remoteWrite(t,
+		&prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "probe"}},
 			Samples: probeSamples(t0)},
-		{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "instance", Value: "b"}, {Name: "job", Value: "probe"}},
-			Samples: gaugeSamples(t0)},
-	}})
+		&prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "instance", Value: "b"}, {Name: "job", Value: "probe"}},
+			Samples: gaugeSamples(t0)})
+	eventually(t, fmt.Sprintf("SELECT count() FROM metric_samples WHERE fingerprint IN "+
+		"(SELECT fingerprint FROM metric_series WHERE name = '%s')", name), "54")
+	return name, t0
+}
+
+func remoteWrite(t *testing.T, series ...*prompb.TimeSeries) {
+	t.Helper()
+	body, err := proto.Marshal(&prompb.WriteRequest{Timeseries: series})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,9 +69,21 @@ func writeProbe(t *testing.T) (string, int64) {
 	if resp.StatusCode/100 != 2 {
 		t.Fatalf("remote write status = %d", resp.StatusCode)
 	}
-	eventually(t, fmt.Sprintf("SELECT count() FROM metric_samples WHERE fingerprint IN "+
-		"(SELECT fingerprint FROM metric_series WHERE name = '%s')", name), "54")
-	return name, t0
+}
+
+// promFailure returns the body of a query that fails, failing the test if it succeeds.
+func promFailure(t *testing.T, path string, params url.Values) string {
+	t.Helper()
+	resp, err := http.Get(baseURL() + path + "?" + params.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("%s %v succeeded: %s", path, params, body)
+	}
+	return string(body)
 }
 
 // series is a query result keyed by label set: timestamp (ms) to value.
@@ -231,6 +251,66 @@ func TestPromQLPushdownEqualsTheEngineOverRawSamples(t *testing.T) {
 			if diff := sameSeries(instantQuery(t, pushed, at, 0), instantQuery(t, raw, at, 60000)); diff != "" {
 				t.Errorf("query %s at +%ds: %s", pushed, (at-t0)/1000, diff)
 			}
+		}
+	}
+}
+
+// counterSamples is a counter rising by one every 15s over (from, to], relative to t0 in ms.
+func counterSamples(t0, from, to int64) []*prompb.Sample {
+	var res []*prompb.Sample
+	for ts := from + 15000; ts <= to; ts += 15000 {
+		res = append(res, &prompb.Sample{Timestamp: t0 + ts, Value: float64(ts / 15000)})
+	}
+	return res
+}
+
+func TestPromQLPushdownOnSeriesSharingALabelSetOnceNamesAreDropped(t *testing.T) {
+	waitReady(t)
+	base := fmt.Sprintf("it_dup_%d", time.Now().UnixNano())
+	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Minute).UnixMilli()
+	series := func(name, job string, from, to int64) *prompb.TimeSeries {
+		return &prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: base + name}, {Name: "job", Value: job}},
+			Samples: counterSamples(t0, from, to)}
+	}
+	// a and b overlap; c ends at 02:00 and d starts at 06:00.
+	remoteWrite(t, series("_a", "overlap", 0, 600000), series("_b", "overlap", 0, 600000),
+		series("_c", "disjoint", 0, 120000), series("_d", "disjoint", 360000, 600000))
+	eventually(t, fmt.Sprintf("SELECT count() FROM metric_samples WHERE fingerprint IN "+
+		"(SELECT fingerprint FROM metric_series WHERE name LIKE '%s%%')", base), "104")
+	start, end := t0, t0+600000
+
+	// The engine rejects a range function's result holding one label set twice, at any timestamps.
+	const sameLabelset = "vector cannot contain metrics with the same labelset"
+	for _, pair := range []string{"_a|%s_b", "_c|%s_d"} {
+		for _, q := range []string{`rate({__name__=~"%s` + pair + `"}[1m]%s)`, `sum(rate({__name__=~"%s` + pair + `"}[1m]%s))`} {
+			for _, offset := range []string{"", " offset 1m"} {
+				query := fmt.Sprintf(q, base, base, offset)
+				if body := promFailure(t, "/api/v1/query_range", url.Values{"query": {query},
+					"start": {fmt.Sprint(start / 1000)}, "end": {fmt.Sprint(end / 1000)}, "step": {"60"}}); !strings.Contains(body, sameLabelset) {
+					t.Errorf("query_range %s: %s, want %q", query, body, sameLabelset)
+				}
+			}
+		}
+	}
+	for _, q := range []string{`rate({__name__=~"%s_a|%s_b"}[1m]%s)`, `sum(rate({__name__=~"%s_a|%s_b"}[1m]%s))`} {
+		for _, offset := range []string{"", " offset 1m"} {
+			query := fmt.Sprintf(q, base, base, offset)
+			if body := promFailure(t, "/api/v1/query", url.Values{"query": {query},
+				"time": {fmt.Sprint((t0 + 300000) / 1000)}}); !strings.Contains(body, sameLabelset) {
+				t.Errorf("query %s: %s, want %q", query, body, sameLabelset)
+			}
+		}
+	}
+
+	// At 07:00 only d has a rate.
+	for _, q := range []string{`rate({__name__=~"%s_c|%s_d"}[1m]%s)`, `sum(rate({__name__=~"%s_c|%s_d"}[1m]%s))`} {
+		pushed, raw := fmt.Sprintf(q, base, base, ""), fmt.Sprintf(q, base, base, " offset 1m")
+		got := instantQuery(t, pushed, t0+420000, 0)
+		if len(got) != 1 {
+			t.Errorf("query %s: %d series, want 1", pushed, len(got))
+		}
+		if diff := sameSeries(got, instantQuery(t, raw, t0+420000, 60000)); diff != "" {
+			t.Errorf("query %s: %s", pushed, diff)
 		}
 	}
 }
