@@ -44,12 +44,29 @@ type RuleHealth struct {
 	EvaluationTime float64 // seconds
 }
 
-// intervalRoutine evaluates all rules sharing one interval on its own ticker.
+// intervalRoutine evaluates all rules sharing one interval at each point of
+// the interval's grid.
 type intervalRoutine struct {
 	interval time.Duration
-	ticker   *time.Ticker
 	ctx      context.Context
 	cancel   context.CancelFunc
+}
+
+type clock interface {
+	Now() time.Time
+	After(d time.Duration) <-chan time.Time
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time                         { return time.Now() }
+func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
+
+// gridFloor returns now floored to a multiple of interval since the Unix
+// epoch, in UTC.
+func gridFloor(now time.Time, interval time.Duration) time.Time {
+	ms := interval.Milliseconds()
+	return time.UnixMilli(now.UnixMilli() / ms * ms).UTC()
 }
 
 // RuleManager evaluates recording rules on a schedule and writes results back.
@@ -77,6 +94,7 @@ type RuleManager struct {
 	wg     sync.WaitGroup
 
 	pollInterval time.Duration
+	clock        clock
 }
 
 // NewRuleManager builds a manager from its dependencies.
@@ -88,6 +106,7 @@ func NewRuleManager(evaluator RuleEvaluator, reader RuleReader, writer Recording
 		routines:     make(map[time.Duration]*intervalRoutine),
 		lastSeries:   make(map[string]map[uint64]labels.Labels),
 		pollInterval: pollInterval,
+		clock:        realClock{},
 	}
 }
 
@@ -117,7 +136,6 @@ func (m *RuleManager) Stop() error {
 	m.routinesMtx.Lock()
 	for _, routine := range m.routines {
 		routine.cancel()
-		routine.ticker.Stop()
 	}
 	m.routinesMtx.Unlock()
 
@@ -133,6 +151,9 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	for _, gs := range groups {
 		for _, g := range gs {
 			d, err := time.ParseDuration(g.Interval)
+			if err == nil && d < time.Millisecond {
+				err = fmt.Errorf("interval %s is under 1ms", g.Interval)
+			}
 			if err != nil {
 				logger.Error("RuleManager: skipping group with invalid interval ", g.Name, ": ", err.Error())
 				continue
@@ -145,7 +166,6 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	for interval, routine := range m.routines {
 		if !intervals[interval] {
 			routine.cancel()
-			routine.ticker.Stop()
 			delete(m.routines, interval)
 		}
 	}
@@ -156,7 +176,6 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 		ctx, cancel := context.WithCancel(m.ctx)
 		routine := &intervalRoutine{
 			interval: interval,
-			ticker:   time.NewTicker(interval),
 			ctx:      ctx,
 			cancel:   cancel,
 		}
@@ -193,27 +212,33 @@ func (m *RuleManager) pruneHealth(groups NamespaceRuleGroups) {
 	})
 }
 
+// runIntervalRoutine evaluates at each grid point of the interval, starting
+// with the first one after now. A wake-up past a later grid point evaluates
+// at that point and skips the ones in between.
 func (m *RuleManager) runIntervalRoutine(routine *intervalRoutine) {
 	defer m.wg.Done()
+	last := gridFloor(m.clock.Now(), routine.interval)
 	for {
 		select {
 		case <-routine.ctx.Done():
 			return
-		case <-routine.ticker.C:
-			m.evaluateInterval(routine.ctx, routine.interval)
+		case <-m.clock.After(last.Add(routine.interval).Sub(m.clock.Now())):
+			if t := gridFloor(m.clock.Now(), routine.interval); t.After(last) {
+				last = t
+				m.evaluateInterval(routine.ctx, routine.interval, t)
+			}
 		}
 	}
 }
 
-// evaluateInterval evaluates every recording rule whose group interval equals
-// interval. Rules are re-read each cycle to pick up changes.
-func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Duration) {
+// evaluateInterval evaluates at t every recording rule whose group interval
+// equals interval. Rules are re-read each cycle to pick up changes.
+func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Duration, t time.Time) {
 	groups, err := m.reader.GetAllRuleGroups(ctx)
 	if err != nil {
 		logger.Error("RuleManager: load rules for evaluation: ", err.Error())
 		return
 	}
-	now := time.Now().UTC()
 	for namespace, gs := range groups {
 		for _, g := range gs {
 			d, err := time.ParseDuration(g.Interval)
@@ -222,7 +247,7 @@ func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Durati
 			}
 			for _, rule := range g.Rules {
 				if rule.IsRecording() {
-					m.evaluateRecordingRule(namespace, g.Name, rule, now)
+					m.evaluateRecordingRule(namespace, g.Name, rule, t)
 				}
 			}
 		}
