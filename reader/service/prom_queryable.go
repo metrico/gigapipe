@@ -82,7 +82,6 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 	}
 	return &CLokiQuerier{
 		db:   db,
-		ctx:  c.Ctx,
 		expr: c.Expr,
 	}, nil
 }
@@ -97,7 +96,6 @@ func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Ex
 
 type CLokiQuerier struct {
 	db   *model.DataDatabasesMap
-	ctx  context.Context
 	expr *promql_parser.Expr
 }
 
@@ -131,9 +129,9 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		err    error
 	)
 	if sub := c.substitute(matchers); sub != nil {
-		series, err = c.selectSubstitute(sub, hints)
+		series, err = c.selectSubstitute(ctx, sub, hints)
 	} else {
-		series, err = c.selectRaw(hints, matchers)
+		series, err = c.selectRaw(ctx, hints, matchers)
 	}
 	if err != nil {
 		return &model.SeriesSet{Error: err}
@@ -160,13 +158,13 @@ func (c *CLokiQuerier) substitute(matchers []*labels.Matcher) *promql_parser.Sub
 
 // selectRaw reads the selected series from the series index and hands the engine their raw
 // samples in the hinted interval [Start, End].
-func (c *CLokiQuerier) selectRaw(hints *storage.SelectHints, matchers []*labels.Matcher) ([]*model.SeriesV2, error) {
+func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints, matchers []*labels.Matcher) ([]*model.SeriesV2, error) {
 	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End}
-	lbls, err := c.readSeries(metricread.SeriesSQL(window, matchers))
+	lbls, err := c.readSeries(ctx, metricread.SeriesSQL(window, matchers))
 	if err != nil || len(lbls) == 0 {
 		return nil, err
 	}
-	rows, err := c.query(metricread.RawSamplesSQL(window, matchers))
+	rows, err := c.query(ctx, metricread.RawSamplesSQL(window, matchers))
 	if err != nil {
 		return nil, err
 	}
@@ -191,13 +189,13 @@ func (c *CLokiQuerier) selectRaw(hints *storage.SelectHints, matchers []*labels.
 // selectSubstitute runs a substitute's request, whose rows are
 // (fingerprint UInt64, label_set Map(String, String), timestamp DateTime64(3), value Float64)
 // ordered by fingerprint and timestamp.
-func (c *CLokiQuerier) selectSubstitute(sub *promql_parser.Substitute, hints *storage.SelectHints) ([]*model.SeriesV2, error) {
+func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute, hints *storage.SelectHints) ([]*model.SeriesV2, error) {
 	plannerCtx := shared.PlannerContext{
 		IsCluster: c.db.Config.ClusterName != "",
 		From:      time.UnixMilli(hints.Start),
 		To:        time.UnixMilli(hints.End),
 		Step:      time.Duration(hints.Step) * time.Millisecond,
-		Ctx:       c.ctx,
+		Ctx:       ctx,
 		CHDb:      c.db.Session,
 	}
 	req, err := sub.Request.Process(&plannerCtx)
@@ -212,7 +210,7 @@ func (c *CLokiQuerier) selectSubstitute(sub *promql_parser.Substitute, hints *st
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.query(str)
+	rows, err := c.query(ctx, str)
 	if err != nil {
 		return nil, err
 	}
@@ -244,8 +242,8 @@ func (c *CLokiQuerier) selectSubstitute(sub *promql_parser.Substitute, hints *st
 }
 
 // readSeries returns the label set of every fingerprint the series query selects.
-func (c *CLokiQuerier) readSeries(query string) (seriesLabels, error) {
-	rows, err := c.query(query)
+func (c *CLokiQuerier) readSeries(ctx context.Context, query string) (seriesLabels, error) {
+	rows, err := c.query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -264,9 +262,9 @@ func (c *CLokiQuerier) readSeries(query string) (seriesLabels, error) {
 	return res, rows.Err()
 }
 
-func (c *CLokiQuerier) query(query string) (*gosql.Rows, error) {
+func (c *CLokiQuerier) query(ctx context.Context, query string) (*gosql.Rows, error) {
 	logger.Debug("[ PromQuerier ] ", query)
-	return c.db.Session.QueryCtx(c.ctx, query)
+	return c.db.Session.QueryCtx(ctx, query)
 }
 
 // appendSample adds a sample to the series of fp, starting a new series when fp changes.

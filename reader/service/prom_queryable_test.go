@@ -140,9 +140,6 @@ func TestReshuffleSeries_DistinctLabelSets(t *testing.T) {
 	}
 }
 
-// appendStaleMarker terminates a substitute series with a stale marker one step
-// past its last sample.
-
 // TestAppendStaleMarker_NoMarkerAtQueryEdge verifies we do NOT emit a stale
 // marker for a series that is still live at the query window edge. Prometheus
 // only stale-marks a series that actually stops.
