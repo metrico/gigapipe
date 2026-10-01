@@ -146,3 +146,34 @@ func TestVanish_FailedEvaluationKeepsTheLastResult(t *testing.T) {
 		t.Errorf("markers = %v, want [b]", got)
 	}
 }
+
+func TestVanish_ExpressionEditKeepsTheLastResult(t *testing.T) {
+	eval := &fakeEvaluator{vec: vecOf("a", "b")}
+	writer := &fakeWriter{}
+	m := newVanishManager(eval, writer)
+
+	m.evaluateRecordingRule("ns", "g", vanishRule, t0)
+	eval.vec = vecOf("a")
+	m.evaluateRecordingRule("ns", "g", Rule{Record: "rec", Expr: `src{instance="a"}`}, t1)
+
+	if got := markers(t, writer.writes[1], t1); len(got) != 1 || got[0] != "b" {
+		t.Errorf("markers after an expression edit = %v, want [b]", got)
+	}
+}
+
+func TestVanish_FailedWriteKeepsTheLastResult(t *testing.T) {
+	eval := &fakeEvaluator{vec: vecOf("a", "b")}
+	writer := &fakeWriter{}
+	m := newVanishManager(eval, writer)
+
+	m.evaluateRecordingRule("ns", "g", vanishRule, t0)
+	eval.vec = vecOf("a")
+	writer.err = context.DeadlineExceeded
+	m.evaluateRecordingRule("ns", "g", vanishRule, t1)
+	writer.err = nil
+	m.evaluateRecordingRule("ns", "g", vanishRule, t2)
+
+	if got := markers(t, writer.writes[2], t2); len(got) != 1 || got[0] != "b" {
+		t.Errorf("markers = %v, want [b]", got)
+	}
+}
