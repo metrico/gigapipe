@@ -14,17 +14,18 @@ type Tiers struct {
 }
 
 // FromEnv reads the tier lifetimes through getenv. The raw tier defaults to
-// samplesDays.
+// samplesDays; an unset coarser tier defaults to its own default or the finer
+// tier's lifetime, whichever is longer.
 func FromEnv(samplesDays int, getenv func(string) string) (Tiers, error) {
 	var t Tiers
 	var err error
 	if t.RawDays, err = days(getenv, "METRICS_RAW_DAYS", samplesDays); err != nil {
 		return Tiers{}, err
 	}
-	if t.FiveMinuteDays, err = days(getenv, "METRICS_5M_DAYS", 30); err != nil {
+	if t.FiveMinuteDays, err = days(getenv, "METRICS_5M_DAYS", max(30, t.RawDays)); err != nil {
 		return Tiers{}, err
 	}
-	if t.HourDays, err = days(getenv, "METRICS_1H_DAYS", 365); err != nil {
+	if t.HourDays, err = days(getenv, "METRICS_1H_DAYS", max(365, t.FiveMinuteDays)); err != nil {
 		return Tiers{}, err
 	}
 	if t.FiveMinuteDays < t.RawDays {

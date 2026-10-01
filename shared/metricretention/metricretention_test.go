@@ -34,9 +34,9 @@ func TestRetentionTiersReadTheirDaySettings(t *testing.T) {
 
 func TestACoarserTierShorterThanAFinerOneIsRejected(t *testing.T) {
 	for name, vars := range map[string]map[string]string{
-		"5m shorter than raw":          {"METRICS_RAW_DAYS": "40"},
+		"5m shorter than raw":          {"METRICS_RAW_DAYS": "40", "METRICS_5M_DAYS": "30"},
 		"5m shorter than SAMPLES_DAYS": {"METRICS_RAW_DAYS": "", "METRICS_5M_DAYS": "5"},
-		"1h shorter than 5m":           {"METRICS_5M_DAYS": "400"},
+		"1h shorter than 5m":           {"METRICS_5M_DAYS": "400", "METRICS_1H_DAYS": "365"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got, err := FromEnv(7, env(vars)); err == nil {
@@ -66,5 +66,31 @@ func TestATierCannotBeSwitchedOffOrGivenPartialDays(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestUnsetCoarserTiersFollowALongerFinerTierUp(t *testing.T) {
+	for samplesDays, want := range map[int]Tiers{
+		3650: {RawDays: 3650, FiveMinuteDays: 3650, HourDays: 3650},
+		60:   {RawDays: 60, FiveMinuteDays: 60, HourDays: 365},
+	} {
+		got, err := FromEnv(samplesDays, env(nil))
+		if err != nil {
+			t.Fatalf("SAMPLES_DAYS=%d: %v", samplesDays, err)
+		}
+		if got != want {
+			t.Errorf("SAMPLES_DAYS=%d: FromEnv = %+v, want %+v", samplesDays, got, want)
+		}
+	}
+}
+
+func TestAnUnsetHourTierFollowsASetFiveMinuteTierUp(t *testing.T) {
+	got, err := FromEnv(7, env(map[string]string{"METRICS_5M_DAYS": "400"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Tiers{RawDays: 7, FiveMinuteDays: 400, HourDays: 400}
+	if got != want {
+		t.Errorf("FromEnv = %+v, want %+v", got, want)
 	}
 }
