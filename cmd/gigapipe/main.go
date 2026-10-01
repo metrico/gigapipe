@@ -324,6 +324,9 @@ func start() {
 	if os.Getenv("MODE") == "init_only" {
 		return
 	}
+	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" {
+		ctrl.ImportMetrics(cfg)
+	}
 
 	app := mux.NewRouter()
 	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))

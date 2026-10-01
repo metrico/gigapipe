@@ -37,6 +37,11 @@ func Init(config *clconfig.ClokiConfig, project string) error {
 	return err
 }
 
+// ImportMetrics starts the metric import of each database in the background.
+func ImportMetrics(config *clconfig.ClokiConfig) {
+	maintenance.ImportAllMetrics(config.Setting.DATABASE_DATA, logger.Logger)
+}
+
 func Rotate(config *clconfig.ClokiConfig, project string) error {
 	var err error
 	proj, ok := projects[project]
