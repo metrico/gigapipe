@@ -224,10 +224,7 @@ func (p *parserDoer) initMetrics(sink iMetricSink) error {
 func (p *parserDoer) doParseMetrics() {
 	parser := p.MetricsParser
 	if err := p.initMetrics(parser); err != nil {
-		go func() {
-			p.res <- &model.ParserResponse{Error: err}
-			close(p.res)
-		}()
+		p.fail(err)
 		return
 	}
 
