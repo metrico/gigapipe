@@ -18,7 +18,7 @@ func rowsOf(t *testing.T, sql string) string {
 
 const tierBuckets5m = "SELECT fingerprint, bucket, " +
 	"minIfMerge(first) AS b_first, maxIfMerge(last) AS b_last, " +
-	"sum(count) AS b_count, sum(sum) AS b_sum, sum(sum_sq) AS b_sum_sq, " +
+	"sum(count) AS b_count, sum(sum) AS b_sum, varPopStableIfMergeState(var) AS b_var, " +
 	"minIfMerge(min) AS b_min, maxIfMerge(max) AS b_max, " +
 	"sum(resets) AS b_resets, sum(reset_drop) AS b_reset_drop, sum(changes) AS b_changes, " +
 	"max(stale_at) AS b_stale_at " +
@@ -46,9 +46,8 @@ func tierRows(header string) string {
 		"AND NOT (isNaN(b_first.2) AND isNaN(prev_last.2))) AS changes, " +
 		"max(b_stale_at) AS stale_at, " +
 		"argMax(if(prev_in, prev_last, b_first), b_ms) AS penult, " +
-		"sum(b_sum_sq) / count - pow(sum / count, 2) AS dev_sq, " +
-		"if(dev_sq < 0, 0., dev_sq) AS var " +
-		"FROM (SELECT fingerprint, b_first, b_last, b_count, b_sum, b_sum_sq, b_min, b_max, " +
+		"varPopStableIfMerge(b_var) AS var " +
+		"FROM (SELECT fingerprint, b_first, b_last, b_count, b_sum, b_var, b_min, b_max, " +
 		"b_resets, b_reset_drop, b_changes, b_stale_at, " +
 		"toUnixTimestamp64Milli(bucket) AS b_ms, " +
 		"lagInFrame(b_last) OVER w AS prev_last, " +
