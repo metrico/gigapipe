@@ -9,7 +9,9 @@ package integration
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -49,12 +51,33 @@ func clickhouseConn(t *testing.T) clickhouse.Conn {
 	return conn
 }
 
+func clickhouseDB() string {
+	if db := os.Getenv("CLICKHOUSE_DB"); db != "" {
+		return db
+	}
+	return "cloki"
+}
+
+// clickhouseQueryAs runs sql under queryID, ignoring its outcome.
+func clickhouseQueryAs(queryID, sql string) {
+	base := os.Getenv("CLICKHOUSE_HTTP_URL")
+	if base == "" {
+		base = "http://localhost:8123"
+	}
+	resp, err := http.Post(strings.TrimRight(base, "/")+"/?database="+clickhouseDB()+"&query_id="+url.QueryEscape(queryID),
+		"text/plain", strings.NewReader(sql))
+	if err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+}
+
 func runImport(t *testing.T, conn clickhouse.Conn) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	err := maintenance.ImportMetrics(ctx, conn, maintenance.MetricImportOptions{
-		Instance: "integration", SamplesDays: 7, RollupDays: 30,
+		Instance: "integration", Database: clickhouseDB(), SamplesDays: 7, RollupDays: 30,
 		Settle: 10 * time.Millisecond, Poll: 200 * time.Millisecond, Quiet: 2 * time.Second,
 	})
 	if err != nil {
@@ -86,7 +109,7 @@ type importSample struct {
 func (s importSample) ms() int64 { return s.ns / int64(time.Millisecond) }
 
 // importDataset is a counter around two midnights and H0 with a reset, a stale marker,
-// a duplicate instant and two rows on one ms.
+// a duplicate instant and two more rows on its ms, the last with a larger value.
 func importDataset(h0 time.Time) (samples []importSample, late importSample) {
 	m1, m2 := h0.Truncate(24*time.Hour).Add(-24*time.Hour), h0.Truncate(24*time.Hour)
 	seen := map[int64]bool{}
@@ -124,7 +147,7 @@ func importDataset(h0 time.Time) (samples []importSample, late importSample) {
 		importSample{ns: at(5*time.Minute + 30*time.Second), stale: true},
 		importSample{ns: at(2 * time.Minute), value: find(at(2 * time.Minute))},
 		importSample{ns: at(3*time.Minute) + 123, value: find(at(3 * time.Minute))},
-		importSample{ns: at(3*time.Minute) + 456, value: find(at(3 * time.Minute))},
+		importSample{ns: at(3*time.Minute) + 456, value: find(at(3*time.Minute)) + 5},
 	)
 	for i, s := range samples {
 		if s.ns == at(7*time.Minute) {
@@ -136,14 +159,14 @@ func importDataset(h0 time.Time) (samples []importSample, late importSample) {
 	return samples, late
 }
 
-func samplesV3Insert(fp uint64, rows []importSample) string {
+func samplesV3Insert(fp uint64, tp int, rows []importSample) string {
 	var values []string
 	for _, s := range rows {
 		v := strconv.FormatFloat(s.value, 'g', -1, 64)
 		if s.stale {
 			v = staleMarkerExpr
 		}
-		values = append(values, fmt.Sprintf("(%d, %d, %s, '', 2)", fp, s.ns, v))
+		values = append(values, fmt.Sprintf("(%d, %d, %s, '', %d)", fp, s.ns, v, tp))
 	}
 	return "INSERT INTO samples_v3 (fingerprint, timestamp_ns, value, string, type) VALUES " + strings.Join(values, ", ")
 }
@@ -197,7 +220,8 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 	samples, late := importDataset(h0)
 
 	// The shared tables as earlier releases filled them.
-	days := map[string]bool{rollupAt.Format(time.DateOnly): true}
+	// time_series rows exist on the raw days only: they expire with samples_v3.
+	days := map[string]bool{}
 	for _, s := range append(samples, late) {
 		days[time.Unix(0, s.ns).UTC().Format(time.DateOnly)] = true
 	}
@@ -211,8 +235,14 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 		h0.Format(time.DateOnly), logFp))
 	clickhouseQuery(t, "INSERT INTO time_series (date, fingerprint, labels, name, type, metadata, updated_at_ns) VALUES "+
 		strings.Join(series, ", "))
-	clickhouseQuery(t, samplesV3Insert(fp, samples))
-	clickhouseQuery(t, samplesV3Insert(fp, []importSample{late}))
+	clickhouseQuery(t, samplesV3Insert(fp, 2, samples))
+	clickhouseQuery(t, samplesV3Insert(fp, 2, []importSample{late}))
+	// A series stored as type 0.
+	both, bothFp := imported+"_both", uint64(stamp)|1<<61
+	clickhouseQuery(t, fmt.Sprintf(`INSERT INTO time_series (date, fingerprint, labels, name, type, metadata, updated_at_ns) `+
+		`VALUES ('%s', %d, '{"__name__":"%s"}', '%s', 0, '', 1)`, h0.Format(time.DateOnly), bothFp, both, both))
+	clickhouseQuery(t, samplesV3Insert(bothFp, 0, []importSample{{ns: h0.Add(-3 * time.Minute).UnixNano(), value: 1},
+		{ns: h0.Add(-2 * time.Minute).UnixNano(), value: 2}, {ns: h0.Add(-time.Minute).UnixNano(), value: 3}}))
 	clickhouseQuery(t, fmt.Sprintf("INSERT INTO samples_v3 (fingerprint, timestamp_ns, value, string, type) "+
 		"VALUES (%d, %d, 0, 'a log line', 1)", logFp, h0.Add(-5*time.Minute).UnixNano()))
 	rollup := []float64{1, 2, 3, 1}
@@ -258,6 +288,10 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 	if got := clickhouseQuery(t, fmt.Sprintf("SELECT name, labels, first_seen, last_seen FROM metric_series FINAL "+
 		"WHERE fingerprint = %d", fp)); !strings.HasPrefix(got, imported+"\t{'__name__':'"+imported+"','job':'import'}\t") {
 		t.Errorf("series = %q", got)
+	}
+	if got := clickhouseQuery(t, fmt.Sprintf("SELECT (SELECT any(name) FROM metric_series WHERE fingerprint = %d), "+
+		"(SELECT count() FROM metric_samples FINAL WHERE fingerprint = %d)", bothFp, bothFp)); got != both+"\t3" {
+		t.Errorf("the type 0 series = %q, want its three samples", got)
 	}
 	if got := clickhouseQuery(t, fmt.Sprintf("SELECT type, help FROM metric_metadata FINAL WHERE name = '%s'", imported)); got != "counter\tImported" {
 		t.Errorf("metadata = %q", got)
@@ -323,17 +357,39 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 		}
 	}
 
-	// A chunk recorded started with half its rows staged is redone without double counting.
-	putImportRecord(t, "chunk:"+strconv.FormatInt(h0.Truncate(24*time.Hour).UnixMilli(), 10), "started")
+	// The 15s history is reachable though no time_series row covers its day.
+	rollupWindow := windows[3]
+	if got := rangeQuery(t, fmt.Sprintf("sum(count_over_time(%s[10m]))", imported),
+		rollupWindow[0].UnixMilli(), rollupWindow[1].UnixMilli(), 0); len(got) == 0 {
+		t.Errorf("no series answers over the 15s history")
+	}
+
+	// A chunk recorded started whose insert is still running elsewhere, one row per half second,
+	// is killed and redone without double counting.
+	chunk := "chunk:" + strconv.FormatInt(h0.Truncate(24*time.Hour).UnixMilli(), 10)
+	putImportRecord(t, chunk, "started")
 	dropImportCompletion(t)
-	clickhouseQuery(t, fmt.Sprintf("INSERT INTO metric_samples_in (fingerprint, timestamp, value, prev_timestamp, prev_value, aggregate) "+
-		"SELECT fingerprint, timestamp, value, toDateTime64(0, 3), 0, 1 FROM metric_samples FINAL "+
-		"WHERE fingerprint = %d AND timestamp > fromUnixTimestamp64Milli(%d) AND timestamp <= fromUnixTimestamp64Milli(%d)",
-		fp, m1.UnixMilli(), m1.Add(5*time.Minute).UnixMilli()))
-	if tierRows(t, "metrics_5m", fp) == want["metrics_5m"] {
-		t.Fatal("the injected half chunk left the 5m tier unchanged")
+	orphanID := "metric_import-" + clickhouseDB() + "-" + chunk
+	orphan := make(chan struct{})
+	go func() {
+		defer close(orphan)
+		clickhouseQueryAs(orphanID, fmt.Sprintf("INSERT INTO metric_samples_in "+
+			"(fingerprint, timestamp, value, prev_timestamp, prev_value, aggregate) "+
+			"WITH (SELECT groupArray((timestamp, value)) FROM metric_samples FINAL WHERE fingerprint = %d "+
+			"AND timestamp > fromUnixTimestamp64Milli(%d) AND timestamp <= fromUnixTimestamp64Milli(%d)) AS rows "+
+			"SELECT %d, rows[number + 1].1, rows[number + 1].2, toDateTime64(0, 3), 0, 1 FROM numbers(100) "+
+			"WHERE number < length(rows) AND sleepEachRow(0.5) = 0 "+
+			"SETTINGS max_block_size = 1, min_insert_block_size_rows = 1, min_insert_block_size_bytes = 1",
+			fp, m1.UnixMilli(), m1.Add(24*time.Hour).UnixMilli(), fp))
+	}()
+	for deadline := time.Now().Add(30 * time.Second); tierRows(t, "metrics_5m", fp) == want["metrics_5m"]; {
+		if time.Now().After(deadline) {
+			t.Fatal("the orphaned insert staged nothing")
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	runImport(t, conn)
+	<-orphan
 	sameAsReference("redo")
 
 	// A completed import is a no-op.
