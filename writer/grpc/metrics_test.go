@@ -60,7 +60,16 @@ func (r *failingRegistry) GetTimeSeriesService(string) (service.IInsertServiceV2
 func (r *failingRegistry) GetSamplesService(string) (service.IInsertServiceV2, error) {
 	return r.svc, nil
 }
-func (r *failingRegistry) GetMetricsService(string) (service.IInsertServiceV2, error) {
+func (r *failingRegistry) GetMetricStagingService(string) (service.IInsertServiceV2, error) {
+	return r.svc, nil
+}
+func (r *failingRegistry) GetMetricSeriesService(string) (service.IInsertServiceV2, error) {
+	return r.svc, nil
+}
+func (r *failingRegistry) GetMetricMetadataService(string) (service.IInsertServiceV2, error) {
+	return r.svc, nil
+}
+func (r *failingRegistry) GetMetricExemplarsService(string) (service.IInsertServiceV2, error) {
 	return r.svc, nil
 }
 func (r *failingRegistry) GetSpansService(string) (service.IInsertServiceV2, error) {

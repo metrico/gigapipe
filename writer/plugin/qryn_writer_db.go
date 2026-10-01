@@ -16,6 +16,7 @@ import (
 	"github.com/metrico/qryn/v5/writer/service/insert"
 	"github.com/metrico/qryn/v5/writer/service/registry"
 	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	"github.com/metrico/qryn/v5/writer/watchdog"
 )
@@ -141,15 +142,25 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			OnBeforeInsert: func() { tsSvc.PlanFlush() },
 		})
 
-		mtrSvc := insert.NewMetricsInsertService(model.InsertServiceOpts{
-			Session:        p.ServicesObject.Dbv3Map[i],
-			Node:           &node,
-			Interval:       time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
-			ParallelNum:    config.SYSTEM_SETTINGS.ChannelsSample,
-			AsyncInsert:    node.AsyncInsert,
-			MaxQueueSize:   int64(config.SYSTEM_SETTINGS.DBBulk),
-			OnBeforeInsert: func() { tsSvc.PlanFlush() },
-		})
+		metricOpts := func() model.InsertServiceOpts {
+			return model.InsertServiceOpts{
+				Session:      p.ServicesObject.Dbv3Map[i],
+				Node:         &node,
+				Interval:     time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
+				ParallelNum:  config.SYSTEM_SETTINGS.ChannelsSample,
+				AsyncInsert:  node.AsyncInsert,
+				MaxQueueSize: int64(config.SYSTEM_SETTINGS.DBBulk),
+			}
+		}
+		metricSvcs := []struct {
+			svcs service.InsertSvcMap
+			svc  service.IInsertServiceV2
+		}{
+			{MetricStagingSvcs, insert.NewMetricStagingInsertService(metricOpts())},
+			{MetricSeriesSvcs, insert.NewMetricSeriesInsertService(metricOpts())},
+			{MetricMetaSvcs, insert.NewMetricMetadataInsertService(metricOpts())},
+			{MetricExmplSvcs, insert.NewMetricExemplarsInsertService(metricOpts())},
+		}
 
 		var tempoTagsSvc service.IInsertServiceV2
 
@@ -191,9 +202,11 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		})
 
 		// Initialize and run services
-		MtrSvcs[node.Node] = mtrSvc
-		MtrSvcs[node.Node].Init()
-		go MtrSvcs[node.Node].Run()
+		for _, m := range metricSvcs {
+			m.svcs[node.Node] = m.svc
+			m.svc.Init()
+			go m.svc.Run()
+		}
 
 		TempoTagsSvcs[node.Node] = tempoTagsSvc
 		TempoTagsSvcs[node.Node].Init()
@@ -224,7 +237,10 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 	ServiceRegistry = registry.NewStaticServiceRegistry(registry.StaticServiceRegistryOpts{
 		TimeSeriesSvcs:    TsSvcs,
 		SamplesSvcs:       SplSvcs,
-		MetricSvcs:        MtrSvcs,
+		MetricStagingSvcs: MetricStagingSvcs,
+		MetricSeriesSvcs:  MetricSeriesSvcs,
+		MetricMetaSvcs:    MetricMetaSvcs,
+		MetricExmplSvcs:   MetricExmplSvcs,
 		TempoSamplesSvcs:  TempoSamplesSvcs,
 		TempoTagsSvcs:     TempoTagsSvcs,
 		ProfileInsertSvcs: ProfileInsertSvcs,
@@ -234,11 +250,15 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 	GoCache = numbercache.NewCache(time.Minute*30, func(val uint64) []byte {
 		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
 	}, databasesNodeHashMap)
+	MetricCaches = metriccache.New()
 
 	watchdog.Init([]service.InsertSvcMap{
 		TsSvcs,
 		SplSvcs,
-		MtrSvcs,
+		MetricStagingSvcs,
+		MetricSeriesSvcs,
+		MetricMetaSvcs,
+		MetricExmplSvcs,
 		TempoSamplesSvcs,
 		TempoTagsSvcs,
 		ProfileInsertSvcs,
@@ -254,5 +274,4 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 	}
 
 	// Run Prometheus Scaper
-	// go promscrape.RunPrometheusScraper(goCache, TsSvcs, MtrSvcs)
 }

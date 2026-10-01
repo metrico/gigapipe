@@ -92,7 +92,16 @@ func (f *fakeRegistry) GetSamplesService(id string) (service.IInsertServiceV2, e
 	}
 	return f.samples, nil
 }
-func (f *fakeRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
+func (f *fakeRegistry) GetMetricStagingService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *fakeRegistry) GetMetricSeriesService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *fakeRegistry) GetMetricMetadataService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *fakeRegistry) GetMetricExemplarsService(string) (service.IInsertServiceV2, error) {
 	return nil, nil
 }
 func (f *fakeRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {
