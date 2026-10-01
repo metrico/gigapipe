@@ -9,6 +9,8 @@ import (
 type Expr struct {
 	Expr        parser.Expr
 	Substitutes map[string]*Substitute
+	// Read is what tier selection knows of the query.
+	Read metricread.Read
 }
 
 // Substitute is an expression the querier answers with its pushdown's points instead of the

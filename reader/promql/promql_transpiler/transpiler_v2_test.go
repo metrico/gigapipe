@@ -120,3 +120,25 @@ func TestTranspileLeavesTheEngineWhatItCannotPushDown(t *testing.T) {
 		})
 	}
 }
+
+func TestTranspileRecordsWhatTierSelectionReads(t *testing.T) {
+	const minute = int64(60000)
+	for _, tc := range []struct {
+		query string
+		want  metricread.Read
+	}{
+		{"rate(x[5m]) / sum(increase(y[10m]))", metricread.Read{Grid: grid, EarliestMs: grid.StartMs - 15*minute,
+			RangesMs: []int64{5 * minute, 10 * minute}}},
+		{"x", metricread.Read{Grid: grid, EarliestMs: grid.StartMs - 5*minute}},
+		{"rate(x[5m] offset 1m)", metricread.Read{Grid: grid, EarliestMs: grid.StartMs - 11*minute, EngineReads: true}},
+		{"absent(x) or rate(y[1m])", metricread.Read{Grid: grid, EarliestMs: grid.StartMs - 6*minute,
+			RangesMs: []int64{minute}, EngineReads: true}},
+		{"vector(1)", metricread.Read{Grid: grid, EarliestMs: grid.StartMs - 5*minute}},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			if got := transpile(t, tc.query).Read; fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", tc.want) {
+				t.Errorf("read = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
