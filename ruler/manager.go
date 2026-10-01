@@ -218,32 +218,24 @@ func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Durati
 	}
 }
 
-// evaluateRecordingRule evaluates one recording rule, records its health, and
-// writes the result back. A failed evaluation records an error and writes
-// nothing.
-func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Rule, now time.Time) {
+// evaluateRecordingRule evaluates one recording rule at t, writes the result
+// back stamped at t and records its health. A failed evaluation or write-back
+// records an error.
+func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Rule, t time.Time) {
 	start := time.Now()
-	result, err := m.evaluator.Evaluate(m.ctx, rule.Expr, now)
-	dur := time.Since(start)
+	result, err := m.evaluator.Evaluate(m.ctx, rule.Expr, t)
+	if err == nil {
+		result, err = recordedVector(rule.Record, rule.Labels, result, t.UnixMilli())
+	}
+	if err == nil {
+		err = m.writer.Write(result)
+	}
+	h := RuleHealth{Health: "ok", LastEvalTime: t, EvaluationTime: time.Since(start).Seconds()}
 	if err != nil {
-		m.setRuleHealth(namespace, groupName, rule.Record, RuleHealth{
-			Health:         "err",
-			LastError:      err.Error(),
-			LastEvalTime:   now,
-			EvaluationTime: dur.Seconds(),
-		})
-		logger.Error("RuleManager: evaluate recording rule ", rule.Record, ": ", err.Error())
-		return
+		h.Health, h.LastError = "err", err.Error()
+		logger.Error("RuleManager: recording rule ", rule.Record, ": ", err.Error())
 	}
-	m.setRuleHealth(namespace, groupName, rule.Record, RuleHealth{
-		Health:         "ok",
-		LastEvalTime:   now,
-		EvaluationTime: dur.Seconds(),
-	})
-
-	if err := m.writer.Write(rule.Record, rule.Labels, result); err != nil {
-		logger.Error("RuleManager: write back recording rule ", rule.Record, ": ", err.Error())
-	}
+	m.setRuleHealth(namespace, groupName, rule.Record, h)
 }
 
 // GetPrometheusRules returns recording rules in the Prometheus API format,
