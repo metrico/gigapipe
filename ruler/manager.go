@@ -151,8 +151,8 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	for _, gs := range groups {
 		for _, g := range gs {
 			d, err := time.ParseDuration(g.Interval)
-			if err == nil && d < time.Millisecond {
-				err = fmt.Errorf("interval %s is under 1ms", g.Interval)
+			if err == nil && (d < time.Millisecond || d%time.Millisecond != 0) {
+				err = fmt.Errorf("interval %s is not a positive whole number of milliseconds", g.Interval)
 			}
 			if err != nil {
 				logger.Error("RuleManager: skipping group with invalid interval ", g.Name, ": ", err.Error())
