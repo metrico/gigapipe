@@ -305,3 +305,40 @@ func TestRemoteWriteExemplars(t *testing.T) {
 		t.Fatalf("exemplar rows: got %+v, want %+v", rows.exemplars, want)
 	}
 }
+
+// Prometheus sends each exemplar in a TimeSeries of its own, with no samples.
+func TestRemoteWriteExemplarInItsOwnEntry(t *testing.T) {
+	withCityHashFingerprints(t)
+	rows := pushRemoteWrite(t, newNode(t), &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
+		{Labels: lbls("__name__", "up"), Samples: samples(1000, 1)},
+		{
+			Labels:    lbls("__name__", "up"),
+			Exemplars: []*prompb.Exemplar{{Labels: lbls("trace_id", "abc"), Value: 0.5, Timestamp: 990}},
+		},
+	}})
+	want := exemplarRow{fpUpUnknown, 990, 0.5, "abc", `{"trace_id":"abc"}`}
+	if len(rows.exemplars) != 1 || rows.exemplars[0] != want {
+		t.Fatalf("exemplar rows: got %+v, want %+v", rows.exemplars, want)
+	}
+	if len(rows.staging) != 1 || len(rows.series) != 1 {
+		t.Fatalf("the exemplar entry must add no sample or series row, got %+v %+v", rows.staging, rows.series)
+	}
+}
+
+func TestRemoteWriteExemplarOnHistogramOnlyEntry(t *testing.T) {
+	withCityHashFingerprints(t)
+	rows := pushRemoteWrite(t, newNode(t), &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
+		{
+			Labels:     lbls("__name__", "up"),
+			Histograms: []*prompb.Histogram{{Count: &prompb.Histogram_CountInt{CountInt: 1}, Timestamp: 1000}},
+			Exemplars:  []*prompb.Exemplar{{Labels: lbls("trace_id", "abc"), Value: 0.5, Timestamp: 990}},
+		},
+	}})
+	want := exemplarRow{fpUpUnknown, 990, 0.5, "abc", `{"trace_id":"abc"}`}
+	if len(rows.exemplars) != 1 || rows.exemplars[0] != want {
+		t.Fatalf("exemplar rows: got %+v, want %+v", rows.exemplars, want)
+	}
+	if len(rows.staging) != 0 || len(rows.series) != 0 {
+		t.Fatalf("a histogram-only entry must add no sample or series row, got %+v %+v", rows.staging, rows.series)
+	}
+}
