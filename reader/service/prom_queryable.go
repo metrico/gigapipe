@@ -193,7 +193,7 @@ func (c *CLokiQuerier) substitute(matchers []*labels.Matcher) *promql_parser.Sub
 // in the hinted interval [Start, End]: raw samples, or from a tier each bucket's last sample
 // and the stale marker that follows it.
 func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints, matchers []*labels.Matcher) ([]*model.SeriesV2, error) {
-	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End}
+	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End, Cluster: c.cluster()}
 	lbls, err := c.readSeries(ctx, metricread.SeriesSQL(window, matchers))
 	if err != nil || len(lbls) == 0 {
 		return nil, err
@@ -229,6 +229,7 @@ func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints
 func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute) ([]*model.SeriesV2, error) {
 	pushdown := sub.Pushdown
 	pushdown.Tier = c.tier
+	pushdown.Cluster = c.cluster()
 	rows, err := c.query(ctx, metricread.PushdownSQL(pushdown))
 	if err != nil {
 		return nil, err
@@ -301,6 +302,11 @@ func (c *CLokiQuerier) readSeries(ctx context.Context, query string) (seriesLabe
 		res[fp] = labelsFromMap(set)
 	}
 	return res, rows.Err()
+}
+
+// cluster reports whether the database runs on a cluster, where reads go to the distributed tables.
+func (c *CLokiQuerier) cluster() bool {
+	return c.db.Config != nil && c.db.Config.ClusterName != ""
 }
 
 func (c *CLokiQuerier) query(ctx context.Context, query string) (*gosql.Rows, error) {

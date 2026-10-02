@@ -12,28 +12,47 @@ import (
 type Window struct {
 	FromMs int64
 	ToMs   int64
+	// Cluster reads the distributed tables, each shard filtering its samples by its own series.
+	Cluster bool
 }
 
 // SeriesSQL selects the fingerprint and label set of every series matching the selectors
 // that may have samples in w. Rows: fingerprint UInt64, label_set Map(String, String).
 func SeriesSQL(w Window, selectors ...[]*labels.Matcher) string {
-	return fmt.Sprintf("SELECT fingerprint, any(labels) AS label_set FROM %s "+
-		"WHERE (%s) "+
+	return fmt.Sprintf("SELECT fingerprint, any(labels) AS label_set FROM %s WHERE %s GROUP BY fingerprint",
+		w.table("metric_series"), seriesWhere(w, selectors))
+}
+
+// seriesIn keeps the fingerprints of the series SeriesSQL selects, read from the local series
+// index: on a cluster each shard holds the series rows of its own samples.
+func seriesIn(w Window, selectors ...[]*labels.Matcher) string {
+	return fmt.Sprintf("fingerprint IN (SELECT fingerprint FROM %s WHERE %s)",
+		tables.GetTableName("metric_series"), seriesWhere(w, selectors))
+}
+
+func seriesWhere(w Window, selectors [][]*labels.Matcher) string {
+	return fmt.Sprintf("(%s) "+
 		"AND last_seen >= fromUnixTimestamp64Milli(%d) "+
-		"AND first_seen <= fromUnixTimestamp64Milli(%d) "+
-		"GROUP BY fingerprint",
-		tables.GetTableName("metric_series"), SelectorPredicate(selectors...), w.FromMs-metricindex.SeriesIndexLag.Milliseconds(), w.ToMs)
+		"AND first_seen <= fromUnixTimestamp64Milli(%d)",
+		SelectorPredicate(selectors...), w.FromMs-metricindex.SeriesIndexLag.Milliseconds(), w.ToMs)
+}
+
+// table names the table w reads: its distributed wrapper on a cluster.
+func (w Window) table(name string) string {
+	if w.Cluster {
+		return tables.GetTableName(name + "_dist")
+	}
+	return tables.GetTableName(name)
 }
 
 // RawSamplesSQL selects the raw samples in w of the series SeriesSQL selects, one row per
 // (fingerprint, timestamp). Rows: fingerprint UInt64, timestamp DateTime64(3), value Float64.
 func RawSamplesSQL(w Window, selectors ...[]*labels.Matcher) string {
-	return fmt.Sprintf("WITH fp AS (%s) "+
-		"SELECT fingerprint, timestamp, value FROM %s "+
-		"WHERE fingerprint IN (SELECT fingerprint FROM fp) "+
+	return fmt.Sprintf("SELECT fingerprint, timestamp, value FROM %s "+
+		"WHERE %s "+
 		"AND timestamp > fromUnixTimestamp64Milli(%d) "+
 		"AND timestamp <= fromUnixTimestamp64Milli(%d) "+
 		"ORDER BY fingerprint, timestamp "+
 		"LIMIT 1 BY fingerprint, timestamp",
-		SeriesSQL(w, selectors...), tables.GetTableName("metric_samples"), w.FromMs, w.ToMs)
+		w.table("metric_samples"), seriesIn(w, selectors...), w.FromMs, w.ToMs)
 }

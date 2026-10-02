@@ -35,7 +35,7 @@ func serveOneSeriesFrom(t *testing.T, tier string, pushedDown ...[]driver.Value)
 		if strings.Contains(query, "ARRAY JOIN") {
 			return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels", "t_ms", "value"}, Rows: pushedDown}, nil
 		}
-		if strings.HasPrefix(query, "WITH fp AS") {
+		if !strings.HasPrefix(query, "SELECT fingerprint, any(labels)") {
 			return fakeclickhouse.Result{Columns: []string{"fingerprint", "timestamp", "value"}, Rows: [][]driver.Value{
 				{uint64(1), time.UnixMilli(60000), 7.0},
 				{uint64(1), time.UnixMilli(120000), 8.0},

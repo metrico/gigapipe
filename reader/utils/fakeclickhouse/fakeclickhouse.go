@@ -26,7 +26,9 @@ type Handler func(query string) (Result, error)
 // DB records every query and answers it with its handler. It implements model.ISqlxDB and
 // model.IDBRegistry.
 type DB struct {
-	handler Handler
+	// ClusterName is the cluster the database is configured on; empty for a single node.
+	ClusterName string
+	handler     Handler
 	db      *sql.DB
 	mtx     sync.Mutex
 	queries []string
@@ -53,7 +55,7 @@ func (d *DB) answer(query string) (Result, error) {
 }
 
 func (d *DB) GetDB(context.Context) (*model.DataDatabasesMap, error) {
-	return &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{}, Session: d}, nil
+	return &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{ClusterName: d.ClusterName}, Session: d}, nil
 }
 func (d *DB) Run()        {}
 func (d *DB) Stop()       {}

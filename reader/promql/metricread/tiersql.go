@@ -3,7 +3,6 @@ package metricread
 import (
 	"fmt"
 
-	"github.com/metrico/qryn/v5/reader/utils/tables"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/value"
 )
@@ -90,20 +89,20 @@ func tierRowsSQL(p Pushdown) string {
 		"ARRAY JOIN range(k_min, k_max + 1) AS k "+
 		"GROUP BY fingerprint, k "+
 		"HAVING count > 0",
-		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, p.Tier.WidthMs, bucketsSQL(p.Tier))
+		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, p.Tier.WidthMs, bucketsSQL(p))
 }
 
-// bucketsSQL merges the partial rows of t per (fingerprint, bucket) for the buckets inside
+// bucketsSQL merges the partial rows of p's tier per (fingerprint, bucket) for the buckets inside
 // (start_ms − range_ms, end_ms] that hold a sample.
-func bucketsSQL(t Tier) string {
+func bucketsSQL(p Pushdown) string {
 	return "SELECT fingerprint, bucket, " +
 		"minIfMerge(first) AS b_first, maxIfMerge(last) AS b_last, " +
 		"sum(count) AS b_count, sum(sum) AS b_sum, varPopStableIfMergeState(var) AS b_var, " +
 		"minIfMerge(min) AS b_min, maxIfMerge(max) AS b_max, " +
 		"sum(resets) AS b_resets, sum(reset_drop) AS b_reset_drop, sum(changes) AS b_changes, " +
 		"max(stale_at) AS b_stale_at " +
-		"FROM " + tables.GetTableName(t.table) + " " +
-		"WHERE fingerprint IN (SELECT fingerprint FROM fp) " +
+		"FROM " + p.window().table(p.Tier.table) + " " +
+		"WHERE " + seriesIn(p.window(), p.Matchers) + " " +
 		"AND bucket > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND bucket <= fromUnixTimestamp64Milli(end_ms) " +
 		"GROUP BY fingerprint, bucket " +
@@ -116,23 +115,23 @@ func tierInstantRowsSQL(p Pushdown) string {
 	return fmt.Sprintf("WITH %d AS start_ms, %d AS end_ms, %d AS step_ms, %d AS lookback_ms "+
 		"SELECT fingerprint, toUnixTimestamp64Milli(bucket) AS t_ms, b_last AS last, b_stale_at AS stale_at "+
 		"FROM (SELECT fingerprint, bucket, maxIfMerge(last) AS b_last, max(stale_at) AS b_stale_at FROM %s "+
-		"WHERE fingerprint IN (SELECT fingerprint FROM fp) "+
+		"WHERE %s "+
 		"AND bucket >= fromUnixTimestamp64Milli(start_ms) AND bucket <= fromUnixTimestamp64Milli(end_ms) "+
 		"AND (toUnixTimestamp64Milli(bucket) - start_ms) %% step_ms = 0 "+
 		"GROUP BY fingerprint, bucket) "+
 		"WHERE toUnixTimestamp64Milli(last.1) > t_ms - lookback_ms",
-		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, tables.GetTableName(p.Tier.table))
+		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, p.window().table(p.Tier.table),
+		seriesIn(p.window(), p.Matchers))
 }
 
 // TierSamplesSQL selects what the engine reads of a tier in w: each bucket's last sample at
 // its own timestamp, followed by the bucket's latest stale marker when that comes after it.
 // Rows: fingerprint UInt64, timestamp DateTime64(3), value Float64, ordered by both.
 func TierSamplesSQL(w Window, t Tier, selectors ...[]*labels.Matcher) string {
-	return fmt.Sprintf("WITH fp AS (%s) "+
-		"SELECT fingerprint, if(marker, b_stale_at, b_last.1) AS timestamp, "+
+	return fmt.Sprintf("SELECT fingerprint, if(marker, b_stale_at, b_last.1) AS timestamp, "+
 		"if(marker, reinterpretAsFloat64(toUInt64(%d)), b_last.2) AS value "+
 		"FROM (SELECT fingerprint, bucket, maxIfMerge(last) AS b_last, max(stale_at) AS b_stale_at FROM %s "+
-		"WHERE fingerprint IN (SELECT fingerprint FROM fp) "+
+		"WHERE %s "+
 		"AND bucket > fromUnixTimestamp64Milli(%d) "+
 		"AND bucket < fromUnixTimestamp64Milli(%d) "+
 		"GROUP BY fingerprint, bucket) "+
@@ -141,6 +140,6 @@ func TierSamplesSQL(w Window, t Tier, selectors ...[]*labels.Matcher) string {
 		"AND timestamp > fromUnixTimestamp64Milli(%d) "+
 		"AND timestamp <= fromUnixTimestamp64Milli(%d) "+
 		"ORDER BY fingerprint, timestamp",
-		SeriesSQL(w, selectors...), value.StaleNaN, tables.GetTableName(t.table),
+		value.StaleNaN, w.table(t.table), seriesIn(w, selectors...),
 		w.FromMs, w.ToMs+t.WidthMs, w.FromMs, w.ToMs)
 }

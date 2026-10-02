@@ -48,7 +48,7 @@ func TestPushdownSQLRate(t *testing.T) {
 		"-intDiv(start_ms - ts_ms, step_ms))) AS k_min, " +
 		"least(n_steps - 1, intDiv(ts_ms + range_ms - 1 - start_ms, step_ms)) AS k_max " +
 		"FROM (SELECT fingerprint, timestamp, value FROM metric_samples " +
-		"WHERE fingerprint IN (SELECT fingerprint FROM fp) " +
+		"WHERE " + localSeries(1767223500000, 1767226200000) + " " +
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND timestamp <= fromUnixTimestamp64Milli(end_ms) " +
 		"ORDER BY fingerprint, timestamp " +
