@@ -40,3 +40,6 @@ var MetricsScript string
 
 //go:embed metrics_tier.sql
 var MetricsTierScript string
+
+//go:embed metrics_dist.sql
+var MetricsDistScript string

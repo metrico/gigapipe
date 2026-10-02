@@ -73,3 +73,65 @@ ALTER TABLE {{.DB}}.time_series{{.READ_SUFFIX}} {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series{{.READ_SUFFIX}} {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_samples{{.READ_SUFFIX}} {{.OnCluster}} (
+  fingerprint UInt64,
+  timestamp   DateTime64(3),
+  value       Float64
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metric_samples', fingerprint) SETTINGS skip_unavailable_shards = 1;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_exemplars{{.READ_SUFFIX}} {{.OnCluster}} (
+  fingerprint UInt64,
+  timestamp   DateTime64(3),
+  value       Float64,
+  trace_id    String,
+  labels      String
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metric_exemplars', fingerprint) SETTINGS skip_unavailable_shards = 1;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_series{{.READ_SUFFIX}} {{.OnCluster}} (
+  name        LowCardinality(String),
+  fingerprint UInt64,
+  labels      Map(LowCardinality(String), String),
+  first_seen  SimpleAggregateFunction(min, DateTime64(3)),
+  last_seen   SimpleAggregateFunction(max, DateTime64(3))
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metric_series', fingerprint) SETTINGS skip_unavailable_shards = 1;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_metadata{{.READ_SUFFIX}} {{.OnCluster}} (
+  name       LowCardinality(String),
+  type       LowCardinality(String),
+  help       String,
+  unit       LowCardinality(String),
+  updated_at DateTime64(3)
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metric_metadata', cityHash64(name)) SETTINGS skip_unavailable_shards = 1;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_5m{{.READ_SUFFIX}} {{.OnCluster}} (
+  fingerprint UInt64,
+  bucket      DateTime64(3),
+  first       AggregateFunction(minIf, Tuple(timestamp DateTime64(3), value Float64), UInt8),
+  last        AggregateFunction(maxIf, Tuple(timestamp DateTime64(3), value Float64), UInt8),
+  count       SimpleAggregateFunction(sum, UInt64),
+  sum         SimpleAggregateFunction(sum, Float64),
+  var         AggregateFunction(varPopStableIf, Float64, UInt8),
+  min         AggregateFunction(minIf, Float64, UInt8),
+  max         AggregateFunction(maxIf, Float64, UInt8),
+  resets      SimpleAggregateFunction(sum, UInt64),
+  reset_drop  SimpleAggregateFunction(sum, Float64),
+  changes     SimpleAggregateFunction(sum, UInt64),
+  stale_at    SimpleAggregateFunction(max, DateTime64(3))
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metrics_5m', fingerprint) SETTINGS skip_unavailable_shards = 1;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_1h{{.READ_SUFFIX}} {{.OnCluster}} (
+  fingerprint UInt64,
+  bucket      DateTime64(3),
+  first       AggregateFunction(minIf, Tuple(timestamp DateTime64(3), value Float64), UInt8),
+  last        AggregateFunction(maxIf, Tuple(timestamp DateTime64(3), value Float64), UInt8),
+  count       SimpleAggregateFunction(sum, UInt64),
+  sum         SimpleAggregateFunction(sum, Float64),
+  var         AggregateFunction(varPopStableIf, Float64, UInt8),
+  min         AggregateFunction(minIf, Float64, UInt8),
+  max         AggregateFunction(maxIf, Float64, UInt8),
+  resets      SimpleAggregateFunction(sum, UInt64),
+  reset_drop  SimpleAggregateFunction(sum, Float64),
+  changes     SimpleAggregateFunction(sum, UInt64),
+  stale_at    SimpleAggregateFunction(max, DateTime64(3))
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metrics_1h', fingerprint) SETTINGS skip_unavailable_shards = 1;
