@@ -9,6 +9,7 @@ import (
 	clconfig "github.com/metrico/cloki-config"
 	clokiconfig "github.com/metrico/cloki-config/config"
 	clcwriter "github.com/metrico/cloki-config/config/writer"
+	"github.com/metrico/qryn/v5/shared/metricindex"
 	"github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/metric"
 	"github.com/metrico/qryn/v5/writer/model"
@@ -216,6 +217,39 @@ func TestRemoteWriteRequestMetadata(t *testing.T) {
 	node.Metadata.Reset()
 	if reset := pushRemoteWrite(t, node, req); len(reset.metadata) != 2 || len(reset.series) != 1 {
 		t.Fatalf("after the reset every family and series must be emitted again, got %+v %+v", reset.metadata, reset.series)
+	}
+}
+
+func TestRemoteWriteSeriesRowCoversBackfill(t *testing.T) {
+	withCityHashFingerprints(t)
+	node := newNode(t)
+	lag := float64(metricindex.SeriesIndexLag.Milliseconds())
+	push := func(s ...float64) []seriesRow {
+		return pushRemoteWrite(t, node, &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{
+			{Labels: lbls("__name__", "up"), Samples: samples(s...)},
+		}}).series
+	}
+	bounds := func(rows []seriesRow) [][2]int64 {
+		res := make([][2]int64, 0, len(rows))
+		for _, r := range rows {
+			res = append(res, [2]int64{r.firstSeenMs, r.lastSeenMs})
+		}
+		return res
+	}
+	steps := []struct {
+		samples []float64
+		want    [][2]int64
+	}{
+		{[]float64{10 * lag, 1, 10*lag + 1000, 1}, [][2]int64{{10 * int64(lag), 10*int64(lag) + 1000}}},
+		{[]float64{10*lag + 2000, 1, 11*lag + 1000, 1}, [][2]int64{}},
+		{[]float64{11*lag + 1001, 1, 10*lag + 2000, 1}, [][2]int64{{10*int64(lag) + 2000, 11*int64(lag) + 1001}}},
+		{[]float64{12 * lag, 1, 9 * lag, 1}, [][2]int64{{9 * int64(lag), 12 * int64(lag)}}},
+	}
+	for i, st := range steps {
+		got := bounds(push(st.samples...))
+		if len(got) != len(st.want) || (len(got) == 1 && got[0] != st.want[0]) {
+			t.Fatalf("request %d: series rows (first_seen, last_seen) got %v, want %v", i, got, st.want)
+		}
 	}
 }
 

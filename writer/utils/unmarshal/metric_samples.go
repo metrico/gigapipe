@@ -139,6 +139,7 @@ func (p *parserDoer) onMetricMetadata(name string, m metadata.Entry) {
 // __metric_*__ labels, adds service_name, fingerprints the label set and
 // batches the series' staging, series, metadata and exemplar rows. A later
 // sample of the same (series, ms) in the request replaces the earlier one.
+// A series row, when the fingerprint cache asks for one, spans these samples.
 func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, values []float64,
 	exemplars []metricExemplar,
 ) error {
@@ -156,11 +157,11 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 		b.addMetadata(name, meta)
 	}
 
-	if len(timestampsMs) > 0 && b.node.Fingerprints.FirstSight(fp) {
-		minTs, maxTs := int64(math.MaxInt64), int64(math.MinInt64)
-		for _, ts := range timestampsMs {
-			minTs, maxTs = min(minTs, ts), max(maxTs, ts)
-		}
+	minTs, maxTs := int64(math.MaxInt64), int64(math.MinInt64)
+	for _, ts := range timestampsMs {
+		minTs, maxTs = min(minTs, ts), max(maxTs, ts)
+	}
+	if len(timestampsMs) > 0 && b.node.Fingerprints.Emit(fp, minTs, maxTs) {
 		lblMap := make(map[string]string, len(filtered))
 		size := 24 + len(name)
 		for _, l := range filtered {
