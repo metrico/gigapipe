@@ -86,6 +86,7 @@ func TestMetricTablesReplicateUnderCloudExceptTheStagingTable(t *testing.T) {
 }
 
 func TestMetricTablesHaveReadClusterVariants(t *testing.T) {
+	local := render(t, sql.MetricsScript, migrationEnv("cloki", "c1", false, 7, "", "", false, testTiers))
 	scripts := render(t, sql.LogReadDistScript, map[string]string{
 		"DB": "cloki", "CLUSTER": "c1", "OnCluster": "ON CLUSTER `c1`",
 		"READ_CLUSTER": "rc", "READ_SUFFIX": "_rd",
@@ -98,6 +99,9 @@ func TestMetricTablesHaveReadClusterVariants(t *testing.T) {
 		engine := "ENGINE = Distributed('rc', 'cloki', '" + table + "', " + key + ") SETTINGS skip_unavailable_shards = 1"
 		if !strings.HasSuffix(strings.TrimSuffix(strings.Join(strings.Fields(s), " "), ";"), engine) {
 			t.Errorf("%s_rd: want %q:\n%s", table, engine, s)
+		}
+		if got, want := columns(t, s), columns(t, statement(t, local, table)); !slices.Equal(got, want) {
+			t.Errorf("%s_rd columns %v, want those of %s: %v", table, got, table, want)
 		}
 	}
 }
