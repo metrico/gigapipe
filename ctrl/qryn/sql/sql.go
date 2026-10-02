@@ -37,3 +37,6 @@ var RulesDistScript string
 
 //go:embed metrics.sql
 var MetricsScript string
+
+//go:embed metrics_dist.sql
+var MetricsDistScript string
