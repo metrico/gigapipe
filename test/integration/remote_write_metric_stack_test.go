@@ -32,6 +32,12 @@ func clickhouseQuery(t *testing.T, sql string) string {
 	if base == "" {
 		base = "http://localhost:8123"
 	}
+	return clickhouseQueryAt(t, base, sql)
+}
+
+// clickhouseQueryAt runs sql on the ClickHouse at base, whose user info, if any, authenticates.
+func clickhouseQueryAt(t *testing.T, base, sql string) string {
+	t.Helper()
 	db := os.Getenv("CLICKHOUSE_DB")
 	if db == "" {
 		db = "cloki"
