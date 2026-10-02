@@ -11,7 +11,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/helputils"
-	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 const (
@@ -26,8 +25,6 @@ var ErrImportLeaseHeld = errors.New("the metric import lease is held by another 
 
 // MetricImportOptions configures the metric import.
 type MetricImportOptions struct {
-	// Dist reads settings through the distributed table.
-	Dist bool
 	// Instance names this instance in the lease.
 	Instance string
 	// Database names the database in each unit's query id.
@@ -95,11 +92,11 @@ func RunMetricImport(ctx context.Context, db clickhouse.Conn, opts MetricImportO
 // instance holding the lease. It returns nil once the import is recorded complete.
 func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOptions) error {
 	opts = opts.withDefaults()
-	done, err := getSetting(db, opts.Dist, "update", importRecordType)
+	done, err := getSetting(db, false, "update", importRecordType)
 	if err != nil || done != "" {
 		return err
 	}
-	records := &settingsRecords{db: db, dist: opts.Dist}
+	records := &settingsRecords{db: db}
 	lease := &importLease{
 		records:  records,
 		instance: opts.Instance,
@@ -129,15 +126,15 @@ func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOpt
 	}()
 	job := &metricImport{db: db, records: records, lease: lease, tables: localImportTables, opts: opts}
 	err = job.run(runCtx)
+	if err == nil {
+		err = putSetting(db, "update", importRecordType, strconv.FormatInt(time.Now().Unix(), 10))
+	}
 	cancel()
 	<-renewed
 	if releaseErr := lease.release(context.WithoutCancel(ctx)); err == nil {
 		err = releaseErr
 	}
 	if err != nil {
-		return err
-	}
-	if err = putSetting(db, "update", importRecordType, strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
 		return err
 	}
 	opts.Logger.Info("metric import: complete")
@@ -261,9 +258,6 @@ func (j *metricImport) series(ctx context.Context) error {
 // h0 is the start of the hour before T0, the metric stack's migration time.
 func (j *metricImport) h0(ctx context.Context) (time.Time, error) {
 	settings := "settings"
-	if j.opts.Dist {
-		settings += distconfig.Suffix()
-	}
 	var t0 string
 	err := j.db.QueryRow(ctx, fmt.Sprintf("SELECT argMax(value, inserted_at) FROM %s "+
 		"WHERE type = 'update' AND name = 'metric_stack'", settings)).Scan(&t0)
@@ -361,15 +355,11 @@ func (j *metricImport) tail(ctx context.Context, h0 time.Time, recorded string) 
 
 // settingsRecords keeps the import's records in settings under type 'metric_import'.
 type settingsRecords struct {
-	db   clickhouse.Conn
-	dist bool
+	db clickhouse.Conn
 }
 
 func (s *settingsRecords) all(ctx context.Context) (map[string]string, error) {
 	settings := "settings"
-	if s.dist {
-		settings += distconfig.Suffix()
-	}
 	rows, err := s.db.Query(ctx, fmt.Sprintf("SELECT argMax(name, inserted_at), argMax(value, inserted_at) "+
 		"FROM %s WHERE type = $1 GROUP BY fingerprint", settings), importRecordType)
 	if err != nil {
@@ -394,9 +384,6 @@ VALUES ($1, $2, $3, $4, now64(9))`, importRecordFingerprint(name), importRecordT
 
 func (s *settingsRecords) age(ctx context.Context, name string) (time.Duration, error) {
 	settings := "settings"
-	if s.dist {
-		settings += distconfig.Suffix()
-	}
 	var ms int64
 	err := s.db.QueryRow(ctx, fmt.Sprintf("SELECT dateDiff('millisecond', max(inserted_at), now64(9)) "+
 		"FROM %s WHERE fingerprint = $1", settings), importRecordFingerprint(name)).Scan(&ms)
