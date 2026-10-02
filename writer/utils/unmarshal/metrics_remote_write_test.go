@@ -242,7 +242,7 @@ func TestRemoteWriteSeriesRowCoversBackfill(t *testing.T) {
 	}{
 		{[]float64{10 * lag, 1, 10*lag + 1000, 1}, [][2]int64{{10 * int64(lag), 10*int64(lag) + 1000}}},
 		{[]float64{10*lag + 2000, 1, 11*lag + 1000, 1}, [][2]int64{}},
-		{[]float64{11*lag + 1001, 1, 10*lag + 2000, 1}, [][2]int64{{10*int64(lag) + 2000, 11*int64(lag) + 1001}}},
+		{[]float64{11*lag + 1001, 1, 10*lag + 2000, 1}, [][2]int64{{10 * int64(lag), 11*int64(lag) + 1001}}},
 		{[]float64{12 * lag, 1, 9 * lag, 1}, [][2]int64{{9 * int64(lag), 12 * int64(lag)}}},
 	}
 	for i, st := range steps {
