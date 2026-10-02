@@ -276,10 +276,6 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 	eventually(t, fmt.Sprintf("SELECT count() FROM metric_samples FINAL WHERE fingerprint IN "+
 		"(SELECT fingerprint FROM metric_series WHERE name = '%s')", reference), fmt.Sprint(len(distinct)))
 	refFp := fingerprintOf(t, reference)
-	// The writer records a series at its first sample; the index is widened to the whole dataset.
-	clickhouseQuery(t, fmt.Sprintf("INSERT INTO metric_series (name, fingerprint, labels, first_seen, last_seen) "+
-		"SELECT name, fingerprint, labels, first_seen, fromUnixTimestamp64Milli(%d) FROM metric_series WHERE fingerprint = %d",
-		all[len(all)-1].ms(), refFp))
 
 	clickhouseQuery(t, "ALTER TABLE settings DELETE WHERE type = 'metric_import' SETTINGS mutations_sync = 1")
 	dropImportCompletion(t)
