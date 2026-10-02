@@ -42,7 +42,7 @@ With `CLUSTER_NAME` set, every metric table has a `Distributed` table over it, n
 | `metric_exemplars` | `metric_exemplars_dist` | `fingerprint` |
 | `metric_metadata` | `metric_metadata_dist` | `cityHash64(name)` |
 
-Samples are written to `metric_samples_in_dist`. Each block lands on the shard of its series' fingerprint, and that shard's materialized views fill its raw samples and both aggregate tiers. The raw samples, tier buckets, series row and exemplars of a series are therefore all on one shard. PromQL reads the `_dist` tables, and each shard filters its own samples by its own `metric_series` rows. This holds only while every metric table is sharded by `fingerprint`, so the sharding keys above must not be changed.
+Samples are written to `metric_samples_in_dist`. Each block lands on the shard of its series' fingerprint, and that shard's materialized views fill its raw samples and both aggregate tiers. The raw samples, tier buckets, series row and exemplars of a series are therefore all on one shard. PromQL reads the `_dist` tables, and each shard filters its own samples by its own `metric_series` rows. This holds only while the samples, tier, series and exemplar tables are all sharded by `fingerprint`, so the sharding keys above must not be changed.
 
 - **Sender affinity.** With several writers, every sample of one series must reach the same writer, for example through a load balancer that is sticky per sender. In-order remote write already needs this. Without it the aggregate tiers can miss pairs of samples, so `rate`, `increase`, `resets` and `changes` served from a tier can be wrong. Raw samples stay exact.
 
@@ -260,11 +260,10 @@ the results back as new series. It is single-tenant and recording-only
 `all`/`""`, after the writer and reader initialize.
 
 - **`GIGAPIPE_RULER_ENABLED`** - Enable the ruler (`1`, `true`, `yes`, `on`; default: disabled). When disabled, the rule endpoints (`/api/v1/rules`, `/loki/api/v1/rules`, `/api/prom/rules`) are **not** served and return `404`.
-
-Set `GIGAPIPE_RULER_ENABLED` on exactly one instance. Instances do not coordinate: a second instance with the ruler enabled evaluates every rule again and double-counts recorded series in the aggregate tiers. The rule endpoints are served only where the ruler is enabled.
-
 - **`GIGAPIPE_RULER_POLL_INTERVAL`** - How often rule groups are reloaded from storage and rescheduled, as a Go duration (e.g. `15s`, `1m`; default: `30s`).
 - **`GIGAPIPE_RULER_MAX_LOGQL_RESULT_BYTES`** - Maximum size, in bytes, of a single LogQL recording-rule result buffered before parsing; a rule exceeding it fails that evaluation (default: `10485760`, i.e. 10 MiB).
+
+Set `GIGAPIPE_RULER_ENABLED` on exactly one instance. Instances do not coordinate: a second instance with the ruler enabled evaluates every rule again and double-counts recorded series in the aggregate tiers. The rule endpoints are served only where the ruler is enabled.
 
 ## Self-Profiling
 
