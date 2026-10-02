@@ -1,25 +1,81 @@
 package metriccache
 
 import (
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/metrico/qryn/v5/shared/metricindex"
 
 	"github.com/metrico/qryn/v5/writer/utils/metadata"
 )
 
+const lagMs = int64(metricindex.SeriesIndexLag / time.Millisecond)
+
 func TestFingerprintsFirstSightAndReset(t *testing.T) {
 	s := NewFingerprints()
-	if !s.FirstSight(42) {
+	if !s.Emit(42, 1000, 2000) {
 		t.Fatal("first sight of a series must emit its row")
 	}
-	if s.FirstSight(42) {
-		t.Fatal("a known series must not emit its row again")
+	if s.Emit(42, 1500, 2000) {
+		t.Fatal("samples inside the emitted bounds must not emit the row again")
 	}
-	if !s.FirstSight(43) {
+	if !s.Emit(43, 1000, 2000) {
 		t.Fatal("first sight of another series must emit its row")
 	}
 	s.Reset()
-	if !s.FirstSight(42) {
+	if !s.Emit(42, 1500, 2000) {
 		t.Fatal("a series forgotten by the reset must emit its row again")
+	}
+}
+
+func TestFingerprintsEmitAboveTheLag(t *testing.T) {
+	s := NewFingerprints()
+	s.Emit(1, 0, 1000)
+	if s.Emit(1, 1000, 1000+lagMs) {
+		t.Fatal("a sample within the lag of the emitted last_seen must not emit the row")
+	}
+	if !s.Emit(1, 1000, 1001+lagMs) {
+		t.Fatal("a sample more than the lag above the emitted last_seen must emit the row")
+	}
+	if s.Emit(1, 1000, 1001+2*lagMs) {
+		t.Fatal("the emitted last_seen must advance to the re-emitted row's")
+	}
+}
+
+func TestFingerprintsEmitBelowFirstSeen(t *testing.T) {
+	s := NewFingerprints()
+	s.Emit(1, 10*lagMs, 10*lagMs)
+	if !s.Emit(1, 10*lagMs-1, 10*lagMs) {
+		t.Fatal("a sample below the emitted first_seen must emit the row")
+	}
+	if s.Emit(1, 10*lagMs-1, 10*lagMs) {
+		t.Fatal("the emitted first_seen must move down to the re-emitted row's")
+	}
+	if s.Emit(1, 10*lagMs-1, 11*lagMs) {
+		t.Fatal("re-emitting below must keep the emitted last_seen")
+	}
+}
+
+func TestFingerprintsEmitConcurrently(t *testing.T) {
+	s := NewFingerprints()
+	const n = 64
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for fp := range uint64(8) {
+				ts := int64(i) * lagMs
+				s.Emit(fp, ts, ts)
+			}
+		}()
+	}
+	wg.Wait()
+	for fp := range uint64(8) {
+		if s.Emit(fp, 0, (n-1)*lagMs) {
+			t.Fatalf("series %d: the emitted bounds must cover every sample emitted concurrently", fp)
+		}
 	}
 }
 
@@ -50,8 +106,8 @@ func TestCachesPerNode(t *testing.T) {
 		t.Fatal("the same node must return the same caches")
 	}
 	b := c.Node("b")
-	a.Fingerprints.FirstSight(1)
-	if !b.Fingerprints.FirstSight(1) {
+	a.Fingerprints.Emit(1, 1000, 1000)
+	if !b.Fingerprints.Emit(1, 1000, 1000) {
 		t.Fatal("nodes must not share the series cache")
 	}
 	a.Predecessors.Next(1, 1000, 1)
