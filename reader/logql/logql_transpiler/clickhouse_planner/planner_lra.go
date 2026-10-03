@@ -43,8 +43,9 @@ func (l *LRAPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		col = sql.NewRawObject(fmt.Sprintf("toFloat64(sum(length(_string))) / %f",
 			float64(l.Duration.Milliseconds())/1000))
 	case "bytes_over_time":
-		col = sql.NewRawObject(fmt.Sprintf("toFloat64(sum(length(_string))) / %f",
-			float64(l.Duration.Milliseconds())/1000))
+		// bytes_over_time returns the total number of bytes in the range,
+		// NOT a per-second rate (that is bytes_rate).
+		col = sql.NewRawObject("toFloat64(sum(length(_string)))")
 	}
 
 	withAgg := sql.NewWith(main, "agg_a")
