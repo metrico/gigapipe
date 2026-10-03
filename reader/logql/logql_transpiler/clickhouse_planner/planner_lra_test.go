@@ -37,9 +37,9 @@ func planSQL(t *testing.T, query string, from, to time.Time, step time.Duration)
 		t.Fatalf("plan %q: %v", query, err)
 	}
 	ctx := &shared.PlannerContext{
-		From:  from,
-		To:    to,
-		Step:  step,
+		From: from,
+		To:   to,
+		Step: step,
 		CHSqlCtx: &sql.Ctx{
 			Params: map[string]sql.SQLObject{},
 			Result: map[string]sql.SQLObject{},
