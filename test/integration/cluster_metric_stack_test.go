@@ -274,8 +274,10 @@ func TestClusterLabelEndpointsAndMetadata(t *testing.T) {
 	// Each shard's view indexes the label names of its own series; the wrapper reads them all.
 	eventually(t, fmt.Sprintf("SELECT count() > 0 FROM metric_label_names_dist WHERE label = '%s'", key), "1")
 	all, _ := labelGet(t, "/api/v1/labels", url.Values{})
-	if got := decode[[]string](t, all.Data); !slices.Contains(got, key) || !slices.Contains(got, "pod") {
-		t.Errorf("labels without a selector = %v", got)
+	allNames := decode[[]string](t, all.Data)
+	if !slices.Contains(allNames, key) || !slices.Contains(allNames, "pod") ||
+		len(slices.Compact(slices.Clone(allNames))) != len(allNames) {
+		t.Errorf("labels without a selector = %v, want each name once with %s and pod", allNames, key)
 	}
 	values, _ := labelGet(t, "/api/v1/label/pod/values", match)
 	if got := decode[[]string](t, values.Data); len(got) != 8 {

@@ -162,7 +162,8 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_label_names {{.OnCluster}} (
   last_seen  SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = {{.AggregatingMergeTree}}
 ORDER BY label
-TTL toDateTime(last_seen) + INTERVAL {{.SERIES_DAYS}} DAY;
+TTL toDateTime(last_seen) + INTERVAL {{.SERIES_DAYS}} DAY
+{{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metric_label_names_mv {{.OnCluster}} TO {{.DB}}.metric_label_names AS
 SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen

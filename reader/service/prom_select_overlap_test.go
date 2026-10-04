@@ -187,3 +187,28 @@ func TestSelectRereadsTheLabelsOnceForASeriesIndexedBetweenTheReads(t *testing.T
 		t.Fatalf("got %v after %d label reads, want two series after two", got, labelReads)
 	}
 }
+
+func TestCloseCancelsTheReadsOfASetNeverRead(t *testing.T) {
+	issued, cancelled := make(chan struct{}, 2), make(chan struct{}, 2)
+	db := fakeclickhouse.NewWithContext(func(ctx context.Context, query string) (fakeclickhouse.Result, error) {
+		issued <- struct{}{}
+		select {
+		case <-ctx.Done():
+			cancelled <- struct{}{}
+			return fakeclickhouse.Result{}, ctx.Err()
+		case <-time.After(5 * time.Second):
+			return fakeclickhouse.Result{}, errors.New("not cancelled")
+		}
+	})
+	querier := querierOf(t, db, rateSubstitute(t))
+	querier.Select(context.Background(), true, substituteHints, substituteMatcher("__metric_subst__1"))
+	<-issued
+	if err := querier.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close left the read running")
+	}
+}

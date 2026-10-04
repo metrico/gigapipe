@@ -238,7 +238,7 @@ func TestSelectFailsOnASubstitutesSeriesWithoutALabelRow(t *testing.T) {
 	}
 }
 
-func TestSelectReadsNoLabelsForASubstituteWithoutPoints(t *testing.T) {
+func TestSelectReadsThePushdownOnceAndNamesNoSeriesForASubstituteWithoutPoints(t *testing.T) {
 	db := substituteRows([][]driver.Value{{uint64(1), map[string]string{"job": "a"}}})
 	got := selectSeries(t, db, rateSubstitute(t), &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))

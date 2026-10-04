@@ -46,7 +46,12 @@ func LabelNamesSQL(q IndexQuery) string {
 	if len(conds) > 0 {
 		having = " HAVING " + strings.Join(conds, " AND ")
 	}
-	return "SELECT label FROM " + table + " GROUP BY label" + having + " ORDER BY label" + q.limit()
+	sql := "SELECT label FROM " + table + " GROUP BY label" + having + " ORDER BY label" + q.limit()
+	if q.Cluster {
+		// A label has rows on every shard holding one of its series: the initiator merges them.
+		sql += " SETTINGS optimize_distributed_group_by_sharding_key = 0"
+	}
+	return sql
 }
 
 // LabelValuesSQL selects the non-empty values of label name over the series q picks, sorted;

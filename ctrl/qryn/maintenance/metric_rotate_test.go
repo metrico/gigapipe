@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
 )
 
 // alter returns the rendered ALTER statements of every metric rotation that
@@ -80,15 +82,46 @@ func TestStoragePolicyCoversEveryStoringMetricTable(t *testing.T) {
 		}
 	}
 	slices.Sort(want)
-	got := slices.Sorted(slices.Values(metricStoringTables))
+	var stored []string
+	for _, p := range metricStoragePolicies {
+		stored = append(stored, p.tables...)
+	}
+	got := slices.Sorted(slices.Values(stored))
 	if len(want) == 0 || !slices.Equal(got, want) {
 		t.Errorf("storing metric tables = %v, want %v", got, want)
 	}
 	for _, r := range metricRotations(testTiers) {
 		for _, table := range r.tables {
-			if !slices.Contains(metricStoringTables, table) {
+			if !slices.Contains(stored, table) {
 				t.Errorf("%s has a TTL but no storage policy", table)
 			}
 		}
+	}
+}
+
+// A deployment whose metric tables already carry the policy still moves metric_label_names.
+func TestStoragePolicyReachesTheLabelNamesTableAfterTheOtherMetricTables(t *testing.T) {
+	settingOf := func(table string) string {
+		for _, p := range metricStoragePolicies {
+			if slices.Contains(p.tables, table) {
+				return p.setting
+			}
+		}
+		t.Fatalf("no storage-policy setting covers %s", table)
+		return ""
+	}
+	if settingOf("metric_label_names") == settingOf("metric_samples") {
+		t.Errorf("metric_label_names shares %s, already applied to the other metric tables", settingOf("metric_samples"))
+	}
+}
+
+func TestNewMetricTablesTakeTheStoragePolicyAtCreation(t *testing.T) {
+	env := migrationEnv("cloki", "", false, 7, "cold_policy", "", false, testTiers)
+	scripts, err := renderScripts(sql.MetricsScript, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := statement(t, scripts, "metric_label_names"); !strings.Contains(s, "SETTINGS storage_policy = 'cold_policy'") {
+		t.Errorf("metric_label_names is created without the storage policy:\n%s", s)
 	}
 }
