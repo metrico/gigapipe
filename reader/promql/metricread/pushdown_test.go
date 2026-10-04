@@ -2,6 +2,7 @@ package metricread
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -24,15 +25,7 @@ func TestPushdownSQLRate(t *testing.T) {
 		"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS first, " +
 		"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS last, " +
 		"countIf(NOT stale) AS count, " +
-		"if(isFinite(sumIf(value, NOT stale)), sumKahanIf(value, NOT stale), sumIf(value, NOT stale)) AS sum, " +
-		"ifNull(minIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS min, " +
-		"ifNull(maxIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS max, " +
-		"countIf(paired AND value < prev_value) AS resets, " +
-		"sumIf(prev_value, paired AND value < prev_value) AS reset_drop, " +
-		"countIf(paired AND value != prev_value AND NOT (isNaN(value) AND isNaN(prev_value))) AS changes, " +
-		"maxIf(timestamp, stale) AS stale_at, " +
-		"argMaxIf(prev, timestamp, NOT stale) AS penult, " +
-		"varPopStableIf(value, NOT stale) AS var " +
+		"sumIf(prev_value, paired AND value < prev_value) AS reset_drop " +
 		"FROM (SELECT fingerprint, timestamp, value, " +
 		"toUnixTimestamp64Milli(timestamp) AS ts_ms, " +
 		"reinterpretAsUInt64(value) = 0x7ff0000000000002 AS stale, " +
@@ -57,7 +50,7 @@ func TestPushdownSQLRate(t *testing.T) {
 		"sampled_s / (count - 1) AS avg_gap_s, " +
 		"(first_ms - window_start_ms) / 1000 AS to_start_s, " +
 		"(t_ms - last_ms) / 1000 AS to_end_s, " +
-		"if(is_counter, last.2 - first.2 + reset_drop, last.2 - first.2) AS change, " +
+		"last.2 - first.2 + reset_drop AS change, " +
 		"if(to_start_s >= avg_gap_s * 1.1, avg_gap_s / 2, to_start_s) AS ext_start_s, " +
 		"if(is_counter AND change > 0 AND first.2 >= 0 AND sampled_s * (first.2 / change) < ext_start_s, " +
 		"sampled_s * (first.2 / change), ext_start_s) AS ext_start_capped_s, " +
@@ -241,7 +234,6 @@ func TestPushdownSQLFirstAndLastAreScalarStates(t *testing.T) {
 	for _, want := range []string{
 		"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS first",
 		"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS last",
-		"maxIf(timestamp, stale) AS stale_at",
 	} {
 		if !strings.Contains(rows, want) {
 			t.Errorf("rows lack %s: %s", want, rows)
@@ -300,5 +292,78 @@ func TestPushdownSQLAggregation(t *testing.T) {
 				t.Fatalf("got  %s\nwant %s", got, tc.want)
 			}
 		})
+	}
+}
+
+// rawRows is the raw row shape over the probe grid carrying cols; prev adds the predecessor.
+func rawRows(rangeMs int64, prev bool, cols string) string {
+	paired, window := "", ""
+	if prev {
+		paired = ", NOT stale AND prev_ms > start_ms + k * step_ms - range_ms AS paired"
+		window = "maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerprint ORDER BY timestamp " +
+			"ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev, " +
+			"toUnixTimestamp64Milli(prev.1) AS prev_ms, prev.2 AS prev_value, "
+	}
+	return fmt.Sprintf("WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 60000 AS step_ms, %d AS range_ms, "+
+		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps%s "+
+		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, %s "+
+		"FROM (SELECT fingerprint, timestamp, value, "+
+		"toUnixTimestamp64Milli(timestamp) AS ts_ms, "+
+		"reinterpretAsUInt64(value) = 0x7ff0000000000002 AS stale, %s"+
+		"greatest(0, if(ts_ms >= start_ms, intDiv(ts_ms - start_ms + step_ms - 1, step_ms), "+
+		"-intDiv(start_ms - ts_ms, step_ms))) AS k_min, "+
+		"least(n_steps - 1, intDiv(ts_ms + range_ms - 1 - start_ms, step_ms)) AS k_max "+
+		"FROM (SELECT fingerprint, timestamp, value FROM metric_samples FINAL "+
+		"WHERE %s "+
+		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) "+
+		"AND timestamp <= fromUnixTimestamp64Milli(end_ms))) "+
+		"ARRAY JOIN range(k_min, k_max + 1) AS k "+
+		"GROUP BY fingerprint, k "+
+		"HAVING count > 0", rangeMs, paired, cols, window, localSeries(1767225600000-rangeMs-1800000, 1767226200000))
+}
+
+func TestRawRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
+	const (
+		first   = "(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS first"
+		last    = "(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS last"
+		count   = "countIf(NOT stale) AS count"
+		sum     = "if(isFinite(sumIf(value, NOT stale)), sumKahanIf(value, NOT stale), sumIf(value, NOT stale)) AS sum"
+		drop    = "sumIf(prev_value, paired AND value < prev_value) AS reset_drop"
+		staleAt = "maxIf(timestamp, stale) AS stale_at"
+	)
+	for _, tc := range []struct {
+		fn   string
+		want string
+	}{
+		{"", rawRows(300000, false, last+", "+count+", "+staleAt)},
+		{"rate", rawRows(300000, true, first+", "+last+", "+count+", "+drop)},
+		{"avg_over_time", rawRows(300000, false, count+", "+sum)},
+		{"count_over_time", rawRows(300000, false, count)},
+	} {
+		t.Run(tc.fn, func(t *testing.T) {
+			got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: tc.fn, RangeMs: 300000, Matchers: probeSelector()}))
+			if got != tc.want {
+				t.Errorf("rows\ngot  %s\nwant %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEveryFunctionReadsOnlyTheColumnsItsRowShapeCarries(t *testing.T) {
+	names := [nColumns]string{colFirst: "first", colLast: "last", colCount: "count", colSum: "sum", colMin: "min",
+		colMax: "max", colResets: "resets", colResetDrop: "reset_drop", colChanges: "changes", colStaleAt: "stale_at",
+		colPenult: "penult", colVar: "var"}
+	for fn, f := range functions {
+		value := f.value(300000)
+		cols := shapeOf(fn)
+		for c, name := range names {
+			reads := regexp.MustCompile(`\b` + name + `\b`).MatchString(value)
+			if reads && !cols.has(column(c)) {
+				t.Errorf("%q reads %s, which its row shape lacks: %s", fn, name, value)
+			}
+			if !reads && cols.has(column(c)) && column(c) != colCount {
+				t.Errorf("%q carries %s, which it does not read: %s", fn, name, value)
+			}
+		}
 	}
 }
