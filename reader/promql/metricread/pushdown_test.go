@@ -12,13 +12,16 @@ import (
 // probeGrid evaluates every minute of the probe's (00:00, 00:10].
 var probeGrid = Grid{StartMs: 1767225600000, EndMs: 1767226200000, StepMs: 60000}
 
+// sampleGrid evaluates every 15s of the probe's (00:00, 00:10]: a raw read fans out each sample.
+var sampleGrid = Grid{StartMs: 1767225600000, EndMs: 1767226200000, StepMs: 15000}
+
 func probeSelector() []*labels.Matcher {
 	return []*labels.Matcher{matcher(labels.MatchEqual, "__name__", "x")}
 }
 
 func TestPushdownSQLRate(t *testing.T) {
-	got := PushdownSQL(Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()})
-	want := "WITH rows AS (WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 60000 AS step_ms, 300000 AS range_ms, " +
+	got := PushdownSQL(Pushdown{Grid: sampleGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()})
+	want := "WITH rows AS (WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 15000 AS step_ms, 300000 AS range_ms, " +
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps, " +
 		"NOT stale AND prev_ms > start_ms + k * step_ms - range_ms AS paired " +
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, " +
@@ -230,17 +233,19 @@ func TestRawPushdownDedupsWithFinalPerPartition(t *testing.T) {
 }
 
 func TestPushdownSQLFirstAndLastAreScalarStates(t *testing.T) {
-	rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: "increase", RangeMs: 300000, Matchers: probeSelector()}))
-	for _, want := range []string{
-		"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS first",
-		"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS last",
-	} {
-		if !strings.Contains(rows, want) {
-			t.Errorf("rows lack %s: %s", want, rows)
+	for _, grid := range []Grid{sampleGrid, probeGrid} {
+		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: grid, Func: "increase", RangeMs: 300000, Matchers: probeSelector()}))
+		for _, want := range []string{
+			"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS ",
+			"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS ",
+		} {
+			if !strings.Contains(rows, want) {
+				t.Errorf("rows lack %s: %s", want, rows)
+			}
 		}
-	}
-	if strings.Contains(rows, "minIf((timestamp, value)") || strings.Contains(rows, "AS first, maxIf((timestamp, value)") {
-		t.Errorf("rows keep a tuple state for first or last: %s", rows)
+		if strings.Contains(rows, "minIf((timestamp, value)") || strings.Contains(rows, "AS first, maxIf((timestamp, value)") {
+			t.Errorf("rows keep a tuple state for first or last: %s", rows)
+		}
 	}
 }
 
@@ -295,7 +300,7 @@ func TestPushdownSQLAggregation(t *testing.T) {
 	}
 }
 
-// rawRows is the raw row shape over the probe grid carrying cols; prev adds the predecessor.
+// rawRows is the raw row shape over the sample grid carrying cols; prev adds the predecessor.
 func rawRows(rangeMs int64, prev bool, cols string) string {
 	paired, window := "", ""
 	if prev {
@@ -304,7 +309,7 @@ func rawRows(rangeMs int64, prev bool, cols string) string {
 			"ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev, " +
 			"toUnixTimestamp64Milli(prev.1) AS prev_ms, prev.2 AS prev_value, "
 	}
-	return fmt.Sprintf("WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 60000 AS step_ms, %d AS range_ms, "+
+	return fmt.Sprintf("WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 15000 AS step_ms, %d AS range_ms, "+
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps%s "+
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, %s "+
 		"FROM (SELECT fingerprint, timestamp, value, "+
@@ -341,7 +346,7 @@ func TestRawRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
 		{"count_over_time", rawRows(300000, false, count)},
 	} {
 		t.Run(tc.fn, func(t *testing.T) {
-			got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: tc.fn, RangeMs: 300000, Matchers: probeSelector()}))
+			got := rowsOf(t, PushdownSQL(Pushdown{Grid: sampleGrid, Func: tc.fn, RangeMs: 300000, Matchers: probeSelector()}))
 			if got != tc.want {
 				t.Errorf("rows\ngot  %s\nwant %s", got, tc.want)
 			}
