@@ -135,3 +135,9 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_1h{{.READ_SUFFIX}} {{.OnCluster}} (
   changes     SimpleAggregateFunction(sum, UInt64),
   stale_at    SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metrics_1h', fingerprint) SETTINGS skip_unavailable_shards = 1;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_label_names{{.READ_SUFFIX}} {{.OnCluster}} (
+  label      String,
+  first_seen SimpleAggregateFunction(min, DateTime64(3)),
+  last_seen  SimpleAggregateFunction(max, DateTime64(3))
+) ENGINE = Distributed('{{.READ_CLUSTER}}', '{{.DB}}', 'metric_label_names', cityHash64(label)) SETTINGS skip_unavailable_shards = 1;

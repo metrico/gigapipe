@@ -126,6 +126,7 @@ func rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 // metricStoringTables are the metric tables that hold data.
 var metricStoringTables = []string{
 	"metric_samples", "metric_exemplars", "metric_series", "metric_metadata", "metrics_5m", "metrics_1h",
+	"metric_label_names",
 }
 
 // metricRotations lists the TTL of each metric table that expires, from the retention tiers.
@@ -164,6 +165,13 @@ func metricRotations(tiers metricretention.Tiers) []tableRotation {
 			insertTime: "toDateTime(last_seen)",
 			dropTTL:    dropAfter("toDateTime(last_seen)", tiers.HourDays),
 			tables:     []string{"metric_series"},
+		},
+		{
+			setting:    "metric_label_names_days",
+			minTTL:     time.Minute,
+			insertTime: "toDateTime(last_seen)",
+			dropTTL:    dropAfter("toDateTime(last_seen)", tiers.HourDays),
+			tables:     []string{"metric_label_names"},
 		},
 	}
 }

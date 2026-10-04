@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -142,6 +143,39 @@ func TestPromLabelEndpointsReadTheSeriesIndex(t *testing.T) {
 		want := []string{"__name__", "job", "le", "path", "service_name", "status"}
 		if got := decode[[]string](t, res.Data); !reflect.DeepEqual(got, want) {
 			t.Fatalf("labels of the dataset = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("names without a selector come from the label names table as the index gives them", func(t *testing.T) {
+		key := fmt.Sprintf("it_lbl_key_%d", sfx)
+		remoteWrite(t, sample(lbls(fmt.Sprintf("it_lblnames_%d", sfx), key, "v"), 1))
+		eventually(t, fmt.Sprintf("SELECT count() > 0 FROM metric_label_names WHERE label = '%s'", key), "1")
+		indexed := func(where string) []string {
+			rows := clickhouseQuery(t, "SELECT arrayStringConcat(groupArray(label), ',') FROM "+
+				"(SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series "+where+" ORDER BY label)")
+			return strings.Split(rows, ",")
+		}
+		start, _ := strconv.ParseInt(bounds.Get("start"), 10, 64)
+		end, err := time.Parse(time.RFC3339, bounds.Get("end"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, tc := range map[string]struct {
+			params url.Values
+			where  string
+		}{
+			"bounded": {with(), fmt.Sprintf("WHERE last_seen >= fromUnixTimestamp64Milli(%d) "+
+				"AND first_seen <= fromUnixTimestamp64Milli(%d)", start*1000-1800000, end.UnixMilli())},
+			"unbounded": {url.Values{}, ""},
+		} {
+			res, _ := labelGet(t, "/api/v1/labels", tc.params)
+			got := decode[[]string](t, res.Data)
+			if want := indexed(tc.where); !reflect.DeepEqual(got, want) {
+				t.Errorf("%s: labels = %q, the series index gives %q", name, got, want)
+			}
+			if !slices.Contains(got, key) {
+				t.Errorf("%s: labels = %q lack %s", name, got, key)
+			}
 		}
 	})
 

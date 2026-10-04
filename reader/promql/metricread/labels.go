@@ -23,10 +23,30 @@ type IndexQuery struct {
 	Cluster bool
 }
 
-// LabelNamesSQL selects the label names of the series q picks, sorted. Rows: label String.
+// LabelNamesSQL selects the label names of the series q picks, sorted: from the label names
+// table without a selector, from the series index with one. Rows: label String.
 func LabelNamesSQL(q IndexQuery) string {
-	return "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM " + q.seriesTable() +
-		q.where() + " ORDER BY label" + q.limit()
+	if len(q.Selectors) > 0 {
+		return "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM " + q.seriesTable() +
+			q.where() + " ORDER BY label" + q.limit()
+	}
+	table := tables.GetTableName("metric_label_names")
+	if q.Cluster {
+		table = tables.GetTableName("metric_label_names_dist")
+	}
+	var conds []string
+	if q.StartMs != nil {
+		conds = append(conds, fmt.Sprintf("max(last_seen) >= fromUnixTimestamp64Milli(%d)",
+			*q.StartMs-metricindex.SeriesIndexLag.Milliseconds()))
+	}
+	if q.EndMs != nil {
+		conds = append(conds, fmt.Sprintf("min(first_seen) <= fromUnixTimestamp64Milli(%d)", *q.EndMs))
+	}
+	having := ""
+	if len(conds) > 0 {
+		having = " HAVING " + strings.Join(conds, " AND ")
+	}
+	return "SELECT label FROM " + table + " GROUP BY label" + having + " ORDER BY label" + q.limit()
 }
 
 // LabelValuesSQL selects the non-empty values of label name over the series q picks, sorted;

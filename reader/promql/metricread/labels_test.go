@@ -30,17 +30,46 @@ func TestLabelNamesSQLNarrowsUnderASelector(t *testing.T) {
 	}
 }
 
-func TestLabelNamesSQLWithoutBoundsSelectorsOrLimitReadsTheWholeIndex(t *testing.T) {
+func TestLabelNamesSQLWithoutBoundsSelectorsOrLimitReadsEveryLabelName(t *testing.T) {
 	got := LabelNamesSQL(IndexQuery{})
-	want := "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series ORDER BY label"
+	want := "SELECT label FROM metric_label_names GROUP BY label ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
 }
 
+func TestLabelNamesSQLWithoutASelectorReadsTheLabelNamesTable(t *testing.T) {
+	for name, tc := range map[string]struct {
+		q    IndexQuery
+		want string
+	}{
+		"both bounds and a limit": {IndexQuery{StartMs: &probeStart, EndMs: &probeEnd, Limit: 100},
+			"SELECT label FROM metric_label_names GROUP BY label " +
+				"HAVING max(last_seen) >= fromUnixTimestamp64Milli(1790811000000) " +
+				"AND min(first_seen) <= fromUnixTimestamp64Milli(1790856000000) " +
+				"ORDER BY label LIMIT 101"},
+		"start only": {IndexQuery{StartMs: &probeStart},
+			"SELECT label FROM metric_label_names GROUP BY label " +
+				"HAVING max(last_seen) >= fromUnixTimestamp64Milli(1790811000000) ORDER BY label"},
+		"end only": {IndexQuery{EndMs: &probeEnd},
+			"SELECT label FROM metric_label_names GROUP BY label " +
+				"HAVING min(first_seen) <= fromUnixTimestamp64Milli(1790856000000) ORDER BY label"},
+	} {
+		if got := LabelNamesSQL(tc.q); got != tc.want {
+			t.Errorf("%s:\ngot  %s\nwant %s", name, got, tc.want)
+		}
+	}
+}
+
 func TestLabelNamesSQLOnAClusterReadsTheDistributedTable(t *testing.T) {
 	got := LabelNamesSQL(IndexQuery{Cluster: true})
-	want := "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series_dist ORDER BY label"
+	want := "SELECT label FROM metric_label_names_dist GROUP BY label ORDER BY label"
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	sel := [][]*labels.Matcher{{matcher(labels.MatchEqual, "__name__", "up")}}
+	got = LabelNamesSQL(IndexQuery{Cluster: true, Selectors: sel})
+	want = "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series_dist WHERE (name = 'up') ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
@@ -150,7 +179,7 @@ func TestExemplarsSQLOnAClusterReadsLocalSeriesUnderTheDistributedTable(t *testi
 
 func TestTheLargestLimitReadsEveryRow(t *testing.T) {
 	got := LabelNamesSQL(IndexQuery{Limit: math.MaxInt})
-	want := "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series ORDER BY label"
+	want := "SELECT label FROM metric_label_names GROUP BY label ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}

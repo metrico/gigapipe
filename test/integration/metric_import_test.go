@@ -239,8 +239,9 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 	clickhouseQuery(t, samplesV3Insert(fp, 2, []importSample{late}))
 	// A series stored as type 0.
 	both, bothFp := imported+"_both", uint64(stamp)|1<<61
+	bothKey := fmt.Sprintf("it_import_key_%d", stamp)
 	clickhouseQuery(t, fmt.Sprintf(`INSERT INTO time_series (date, fingerprint, labels, name, type, metadata, updated_at_ns) `+
-		`VALUES ('%s', %d, '{"__name__":"%s"}', '%s', 0, '', 1)`, h0.Format(time.DateOnly), bothFp, both, both))
+		`VALUES ('%s', %d, '{"__name__":"%s","%s":"v"}', '%s', 0, '', 1)`, h0.Format(time.DateOnly), bothFp, both, bothKey, both))
 	clickhouseQuery(t, samplesV3Insert(bothFp, 0, []importSample{{ns: h0.Add(-3 * time.Minute).UnixNano(), value: 1},
 		{ns: h0.Add(-2 * time.Minute).UnixNano(), value: 2}, {ns: h0.Add(-time.Minute).UnixNano(), value: 3}}))
 	clickhouseQuery(t, fmt.Sprintf("INSERT INTO samples_v3 (fingerprint, timestamp_ns, value, string, type) "+
@@ -288,6 +289,11 @@ func TestMetricImportCopiesTheSharedTablesIntoTheMetricStack(t *testing.T) {
 	if got := clickhouseQuery(t, fmt.Sprintf("SELECT (SELECT any(name) FROM metric_series WHERE fingerprint = %d), "+
 		"(SELECT count() FROM metric_samples FINAL WHERE fingerprint = %d)", bothFp, bothFp)); got != both+"\t3" {
 		t.Errorf("the type 0 series = %q, want its three samples", got)
+	}
+	// The label names table takes the imported series' label names through its view.
+	if got := clickhouseQuery(t, fmt.Sprintf("SELECT count() > 0, min(first_seen) = toDateTime64('%s', 3, 'UTC') "+
+		"FROM metric_label_names WHERE label = '%s'", h0.Format(time.DateOnly), bothKey)); got != "1\t1" {
+		t.Errorf("label names of the imported series = %q", got)
 	}
 	if got := clickhouseQuery(t, fmt.Sprintf("SELECT type, help FROM metric_metadata FINAL WHERE name = '%s'", imported)); got != "counter\tImported" {
 		t.Errorf("metadata = %q", got)
