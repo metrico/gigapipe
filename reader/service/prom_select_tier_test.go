@@ -37,7 +37,7 @@ func TestSelectReadsASubstituteFromTheTierAndEndsItOnTheQueryGrid(t *testing.T) 
 		t.Errorf("got %v, want %v", g, want)
 	}
 	pushdown.Tier = metricread.Tier5m
-	if q := db.Queries(); len(q) != 2 || q[0] != metricread.PushdownSQL(pushdown) || q[1] != metricread.PushdownLabelsSQL(pushdown) {
+	if q := db.Queries(); !sameQueries(q, metricread.PushdownSQL(pushdown), metricread.PushdownLabelsSQL(pushdown)) {
 		t.Errorf("queries = %q, want the pushdown from the 5m tier and its labels", q)
 	}
 }
@@ -95,7 +95,7 @@ func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 			expr.Read = tc.read
 			selectRouted(t, db, tc.routing, expr, &storage.SelectHints{Start: tc.read.Grid.StartMs, End: tc.read.Grid.EndMs},
 				labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
-			if q := db.Queries(); len(q) != 1 || !strings.Contains(q[0], " FROM "+tc.want+" ") {
+			if q := pointsReads(db.Queries()); len(q) != 1 || !strings.Contains(q[0], " FROM "+tc.want+" ") {
 				t.Errorf("queries = %q, want a read of %s", q, tc.want)
 			}
 		})
