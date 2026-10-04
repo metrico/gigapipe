@@ -195,7 +195,7 @@ func pushedDown(t *testing.T, marker string) bool {
 			"AND query LIKE '%%%s%%' AND query NOT LIKE '%%system.query_log%%' AND %s", marker, cond))
 	}
 	return count("query LIKE '%ARRAY JOIN range(k_min%'") != "0" &&
-		count("query LIKE '%LIMIT 1 BY fingerprint, timestamp' AND query NOT LIKE '%ARRAY JOIN%'") == "0"
+		count("query LIKE '%FROM metric_samples FINAL WHERE%' AND query NOT LIKE '%ARRAY JOIN%'") == "0"
 }
 
 func TestPromQLPushdownReproducesTheProbe(t *testing.T) {

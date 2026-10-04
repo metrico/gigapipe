@@ -225,36 +225,27 @@ func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints
 }
 
 // selectSubstitute evaluates a substitute's pushdown at the query's own timestamps, from the
-// query's tier.
+// query's tier, and names each of its series from one label row per fingerprint. The labels
+// are read after the points, so every fingerprint read has a label row.
 func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute) ([]*model.SeriesV2, error) {
 	pushdown := sub.Pushdown
 	pushdown.Tier = c.tier
 	pushdown.Cluster = c.cluster()
-	rows, err := c.query(ctx, metricread.PushdownSQL(pushdown))
+	series, err := c.readPoints(ctx, metricread.PushdownSQL(pushdown))
+	if err != nil || len(series) == 0 {
+		return nil, err
+	}
+	lbls, err := c.readSeries(ctx, metricread.PushdownLabelsSQL(pushdown))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var (
-		series []*model.SeriesV2
-		lbls   = seriesLabels{}
-		fp     uint64
-		set    map[string]string
-		tMs    int64
-		val    float64
-	)
-	for rows.Next() {
-		if err := rows.Scan(&fp, &set, &tMs, &val); err != nil {
-			return nil, err
-		}
-		if _, ok := lbls[fp]; !ok {
-			lbls[fp] = labelsFromMap(set)
-		}
-		series = appendSample(series, lbls, fp, tMs, val)
+	for _, s := range series {
+		s.LabelsGetter = lbls
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+	series = slices.DeleteFunc(series, func(s *model.SeriesV2) bool {
+		_, ok := lbls[s.Fp]
+		return !ok
+	})
 	if err := uniqueLabelSets(series); err != nil {
 		return nil, err
 	}
@@ -263,6 +254,28 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 		s.Samples = appendStaleMarker(s.Samples, grid.StepMs, grid.EndMs)
 	}
 	return series, nil
+}
+
+// readPoints returns the series of the (fingerprint, t_ms, value) rows of query, unnamed.
+func (c *CLokiQuerier) readPoints(ctx context.Context, query string) ([]*model.SeriesV2, error) {
+	rows, err := c.query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var (
+		series []*model.SeriesV2
+		fp     uint64
+		tMs    int64
+		val    float64
+	)
+	for rows.Next() {
+		if err := rows.Scan(&fp, &tMs, &val); err != nil {
+			return nil, err
+		}
+		series = appendSample(series, nil, fp, tMs, val)
+	}
+	return series, rows.Err()
 }
 
 // errSameLabelset is the engine's error for a function result holding two series with one
@@ -283,7 +296,7 @@ func uniqueLabelSets(series []*model.SeriesV2) error {
 	return nil
 }
 
-// readSeries returns the label set of every fingerprint the series query selects.
+// readSeries returns the label set of every fingerprint the (fingerprint, labels) query selects.
 func (c *CLokiQuerier) readSeries(ctx context.Context, query string) (seriesLabels, error) {
 	rows, err := c.query(ctx, query)
 	if err != nil {

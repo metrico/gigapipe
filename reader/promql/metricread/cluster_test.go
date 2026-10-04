@@ -33,16 +33,19 @@ func TestSamplesOnAClusterAreFilteredByEachShardsLocalSeries(t *testing.T) {
 		return PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 300000, Matchers: probeSelector(),
 			Tier: tier, Cluster: true})
 	}
+	aggregated := PushdownSQL(Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector(),
+		Aggregation: &Aggregation{Op: "sum"}, Cluster: true})
 	for name, tc := range map[string]struct {
 		sql  string
 		want []string
 	}{
 		"raw samples":      {RawSamplesSQL(cw, probeSelector()), []string{"metric_samples_dist", "metric_series"}},
 		"tier samples":     {TierSamplesSQL(cw, Tier5m, probeSelector()), []string{"metrics_5m_dist", "metric_series"}},
-		"raw pushdown":     {pushdown("rate", RawTier), []string{"metric_series_dist", "metric_samples_dist", "metric_series"}},
-		"tier pushdown":    {pushdown("rate", Tier5m), []string{"metric_series_dist", "metrics_5m_dist", "metric_series"}},
-		"tier instant":     {pushdown("", Tier1h), []string{"metric_series_dist", "metrics_1h_dist", "metric_series"}},
-		"unaligned stamps": {PushdownSQL(Pushdown{Grid: Grid{StartMs: 1767225660000, EndMs: 1767226260000, StepMs: 60000}, Func: "rate", RangeMs: 300000, Matchers: probeSelector(), Tier: Tier5m, Cluster: true}), []string{"metric_series_dist", "metrics_5m_dist", "metric_series"}},
+		"raw pushdown":     {pushdown("rate", RawTier), []string{"metric_samples_dist", "metric_series"}},
+		"raw aggregation":  {aggregated, []string{"metric_series_dist", "metric_samples_dist", "metric_series"}},
+		"tier pushdown":    {pushdown("rate", Tier5m), []string{"metrics_5m_dist", "metric_series"}},
+		"tier instant":     {pushdown("", Tier1h), []string{"metrics_1h_dist", "metric_series"}},
+		"unaligned stamps": {PushdownSQL(Pushdown{Grid: Grid{StartMs: 1767225660000, EndMs: 1767226260000, StepMs: 60000}, Func: "rate", RangeMs: 300000, Matchers: probeSelector(), Tier: Tier5m, Cluster: true}), []string{"metrics_5m_dist", "metric_series"}},
 	} {
 		if got := tablesRead(tc.sql); !slices.Equal(got, tc.want) {
 			t.Errorf("%s reads %v, want %v:\n%s", name, got, tc.want, tc.sql)
@@ -68,6 +71,8 @@ func TestSeriesSelectionOnAClusterReadsTheDistributedIndex(t *testing.T) {
 		"values":   LabelValuesSQL("job", q),
 		"__name__": LabelValuesSQL(labels.MetricName, q),
 		"series":   SeriesListSQL(q),
+		"pushdown labels": PushdownLabelsSQL(Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 300000,
+			Matchers: probeSelector(), Cluster: true}),
 		"metadata": MetadataSQL("x", -1, true),
 	} {
 		got := tablesRead(sql)
@@ -79,7 +84,7 @@ func TestSeriesSelectionOnAClusterReadsTheDistributedIndex(t *testing.T) {
 
 func TestSamplesOnASingleNodeReadTheLocalTables(t *testing.T) {
 	got := tablesRead(PushdownSQL(Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()}))
-	if want := []string{"metric_series", "metric_samples", "metric_series"}; !slices.Equal(got, want) {
+	if want := []string{"metric_samples", "metric_series"}; !slices.Equal(got, want) {
 		t.Errorf("reads %v, want %v", got, want)
 	}
 }

@@ -43,8 +43,8 @@ func tierRows(header string, seriesFromMs, seriesToMs int64) string {
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps, " +
 		"prev_b_ms > 0 AND prev_b_ms > start_ms + k * step_ms - range_ms AS prev_in " +
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, " +
-		"min(b_first) AS first, " +
-		"max(b_last) AS last, " +
+		"(min(b_first.1), argMin(b_first.2, b_first.1)) AS first, " +
+		"(max(b_last.1), argMax(b_last.2, b_last.1)) AS last, " +
 		"sum(b_count) AS count, " +
 		"if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum, " +
 		"if(min(b_min) > max(b_max), nan, min(b_min)) AS min, " +
@@ -79,7 +79,7 @@ func TestTierPushdownSQLMergesWholeBucketsAtAnAlignedRead(t *testing.T) {
 	if got := rowsOf(t, sql); got != want {
 		t.Errorf("rows\ngot  %s\nwant %s", got, want)
 	}
-	if !strings.HasPrefix(sql, "WITH fp AS (") || !strings.Contains(sql, "WITH 600000 AS range_ms, 1 AS is_counter, 1 AS per_second, ") {
+	if !strings.HasPrefix(sql, "WITH rows AS (") || !strings.Contains(sql, "WITH 600000 AS range_ms, 1 AS is_counter, 1 AS per_second, ") {
 		t.Errorf("not evaluated as rate[10m] at the query's own timestamps: %s", sql)
 	}
 }
@@ -115,8 +115,8 @@ func TestTierPushdownSQLSnapsTimestampsAndWidensRanges(t *testing.T) {
 			if !strings.HasPrefix(sql, tc.wantStamp) {
 				t.Fatalf("not stamped at the query's timestamps: %s", sql)
 			}
-			const tail = "SELECT fingerprint, labels, start_ms + k * step_ms AS t_ms, value FROM (" +
-				"SELECT fingerprint, labels, t_ms AS tier_ms, value FROM (WITH fp AS ("
+			const tail = "SELECT fingerprint, start_ms + k * step_ms AS t_ms, value FROM (" +
+				"SELECT fingerprint, t_ms AS tier_ms, value FROM (WITH rows AS ("
 			if !strings.HasPrefix(sql[len(tc.wantStamp):], tail) {
 				t.Errorf("stamp\ngot  %s\nwant %s", sql[len(tc.wantStamp):], tail)
 			}
@@ -151,9 +151,11 @@ func TestTierPushdownSQLInstantSelectorReadsTheBucketsLast(t *testing.T) {
 	if got := rowsOf(t, sql); got != want {
 		t.Errorf("rows\ngot  %s\nwant %s", got, want)
 	}
-	points, lbls := pointsOf(t, sql)
-	if points != "SELECT fingerprint, t_ms, last.2 AS value FROM rows WHERE last.1 > stale_at" || lbls != "label_set" {
-		t.Errorf("points %s with labels %s", points, lbls)
+	if points := pointsOf(t, sql); points != "SELECT fingerprint, t_ms, last.2 AS value FROM rows WHERE last.1 > stale_at" {
+		t.Errorf("points %s", points)
+	}
+	if strings.Contains(sql, "SETTINGS") {
+		t.Errorf("a tier read carries the raw dedup settings: %s", sql)
 	}
 }
 

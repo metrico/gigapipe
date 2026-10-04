@@ -11,19 +11,28 @@ import (
 // to the tier grid and each range widened to whole buckets, at least one; each point is
 // stamped at the query's own timestamp. An aligned read is evaluated as it stands.
 func tierPushdownSQL(p Pushdown) string {
-	w := p.Tier.WidthMs
-	q := p
-	q.Grid = snap(p.Grid, w)
+	q := tierRead(p)
 	rows := tierInstantRowsSQL(q)
 	if q.Func != "" {
-		q.RangeMs = max(w, (p.RangeMs+w-1)/w*w)
 		rows = tierRowsSQL(q)
 	}
 	sql := pushdownSQL(q, rows)
 	if q.Grid == p.Grid {
 		return sql
 	}
-	return stamp(sql, p.Grid, w)
+	return stamp(sql, p.Grid, p.Tier.WidthMs)
+}
+
+// tierRead is p as its tier evaluates it: the grid snapped down and a range function's range
+// widened to whole buckets, at least one.
+func tierRead(p Pushdown) Pushdown {
+	w := p.Tier.WidthMs
+	q := p
+	q.Grid = snap(p.Grid, w)
+	if q.Func != "" {
+		q.RangeMs = max(w, (p.RangeMs+w-1)/w*w)
+	}
+	return q
 }
 
 // snap moves g's timestamps down to the grid of width w: its step stays when a multiple of w
@@ -43,8 +52,8 @@ func stamp(sql string, g Grid, w int64) string {
 	step := max(g.StepMs, 1)
 	return fmt.Sprintf("WITH %d AS start_ms, %d AS step_ms, %d AS w_ms, "+
 		"intDiv(%d - start_ms, step_ms) + 1 AS n_steps "+
-		"SELECT fingerprint, labels, start_ms + k * step_ms AS t_ms, value FROM ("+
-		"SELECT fingerprint, labels, t_ms AS tier_ms, value FROM (%s)) "+
+		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, value FROM ("+
+		"SELECT fingerprint, t_ms AS tier_ms, value FROM (%s)) "+
 		"ARRAY JOIN range(greatest(0, if(tier_ms >= start_ms, intDiv(tier_ms - start_ms + step_ms - 1, step_ms), "+
 		"-intDiv(start_ms - tier_ms, step_ms))), "+
 		"least(n_steps - 1, intDiv(tier_ms + w_ms - 1 - start_ms, step_ms)) + 1) AS k "+
@@ -63,8 +72,8 @@ func tierRowsSQL(p Pushdown) string {
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps, "+
 		"prev_b_ms > 0 AND prev_b_ms > start_ms + k * step_ms - range_ms AS prev_in "+
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, "+
-		"min(b_first) AS first, "+
-		"max(b_last) AS last, "+
+		"(min(b_first.1), argMin(b_first.2, b_first.1)) AS first, "+
+		"(max(b_last.1), argMax(b_last.2, b_last.1)) AS last, "+
 		"sum(b_count) AS count, "+
 		"if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum, "+
 		"if(min(b_min) > max(b_max), nan, min(b_min)) AS min, "+
