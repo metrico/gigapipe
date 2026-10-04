@@ -292,7 +292,7 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 		}
 		return nil, err
 	}
-	if slices.ContainsFunc(series, func(s *model.SeriesV2) bool { return lbls[s.Fp] == nil }) {
+	if slices.ContainsFunc(series, func(s *model.SeriesV2) bool { _, ok := lbls[s.Fp]; return !ok }) {
 		var err error
 		if lbls, err = c.readSeries(ctx, labelsSQL); err != nil {
 			return nil, err

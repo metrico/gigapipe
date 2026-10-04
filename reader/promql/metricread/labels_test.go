@@ -63,7 +63,8 @@ func TestLabelNamesSQLWithoutASelectorReadsTheLabelNamesTable(t *testing.T) {
 
 func TestLabelNamesSQLOnAClusterReadsTheDistributedTable(t *testing.T) {
 	got := LabelNamesSQL(IndexQuery{Cluster: true})
-	want := "SELECT label FROM metric_label_names_dist GROUP BY label ORDER BY label"
+	want := "SELECT label FROM metric_label_names_dist GROUP BY label ORDER BY label " +
+		"SETTINGS optimize_distributed_group_by_sharding_key = 0"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}

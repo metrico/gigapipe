@@ -18,7 +18,7 @@ var metricWrappers = map[string]string{
 	"metrics_5m":         "fingerprint",
 	"metrics_1h":         "fingerprint",
 	"metric_metadata":    "cityHash64(name)",
-	"metric_label_names": "cityHash64(label)",
+	"metric_label_names": "rand()",
 }
 
 func render(t *testing.T, file string, env map[string]string) []string {

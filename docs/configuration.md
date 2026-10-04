@@ -41,9 +41,9 @@ With `CLUSTER_NAME` set, every metric table has a `Distributed` table over it, n
 | `metric_series` | `metric_series_dist` | `fingerprint` |
 | `metric_exemplars` | `metric_exemplars_dist` | `fingerprint` |
 | `metric_metadata` | `metric_metadata_dist` | `cityHash64(name)` |
-| `metric_label_names` | `metric_label_names_dist` | `cityHash64(label)` |
+| `metric_label_names` | `metric_label_names_dist` | `rand()` |
 
-Samples are written to `metric_samples_in_dist`. Each block lands on the shard of its series' fingerprint, and that shard's materialized views fill its raw samples and both aggregate tiers. The raw samples, tier buckets, series row and exemplars of a series are therefore all on one shard. PromQL reads the `_dist` tables, and each shard filters its own samples by its own `metric_series` rows. This holds only while the samples, tier, series and exemplar tables are all sharded by `fingerprint`, so the sharding keys above must not be changed. Each shard's view keeps the label names of its own series in `metric_label_names`, and `/api/v1/labels` without a selector reads them all through the wrapper.
+Samples are written to `metric_samples_in_dist`. Each block lands on the shard of its series' fingerprint, and that shard's materialized views fill its raw samples and both aggregate tiers. The raw samples, tier buckets, series row and exemplars of a series are therefore all on one shard. PromQL reads the `_dist` tables, and each shard filters its own samples by its own `metric_series` rows. This holds only while the samples, tier, series and exemplar tables are all sharded by `fingerprint`, so the sharding keys above must not be changed. Each shard's view keeps the label names of its own series in `metric_label_names`, so one name has rows on several shards; `/api/v1/labels` without a selector merges them on the initiator. Its wrapper's `rand()` key places only rows inserted through it.
 
 - **Sender affinity.** With several writers, every sample of one series must reach the same writer, for example through a load balancer that is sticky per sender. In-order remote write already needs this. Without it the aggregate tiers can miss pairs of samples, so `rate`, `increase`, `resets` and `changes` served from a tier can be wrong. Raw samples stay exact.
 

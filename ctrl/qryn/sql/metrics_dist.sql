@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_label_names_dist {{.OnCluster}} (
   label      String,
   first_seen SimpleAggregateFunction(min, DateTime64(3)),
   last_seen  SimpleAggregateFunction(max, DateTime64(3))
-) ENGINE = Distributed('{{.CLUSTER}}', '{{.DB}}', 'metric_label_names', cityHash64(label)) {{.DIST_CREATE_SETTINGS}};
+) ENGINE = Distributed('{{.CLUSTER}}', '{{.DB}}', 'metric_label_names', rand()) {{.DIST_CREATE_SETTINGS}};
 
 INSERT INTO {{.DB}}.metric_label_names_dist (label, first_seen, last_seen)
 SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen
