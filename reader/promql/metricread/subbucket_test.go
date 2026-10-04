@@ -13,14 +13,17 @@ func TestSubBucketWidth(t *testing.T) {
 		step, rangeMs int64
 		want          int64
 	}{
-		{"5m at 2m", 2 * m, 5 * m, m},
+		{"75m at 2m", 2 * m, 75 * m, m},
 		{"1h at 2m", 2 * m, h, 2 * m},
-		{"10m at 3m", 3 * m, 10 * m, m},
-		{"1h at 30s", 30 * s, h, 30 * s},
-		{"lookback at 3m", 3 * m, 5 * m, m},
-		{"5m at 15s fans out each sample", 15 * s, 5 * m, 0},
-		{"30s at 20s fans out each sample", 20 * s, 30 * s, 0},
-		{"range of one step reaches one window", m, m, 0},
+		{"100m at 3m", 3 * m, 100 * m, m},
+		{"30m at 1m", m, 30 * m, m},
+		{"150m at 5m", 5 * m, 150 * m, 5 * m},
+		{"29m at 1m spans under 30 steps", m, 29 * m, 0},
+		{"5m at 2m spans under 30 steps", 2 * m, 5 * m, 0},
+		{"lookback at 1m spans under 30 steps", m, 5 * m, 0},
+		{"1h at 30s groups under a minute", 30 * s, h, 0},
+		{"1h at 105s groups under a minute", 105 * s, h, 0},
+		{"5m at 15s", 15 * s, 5 * m, 0},
 		{"range below the step reaches one window", 5 * m, m, 0},
 		{"instant", 0, 5 * m, 0},
 	} {
@@ -33,7 +36,7 @@ func TestSubBucketWidth(t *testing.T) {
 	}
 }
 
-// probeSubBuckets groups the probe's raw samples into 1m sub-buckets carrying aggs; prev adds each
+// probeSubBuckets groups the probe's raw samples over 30m windows into 1m sub-buckets carrying aggs; prev adds each
 // sample's predecessor, paired its pairing inside the sub-bucket.
 func probeSubBuckets(prev, paired bool, aggs, having string) string {
 	window := ""
@@ -52,14 +55,14 @@ func probeSubBuckets(prev, paired bool, aggs, having string) string {
 		"if(ts_ms >= start_ms, intDiv(ts_ms - start_ms + w_ms - 1, w_ms), -intDiv(start_ms - ts_ms, w_ms)) AS j" +
 		window + " " +
 		"FROM (SELECT fingerprint, timestamp, value FROM metric_samples FINAL " +
-		"WHERE " + localSeries(1767223500000, 1767226200000) + " " +
+		"WHERE " + localSeries(1767222000000, 1767226200000) + " " +
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND timestamp <= fromUnixTimestamp64Milli(end_ms))) " +
 		"GROUP BY fingerprint, j" + having
 }
 
 const subBucketHeader = "WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 60000 AS step_ms, " +
-	"300000 AS range_ms, 60000 AS w_ms, intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps"
+	"1800000 AS range_ms, 60000 AS w_ms, intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps"
 
 // fanOut places each sub-bucket on the steps whose window holds it and groups per step.
 const fanOut = "greatest(0, if(b_ms >= start_ms, intDiv(b_ms - start_ms + step_ms - 1, step_ms), " +
@@ -67,7 +70,7 @@ const fanOut = "greatest(0, if(b_ms >= start_ms, intDiv(b_ms - start_ms + step_m
 	"least(n_steps - 1, intDiv(b_ms - w_ms + range_ms - start_ms, step_ms)) AS k_max "
 
 func TestRawPushdownSQLReadsSubBucketsAsATierWould(t *testing.T) {
-	got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()}))
+	got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 1800000, Matchers: probeSelector()}))
 	want := subBucketHeader + ", prev_b_ms > 0 AND prev_b_ms > start_ms + k * step_ms - range_ms AS prev_in " +
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, " +
 		"(min(b_first.1), argMin(b_first.2, b_first.1)) AS first, " +
@@ -130,7 +133,7 @@ func TestSubBucketRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
 				last+", "+count+", argMaxIf(prev, timestamp, NOT stale) AS b_penult", " HAVING b_count > 0")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: tc.fn, RangeMs: 300000, Matchers: probeSelector()}))
+			got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: tc.fn, RangeMs: 1800000, Matchers: probeSelector()}))
 			if got != tc.want {
 				t.Errorf("rows\ngot  %s\nwant %s", got, tc.want)
 			}
@@ -144,7 +147,7 @@ func TestSubBucketsPairAcrossTheirEdgesForResetsAndChanges(t *testing.T) {
 		"changes": "sum(b_changes) + countIf(prev_in AND b_first.2 != prev_last.2 " +
 			"AND NOT (isNaN(b_first.2) AND isNaN(prev_last.2))) AS changes",
 	} {
-		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 300000, Matchers: probeSelector()}))
+		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 1800000, Matchers: probeSelector()}))
 		for _, part := range []string{want, "lagInFrame(b_last) OVER w AS prev_last", "NOT stale AND prev_ms > start_ms + (j - 1) * w_ms AS paired"} {
 			if !strings.Contains(rows, part) {
 				t.Errorf("%s rows lack %s: %s", fn, part, rows)
@@ -155,7 +158,8 @@ func TestSubBucketsPairAcrossTheirEdgesForResetsAndChanges(t *testing.T) {
 
 func TestRawPushdownKeepsTheSamplePathWhereSubBucketsSaveNothing(t *testing.T) {
 	for name, p := range map[string]Pushdown{
-		"15s step":      {Grid: sampleGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()},
+		"15s step":      {Grid: sampleGrid, Func: "rate", RangeMs: 1800000, Matchers: probeSelector()},
+		"5m at 1m":      {Grid: probeGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()},
 		"range of step": {Grid: probeGrid, Func: "rate", RangeMs: 60000, Matchers: probeSelector()},
 		"instant":       {Grid: Grid{StartMs: probeGrid.EndMs, EndMs: probeGrid.EndMs}, Func: "rate", RangeMs: 300000, Matchers: probeSelector()},
 	} {
@@ -180,7 +184,7 @@ func TestEverySubBucketMergeIsReadAndEveryReadMergeComputed(t *testing.T) {
 		return s[:j]
 	}
 	for fn := range functions {
-		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 300000, Matchers: probeSelector()}))
+		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 1800000, Matchers: probeSelector()}))
 		computed := map[string]bool{}
 		for _, m := range alias.FindAllString(between(rows, "AS bucket, ", " FROM (SELECT fingerprint, timestamp"), -1) {
 			computed[m] = true

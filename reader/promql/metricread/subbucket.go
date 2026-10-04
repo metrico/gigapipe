@@ -2,23 +2,25 @@ package metricread
 
 import "slices"
 
-// subBucketMinMs is the narrowest sub-bucket a raw read groups samples into: one no wider than a
-// 15s scrape interval holds about one sample, so fanning out each sample reads as many rows.
-const subBucketMinMs = 15000
+// A raw read groups samples into sub-buckets only where the grouping costs less than the fan-out
+// it saves: sub-buckets of at least subBucketMinMs (four samples at a 15s scrape interval) and
+// windows of at least subBucketMinSteps steps, so each sub-bucket is fanned out that often.
+const (
+	subBucketMinMs    = 60000
+	subBucketMinSteps = 30
+)
 
 // subBucketMs is the width a raw read of p groups samples into before the fan-out, gcd(step,
-// range), or 0 to fan out each sample: at an instant, when the range reaches no further than one
-// step, or when the width is at most subBucketMinMs.
+// range), or 0 to fan out each sample.
 func subBucketMs(p Pushdown) int64 {
 	step, rng := p.Grid.StepMs, p.RangeMs
-	if step <= 0 || rng <= step {
+	if step <= 0 || rng < subBucketMinSteps*step {
 		return 0
 	}
-	w := gcd(step, rng)
-	if w <= subBucketMinMs {
-		return 0
+	if w := gcd(step, rng); w >= subBucketMinMs {
+		return w
 	}
-	return w
+	return 0
 }
 
 func gcd(a, b int64) int64 {

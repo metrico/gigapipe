@@ -195,9 +195,10 @@ type function struct {
 // subBucketMs allows and each sample otherwise, exact either way:
 //
 //	function                                     raw route where subBucketMs > 0
-//	"", delta, the *_over_time below             sub-buckets
+//	delta, the *_over_time below                 sub-buckets
 //	rate, increase, resets, changes              sub-buckets, the pair across an edge from lagInFrame
 //	irate, idelta                                sub-buckets, each keeping its last sample's predecessor
+//	""                                           each sample: a 5m lookback spans under 30 steps of 1m
 //	quantile_over_time, mad_over_time, deriv,    not pushed down: the engine reads every sample
 //	predict_linear, double_exponential_smoothing
 var functions = map[string]function{

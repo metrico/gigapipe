@@ -375,13 +375,13 @@ func subBucketProbe(t0 int64) (counter, gauge []*prompb.Sample) {
 }
 
 // subBucketed reports whether a raw read at stepMs over rangeMs groups its samples into
-// sub-buckets: gcd(step, range) above 15s and a range longer than the step.
+// sub-buckets: gcd(step, range) of a minute or more and a range of 30 steps or more.
 func subBucketed(stepMs, rangeMs int64) bool {
 	a, b := stepMs, rangeMs
 	for b != 0 {
 		a, b = b, a%b
 	}
-	return rangeMs > stepMs && a > 15000
+	return rangeMs >= 30*stepMs && a >= 60000
 }
 
 func TestPromQLPushdownOverSubBucketsEqualsTheEngine(t *testing.T) {
@@ -413,8 +413,9 @@ func TestPromQLPushdownOverSubBucketsEqualsTheEngine(t *testing.T) {
 		rng             string
 		rangeMs, stepMs int64
 	}{
-		{"5m", 300000, 120000}, {"1h", 3600000, 120000}, {"10m", 600000, 180000}, {"10m", 600000, 300000},
-		{"1h", 3600000, 300000}, {"1h", 3600000, 30000}, {"2m", 120000, 120000}, {"5m", 300000, 15000},
+		{"1h", 3600000, 120000}, {"75m", 4500000, 120000}, {"100m", 6000000, 180000}, {"1h", 3600000, 60000},
+		{"150m", 9000000, 300000}, {"5m", 300000, 120000}, {"10m", 600000, 180000}, {"1h", 3600000, 300000},
+		{"1h", 3600000, 30000}, {"2m", 120000, 120000}, {"5m", 300000, 15000},
 	} {
 		for _, fn := range []string{"rate", "increase", "delta", "irate", "idelta", "resets", "changes",
 			"count_over_time", "sum_over_time", "min_over_time", "max_over_time", "avg_over_time",
