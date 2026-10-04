@@ -62,7 +62,11 @@ func PushdownSQL(p Pushdown) string {
 	if p.Tier.WidthMs > 0 {
 		return tierPushdownSQL(p)
 	}
-	return pushdownSQL(p, rawRowsSQL(p)) + " SETTINGS " + finalSettings
+	rows := rawRowsSQL(p)
+	if w := subBucketMs(p); w > 0 {
+		rows = subBucketRowsSQL(p, w)
+	}
+	return pushdownSQL(p, rows) + " SETTINGS " + finalSettings
 }
 
 // PushdownLabelsSQL selects the output label set of every fingerprint PushdownSQL returns for
@@ -141,9 +145,7 @@ func rawRowsSQL(p Pushdown) string {
 	paired, window := "", ""
 	if cols.prev() {
 		paired = ", NOT stale AND prev_ms > start_ms + k * step_ms - range_ms AS paired"
-		window = "maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerprint ORDER BY timestamp " +
-			"ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev, " +
-			"toUnixTimestamp64Milli(prev.1) AS prev_ms, prev.2 AS prev_value, "
+		window = prevSQL + ", "
 	}
 	return fmt.Sprintf("WITH %d AS start_ms, %d AS end_ms, %d AS step_ms, %d AS range_ms, "+
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps%s "+
@@ -154,15 +156,26 @@ func rawRowsSQL(p Pushdown) string {
 		"greatest(0, if(ts_ms >= start_ms, intDiv(ts_ms - start_ms + step_ms - 1, step_ms), "+
 		"-intDiv(start_ms - ts_ms, step_ms))) AS k_min, "+
 		"least(n_steps - 1, intDiv(ts_ms + range_ms - 1 - start_ms, step_ms)) AS k_max "+
-		"FROM (SELECT fingerprint, timestamp, value FROM %s FINAL "+
-		"WHERE %s "+
-		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) "+
-		"AND timestamp <= fromUnixTimestamp64Milli(end_ms))) "+
+		"FROM (%s)) "+
 		"ARRAY JOIN range(k_min, k_max + 1) AS k "+
 		"GROUP BY fingerprint, k "+
 		"HAVING count > 0",
-		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, paired, cols.list(rawColumn),
-		window, p.window().table("metric_samples"), seriesIn(p.window(), p.Matchers))
+		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, paired, cols.list(&rawColumn),
+		window, rawWindowSQL(p))
+}
+
+// prevSQL is each raw sample's predecessor, the previous non-stale sample of its series.
+const prevSQL = "maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerprint ORDER BY timestamp " +
+	"ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev, " +
+	"toUnixTimestamp64Milli(prev.1) AS prev_ms, prev.2 AS prev_value"
+
+// rawWindowSQL selects the raw samples of p's series in (start_ms − range_ms, end_ms], the last
+// written of each (fingerprint, timestamp).
+func rawWindowSQL(p Pushdown) string {
+	return "SELECT fingerprint, timestamp, value FROM " + p.window().table("metric_samples") + " FINAL " +
+		"WHERE " + seriesIn(p.window(), p.Matchers) + " " +
+		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) " +
+		"AND timestamp <= fromUnixTimestamp64Milli(end_ms)"
 }
 
 // valueSQL turns the row shape into the function's value at each t, as Prometheus computes it.
@@ -178,7 +191,15 @@ type function struct {
 }
 
 // functions holds each pushed-down function; "" is the instant selector, the last sample of
-// (t − lookback, t] unless a stale marker follows it.
+// (t − lookback, t] unless a stale marker follows it. A raw read takes sub-buckets where
+// subBucketMs allows and each sample otherwise, exact either way:
+//
+//	function                                     raw route where subBucketMs > 0
+//	"", delta, the *_over_time below             sub-buckets
+//	rate, increase, resets, changes              sub-buckets, the pair across an edge from lagInFrame
+//	irate, idelta                                sub-buckets, each keeping its last sample's predecessor
+//	quantile_over_time, mad_over_time, deriv,    not pushed down: the engine reads every sample
+//	predict_linear, double_exponential_smoothing
 var functions = map[string]function{
 	"":                  {points("last.2", "last.1 > stale_at"), shape{colLast, colStaleAt}},
 	"rate":              {func(r int64) string { return extrapolatedSQL(r, true, true) }, shape{colFirst, colLast, colResetDrop}},
@@ -257,7 +278,7 @@ func (s shape) prev() bool {
 }
 
 // list lists the shape's columns, each from aggs, in row order.
-func (s shape) list(aggs [nColumns]string) string {
+func (s shape) list(aggs *[nColumns]string) string {
 	var res []string
 	for c := range nColumns {
 		if s.has(c) {

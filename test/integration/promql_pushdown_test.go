@@ -349,3 +349,82 @@ func TestPromQLPushdownOnSeriesSharingALabelSetOnceNamesAreDropped(t *testing.T)
 		}
 	}
 }
+
+// subBucketProbe is two hours of a counter and a gauge, 15s apart from t0. The counter resets
+// at every 37th sample, falling at every offset to a 1m or 2m edge, and at 01:00:15, just past
+// a 5m edge; both series carry a stale marker 5s after every 53rd sample.
+func subBucketProbe(t0 int64) (counter, gauge []*prompb.Sample) {
+	stale := math.Float64frombits(0x7ff0000000000002)
+	c := 0.0
+	for n := int64(1); n <= 480; n++ {
+		ts := t0 + n*15000
+		c += float64(1 + n%3)
+		if n%37 == 0 || n == 241 {
+			c = float64(n % 5)
+		}
+		counter = append(counter, &prompb.Sample{Timestamp: ts, Value: c})
+		gauge = append(gauge, &prompb.Sample{Timestamp: ts, Value: float64(n*13%29) - 14})
+		if n%53 == 0 {
+			counter = append(counter, &prompb.Sample{Timestamp: ts + 5000, Value: stale})
+			gauge = append(gauge, &prompb.Sample{Timestamp: ts + 5000, Value: stale})
+		}
+	}
+	return counter, gauge
+}
+
+func TestPromQLPushdownOverSubBucketsEqualsTheEngine(t *testing.T) {
+	waitReady(t)
+	name := fmt.Sprintf("it_subbucket_%d", time.Now().UnixNano())
+	t0 := time.Now().Add(-3 * time.Hour).Truncate(5 * time.Minute).Add(time.Minute).UnixMilli()
+	counter, gauge := subBucketProbe(t0)
+	remoteWrite(t,
+		&prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "probe"}}, Samples: counter},
+		&prompb.TimeSeries{Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "instance", Value: "b"}, {Name: "job", Value: "probe"}}, Samples: gauge})
+	eventually(t, fmt.Sprintf("SELECT count() FROM metric_samples WHERE fingerprint IN "+
+		"(SELECT fingerprint FROM metric_series WHERE name = '%s')", name), fmt.Sprint(len(counter)+len(gauge)))
+	start, end := t0-300000, t0+7800000
+
+	type read struct {
+		rng        string
+		stepMs     int64
+		subBuckets bool
+	}
+	reads := []read{
+		{"5m", 120000, true}, {"1h", 120000, true}, {"10m", 180000, true}, {"10m", 300000, true},
+		{"1h", 300000, true}, {"1h", 30000, true}, {"2m", 120000, false}, {"5m", 15000, false},
+	}
+	tag := func(r read) string { return fmt.Sprintf("sb_%s_%d", r.rng, r.stepMs) }
+	for _, r := range reads {
+		sel := fmt.Sprintf(`%s{job!="%s"}`, name, tag(r))
+		var queries []string
+		for _, fn := range []string{"rate", "increase", "delta", "irate", "idelta", "resets", "changes",
+			"count_over_time", "sum_over_time", "min_over_time", "max_over_time", "avg_over_time",
+			"stddev_over_time", "stdvar_over_time", "present_over_time", "last_over_time"} {
+			q := fmt.Sprintf("%s(%s[%s]%%s)", fn, sel, r.rng)
+			queries = append(queries, q, "sum by (job) ("+q+")")
+		}
+		if r.rng == "5m" || r.rng == "10m" {
+			// The instant selector looks back 5m.
+			queries = append(queries, sel+"%s", "max by (job) ("+sel+"%s)")
+		}
+		for _, q := range queries {
+			pushed, raw := fmt.Sprintf(q, ""), fmt.Sprintf(q, " offset 1m")
+			got := rangeFrom(t, baseURL(), pushed, start, end, r.stepMs, 0)
+			if len(got) == 0 {
+				t.Errorf("query_range %s at %ds: no series", pushed, r.stepMs/1000)
+			}
+			if diff := sameSeries(got, rangeFrom(t, baseURL(), raw, start, end, r.stepMs, 60000)); diff != "" {
+				t.Errorf("query_range %s at %ds: %s", pushed, r.stepMs/1000, diff)
+			}
+		}
+	}
+
+	clickhouseQuery(t, "SYSTEM FLUSH LOGS")
+	for _, r := range reads {
+		n := clickhouseQuery(t, fmt.Sprintf("SELECT count() FROM system.query_log WHERE type = 'QueryFinish' "+
+			"AND query LIKE '%%%s%%' AND query LIKE '%%GROUP BY fingerprint, j%%' AND query NOT LIKE '%%system.query_log%%'", tag(r)))
+		if (n != "0") != r.subBuckets {
+			t.Errorf("[%s] at %ds: %s reads through sub-buckets, want sub-buckets %v", r.rng, r.stepMs/1000, n, r.subBuckets)
+		}
+	}
+}
