@@ -225,8 +225,8 @@ func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints
 }
 
 // selectSubstitute evaluates a substitute's pushdown at the query's own timestamps, from the
-// query's tier, and names each of its series from one label row per fingerprint. The labels
-// are read after the points, so every fingerprint read has a label row.
+// query's tier, and names each of its series from one label row per fingerprint. Both queries
+// select series with one predicate and window, so every fingerprint with points has a label row.
 func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute) ([]*model.SeriesV2, error) {
 	pushdown := sub.Pushdown
 	pushdown.Tier = c.tier
@@ -240,12 +240,11 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 		return nil, err
 	}
 	for _, s := range series {
+		if _, ok := lbls[s.Fp]; !ok {
+			return nil, fmt.Errorf("pushdown series %d has no labels", s.Fp)
+		}
 		s.LabelsGetter = lbls
 	}
-	series = slices.DeleteFunc(series, func(s *model.SeriesV2) bool {
-		_, ok := lbls[s.Fp]
-		return !ok
-	})
 	if err := uniqueLabelSets(series); err != nil {
 		return nil, err
 	}

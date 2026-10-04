@@ -77,7 +77,7 @@ func PushdownLabelsSQL(p Pushdown) string {
 	}
 	return fmt.Sprintf("SELECT cityHash64(grp) AS fingerprint, "+
 		"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels "+
-		"FROM (SELECT DISTINCT %s AS grp FROM (%s))", groupKey(p.Aggregation), series)
+		"FROM (SELECT DISTINCT %s AS grp FROM (%s))", groupKey(p), series)
 }
 
 // finalSettings lets FINAL collapse each day partition on its own: a duplicate shares its
@@ -103,11 +103,12 @@ func (p Pushdown) window() Window {
 // Rows: fingerprint UInt64, group_fp UInt64.
 func groupsSQL(p Pushdown) string {
 	return fmt.Sprintf("SELECT fingerprint, cityHash64(%s) AS group_fp FROM (%s)",
-		groupKey(p.Aggregation), SeriesSQL(p.window(), p.Matchers))
+		groupKey(p), SeriesSQL(p.window(), p.Matchers))
 }
 
-// groupKey is the sorted (name, value) pairs of label_set an aggregation keeps.
-func groupKey(a *Aggregation) string {
+// groupKey is the sorted (name, value) pairs of p's output labels its aggregation keeps.
+func groupKey(p Pushdown) string {
+	a := p.Aggregation
 	grouping := a.Grouping
 	keep := "has"
 	if a.Without {
@@ -118,8 +119,9 @@ func groupKey(a *Aggregation) string {
 	for i, g := range grouping {
 		names[i] = quote(g)
 	}
-	return fmt.Sprintf("arraySort(arrayFilter(x -> %s([%s], x.1), arrayZip(mapKeys(label_set), mapValues(label_set))))",
-		keep, strings.Join(names, ", "))
+	out := outputLabels(p)
+	return fmt.Sprintf("arraySort(arrayFilter(x -> %s([%s], x.1), arrayZip(mapKeys(%s), mapValues(%s))))",
+		keep, strings.Join(names, ", "), out, out)
 }
 
 // aggregate applies a to the points per group, through the fp CTE of groupsSQL.

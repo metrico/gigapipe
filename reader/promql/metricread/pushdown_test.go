@@ -170,6 +170,21 @@ func TestPushdownLabelsSQLNamesEachGroupOnce(t *testing.T) {
 	}
 }
 
+// A group key holds only labels the inner function outputs: rate drops __name__.
+func TestPushdownGroupsByTheFunctionsOutputLabels(t *testing.T) {
+	const dropped = "mapFilter((k, v) -> k != '__name__', label_set)"
+	const key = "arraySort(arrayFilter(x -> has(['__name__', 'job'], x.1), " +
+		"arrayZip(mapKeys(" + dropped + "), mapValues(" + dropped + "))))"
+	p := Pushdown{Grid: probeGrid, Func: "rate", RangeMs: 600000, Matchers: probeSelector(),
+		Aggregation: &Aggregation{Op: "sum", Grouping: []string{"__name__", "job"}}}
+	if got := PushdownLabelsSQL(p); !strings.Contains(got, "SELECT DISTINCT "+key+" AS grp FROM (") {
+		t.Errorf("labels group key is not over the output labels: %s", got)
+	}
+	if got := PushdownSQL(p); !strings.HasPrefix(got, "WITH fp AS (SELECT fingerprint, cityHash64("+key+") AS group_fp FROM (") {
+		t.Errorf("points group key is not over the output labels: %s", got)
+	}
+}
+
 func TestPushdownLabelsSQLSelectsTheSeriesTheTierReads(t *testing.T) {
 	// increase[1m] at 1m steps from the 5m tier reads (00:00 − 5m, 00:10] after snapping.
 	got := PushdownLabelsSQL(Pushdown{Grid: Grid{StartMs: 1767225660000, EndMs: 1767226260000, StepMs: 60000},
@@ -193,7 +208,7 @@ func TestPushdownSQLCarriesNoLabelsPerPoint(t *testing.T) {
 		if strings.Contains(sql, "label_set") && p.Aggregation == nil {
 			t.Errorf("%s reads labels: %s", name, sql)
 		}
-		if p.Aggregation != nil && strings.Count(sql, "mapKeys(label_set)") != 1 {
+		if p.Aggregation != nil && strings.Count(sql, "mapKeys(") != 1 {
 			t.Errorf("%s builds the group key other than once per series: %s", name, sql)
 		}
 	}

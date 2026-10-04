@@ -187,8 +187,7 @@ func TestSelectNamesASubstitutesSeriesFromItsLabelRows(t *testing.T) {
 		},
 		[]driver.Value{uint64(7), int64(60000), 1.0},
 		[]driver.Value{uint64(7), int64(120000), 2.0},
-		[]driver.Value{uint64(8), int64(60000), 3.0},
-		[]driver.Value{uint64(10), int64(60000), 4.0})
+		[]driver.Value{uint64(8), int64(60000), 3.0})
 	got := selectSeries(t, db, rateSubstitute(t), &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
 	want := map[string][]point{
@@ -196,12 +195,29 @@ func TestSelectNamesASubstitutesSeriesFromItsLabelRows(t *testing.T) {
 		`{job="b"}`:             {{60000, math.Float64bits(3)}, {120000, staleMarkerBits}},
 	}
 	if len(got) != len(want) {
-		t.Fatalf("got %d series %v, want %d (a fingerprint without labels is dropped)", len(got), got, len(want))
+		t.Fatalf("got %d series %v, want %d", len(got), got, len(want))
 	}
 	for lbls, pts := range want {
 		if g := got[lbls]; !equalPoints(g, pts) {
 			t.Errorf("%s: got %v, want %v", lbls, g, pts)
 		}
+	}
+}
+
+func TestSelectFailsOnASubstitutesSeriesWithoutALabelRow(t *testing.T) {
+	db := substituteRows([][]driver.Value{{uint64(7), map[string]string{"job": "a"}}},
+		[]driver.Value{uint64(7), int64(60000), 1.0},
+		[]driver.Value{uint64(10), int64(60000), 4.0})
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
+		SetOidAndDB(context.Background(), rateSubstitute(t))
+	querier, err := queryable.Querier(0, 300000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := querier.Select(context.Background(), true, &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	if set.Next() || set.Err() == nil || set.Err().Error() != "pushdown series 10 has no labels" {
+		t.Fatalf("err = %v, want the missing-labels error", set.Err())
 	}
 }
 
