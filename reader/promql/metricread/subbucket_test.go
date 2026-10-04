@@ -28,7 +28,7 @@ func TestSubBucketWidth(t *testing.T) {
 		{"instant", 0, 5 * m, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := Pushdown{Grid: Grid{StartMs: 1767225600000, EndMs: 1767225600000 + 10*tc.step, StepMs: tc.step}, RangeMs: tc.rangeMs}
+			p := Pushdown{Grid: Grid{StartMs: 1767225600000, EndMs: 1767225600000 + 10*tc.step, StepMs: tc.step}, Func: "rate", RangeMs: tc.rangeMs}
 			if got := subBucketMs(p); got != tc.want {
 				t.Errorf("subBucketMs(step %d, range %d) = %d, want %d", tc.step, tc.rangeMs, got, tc.want)
 			}
@@ -38,7 +38,7 @@ func TestSubBucketWidth(t *testing.T) {
 
 // probeSubBuckets groups the probe's raw samples over 30m windows into 1m sub-buckets carrying aggs; prev adds each
 // sample's predecessor, paired its pairing inside the sub-bucket.
-func probeSubBuckets(prev, paired bool, aggs, having string) string {
+func probeSubBuckets(prev, paired bool, aggs string) string {
 	window := ""
 	if prev {
 		window = ", maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerprint ORDER BY timestamp " +
@@ -58,7 +58,7 @@ func probeSubBuckets(prev, paired bool, aggs, having string) string {
 		"WHERE " + localSeries(1767222000000, 1767226200000) + " " +
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND timestamp <= fromUnixTimestamp64Milli(end_ms))) " +
-		"GROUP BY fingerprint, j" + having
+		"GROUP BY fingerprint, j HAVING b_count > 0"
 }
 
 const subBucketHeader = "WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 60000 AS step_ms, " +
@@ -86,7 +86,7 @@ func TestRawPushdownSQLReadsSubBucketsAsATierWould(t *testing.T) {
 		"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS b_first, "+
 			"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS b_last, "+
 			"countIf(NOT stale) AS b_count, "+
-			"sumIf(prev_value, paired AND value < prev_value) AS b_reset_drop", " HAVING b_count > 0") + ") " +
+			"sumIf(prev_value, paired AND value < prev_value) AS b_reset_drop") + ") " +
 		"WINDOW w AS (PARTITION BY fingerprint ORDER BY bucket ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) " +
 		"ARRAY JOIN range(k_min, k_max + 1) AS k " +
 		"GROUP BY fingerprint, k " +
@@ -97,11 +97,11 @@ func TestRawPushdownSQLReadsSubBucketsAsATierWould(t *testing.T) {
 }
 
 func TestSubBucketRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
-	rows := func(cols, names string, prev bool, aggs, having string) string {
+	rows := func(cols, names string, prev bool, aggs string) string {
 		// None of these functions pairs samples.
 		return subBucketHeader + " SELECT fingerprint, start_ms + k * step_ms AS t_ms, " + cols + " " +
 			"FROM (SELECT fingerprint, " + names + ", bucket AS b_ms, " + fanOut +
-			"FROM (" + probeSubBuckets(prev, false, aggs, having) + ")) " +
+			"FROM (" + probeSubBuckets(prev, false, aggs) + ")) " +
 			"ARRAY JOIN range(k_min, k_max + 1) AS k " +
 			"GROUP BY fingerprint, k " +
 			"HAVING count > 0"
@@ -114,23 +114,18 @@ func TestSubBucketRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
 	for _, tc := range []struct {
 		name, fn, want string
 	}{
-		{"a sub-bucket of stale markers alone keeps the selector's stale_at", "",
-			rows(lastCol+", sum(b_count) AS count, max(b_stale_at) AS stale_at", "b_last, b_count, b_stale_at", false,
-				last+", "+count+", maxIf(timestamp, stale) AS b_stale_at", "")},
 		{"avg reads count and a compensated sum", "avg_over_time",
 			rows("sum(b_count) AS count, if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum", "b_count, b_sum", false,
-				count+", if(isFinite(sumIf(value, NOT stale)), sumKahanIf(value, NOT stale), sumIf(value, NOT stale)) AS b_sum",
-				" HAVING b_count > 0")},
+				count+", if(isFinite(sumIf(value, NOT stale)), sumKahanIf(value, NOT stale), sumIf(value, NOT stale)) AS b_sum")},
 		{"min maps NaN out of the way as the tier views do", "min_over_time",
 			rows("sum(b_count) AS count, if(min(b_min) > max(b_max), nan, min(b_min)) AS min", "b_count, b_min, b_max", false,
-				count+", minIf(if(isNaN(value), inf, value), NOT stale) AS b_min, maxIf(if(isNaN(value), -inf, value), NOT stale) AS b_max",
-				" HAVING b_count > 0")},
+				count+", minIf(if(isNaN(value), inf, value), NOT stale) AS b_min, maxIf(if(isNaN(value), -inf, value), NOT stale) AS b_max")},
 		{"variance merges each sub-bucket's state", "stddev_over_time",
 			rows("sum(b_count) AS count, varPopStableIfMerge(b_var) AS var", "b_count, b_var", false,
-				count+", varPopStableIfState(value, NOT stale) AS b_var", " HAVING b_count > 0")},
+				count+", varPopStableIfState(value, NOT stale) AS b_var")},
 		{"irate's penult is the predecessor of the window's last sample", "irate",
 			rows(lastCol+", sum(b_count) AS count, argMax(b_penult, b_ms) AS penult", "b_last, b_count, b_penult", true,
-				last+", "+count+", argMaxIf(prev, timestamp, NOT stale) AS b_penult", " HAVING b_count > 0")},
+				last+", "+count+", argMaxIf(prev, timestamp, NOT stale) AS b_penult")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: tc.fn, RangeMs: 1800000, Matchers: probeSelector()}))
@@ -160,6 +155,7 @@ func TestRawPushdownKeepsTheSamplePathWhereSubBucketsSaveNothing(t *testing.T) {
 	for name, p := range map[string]Pushdown{
 		"15s step":      {Grid: sampleGrid, Func: "rate", RangeMs: 1800000, Matchers: probeSelector()},
 		"5m at 1m":      {Grid: probeGrid, Func: "rate", RangeMs: 300000, Matchers: probeSelector()},
+		"selector":      {Grid: probeGrid, RangeMs: 1800000, Matchers: probeSelector()},
 		"range of step": {Grid: probeGrid, Func: "rate", RangeMs: 60000, Matchers: probeSelector()},
 		"instant":       {Grid: Grid{StartMs: probeGrid.EndMs, EndMs: probeGrid.EndMs}, Func: "rate", RangeMs: 300000, Matchers: probeSelector()},
 	} {
@@ -184,6 +180,9 @@ func TestEverySubBucketMergeIsReadAndEveryReadMergeComputed(t *testing.T) {
 		return s[:j]
 	}
 	for fn := range functions {
+		if fn == "" {
+			continue
+		}
 		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 1800000, Matchers: probeSelector()}))
 		computed := map[string]bool{}
 		for _, m := range alias.FindAllString(between(rows, "AS bucket, ", " FROM (SELECT fingerprint, timestamp"), -1) {

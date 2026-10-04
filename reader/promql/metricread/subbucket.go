@@ -2,9 +2,8 @@ package metricread
 
 import "slices"
 
-// A raw read groups samples into sub-buckets only where the grouping costs less than the fan-out
-// it saves: sub-buckets of at least subBucketMinMs (four samples at a 15s scrape interval) and
-// windows of at least subBucketMinSteps steps, so each sub-bucket is fanned out that often.
+// A raw range function reads sub-buckets at least subBucketMinMs wide over windows of at least
+// subBucketMinSteps steps.
 const (
 	subBucketMinMs    = 60000
 	subBucketMinSteps = 30
@@ -14,7 +13,8 @@ const (
 // range), or 0 to fan out each sample.
 func subBucketMs(p Pushdown) int64 {
 	step, rng := p.Grid.StepMs, p.RangeMs
-	if step <= 0 || rng < subBucketMinSteps*step {
+	// The instant selector fans out each sample.
+	if p.Func == "" || step <= 0 || rng < subBucketMinSteps*step {
 		return 0
 	}
 	if w := gcd(step, rng); w >= subBucketMinMs {
@@ -81,18 +81,15 @@ var subBucketMerge = [nMerges]string{
 	bPenult:    "argMaxIf(prev, timestamp, NOT stale)",
 }
 
-// subBucketsSQL groups p's raw samples per (fingerprint, sub-bucket), keyed by the sub-bucket's
-// end in unix ms. A sub-bucket of stale markers alone is kept only for the stale_at column.
+// subBucketsSQL groups p's raw samples per (fingerprint, sub-bucket) holding a non-stale sample,
+// keyed by the sub-bucket's end in unix ms.
 func subBucketsSQL(p Pushdown, ms merges, cols shape) string {
-	window, having := "", " HAVING b_count > 0"
+	window := ""
 	if cols.prev() {
 		window = ", " + prevSQL
 	}
 	if slices.ContainsFunc(cols, column.pairsAcross) {
 		window += ", NOT stale AND prev_ms > start_ms + (j - 1) * w_ms AS paired"
-	}
-	if cols.has(colStaleAt) {
-		having = ""
 	}
 	return "SELECT fingerprint, start_ms + j * w_ms AS bucket, " + ms.sql(&subBucketMerge) + " " +
 		"FROM (SELECT fingerprint, timestamp, value, " +
@@ -101,5 +98,5 @@ func subBucketsSQL(p Pushdown, ms merges, cols shape) string {
 		"if(ts_ms >= start_ms, intDiv(ts_ms - start_ms + w_ms - 1, w_ms), -intDiv(start_ms - ts_ms, w_ms)) AS j" +
 		window + " " +
 		"FROM (" + rawWindowSQL(p) + ")) " +
-		"GROUP BY fingerprint, j" + having
+		"GROUP BY fingerprint, j HAVING b_count > 0"
 }

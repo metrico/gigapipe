@@ -198,7 +198,7 @@ type function struct {
 //	delta, the *_over_time below                 sub-buckets
 //	rate, increase, resets, changes              sub-buckets, the pair across an edge from lagInFrame
 //	irate, idelta                                sub-buckets, each keeping its last sample's predecessor
-//	""                                           each sample: a 5m lookback spans under 30 steps of 1m
+//	""                                           each sample
 //	quantile_over_time, mad_over_time, deriv,    not pushed down: the engine reads every sample
 //	predict_linear, double_exponential_smoothing
 var functions = map[string]function{
