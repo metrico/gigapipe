@@ -18,7 +18,8 @@ import (
 
 // serveOneSeries routes the Prometheus query endpoints, reading raw samples, over a fake
 // ClickHouse holding the series x{job="probe"} with value 7 at 00:01 and 8 at 00:02, which
-// answers every pushdown with pushedDown.
+// answers every pushdown with pushedDown, rows of (fingerprint, labels, t_ms, value) split
+// into the pushdown's points and its label rows.
 func serveOneSeries(t *testing.T, pushedDown ...[]driver.Value) (*mux.Router, *fakeclickhouse.DB) {
 	t.Helper()
 	return serveOneSeriesFrom(t, "raw", pushedDown...)
@@ -33,7 +34,18 @@ func serveOneSeriesFrom(t *testing.T, tier string, pushedDown ...[]driver.Value)
 	}
 	db := fakeclickhouse.New(func(query string) (fakeclickhouse.Result, error) {
 		if strings.Contains(query, "ARRAY JOIN") {
-			return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels", "t_ms", "value"}, Rows: pushedDown}, nil
+			var points [][]driver.Value
+			for _, r := range pushedDown {
+				points = append(points, []driver.Value{r[0], r[2], r[3]})
+			}
+			return fakeclickhouse.Result{Columns: []string{"fingerprint", "t_ms", "value"}, Rows: points}, nil
+		}
+		if isLabelsQuery(query) {
+			var lbls [][]driver.Value
+			for _, r := range pushedDown {
+				lbls = append(lbls, []driver.Value{r[0], r[1]})
+			}
+			return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels"}, Rows: lbls}, nil
 		}
 		if !strings.HasPrefix(query, "SELECT fingerprint, any(labels)") {
 			return fakeclickhouse.Result{Columns: []string{"fingerprint", "timestamp", "value"}, Rows: [][]driver.Value{
@@ -74,10 +86,21 @@ func get(t *testing.T, app *mux.Router, target string) promResult {
 	return res
 }
 
-// onlyQuery returns the one query db received, failing unless there is exactly one.
+// isLabelsQuery reports whether query reads a pushdown's label rows.
+func isLabelsQuery(query string) bool {
+	return strings.Contains(query, " AS labels FROM (")
+}
+
+// onlyQuery returns the one query db received besides a pushdown's labels query, failing
+// unless there is exactly one.
 func onlyQuery(t *testing.T, db *fakeclickhouse.DB) string {
 	t.Helper()
-	q := db.Queries()
+	var q []string
+	for _, query := range db.Queries() {
+		if !isLabelsQuery(query) {
+			q = append(q, query)
+		}
+	}
 	if len(q) != 1 {
 		t.Fatalf("queries = %q, want one pushdown", q)
 	}

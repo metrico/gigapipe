@@ -55,23 +55,43 @@ func Aggregable(op string) bool {
 	return ok
 }
 
-// PushdownSQL evaluates p from its tier. Rows: fingerprint UInt64,
-// labels Map(String, String), t_ms Int64, value Float64, ordered by fingerprint and t_ms.
+// PushdownSQL evaluates p from its tier. Rows: fingerprint UInt64, t_ms Int64, value Float64,
+// ordered by fingerprint and t_ms; PushdownLabelsSQL names each fingerprint.
 func PushdownSQL(p Pushdown) string {
 	if p.Tier.WidthMs > 0 {
 		return tierPushdownSQL(p)
 	}
-	return pushdownSQL(p, rawRowsSQL(p))
+	return pushdownSQL(p, rawRowsSQL(p)) + " SETTINGS " + finalSettings
 }
 
-// pushdownSQL evaluates p from rows, the row shape per (fingerprint, t), which may read the fp
-// series CTE.
+// PushdownLabelsSQL selects the output label set of every fingerprint PushdownSQL returns for
+// p: each series' labels, or each group's under an aggregation. Rows: fingerprint UInt64,
+// labels Map(String, String).
+func PushdownLabelsSQL(p Pushdown) string {
+	if p.Tier.WidthMs > 0 {
+		p = tierRead(p)
+	}
+	series := SeriesSQL(p.window(), p.Matchers)
+	if p.Aggregation == nil {
+		return fmt.Sprintf("SELECT fingerprint, %s AS labels FROM (%s)", outputLabels(p), series)
+	}
+	return fmt.Sprintf("SELECT cityHash64(grp) AS fingerprint, "+
+		"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels "+
+		"FROM (SELECT DISTINCT %s AS grp FROM (%s))", groupKey(p.Aggregation), series)
+}
+
+// finalSettings lets FINAL collapse each day partition on its own: a duplicate shares its
+// timestamp, so it never spans two partitions.
+const finalSettings = "do_not_merge_across_partitions_select_final = 1"
+
+// pushdownSQL evaluates p from rows, the row shape per (fingerprint, t).
 func pushdownSQL(p Pushdown, rows string) string {
-	window := p.window()
-	series := fmt.Sprintf("SELECT fingerprint, %s AS labels, t_ms, value FROM (%s) AS points "+
-		"INNER JOIN fp USING (fingerprint)", outputLabels(p), valueSQL(p))
+	points := fmt.Sprintf("SELECT fingerprint, t_ms, value FROM (%s)", valueSQL(p))
+	if p.Aggregation == nil {
+		return fmt.Sprintf("WITH rows AS (%s) %s ORDER BY fingerprint, t_ms", rows, points)
+	}
 	return fmt.Sprintf("WITH fp AS (%s), rows AS (%s) %s ORDER BY fingerprint, t_ms",
-		SeriesSQL(window, p.Matchers), rows, aggregate(p.Aggregation, series))
+		groupsSQL(p), rows, aggregate(p.Aggregation, points))
 }
 
 // window is the interval p reads, (start − range, end].
@@ -79,12 +99,15 @@ func (p Pushdown) window() Window {
 	return Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs, Cluster: p.Cluster}
 }
 
-// aggregate applies a to the series, grouped by the labels it keeps; a group's fingerprint is
-// the hash of its label set.
-func aggregate(a *Aggregation, series string) string {
-	if a == nil {
-		return series
-	}
+// groupsSQL maps each series p selects to its group's fingerprint, the hash of its group key.
+// Rows: fingerprint UInt64, group_fp UInt64.
+func groupsSQL(p Pushdown) string {
+	return fmt.Sprintf("SELECT fingerprint, cityHash64(%s) AS group_fp FROM (%s)",
+		groupKey(p.Aggregation), SeriesSQL(p.window(), p.Matchers))
+}
+
+// groupKey is the sorted (name, value) pairs of label_set an aggregation keeps.
+func groupKey(a *Aggregation) string {
 	grouping := a.Grouping
 	keep := "has"
 	if a.Without {
@@ -95,12 +118,16 @@ func aggregate(a *Aggregation, series string) string {
 	for i, g := range grouping {
 		names[i] = quote(g)
 	}
-	return fmt.Sprintf("SELECT cityHash64(grp) AS fingerprint, "+
-		"mapFromArrays(arrayMap(x -> x.1, grp), arrayMap(x -> x.2, grp)) AS labels, t_ms, %s AS value "+
-		"FROM (SELECT arraySort(arrayFilter(x -> %s([%s], x.1), "+
-		"arrayZip(mapKeys(labels), mapValues(labels)))) AS grp, t_ms, value FROM (%s)) "+
-		"GROUP BY grp, t_ms",
-		aggregations[a.Op], keep, strings.Join(names, ", "), series)
+	return fmt.Sprintf("arraySort(arrayFilter(x -> %s([%s], x.1), arrayZip(mapKeys(label_set), mapValues(label_set))))",
+		keep, strings.Join(names, ", "))
+}
+
+// aggregate applies a to the points per group, through the fp CTE of groupsSQL.
+func aggregate(a *Aggregation, points string) string {
+	return fmt.Sprintf("SELECT group_fp AS fingerprint, t_ms, %s AS value "+
+		"FROM (SELECT group_fp, t_ms, value FROM (%s) AS points INNER JOIN fp USING (fingerprint)) "+
+		"GROUP BY group_fp, t_ms",
+		aggregations[a.Op], points)
 }
 
 // rawRowsSQL is the row shape per (fingerprint, t) from raw samples: each sample joined to
@@ -110,8 +137,8 @@ func rawRowsSQL(p Pushdown) string {
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps, "+
 		"NOT stale AND prev_ms > start_ms + k * step_ms - range_ms AS paired "+
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, "+
-		"minIf((timestamp, value), NOT stale) AS first, "+
-		"maxIf((timestamp, value), NOT stale) AS last, "+
+		"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS first, "+
+		"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS last, "+
 		"countIf(NOT stale) AS count, "+
 		"if(isFinite(sumIf(value, NOT stale)), sumKahanIf(value, NOT stale), sumIf(value, NOT stale)) AS sum, "+
 		"ifNull(minIfOrNull(value, NOT stale AND NOT isNaN(value)), nan) AS min, "+
@@ -131,12 +158,10 @@ func rawRowsSQL(p Pushdown) string {
 		"greatest(0, if(ts_ms >= start_ms, intDiv(ts_ms - start_ms + step_ms - 1, step_ms), "+
 		"-intDiv(start_ms - ts_ms, step_ms))) AS k_min, "+
 		"least(n_steps - 1, intDiv(ts_ms + range_ms - 1 - start_ms, step_ms)) AS k_max "+
-		"FROM (SELECT fingerprint, timestamp, value FROM %s "+
+		"FROM (SELECT fingerprint, timestamp, value FROM %s FINAL "+
 		"WHERE %s "+
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) "+
-		"AND timestamp <= fromUnixTimestamp64Milli(end_ms) "+
-		"ORDER BY fingerprint, timestamp "+
-		"LIMIT 1 BY fingerprint, timestamp)) "+
+		"AND timestamp <= fromUnixTimestamp64Milli(end_ms))) "+
 		"ARRAY JOIN range(k_min, k_max + 1) AS k "+
 		"GROUP BY fingerprint, k "+
 		"HAVING count > 0",

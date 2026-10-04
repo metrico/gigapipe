@@ -46,13 +46,14 @@ func (w Window) table(name string) string {
 }
 
 // RawSamplesSQL selects the raw samples in w of the series SeriesSQL selects, one row per
-// (fingerprint, timestamp). Rows: fingerprint UInt64, timestamp DateTime64(3), value Float64.
+// (fingerprint, timestamp), the last written. Rows: fingerprint UInt64, timestamp DateTime64(3),
+// value Float64, ordered by both.
 func RawSamplesSQL(w Window, selectors ...[]*labels.Matcher) string {
-	return fmt.Sprintf("SELECT fingerprint, timestamp, value FROM %s "+
+	return fmt.Sprintf("SELECT fingerprint, timestamp, value FROM %s FINAL "+
 		"WHERE %s "+
 		"AND timestamp > fromUnixTimestamp64Milli(%d) "+
 		"AND timestamp <= fromUnixTimestamp64Milli(%d) "+
 		"ORDER BY fingerprint, timestamp "+
-		"LIMIT 1 BY fingerprint, timestamp",
-		w.table("metric_samples"), seriesIn(w, selectors...), w.FromMs, w.ToMs)
+		"SETTINGS %s",
+		w.table("metric_samples"), seriesIn(w, selectors...), w.FromMs, w.ToMs, finalSettings)
 }
