@@ -11,13 +11,14 @@ import (
 
 // metricWrappers maps each metric table to its sharding key on a cluster.
 var metricWrappers = map[string]string{
-	"metric_samples_in": "fingerprint",
-	"metric_samples":    "fingerprint",
-	"metric_series":     "fingerprint",
-	"metric_exemplars":  "fingerprint",
-	"metrics_5m":        "fingerprint",
-	"metrics_1h":        "fingerprint",
-	"metric_metadata":   "cityHash64(name)",
+	"metric_samples_in":  "fingerprint",
+	"metric_samples":     "fingerprint",
+	"metric_series":      "fingerprint",
+	"metric_exemplars":   "fingerprint",
+	"metrics_5m":         "fingerprint",
+	"metrics_1h":         "fingerprint",
+	"metric_metadata":    "cityHash64(name)",
+	"metric_label_names": "cityHash64(label)",
 }
 
 func render(t *testing.T, file string, env map[string]string) []string {
@@ -63,8 +64,21 @@ func TestEveryMetricTableHasADistributedWrapperOnACluster(t *testing.T) {
 			t.Errorf("%s_dist columns %v, want those of %s: %v", table, got, table, want)
 		}
 	}
-	if len(dist) != len(metricWrappers) {
-		t.Errorf("the wrapper script holds %d statements, want %d", len(dist), len(metricWrappers))
+	var creates int
+	for _, s := range dist {
+		if strings.HasPrefix(s, "CREATE ") {
+			creates++
+		}
+	}
+	if creates != len(metricWrappers) {
+		t.Errorf("the wrapper script creates %d tables, want %d", creates, len(metricWrappers))
+	}
+	backfill := "INSERT INTO cloki.metric_label_names_dist (label, first_seen, last_seen)\n" +
+		"SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen\n" +
+		"FROM cloki.metric_series_dist\nARRAY JOIN mapKeys(labels) AS label\nGROUP BY label\n" +
+		"SETTINGS insert_distributed_sync = 1"
+	if !slices.ContainsFunc(dist, func(s string) bool { return strings.TrimSuffix(s, ";") == backfill }) {
+		t.Errorf("no backfill of every shard's label names:\n%s", strings.Join(dist, "\n\n"))
 	}
 }
 

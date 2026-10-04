@@ -31,11 +31,12 @@ func alter(t *testing.T, table string, days []RotatePolicy) (string, []string) {
 
 func TestRotateAppliesTheRetentionTiersToTheMetricTables(t *testing.T) {
 	for table, ttl := range map[string]string{
-		"metric_samples":   "toDateTime(timestamp) + toIntervalDay(3)",
-		"metric_exemplars": "toDateTime(timestamp) + toIntervalDay(3)",
-		"metrics_5m":       "toDateTime(bucket) + toIntervalDay(14)",
-		"metrics_1h":       "toDateTime(bucket) + toIntervalDay(90)",
-		"metric_series":    "toDateTime(last_seen) + toIntervalDay(90)",
+		"metric_samples":     "toDateTime(timestamp) + toIntervalDay(3)",
+		"metric_exemplars":   "toDateTime(timestamp) + toIntervalDay(3)",
+		"metrics_5m":         "toDateTime(bucket) + toIntervalDay(14)",
+		"metrics_1h":         "toDateTime(bucket) + toIntervalDay(90)",
+		"metric_series":      "toDateTime(last_seen) + toIntervalDay(90)",
+		"metric_label_names": "toDateTime(last_seen) + toIntervalDay(90)",
 	} {
 		_, stmts := alter(t, table, nil)
 		if !slices.ContainsFunc(stmts, func(s string) bool { return strings.HasSuffix(s, "MODIFY TTL "+ttl) }) {
@@ -54,13 +55,15 @@ func TestRotateAppliesTheMoveRulesToTheMetricTables(t *testing.T) {
 }
 
 func TestSeriesIndexRowsExpireOneByOne(t *testing.T) {
-	_, stmts := alter(t, "metric_series", nil)
-	for _, s := range stmts {
-		if strings.Contains(s, "ttl_only_drop_parts") {
-			t.Errorf("metric_series is set to drop whole parts: %s", s)
+	for _, table := range []string{"metric_series", "metric_label_names"} {
+		_, stmts := alter(t, table, nil)
+		for _, s := range stmts {
+			if strings.Contains(s, "ttl_only_drop_parts") {
+				t.Errorf("%s is set to drop whole parts: %s", table, s)
+			}
 		}
 	}
-	_, stmts = alter(t, "metric_samples", nil)
+	_, stmts := alter(t, "metric_samples", nil)
 	if !slices.ContainsFunc(stmts, func(s string) bool { return strings.Contains(s, "ttl_only_drop_parts = 1") }) {
 		t.Errorf("metric_samples is not set to drop whole parts: %q", stmts)
 	}

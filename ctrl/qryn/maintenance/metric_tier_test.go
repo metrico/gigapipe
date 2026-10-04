@@ -26,8 +26,8 @@ func TestTierViewsRenderAsPinned(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(scripts) != 11 {
-			t.Errorf("%s: metrics.sql renders %d statements, want 11", name, len(scripts))
+		if len(scripts) != 14 {
+			t.Errorf("%s: metrics.sql renders %d statements, want 14", name, len(scripts))
 		}
 		for _, mv := range []string{"metrics_5m_mv", "metrics_1h_mv"} {
 			if got, want := statement(t, scripts, mv), golden(t, mv+"."+name+".sql"); got != want {

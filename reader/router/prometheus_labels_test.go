@@ -84,8 +84,8 @@ func TestLabelBoundsParseAsRFC3339OrFractionalSeconds(t *testing.T) {
 	if string(res.Data) != `[]` {
 		t.Fatalf("data = %s", res.Data)
 	}
-	want := "WHERE last_seen >= fromUnixTimestamp64Milli(1790811000000) " +
-		"AND first_seen <= fromUnixTimestamp64Milli(1790856000500) ORDER BY label"
+	want := "HAVING max(last_seen) >= fromUnixTimestamp64Milli(1790811000000) " +
+		"AND min(first_seen) <= fromUnixTimestamp64Milli(1790856000500) ORDER BY label"
 	if q := onlyQuery(t, db); !strings.HasSuffix(q, want) {
 		t.Fatalf("query = %s", q)
 	}
@@ -270,7 +270,7 @@ func TestLabelBoundsAtPrometheusMinAndMaxTimeAreDropped(t *testing.T) {
 	app, db := serveLabels(t, strings1("label"))
 	getLabels(t, app, "/api/v1/labels?start="+url.QueryEscape("-292273086-05-16T16:47:06Z")+
 		"&end="+url.QueryEscape("292277025-08-18T07:12:54.999999999Z"), http.StatusOK)
-	if q := onlyQuery(t, db); q != "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series ORDER BY label" {
+	if q := onlyQuery(t, db); q != "SELECT label FROM metric_label_names GROUP BY label ORDER BY label" {
 		t.Fatalf("query = %s", q)
 	}
 }
