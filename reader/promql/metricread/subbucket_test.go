@@ -1,6 +1,7 @@
 package metricread
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestSubBucketWidth(t *testing.T) {
 		{"1h at 2m", 2 * m, h, 2 * m},
 		{"10m at 3m", 3 * m, 10 * m, m},
 		{"1h at 30s", 30 * s, h, 30 * s},
-		{"lookback at 2m", 2 * m, 5 * m, m},
+		{"lookback at 3m", 3 * m, 5 * m, m},
 		{"5m at 15s fans out each sample", 15 * s, 5 * m, 0},
 		{"30s at 20s fans out each sample", 20 * s, 30 * s, 0},
 		{"range of one step reaches one window", m, m, 0},
@@ -33,14 +34,16 @@ func TestSubBucketWidth(t *testing.T) {
 }
 
 // probeSubBuckets groups the probe's raw samples into 1m sub-buckets carrying aggs; prev adds each
-// sample's predecessor and its pairing inside the sub-bucket.
-func probeSubBuckets(prev bool, aggs, having string) string {
+// sample's predecessor, paired its pairing inside the sub-bucket.
+func probeSubBuckets(prev, paired bool, aggs, having string) string {
 	window := ""
 	if prev {
 		window = ", maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerprint ORDER BY timestamp " +
 			"ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev, " +
-			"toUnixTimestamp64Milli(prev.1) AS prev_ms, prev.2 AS prev_value, " +
-			"NOT stale AND prev_ms > start_ms + (j - 1) * w_ms AS paired"
+			"toUnixTimestamp64Milli(prev.1) AS prev_ms, prev.2 AS prev_value"
+	}
+	if paired {
+		window += ", NOT stale AND prev_ms > start_ms + (j - 1) * w_ms AS paired"
 	}
 	return "SELECT fingerprint, start_ms + j * w_ms AS bucket, " + aggs + " " +
 		"FROM (SELECT fingerprint, timestamp, value, " +
@@ -76,7 +79,7 @@ func TestRawPushdownSQLReadsSubBucketsAsATierWould(t *testing.T) {
 		"lagInFrame(b_last) OVER w AS prev_last, " +
 		"lagInFrame(b_ms) OVER w AS prev_b_ms, " +
 		fanOut +
-		"FROM (" + probeSubBuckets(true,
+		"FROM (" + probeSubBuckets(true, true,
 		"(minIf(timestamp, NOT stale), argMinIf(value, timestamp, NOT stale)) AS b_first, "+
 			"(maxIf(timestamp, NOT stale), argMaxIf(value, timestamp, NOT stale)) AS b_last, "+
 			"countIf(NOT stale) AS b_count, "+
@@ -92,9 +95,10 @@ func TestRawPushdownSQLReadsSubBucketsAsATierWould(t *testing.T) {
 
 func TestSubBucketRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
 	rows := func(cols, names string, prev bool, aggs, having string) string {
+		// None of these functions pairs samples.
 		return subBucketHeader + " SELECT fingerprint, start_ms + k * step_ms AS t_ms, " + cols + " " +
 			"FROM (SELECT fingerprint, " + names + ", bucket AS b_ms, " + fanOut +
-			"FROM (" + probeSubBuckets(prev, aggs, having) + ")) " +
+			"FROM (" + probeSubBuckets(prev, false, aggs, having) + ")) " +
 			"ARRAY JOIN range(k_min, k_max + 1) AS k " +
 			"GROUP BY fingerprint, k " +
 			"HAVING count > 0"
@@ -157,6 +161,51 @@ func TestRawPushdownKeepsTheSamplePathWhereSubBucketsSaveNothing(t *testing.T) {
 	} {
 		if rows := rowsOf(t, PushdownSQL(p)); rows != rawRowsSQL(p) {
 			t.Errorf("%s does not fan out each sample: %s", name, rows)
+		}
+	}
+}
+
+func TestEverySubBucketMergeIsReadAndEveryReadMergeComputed(t *testing.T) {
+	alias := regexp.MustCompile(`\bb_[a-z_]+\b`)
+	between := func(s, from, to string) string {
+		i := strings.Index(s, from)
+		if i < 0 {
+			t.Fatalf("no %q in %s", from, s)
+		}
+		s = s[i+len(from):]
+		j := strings.Index(s, to)
+		if j < 0 {
+			t.Fatalf("no %q in %s", to, s)
+		}
+		return s[:j]
+	}
+	for fn := range functions {
+		rows := rowsOf(t, PushdownSQL(Pushdown{Grid: probeGrid, Func: fn, RangeMs: 300000, Matchers: probeSelector()}))
+		computed := map[string]bool{}
+		for _, m := range alias.FindAllString(between(rows, "AS bucket, ", " FROM (SELECT fingerprint, timestamp"), -1) {
+			computed[m] = true
+		}
+		window := between(rows, "AS t_ms, ", " FROM (SELECT fingerprint, ")
+		if strings.Contains(rows, "lagInFrame(b_last)") {
+			window += " b_last"
+		}
+		read := map[string]bool{}
+		for _, m := range alias.FindAllString(window, -1) {
+			read[m] = true
+		}
+		delete(read, "b_ms")
+		for m := range computed {
+			if !read[m] {
+				t.Errorf("%q computes %s per sub-bucket and never reads it: %s", fn, m, rows)
+			}
+		}
+		for m := range read {
+			if !computed[m] {
+				t.Errorf("%q reads %s, which no sub-bucket computes: %s", fn, m, rows)
+			}
+		}
+		if paired := strings.Contains(rows, "AS paired"); paired != strings.Contains(rows, "paired AND") {
+			t.Errorf("%q computes paired %v but reads it %v: %s", fn, paired, !paired, rows)
 		}
 	}
 }
