@@ -1,5 +1,7 @@
 package metricread
 
+import "slices"
+
 // subBucketMinMs is the narrowest sub-bucket a raw read groups samples into: one no wider than a
 // 15s scrape interval holds about one sample, so fanning out each sample reads as many rows.
 const subBucketMinMs = 15000
@@ -54,7 +56,8 @@ var subBucketReads = func() [nColumns][]merge {
 	return r
 }()
 
-// pairsAcross reports whether a column counts the pair spanning two sub-buckets.
+// pairsAcross reports whether a column counts pairs of samples, inside a sub-bucket and across
+// the edge between two.
 func (c column) pairsAcross() bool {
 	return c == colResets || c == colResetDrop || c == colChanges
 }
@@ -81,7 +84,10 @@ var subBucketMerge = [nMerges]string{
 func subBucketsSQL(p Pushdown, ms merges, cols shape) string {
 	window, having := "", " HAVING b_count > 0"
 	if cols.prev() {
-		window = ", " + prevSQL + ", NOT stale AND prev_ms > start_ms + (j - 1) * w_ms AS paired"
+		window = ", " + prevSQL
+	}
+	if slices.ContainsFunc(cols, column.pairsAcross) {
+		window += ", NOT stale AND prev_ms > start_ms + (j - 1) * w_ms AS paired"
 	}
 	if cols.has(colStaleAt) {
 		having = ""
