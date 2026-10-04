@@ -268,7 +268,8 @@ func TestPromQLPushdownEqualsTheEngineOverRawSamples(t *testing.T) {
 	}
 	queries = append(queries, name+"%s")
 	for _, q := range append([]string(nil), queries...) {
-		for _, agg := range []string{"sum by (job)", "max without (instance)", "min", "count", "avg by (instance)"} {
+		for _, agg := range []string{"sum by (job)", "max without (instance)", "min", "count", "avg by (instance)",
+			"sum by (__name__, job)"} {
 			queries = append(queries, agg+" ("+q+")")
 		}
 	}
