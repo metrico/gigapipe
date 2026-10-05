@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -307,27 +306,17 @@ const (
 	promMaxTime = "292277025-08-18T07:12:54.999999999Z"
 )
 
-// optionalTimeMs parses a time in Unix seconds with fractions or RFC3339 into unix
-// milliseconds; an empty value or Prometheus's MinTime or MaxTime is nil.
+// optionalTimeMs parses a time with ParseTimeSecOrRFC into unix milliseconds; an empty value
+// or Prometheus's MinTime or MaxTime is nil.
 func optionalTimeMs(s string, name string) (*int64, error) {
 	if s == "" || s == promMinTime || s == promMaxTime {
 		return nil, nil
 	}
-	t, err := parsePromTime(s)
+	t, err := ParseTimeSecOrRFC(s, time.Time{})
 	if err != nil {
-		return nil, fmt.Errorf("invalid parameter %q: invalid time value for '%s': %w", name, name, err)
+		return nil, fmt.Errorf("invalid parameter %q: invalid time value for '%s': cannot parse %q to a valid timestamp",
+			name, name, s)
 	}
 	ms := t.UnixMilli()
 	return &ms, nil
-}
-
-func parsePromTime(s string) (time.Time, error) {
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		sec, frac := math.Modf(f)
-		return time.Unix(int64(sec), int64(math.Round(frac*1000))*int64(time.Millisecond)), nil
-	}
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("cannot parse %q to a valid timestamp", s)
 }
