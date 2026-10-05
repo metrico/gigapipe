@@ -14,7 +14,7 @@ var testTiers = metricretention.Tiers{RawDays: 3, FiveMinuteDays: 14, HourDays: 
 
 func renderedMetricStack(t *testing.T) []string {
 	t.Helper()
-	env := migrationEnv("cloki", "", false, 7, "", "", false, testTiers)
+	env := migrationEnv("cloki", "", false, 7, "", "", false)
 	scripts, err := renderScripts(sql.MetricsScript, env)
 	if err != nil {
 		t.Fatal(err)
@@ -37,18 +37,32 @@ func statement(t *testing.T, scripts []string, object string) string {
 	return found[0]
 }
 
-func TestRetentionTiersSetTheMetricTablesTTLs(t *testing.T) {
+// metricDataTables are the metric tables that hold rows.
+var metricDataTables = []string{
+	"metric_samples", "metric_exemplars", "metric_series", "metric_metadata",
+	"metrics_5m", "metrics_1h", "metric_label_names",
+}
+
+var createdTable = regexp.MustCompile(`^CREATE TABLE IF NOT EXISTS cloki\.(\w+) `)
+
+func TestMetricDataTablesAreEveryStoringMetricTable(t *testing.T) {
+	var created []string
+	for _, s := range renderedMetricStack(t) {
+		if m := createdTable.FindStringSubmatch(s); m != nil && !strings.Contains(s, "ENGINE = Null") {
+			created = append(created, m[1])
+		}
+	}
+	if !slices.Equal(slices.Sorted(slices.Values(created)), slices.Sorted(slices.Values(metricDataTables))) {
+		t.Errorf("storing metric tables = %v, want %v", created, metricDataTables)
+	}
+}
+
+func TestMetricTablesCarryNoTTLInTheirDDL(t *testing.T) {
 	scripts := renderedMetricStack(t)
-	for object, ttl := range map[string]string{
-		"metric_samples":     "TTL toDateTime(timestamp) + INTERVAL 3 DAY",
-		"metric_exemplars":   "TTL toDateTime(timestamp) + INTERVAL 3 DAY",
-		"metrics_5m":         "TTL toDateTime(bucket) + INTERVAL 14 DAY",
-		"metrics_1h":         "TTL toDateTime(bucket) + INTERVAL 90 DAY",
-		"metric_series":      "TTL toDateTime(last_seen) + INTERVAL 90 DAY",
-		"metric_label_names": "TTL toDateTime(last_seen) + INTERVAL 90 DAY",
-	} {
-		if s := statement(t, scripts, object); !strings.Contains(s, ttl) {
-			t.Errorf("%s lacks %q:\n%s", object, ttl, s)
+	for _, table := range metricDataTables {
+		s := statement(t, scripts, table)
+		if strings.Contains(s, "TTL") || strings.Contains(s, "ttl_only_drop_parts") {
+			t.Errorf("%s sets its TTL at creation:\n%s", table, s)
 		}
 	}
 }
@@ -156,7 +170,7 @@ func TestLabelNamesAreKeptPerLabelFromEverySeriesRow(t *testing.T) {
 		"  label      String,\n",
 		"  first_seen SimpleAggregateFunction(min, DateTime64(3)),\n",
 		"  last_seen  SimpleAggregateFunction(max, DateTime64(3))\n",
-		"ENGINE = AggregatingMergeTree\nORDER BY label\n",
+		"ENGINE = AggregatingMergeTree\nORDER BY label ",
 	} {
 		if !strings.Contains(table, want) {
 			t.Errorf("metric_label_names lacks %q:\n%s", want, table)

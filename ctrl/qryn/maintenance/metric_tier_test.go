@@ -19,8 +19,8 @@ func golden(t *testing.T, name string) string {
 
 func TestTierViewsRenderAsPinned(t *testing.T) {
 	for name, env := range map[string]map[string]string{
-		"single":  migrationEnv("cloki", "", false, 7, "", "", false, testTiers),
-		"cluster": migrationEnv("cloki", "c1", true, 7, "", "", true, testTiers),
+		"single":  migrationEnv("cloki", "", false, 7, "", "", false),
+		"cluster": migrationEnv("cloki", "c1", true, 7, "", "", true),
 	} {
 		scripts, err := renderScripts(sql.MetricsScript, env)
 		if err != nil {

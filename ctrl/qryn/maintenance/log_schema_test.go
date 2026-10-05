@@ -21,7 +21,7 @@ func TestLogScriptMatchesRelease(t *testing.T) {
 
 // TestLogRollupViewTakesAllRows checks that metrics_15s_mv aggregates every row type.
 func TestLogRollupViewTakesAllRows(t *testing.T) {
-	scripts, err := renderScripts(sql.LogScript, migrationEnv("cloki", "", false, 7, "", "", false, testTiers))
+	scripts, err := renderScripts(sql.LogScript, migrationEnv("cloki", "", false, 7, "", "", false))
 	if err != nil {
 		t.Fatal(err)
 	}
