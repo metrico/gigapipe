@@ -19,8 +19,8 @@ type Window struct {
 }
 
 // SeriesSource selects the fingerprint and label set of every series matching matchers that
-// may have samples in w. Rows: fingerprint UInt64, label_set Map(String, String). Samples are
-// still read for the fingerprints the series index selects.
+// may have samples in w. Rows: fingerprint UInt64, label_set Map(String, String). Samples
+// are read for the fingerprints the series index selects.
 type SeriesSource func(w Window, matchers []*labels.Matcher) string
 
 // SeriesSQL selects the fingerprint and label set of every series matching matchers that may
