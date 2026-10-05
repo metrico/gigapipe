@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/plugins"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/utils/cityhash102"
@@ -90,11 +91,15 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &CLokiQuerier{
+	res := &CLokiQuerier{
 		db:   db,
 		expr: c.Expr,
 		tier: c.tier(),
-	}, nil
+	}
+	if p := plugins.GetMetricLabelsGetterPlugin(); p != nil {
+		res.labelsPlugin = *p
+	}
+	return res, nil
 }
 
 // tier is the one tier the query is served from. A query that was not transpiled reads raw
@@ -125,6 +130,8 @@ type CLokiQuerier struct {
 	db   *model.DataDatabasesMap
 	expr *promql_parser.Expr
 	tier metricread.Tier
+	// labelsPlugin, when set, selects the series labels in place of the series index.
+	labelsPlugin plugins.MetricLabelsGetterPlugin
 
 	mtx     sync.Mutex
 	cancels []context.CancelFunc
@@ -228,7 +235,8 @@ func (c *CLokiQuerier) substitute(matchers []*labels.Matcher) *promql_parser.Sub
 // in the hinted interval [Start, End]: raw samples, or from a tier each bucket's last sample
 // and the stale marker that follows it.
 func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints, matchers []*labels.Matcher) ([]*model.SeriesV2, error) {
-	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End, Cluster: c.cluster()}
+	window := metricread.Window{FromMs: hints.Start - 1, ToMs: hints.End, Cluster: c.cluster(),
+		Series: c.seriesSource(ctx)}
 	lbls, err := c.readSeries(ctx, metricread.SeriesSQL(window, matchers))
 	if err != nil || len(lbls) == 0 {
 		return nil, err
@@ -267,6 +275,7 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 	pushdown := sub.Pushdown
 	pushdown.Tier = c.tier
 	pushdown.Cluster = c.cluster()
+	pushdown.Series = c.seriesSource(ctx)
 	labelsSQL := metricread.PushdownLabelsSQL(pushdown)
 	var (
 		series []*model.SeriesV2
@@ -376,6 +385,17 @@ func (c *CLokiQuerier) readSeries(ctx context.Context, query string) (seriesLabe
 		res[fp] = labelsFromMap(set)
 	}
 	return res, rows.Err()
+}
+
+// seriesSource is the labels plugin's series query, or nil to read the series index.
+func (c *CLokiQuerier) seriesSource(ctx context.Context) metricread.SeriesSource {
+	if c.labelsPlugin == nil {
+		return nil
+	}
+	return func(w metricread.Window, matchers []*labels.Matcher) string {
+		return c.labelsPlugin.GetMetricLabelsQuery(ctx, c.db, matchers,
+			time.UnixMilli(w.FromMs), time.UnixMilli(w.ToMs))
+	}
 }
 
 // cluster reports whether the database runs on a cluster, where reads go to the distributed tables.

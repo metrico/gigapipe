@@ -2,9 +2,12 @@ package plugins
 
 import (
 	"context"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 type TracesDataPlugin func(main shared.SQLRequestPlanner) shared.SQLRequestPlanner
@@ -42,6 +45,23 @@ func RegisterGetTracesQueryPlugin(plugin GetTracesQueryPlugin) {
 
 func GetGetTracesQueryPlugin() *GetTracesQueryPlugin {
 	return getTracesQueryPlugin
+}
+
+// MetricLabelsGetterPlugin selects the label sets of the series a PromQL selector reads.
+// Rows: fingerprint UInt64, label_set Map(String, String).
+type MetricLabelsGetterPlugin interface {
+	GetMetricLabelsQuery(ctx context.Context, conn *model.DataDatabasesMap,
+		matchers []*labels.Matcher, from time.Time, to time.Time) string
+}
+
+var metricLabelsGetterPlugin *MetricLabelsGetterPlugin
+
+func RegisterMetricLabelsGetterPlugin(plugin MetricLabelsGetterPlugin) {
+	metricLabelsGetterPlugin = &plugin
+}
+
+func GetMetricLabelsGetterPlugin() *MetricLabelsGetterPlugin {
+	return metricLabelsGetterPlugin
 }
 
 type InitIndexPlannerPlugin func() shared.SQLRequestPlanner
