@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -230,7 +229,7 @@ func promRespond(w http.ResponseWriter, data any, truncated bool) {
 	if truncated {
 		res.Warnings = []string{truncatedWarning}
 	}
-	body, err := json.Marshal(res)
+	body, err := jsoniter.ConfigCompatibleWithStandardLibrary.Marshal(res)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
