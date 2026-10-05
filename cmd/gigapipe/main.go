@@ -301,12 +301,12 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 	}
 	for _, db := range cfg.Setting.DATABASE_DATA {
 		if _, err := metricSettings.Tiers(db.TTLDays); err != nil {
-			return err
+			return fmt.Errorf("database %q (ttl_days %d): %w", db.Name, db.TTLDays, err)
 		}
 	}
 	if v := metricSettings.ReadTier; v != "" {
 		if _, ok := metricread.TierNamed(v); !ok {
-			return fmt.Errorf("METRICS_READ_TIER: invalid value %q, want raw, 5m or 1h", v)
+			return fmt.Errorf("GIGAPIPE_METRICS_READ_TIER: invalid value %q, want raw, 5m or 1h", v)
 		}
 	}
 	metricretention.Configure(metricSettings)

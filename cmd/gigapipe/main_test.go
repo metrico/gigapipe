@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -210,16 +211,16 @@ func TestHTTPRootReaderModeLeavesProtocolsDefault(t *testing.T) {
 func TestStartRejectsACoarserTierShorterThanAFinerOne(t *testing.T) {
 	t.Setenv("METRICS_5M_DAYS", "3")
 	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "METRICS_5M_DAYS") {
-		t.Errorf("portEnv = %v, want a METRICS_5M_DAYS error", err)
+	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "GIGAPIPE_METRICS_5M_DAYS") {
+		t.Errorf("portEnv = %v, want a GIGAPIPE_METRICS_5M_DAYS error", err)
 	}
 }
 
 func TestStartRejectsAnUnknownReadTier(t *testing.T) {
 	t.Setenv("METRICS_READ_TIER", "15s")
 	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "METRICS_READ_TIER") {
-		t.Errorf("portEnv = %v, want a METRICS_READ_TIER error", err)
+	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "GIGAPIPE_METRICS_READ_TIER") {
+		t.Errorf("portEnv = %v, want a GIGAPIPE_METRICS_READ_TIER error", err)
 	}
 }
 
@@ -275,8 +276,9 @@ func configWithDatabases(t *testing.T, ttlDays ...int) *clconfig.ClokiConfig {
 	prev := metricretention.Configured()
 	t.Cleanup(func() { metricretention.Configure(prev) })
 	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	for _, d := range ttlDays {
-		cfg.Setting.DATABASE_DATA = append(cfg.Setting.DATABASE_DATA, config.ClokiBaseDataBase{TTLDays: d})
+	for i, d := range ttlDays {
+		cfg.Setting.DATABASE_DATA = append(cfg.Setting.DATABASE_DATA,
+			config.ClokiBaseDataBase{Name: fmt.Sprintf("db%d", i), TTLDays: d})
 	}
 	return cfg
 }
@@ -317,8 +319,10 @@ func TestStartTakesTheRawTierFromSamplesDays(t *testing.T) {
 
 func TestStartRejectsTiersThatBreakTheRuleForOneDatabase(t *testing.T) {
 	t.Setenv("METRICS_5M_DAYS", "20")
-	if err := portEnv(configWithDatabases(t, 7, 30)); err == nil || !strings.Contains(err.Error(), "METRICS_5M_DAYS") {
-		t.Errorf("portEnv = %v, want a METRICS_5M_DAYS error", err)
+	err := portEnv(configWithDatabases(t, 7, 30))
+	if err == nil || !strings.Contains(err.Error(), `database "db1" (ttl_days 30)`) ||
+		!strings.Contains(err.Error(), "GIGAPIPE_METRICS_5M_DAYS (20)") {
+		t.Errorf("portEnv = %v, want a GIGAPIPE_METRICS_5M_DAYS error naming db1 and its ttl_days", err)
 	}
 }
 
