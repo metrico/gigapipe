@@ -32,7 +32,7 @@ func NewMetricLabelsService(sd *model.ServiceData) *MetricLabelsService {
 }
 
 // LabelNames returns the label names of the series q picks, and whether q.Limit cut them.
-func (s *MetricLabelsService) LabelNames(ctx context.Context, q metricread.IndexQuery) ([]string, bool, error) {
+func (s *MetricLabelsService) LabelNames(ctx context.Context, q model.MetricIndexQuery) ([]string, bool, error) {
 	if s.plugin != nil {
 		return s.plugin.LabelNames(ctx, q)
 	}
@@ -42,15 +42,15 @@ func (s *MetricLabelsService) LabelNames(ctx context.Context, q metricread.Index
 // LabelValues returns the values of label name over the series q picks, and whether q.Limit
 // cut them.
 func (s *MetricLabelsService) LabelValues(ctx context.Context, name string,
-	q metricread.IndexQuery) ([]string, bool, error) {
+	q model.MetricIndexQuery) ([]string, bool, error) {
 	if s.plugin != nil {
 		return s.plugin.LabelValues(ctx, name, q)
 	}
-	return s.strings(ctx, q, func(q metricread.IndexQuery) string { return metricread.LabelValuesSQL(name, q) })
+	return s.strings(ctx, q, func(q model.MetricIndexQuery) string { return metricread.LabelValuesSQL(name, q) })
 }
 
 // Series returns the label set of every series q picks, and whether q.Limit cut them.
-func (s *MetricLabelsService) Series(ctx context.Context, q metricread.IndexQuery) ([]map[string]string, bool, error) {
+func (s *MetricLabelsService) Series(ctx context.Context, q model.MetricIndexQuery) ([]map[string]string, bool, error) {
 	if s.plugin != nil {
 		return s.plugin.Series(ctx, q)
 	}
@@ -80,7 +80,7 @@ func (s *MetricLabelsService) Metadata(ctx context.Context, metric string, limit
 	if s.plugin != nil {
 		return s.plugin.Metadata(ctx, metric, limit)
 	}
-	rows, _, err := s.query(ctx, metricread.IndexQuery{}, func(q metricread.IndexQuery) string {
+	rows, _, err := s.query(ctx, model.MetricIndexQuery{}, func(q model.MetricIndexQuery) string {
 		return metricread.MetadataSQL(metric, limit, q.Cluster)
 	})
 	if err != nil {
@@ -101,7 +101,7 @@ func (s *MetricLabelsService) Metadata(ctx context.Context, metric string, limit
 
 // Exemplars returns the exemplars in [q.StartMs, q.EndMs] of the series q picks, per series,
 // sorted by the series' label set.
-func (s *MetricLabelsService) Exemplars(ctx context.Context, q metricread.IndexQuery) ([]model.ExemplarSeries, error) {
+func (s *MetricLabelsService) Exemplars(ctx context.Context, q model.MetricIndexQuery) ([]model.ExemplarSeries, error) {
 	if s.plugin != nil {
 		return s.plugin.Exemplars(ctx, q)
 	}
@@ -146,8 +146,8 @@ func (s *MetricLabelsService) Exemplars(ctx context.Context, q metricread.IndexQ
 	return res, nil
 }
 
-func (s *MetricLabelsService) strings(ctx context.Context, q metricread.IndexQuery,
-	build func(metricread.IndexQuery) string) ([]string, bool, error) {
+func (s *MetricLabelsService) strings(ctx context.Context, q model.MetricIndexQuery,
+	build func(model.MetricIndexQuery) string) ([]string, bool, error) {
 	rows, q, err := s.query(ctx, q, build)
 	if err != nil {
 		return nil, false, err
@@ -169,8 +169,8 @@ func (s *MetricLabelsService) strings(ctx context.Context, q metricread.IndexQue
 }
 
 // query runs the SQL build makes from q, reading the distributed tables on a cluster.
-func (s *MetricLabelsService) query(ctx context.Context, q metricread.IndexQuery,
-	build func(metricread.IndexQuery) string) (*gosql.Rows, metricread.IndexQuery, error) {
+func (s *MetricLabelsService) query(ctx context.Context, q model.MetricIndexQuery,
+	build func(model.MetricIndexQuery) string) (*gosql.Rows, model.MetricIndexQuery, error) {
 	conn, err := s.Session.GetDB(ctx)
 	if err != nil {
 		return nil, q, err

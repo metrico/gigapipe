@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/mux"
 	jsoniter "github.com/json-iterator/go"
 	readermodel "github.com/metrico/qryn/v5/reader/model"
-	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
@@ -167,8 +166,8 @@ func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *htt
 }
 
 // exemplarQuery reads the query, start and end parameters of /api/v1/query_exemplars.
-func exemplarQuery(r *http.Request) (metricread.IndexQuery, error) {
-	var q metricread.IndexQuery
+func exemplarQuery(r *http.Request) (readermodel.MetricIndexQuery, error) {
+	var q readermodel.MetricIndexQuery
 	if err := r.ParseForm(); err != nil {
 		return q, err
 	}
@@ -243,8 +242,8 @@ func promRespond(w http.ResponseWriter, data any, truncated bool) {
 }
 
 // indexQuery reads the match[], start, end and limit parameters of a label endpoint.
-func indexQuery(r *http.Request) (metricread.IndexQuery, error) {
-	var q metricread.IndexQuery
+func indexQuery(r *http.Request) (readermodel.MetricIndexQuery, error) {
+	var q readermodel.MetricIndexQuery
 	if err := r.ParseForm(); err != nil {
 		return q, err
 	}
