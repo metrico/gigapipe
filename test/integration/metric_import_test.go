@@ -9,11 +9,7 @@ package integration
 import (
 	"context"
 	"fmt"
-	"io"
 	"math"
-	"net/http"
-	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,50 +23,6 @@ import (
 )
 
 const staleMarkerExpr = "reinterpretAsFloat64(toUInt64(9218868437227405314))"
-
-func clickhouseConn(t *testing.T) clickhouse.Conn {
-	t.Helper()
-	addr := "localhost:8123"
-	if base := os.Getenv("CLICKHOUSE_HTTP_URL"); base != "" {
-		u, err := url.Parse(base)
-		if err != nil {
-			t.Fatal(err)
-		}
-		addr = u.Host
-	}
-	db := os.Getenv("CLICKHOUSE_DB")
-	if db == "" {
-		db = "cloki"
-	}
-	conn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}, Protocol: clickhouse.HTTP,
-		Auth: clickhouse.Auth{Database: db}, ReadTimeout: 5 * time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { conn.Close() })
-	return conn
-}
-
-func clickhouseDB() string {
-	if db := os.Getenv("CLICKHOUSE_DB"); db != "" {
-		return db
-	}
-	return "cloki"
-}
-
-// clickhouseQueryAs runs sql under queryID, ignoring its outcome.
-func clickhouseQueryAs(queryID, sql string) {
-	base := os.Getenv("CLICKHOUSE_HTTP_URL")
-	if base == "" {
-		base = "http://localhost:8123"
-	}
-	resp, err := http.Post(strings.TrimRight(base, "/")+"/?database="+clickhouseDB()+"&query_id="+url.QueryEscape(queryID),
-		"text/plain", strings.NewReader(sql))
-	if err == nil {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}
-}
 
 func runImport(t *testing.T, conn clickhouse.Conn) {
 	t.Helper()
