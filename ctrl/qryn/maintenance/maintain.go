@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -129,39 +128,28 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 			MoveTo: p.MoveTo,
 		}
 	}
-	metrics15sTTLDays, err := rollupTTLDays(dbObject)
-	if err != nil {
-		return err
-	}
-	tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+	tiers, err := metricTiers(dbObject)
 	if err != nil {
 		return err
 	}
 	return Rotate(connDb, dbObject.ClusterName, dbObject.ClusterName != "",
-		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, tiers, dbObject.StoragePolicy, logger.Logger)
+		ttlPolicy, dbObject.TTLDays, rollupTTLDays(dbObject), tiers, dbObject.StoragePolicy, logger.Logger)
+}
+
+// metricTiers is the tier lifetimes of dbObject under the configured metric retention settings.
+func metricTiers(dbObject *config.ClokiBaseDataBase) (metricretention.Tiers, error) {
+	return metricretention.Configured().Tiers(dbObject.TTLDays)
 }
 
 // rollupTTLDays is the lifetime of metrics_15s: METRICS_15S_TTL_DAYS, else the database's TTL.
-func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
-	if v := os.Getenv("METRICS_15S_TTL_DAYS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			return 0, fmt.Errorf("METRICS_15S_TTL_DAYS: invalid value %q", v)
-		}
-		return n, nil
-	}
-	return dbObject.TTLDays, nil
+func rollupTTLDays(dbObject *config.ClokiBaseDataBase) int {
+	return metricretention.Configured().Rollup(dbObject.TTLDays)
 }
 
 // ImportAllMetrics runs the metric import of each database in the background until it completes.
 func ImportAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) {
 	for _, dbObject := range base {
 		go func() {
-			rollupDays, err := rollupTTLDays(&dbObject)
-			if err != nil {
-				logger.Error("metric import: ", err.Error())
-				return
-			}
 			conn, err := maintenance.ConnectV2ReadTimeout(&dbObject, true, time.Hour)
 			if err != nil {
 				logger.Error("metric import: ", err.Error())
@@ -172,7 +160,7 @@ func ImportAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) {
 				Database:    dbObject.Name,
 				Cluster:     dbObject.ClusterName,
 				SamplesDays: dbObject.TTLDays,
-				RollupDays:  rollupDays,
+				RollupDays:  rollupTTLDays(&dbObject),
 				Logger:      logger,
 			})
 		}()

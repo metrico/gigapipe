@@ -295,16 +295,21 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		cfg.Setting.LOG_SETTINGS.Level = os.Getenv("LOG_LEVEL")
 	}
 
+	metricSettings, err := metricretention.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
 	for _, db := range cfg.Setting.DATABASE_DATA {
-		if _, err := metricretention.FromEnv(db.TTLDays, os.Getenv); err != nil {
+		if _, err := metricSettings.Tiers(db.TTLDays); err != nil {
 			return err
 		}
 	}
-	if v := os.Getenv("METRICS_READ_TIER"); v != "" {
+	if v := metricSettings.ReadTier; v != "" {
 		if _, ok := metricread.TierNamed(v); !ok {
 			return fmt.Errorf("METRICS_READ_TIER: invalid value %q, want raw, 5m or 1h", v)
 		}
 	}
+	metricretention.Configure(metricSettings)
 	return nil
 }
 

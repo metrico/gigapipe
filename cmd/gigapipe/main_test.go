@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
 
@@ -264,5 +266,65 @@ func TestOmitCreateTablesIsReadOnlyInASchemaMode(t *testing.T) {
 	t.Setenv("OMIT_CREATE_TABLES", "maybe")
 	if _, err := schemaSteps("writer"); err == nil {
 		t.Error(`mode "writer" accepted OMIT_CREATE_TABLES=maybe`)
+	}
+}
+
+// configWithDatabases returns a config file's settings holding one database per TTL.
+func configWithDatabases(t *testing.T, ttlDays ...int) *clconfig.ClokiConfig {
+	t.Helper()
+	prev := metricretention.Configured()
+	t.Cleanup(func() { metricretention.Configure(prev) })
+	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
+	for _, d := range ttlDays {
+		cfg.Setting.DATABASE_DATA = append(cfg.Setting.DATABASE_DATA, config.ClokiBaseDataBase{TTLDays: d})
+	}
+	return cfg
+}
+
+func TestStartResolvesTheMetricTiersOfEachDatabaseAndTheForcedTier(t *testing.T) {
+	t.Setenv("METRICS_1H_DAYS", "400")
+	t.Setenv("METRICS_15S_TTL_DAYS", "9")
+	t.Setenv("METRICS_READ_TIER", "5m")
+	cfg := configWithDatabases(t, 3, 60)
+	if err := portEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
+	s := metricretention.Configured()
+	if s.ReadTier != "5m" || s.Rollup(3) != 9 {
+		t.Errorf("ReadTier = %q, Rollup = %d, want 5m and 9", s.ReadTier, s.Rollup(3))
+	}
+	for i, want := range []metricretention.Tiers{
+		{RawDays: 3, FiveMinuteDays: 30, HourDays: 400},
+		{RawDays: 60, FiveMinuteDays: 60, HourDays: 400},
+	} {
+		if got, err := s.Tiers(cfg.Setting.DATABASE_DATA[i].TTLDays); err != nil || got != want {
+			t.Errorf("database %d: tiers = %+v, %v, want %+v", i, got, err, want)
+		}
+	}
+}
+
+func TestStartTakesTheRawTierFromSamplesDays(t *testing.T) {
+	t.Setenv("SAMPLES_DAYS", "12")
+	cfg := configWithDatabases(t)
+	if err := portEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := metricretention.Tiers{RawDays: 12, FiveMinuteDays: 30, HourDays: 365}
+	if got, err := metricretention.Configured().Tiers(cfg.Setting.DATABASE_DATA[0].TTLDays); err != nil || got != want {
+		t.Errorf("tiers = %+v, %v, want %+v", got, err, want)
+	}
+}
+
+func TestStartRejectsTiersThatBreakTheRuleForOneDatabase(t *testing.T) {
+	t.Setenv("METRICS_5M_DAYS", "20")
+	if err := portEnv(configWithDatabases(t, 7, 30)); err == nil || !strings.Contains(err.Error(), "METRICS_5M_DAYS") {
+		t.Errorf("portEnv = %v, want a METRICS_5M_DAYS error", err)
+	}
+}
+
+func TestStartRejectsABadRollupLifetime(t *testing.T) {
+	t.Setenv("METRICS_15S_TTL_DAYS", "off")
+	if err := portEnv(configWithDatabases(t)); err == nil || !strings.Contains(err.Error(), "METRICS_15S_TTL_DAYS") {
+		t.Errorf("portEnv = %v, want a METRICS_15S_TTL_DAYS error", err)
 	}
 }

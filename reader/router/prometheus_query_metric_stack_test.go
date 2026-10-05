@@ -14,6 +14,7 @@ import (
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/utils/fakeclickhouse"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 )
 
 // serveOneSeries routes the Prometheus query endpoints, reading raw samples, over a fake
@@ -25,10 +26,10 @@ func serveOneSeries(t *testing.T, pushedDown ...[]driver.Value) (*mux.Router, *f
 	return serveOneSeriesFrom(t, "raw", pushedDown...)
 }
 
-// serveOneSeriesFrom is serveOneSeries with METRICS_READ_TIER set to tier.
+// serveOneSeriesFrom is serveOneSeries with the configured read tier set to tier.
 func serveOneSeriesFrom(t *testing.T, tier string, pushedDown ...[]driver.Value) (*mux.Router, *fakeclickhouse.DB) {
 	t.Helper()
-	t.Setenv("METRICS_READ_TIER", tier)
+	configureMetricRetention(t, metricretention.Settings{ReadTier: tier})
 	if config.Cloki == nil {
 		config.Cloki = clconfig.New(clconfig.CLOKI_READER, nil, "", "")
 	}
@@ -60,6 +61,24 @@ func serveOneSeriesFrom(t *testing.T, tier string, pushedDown ...[]driver.Value)
 	app := mux.NewRouter()
 	RoutePrometheusQueryRange(app, db, false)
 	return app, db
+}
+
+// configureMetricRetention configures s for the test's duration.
+func configureMetricRetention(t *testing.T, s metricretention.Settings) {
+	t.Helper()
+	prev := metricretention.Configured()
+	metricretention.Configure(s)
+	t.Cleanup(func() { metricretention.Configure(prev) })
+}
+
+func TestTierRoutingTakesTheConfiguredSettingsNotTheEnvironment(t *testing.T) {
+	t.Setenv("METRICS_READ_TIER", "1h")
+	t.Setenv("METRICS_RAW_DAYS", "1")
+	want := metricretention.Settings{RawDays: 3, FiveMinuteDays: 40, ReadTier: "5m"}
+	configureMetricRetention(t, want)
+	if got := tierRouting(); got == nil || got.Settings != want {
+		t.Errorf("tierRouting = %+v, want the settings %+v", got, want)
+	}
 }
 
 type promResult struct {
