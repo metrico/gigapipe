@@ -9,14 +9,16 @@ import (
 )
 
 var projects = map[string]struct {
-	init    func(*config.ClokiBaseDataBase, logger.ILogger) error
-	upgrade func(config []config.ClokiBaseDataBase, logger logger.ILogger) error
-	rotate  func(base []config.ClokiBaseDataBase, logger logger.ILogger) error
+	init          func(*config.ClokiBaseDataBase, logger.ILogger) error
+	upgrade       func(config []config.ClokiBaseDataBase, logger logger.ILogger) error
+	rotate        func(base []config.ClokiBaseDataBase, logger logger.ILogger) error
+	importMetrics func(base []config.ClokiBaseDataBase, logger logger.ILogger)
 }{
 	"gigapipe": {
 		maintenance.InitDB,
 		maintenance.UpgradeAll,
 		maintenance.RotateAll,
+		maintenance.ImportAllMetrics,
 	},
 }
 
@@ -38,8 +40,13 @@ func Init(config *clconfig.ClokiConfig, project string) error {
 }
 
 // ImportMetrics starts the metric import of each database in the background.
-func ImportMetrics(config *clconfig.ClokiConfig) {
-	maintenance.ImportAllMetrics(config.Setting.DATABASE_DATA, logger.Logger)
+func ImportMetrics(config *clconfig.ClokiConfig, project string) error {
+	proj, ok := projects[project]
+	if !ok {
+		return fmt.Errorf("project %s not found", project)
+	}
+	proj.importMetrics(config.Setting.DATABASE_DATA, logger.Logger)
+	return nil
 }
 
 func Rotate(config *clconfig.ClokiConfig, project string) error {

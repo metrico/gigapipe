@@ -220,3 +220,33 @@ func TestStartRejectsAnUnknownReadTier(t *testing.T) {
 		t.Errorf("portEnv = %v, want a METRICS_READ_TIER error", err)
 	}
 }
+
+func schemaStepNames(mode string, omitCreateTables bool) []string {
+	var names []string
+	for _, s := range schemaSteps(mode, omitCreateTables) {
+		names = append(names, s.name)
+	}
+	return names
+}
+
+func TestSchemaStepsRunTheMetricImportAfterInitAndRotate(t *testing.T) {
+	for _, mode := range []string{"all", "writer"} {
+		if got := schemaStepNames(mode, false); !slices.Equal(got, []string{"init", "rotate", "import"}) {
+			t.Errorf("mode %q: schema steps %v, want [init rotate import]", mode, got)
+		}
+	}
+	if got := schemaStepNames("init_only", false); !slices.Equal(got, []string{"init", "rotate"}) {
+		t.Errorf(`mode "init_only": schema steps %v, want [init rotate]`, got)
+	}
+	if got := schemaStepNames("reader", false); len(got) != 0 {
+		t.Errorf(`mode "reader": schema steps %v, want none`, got)
+	}
+}
+
+func TestOmitCreateTablesSkipsEverySchemaStep(t *testing.T) {
+	for _, mode := range []string{"all", "writer", "init_only"} {
+		if got := schemaStepNames(mode, true); len(got) != 0 {
+			t.Errorf("mode %q with OMIT_CREATE_TABLES: schema steps %v, want none", mode, got)
+		}
+	}
+}
