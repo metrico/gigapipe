@@ -9,7 +9,6 @@ package integration
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,16 +16,9 @@ import (
 	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 )
 
-func tierURL(env, def string) string {
-	if u := os.Getenv(env); u != "" {
-		return strings.TrimRight(u, "/")
-	}
-	return def
-}
-
 var (
-	forced5m = tierURL("GIGAPIPE_5M_URL", "http://localhost:3101")
-	forced1h = tierURL("GIGAPIPE_1H_URL", "http://localhost:3102")
+	forced5m = envURL("GIGAPIPE_5M_URL", "http://localhost:3101")
+	forced1h = envURL("GIGAPIPE_1H_URL", "http://localhost:3102")
 )
 
 func waitReadyAt(t *testing.T, base string) {
