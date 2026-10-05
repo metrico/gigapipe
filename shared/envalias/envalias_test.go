@@ -146,3 +146,19 @@ func TestReadTierIsMapped(t *testing.T) {
 		t.Errorf("METRICS_READ_TIER = %q, want %q", got, "5m")
 	}
 }
+
+func TestUnprefixedMetricSettingsWarnWithTheirGigapipeName(t *testing.T) {
+	for _, name := range []string{"METRICS_RAW_DAYS", "METRICS_5M_DAYS", "METRICS_1H_DAYS", "METRICS_READ_TIER"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "1")
+			warnings := Apply()
+			idx := slices.IndexFunc(warnings, func(w string) bool { return strings.HasPrefix(w, name+" ") })
+			if idx < 0 {
+				t.Fatalf("no warning for %s, got %v", name, warnings)
+			}
+			if !strings.Contains(warnings[idx], "use "+Prefix+name) {
+				t.Errorf("warning does not name %s: %q", Prefix+name, warnings[idx])
+			}
+		})
+	}
+}
