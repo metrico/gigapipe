@@ -30,14 +30,14 @@ func SeriesSQL(w Window, matchers []*labels.Matcher) string {
 		return w.Series(w, matchers)
 	}
 	return fmt.Sprintf("SELECT fingerprint, any(labels) AS label_set FROM %s WHERE %s GROUP BY fingerprint",
-		w.table("metric_series"), seriesWhere(w, [][]*labels.Matcher{matchers}))
+		table("metric_series", w.Cluster), seriesWhere(w, [][]*labels.Matcher{matchers}))
 }
 
 // seriesIn keeps the fingerprints of the series matching the selectors in w, read from the local
 // series index: on a cluster each shard holds the series rows of its own samples.
 func seriesIn(w Window, selectors ...[]*labels.Matcher) string {
 	return fmt.Sprintf("fingerprint IN (SELECT fingerprint FROM %s WHERE %s)",
-		tables.GetTableName("metric_series"), seriesWhere(w, selectors))
+		table("metric_series", false), seriesWhere(w, selectors))
 }
 
 func seriesWhere(w Window, selectors [][]*labels.Matcher) string {
@@ -47,9 +47,9 @@ func seriesWhere(w Window, selectors [][]*labels.Matcher) string {
 		SelectorPredicate(selectors...), w.FromMs-metricindex.SeriesIndexLag.Milliseconds(), w.ToMs)
 }
 
-// table names the table w reads: its distributed wrapper on a cluster.
-func (w Window) table(name string) string {
-	if w.Cluster {
+// table returns the full name of table name, or of its distributed wrapper when cluster is set.
+func table(name string, cluster bool) string {
+	if cluster {
 		return tables.GetTableName(name + "_dist")
 	}
 	return tables.GetTableName(name)
@@ -65,5 +65,5 @@ func RawSamplesSQL(w Window, selectors ...[]*labels.Matcher) string {
 		"AND timestamp <= fromUnixTimestamp64Milli(%d) "+
 		"ORDER BY fingerprint, timestamp "+
 		"SETTINGS %s",
-		w.table("metric_samples"), seriesIn(w, selectors...), w.FromMs, w.ToMs, finalSettings)
+		table("metric_samples", w.Cluster), seriesIn(w, selectors...), w.FromMs, w.ToMs, finalSettings)
 }

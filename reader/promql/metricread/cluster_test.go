@@ -89,3 +89,39 @@ func TestSamplesOnASingleNodeReadTheLocalTables(t *testing.T) {
 		t.Errorf("reads %v, want %v", got, want)
 	}
 }
+
+func TestReadsOnAClusterNameTheDistributedTables(t *testing.T) {
+	cw := probe
+	cw.Cluster = true
+	x := []*labels.Matcher{matcher(labels.MatchEqual, "__name__", "x")}
+	q := model.MetricIndexQuery{Selectors: [][]*labels.Matcher{x}, Cluster: true, Limit: 1}
+	for name, tc := range map[string]struct{ got, want string }{
+		"series": {SeriesSQL(cw, x),
+			"SELECT fingerprint, any(labels) AS label_set FROM metric_series_dist " +
+				"WHERE (name = 'x') " +
+				"AND last_seen >= fromUnixTimestamp64Milli(1767223800000) " +
+				"AND first_seen <= fromUnixTimestamp64Milli(1767226200000) " +
+				"GROUP BY fingerprint"},
+		"raw samples": {RawSamplesSQL(cw, x),
+			"SELECT fingerprint, timestamp, value FROM metric_samples_dist FINAL " +
+				"WHERE " + localSeries(1767223800000, 1767226200000) + " " +
+				"AND timestamp > fromUnixTimestamp64Milli(1767225600000) " +
+				"AND timestamp <= fromUnixTimestamp64Milli(1767226200000) " +
+				"ORDER BY fingerprint, timestamp " +
+				"SETTINGS do_not_merge_across_partitions_select_final = 1"},
+		"label values": {LabelValuesSQL("job", q),
+			"SELECT DISTINCT labels['job'] AS value FROM metric_series_dist " +
+				"WHERE (name = 'x') AND labels['job'] != '' ORDER BY value LIMIT 2"},
+		"name values": {LabelValuesSQL(labels.MetricName, q),
+			"SELECT DISTINCT name AS value FROM metric_series_dist WHERE (name = 'x') ORDER BY value LIMIT 2"},
+		"series list": {SeriesListSQL(q),
+			"SELECT any(labels) AS label_set FROM metric_series_dist WHERE (name = 'x') " +
+				"GROUP BY name, fingerprint ORDER BY name, fingerprint LIMIT 2"},
+		"metadata": {MetadataSQL("", 1, true),
+			"SELECT name, type, help, unit FROM metric_metadata_dist FINAL ORDER BY name LIMIT 1"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s:\ngot  %s\nwant %s", name, tc.got, tc.want)
+		}
+	}
+}
