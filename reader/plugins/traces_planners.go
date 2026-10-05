@@ -48,7 +48,8 @@ func GetGetTracesQueryPlugin() *GetTracesQueryPlugin {
 }
 
 // MetricLabelsGetterPlugin selects the label sets of the series a PromQL selector reads.
-// Rows: fingerprint UInt64, label_set Map(String, String).
+// Rows: fingerprint UInt64, label_set Map(String, String). Samples are still read for the
+// fingerprints the series index selects.
 type MetricLabelsGetterPlugin interface {
 	GetMetricLabelsQuery(ctx context.Context, conn *model.DataDatabasesMap,
 		matchers []*labels.Matcher, from time.Time, to time.Time) string
