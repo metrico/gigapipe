@@ -65,6 +65,10 @@ var deprecated = map[string]replacement{
 	"QRYN_RULER_ENABLED":                {name: "GIGAPIPE_RULER_ENABLED"},
 	"QRYN_RULER_POLL_INTERVAL":          {name: "GIGAPIPE_RULER_POLL_INTERVAL"},
 	"QRYN_RULER_MAX_LOGQL_RESULT_BYTES": {name: "GIGAPIPE_RULER_MAX_LOGQL_RESULT_BYTES"},
+	"METRICS_RAW_DAYS":                  {name: "GIGAPIPE_METRICS_RAW_DAYS"},
+	"METRICS_5M_DAYS":                   {name: "GIGAPIPE_METRICS_5M_DAYS"},
+	"METRICS_1H_DAYS":                   {name: "GIGAPIPE_METRICS_1H_DAYS"},
+	"METRICS_READ_TIER":                 {name: "GIGAPIPE_METRICS_READ_TIER"},
 	"METRICS_15S_ENABLED":               {retired: "the metric retention tiers always exist"},
 	"COMPAT_4_0_19":                     {retired: "nothing replaces it"},
 }

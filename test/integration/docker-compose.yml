@@ -31,7 +31,7 @@ services:
     ports:
       - "3100:3100"
 
-  # Readers over the same database with METRICS_READ_TIER forcing a tier.
+  # Readers over the same database with GIGAPIPE_METRICS_READ_TIER forcing a tier.
   gigapipe-5m:
     image: gigapipe-integration
     pull_policy: never
@@ -43,7 +43,7 @@ services:
       CLICKHOUSE_PORT: "9000"
       PORT: "3100"
       MODE: reader
-      METRICS_READ_TIER: 5m
+      GIGAPIPE_METRICS_READ_TIER: 5m
     ports:
       - "3101:3100"
 
@@ -58,6 +58,6 @@ services:
       CLICKHOUSE_PORT: "9000"
       PORT: "3100"
       MODE: reader
-      METRICS_READ_TIER: 1h
+      GIGAPIPE_METRICS_READ_TIER: 1h
     ports:
       - "3102:3100"

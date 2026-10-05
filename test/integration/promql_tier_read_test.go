@@ -2,7 +2,7 @@
 
 // PromQL served from the aggregate tiers. At an aligned read the 5m tier reproduces the
 // probe's raw figures; the readers on GIGAPIPE_5M_URL and GIGAPIPE_1H_URL run with
-// METRICS_READ_TIER forcing their tier.
+// GIGAPIPE_METRICS_READ_TIER forcing their tier.
 
 package integration
 

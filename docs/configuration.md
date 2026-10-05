@@ -100,21 +100,23 @@ Metric samples are kept in three retention tiers, each a table with its own life
 
 | Tier | Table | Resolution | Setting | Default |
 |---|---|---|---|---|
-| raw | `metric_samples` | as received | `METRICS_RAW_DAYS` | `SAMPLES_DAYS` |
-| 5m | `metrics_5m` | 5 minutes | `METRICS_5M_DAYS` | the larger of `30` and the raw tier's days |
-| 1h | `metrics_1h` | 1 hour | `METRICS_1H_DAYS` | the larger of `365` and the 5m tier's days |
+| raw | `metric_samples` | as received | `GIGAPIPE_METRICS_RAW_DAYS` | `SAMPLES_DAYS` |
+| 5m | `metrics_5m` | 5 minutes | `GIGAPIPE_METRICS_5M_DAYS` | the larger of `30` and the raw tier's days |
+| 1h | `metrics_1h` | 1 hour | `GIGAPIPE_METRICS_1H_DAYS` | the larger of `365` and the 5m tier's days |
 
-- **`METRICS_RAW_DAYS`** - Lifetime in days of raw metric samples and their exemplars (default: `SAMPLES_DAYS`)
-- **`METRICS_5M_DAYS`** - Lifetime in days of the 5-minute tier (default: the larger of `30` and the raw tier's days)
-- **`METRICS_1H_DAYS`** - Lifetime in days of the 1-hour tier (default: the larger of `365` and the 5m tier's days). The series index lives as long as this tier, so every stored bucket keeps its labels.
+- **`GIGAPIPE_METRICS_RAW_DAYS`** - Lifetime in days of raw metric samples and their exemplars (default: `SAMPLES_DAYS`, or the database's `ttl_days` in a config file)
+- **`GIGAPIPE_METRICS_5M_DAYS`** - Lifetime in days of the 5-minute tier (default: the larger of `30` and the raw tier's days)
+- **`GIGAPIPE_METRICS_1H_DAYS`** - Lifetime in days of the 1-hour tier (default: the larger of `365` and the 5m tier's days). The series index lives as long as this tier, so every stored bucket keeps its labels.
+- **`METRICS_RAW_DAYS`**, **`METRICS_5M_DAYS`**, **`METRICS_1H_DAYS`** - deprecated aliases
 
-All three are also accepted with the `GIGAPIPE_` prefix. Each value must be a positive whole number of days, and a coarser tier must live at least as long as a finer one: `METRICS_RAW_DAYS` ≤ `METRICS_5M_DAYS` ≤ `METRICS_1H_DAYS`. A default follows the finer tier up, so only values that are set can break the rule; start-up fails when they do. Every tier is always written; to keep no long history, give the coarser tiers the same lifetime as raw.
+Each value must be a positive whole number of days, and a coarser tier must live at least as long as a finer one: raw ≤ 5m ≤ 1h. A default follows the finer tier up, so only values that are set can break the rule; start-up fails when they do. Every tier is always written; to keep no long history, give the coarser tiers the same lifetime as raw.
 
 The lifetimes, the `STORAGE_POLICY` and the move-to-disk rules of the retention policy are applied to the metric tables each time start-up initializes the database (every start in `all`, `writer` and `init_only` mode unless `OMIT_CREATE_TABLES` is set), as they are to the other tables.
 
 A PromQL query is served whole from one tier. While its earliest read (the query start less its longest range, offset and the 5-minute lookback) lies inside raw's lifetime, it reads `metrics_5m` when every evaluation timestamp falls on the 5-minute grid, every range is a multiple of 5 minutes and no selector is left to the engine (an offset, an `@`, a subquery, a function the engine evaluates), and raw samples otherwise. Past raw's lifetime it reads the finest tier whose lifetime still covers that read, `metrics_1h` once past the 5m tier's: each evaluation timestamp is snapped down to the tier's grid and each range widened to whole buckets, so such a query lags by less than one bucket and `rate(x[1m])` reads as `rate(x[5m])`.
 
-- **`METRICS_READ_TIER`** - Test knob for compliance runs, not for production: `raw`, `5m` or `1h` makes every PromQL query read that table, a tier read snapping timestamps and widening ranges as above whether or not the query is aligned (default: unset, the rules above pick the table). Also accepted with the `GIGAPIPE_` prefix; any other value fails start-up.
+- **`GIGAPIPE_METRICS_READ_TIER`** - Test knob for compliance runs, not for production: `raw`, `5m` or `1h` makes every PromQL query read that table, a tier read snapping timestamps and widening ranges as above whether or not the query is aligned (default: unset, the rules above pick the table). Any other value fails start-up.
+- **`METRICS_READ_TIER`** - deprecated alias
 
 ### Upgrading a deployment with metric history
 
