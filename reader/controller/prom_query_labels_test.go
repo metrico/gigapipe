@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -59,4 +60,27 @@ func deref(p *int64) any {
 		return nil
 	}
 	return *p
+}
+
+func TestLabelEndpointsAnswerInPrometheusEnvelope(t *testing.T) {
+	for name, tc := range map[string]struct {
+		data      any
+		truncated bool
+		want      string
+	}{
+		"label names": {[]string{"__name__", "job"}, false,
+			`{"status":"success","data":["__name__","job"]}`},
+		"series truncated": {[]map[string]string{{"job": "a<b", "__name__": "up"}}, true,
+			`{"status":"success","data":[{"__name__":"up","job":"a\u003cb"}],"warnings":["results truncated due to limit"]}`},
+		"empty": {nil, false, `{"status":"success","data":null}`},
+	} {
+		w := httptest.NewRecorder()
+		promRespond(w, tc.data, tc.truncated)
+		if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" {
+			t.Errorf("%s: status %d, content type %q", name, w.Code, w.Header().Get("Content-Type"))
+		}
+		if got := w.Body.String(); got != tc.want {
+			t.Errorf("%s:\ngot  %s\nwant %s", name, got, tc.want)
+		}
+	}
 }
