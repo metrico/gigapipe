@@ -10,6 +10,7 @@ import (
 
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/shared/envalias"
 	"github.com/metrico/qryn/v5/shared/metricretention"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
@@ -305,13 +306,16 @@ func TestStartResolvesTheMetricTiersOfEachDatabaseAndTheForcedTier(t *testing.T)
 	}
 }
 
-func TestStartTakesTheRawTierFromSamplesDays(t *testing.T) {
+func TestStartConfiguresTheRawTierFromSamplesDaysAndTheGigapipeSettings(t *testing.T) {
 	t.Setenv("SAMPLES_DAYS", "12")
+	t.Setenv("METRICS_1H_DAYS", "")
+	t.Setenv("GIGAPIPE_METRICS_1H_DAYS", "400")
+	envalias.Apply()
 	cfg := configWithDatabases(t)
 	if err := portEnv(cfg); err != nil {
 		t.Fatal(err)
 	}
-	want := metricretention.Tiers{RawDays: 12, FiveMinuteDays: 30, HourDays: 365}
+	want := metricretention.Tiers{RawDays: 12, FiveMinuteDays: 30, HourDays: 400}
 	if got, err := metricretention.Configured().Tiers(cfg.Setting.DATABASE_DATA[0].TTLDays); err != nil || got != want {
 		t.Errorf("tiers = %+v, %v, want %+v", got, err, want)
 	}
