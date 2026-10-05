@@ -15,6 +15,22 @@ func (f *DevInsertServiceFactory) NewSamplesInsertService(opts model.InsertServi
 	return NewSamplesInsertService(opts)
 }
 
+func (f *DevInsertServiceFactory) NewMetricStagingInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	return NewMetricStagingInsertService(opts)
+}
+
+func (f *DevInsertServiceFactory) NewMetricSeriesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	return NewMetricSeriesInsertService(opts)
+}
+
+func (f *DevInsertServiceFactory) NewMetricMetadataInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	return NewMetricMetadataInsertService(opts)
+}
+
+func (f *DevInsertServiceFactory) NewMetricExemplarsInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	return NewMetricExemplarsInsertService(opts)
+}
+
 func (f *DevInsertServiceFactory) NewTempoSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
 	return NewTempoSamplesInsertService(opts)
 }
