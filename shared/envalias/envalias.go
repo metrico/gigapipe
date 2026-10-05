@@ -78,8 +78,8 @@ var deprecated = map[string]replacement{
 // existing configurations keep working untouched.
 //
 // It returns one message per legacy variable that is set without its GIGAPIPE_
-// equivalent and per retired setting that is set, for the caller to log. Apply does not log itself, because it must
-// run before the logger is configured.
+// equivalent and per retired setting that is set, for the caller to log. Apply
+// does not log itself, because it must run before the logger is configured.
 func Apply() []string {
 	warnings := deprecationWarnings()
 	for _, kv := range os.Environ() {
