@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -65,7 +66,7 @@ func TestSeriesSelectionOnAClusterReadsTheDistributedIndex(t *testing.T) {
 	if got := tablesRead(SeriesSQL(cw, probeSelector())); !slices.Equal(got, []string{"metric_series_dist"}) {
 		t.Errorf("series selection reads %v", got)
 	}
-	q := IndexQuery{Selectors: [][]*labels.Matcher{probeSelector()}, Cluster: true}
+	q := model.MetricIndexQuery{Selectors: [][]*labels.Matcher{probeSelector()}, Cluster: true}
 	for name, sql := range map[string]string{
 		"labels":   LabelNamesSQL(q),
 		"values":   LabelValuesSQL("job", q),

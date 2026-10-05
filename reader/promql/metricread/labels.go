@@ -11,12 +11,9 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-// IndexQuery picks the metric_series rows the label endpoints read.
-type IndexQuery = model.MetricIndexQuery
-
 // LabelNamesSQL selects the label names of the series q picks, sorted: from the label names
 // table without a selector, from the series index with one. Rows: label String.
-func LabelNamesSQL(q IndexQuery) string {
+func LabelNamesSQL(q model.MetricIndexQuery) string {
 	if len(q.Selectors) > 0 {
 		return "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM " + indexTable(q) +
 			indexWhere(q) + " ORDER BY label" + indexLimit(q)
@@ -47,7 +44,7 @@ func LabelNamesSQL(q IndexQuery) string {
 
 // LabelValuesSQL selects the non-empty values of label name over the series q picks, sorted;
 // __name__ reads the name column. Rows: value String.
-func LabelValuesSQL(name string, q IndexQuery) string {
+func LabelValuesSQL(name string, q model.MetricIndexQuery) string {
 	if name == labels.MetricName {
 		return "SELECT DISTINCT name AS value FROM " + indexTable(q) + indexWhere(q) + " ORDER BY value" + indexLimit(q)
 	}
@@ -58,7 +55,7 @@ func LabelValuesSQL(name string, q IndexQuery) string {
 
 // SeriesListSQL selects one label set per series q picks, ordered by name and fingerprint.
 // Rows: label_set Map(String, String).
-func SeriesListSQL(q IndexQuery) string {
+func SeriesListSQL(q model.MetricIndexQuery) string {
 	return "SELECT any(labels) AS label_set FROM " + indexTable(q) + indexWhere(q) +
 		" GROUP BY name, fingerprint ORDER BY name, fingerprint" + indexLimit(q)
 }
@@ -85,7 +82,7 @@ func MetadataSQL(metric string, limit int, cluster bool) string {
 // series' label set, ordered by fingerprint and timestamp. The series are read from the local
 // metric_series even on a cluster. Rows: fingerprint UInt64, label_set Map(String, String),
 // timestamp DateTime64(3), value Float64, labels String.
-func ExemplarsSQL(q IndexQuery) string {
+func ExemplarsSQL(q model.MetricIndexQuery) string {
 	table := tables.GetTableName("metric_exemplars")
 	if q.Cluster {
 		table = tables.GetTableName("metric_exemplars_dist")
@@ -107,7 +104,7 @@ func ExemplarsSQL(q IndexQuery) string {
 		" ORDER BY e.fingerprint, e.timestamp LIMIT 1 BY e.fingerprint, e.timestamp, e.trace_id"
 }
 
-func indexTable(q IndexQuery) string {
+func indexTable(q model.MetricIndexQuery) string {
 	if q.Cluster {
 		return tables.GetTableName("metric_series_dist")
 	}
@@ -116,7 +113,7 @@ func indexTable(q IndexQuery) string {
 
 // indexWhere tests the series' lifetime for overlap with [StartMs, EndMs], allowing last_seen
 // to trail by the series-index lag, and applies the selectors.
-func indexWhere(q IndexQuery, extra ...string) string {
+func indexWhere(q model.MetricIndexQuery, extra ...string) string {
 	var conds []string
 	if q.StartMs != nil {
 		conds = append(conds, fmt.Sprintf("last_seen >= fromUnixTimestamp64Milli(%d)",
@@ -135,7 +132,7 @@ func indexWhere(q IndexQuery, extra ...string) string {
 	return " WHERE " + strings.Join(conds, " AND ")
 }
 
-func indexLimit(q IndexQuery) string {
+func indexLimit(q model.MetricIndexQuery) string {
 	if q.Limit <= 0 || q.Limit == math.MaxInt {
 		return ""
 	}
