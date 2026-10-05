@@ -232,7 +232,7 @@ func (ms merges) sql(aggs *[nMerges]string) string {
 // (start_ms − range_ms, end_ms] that hold a sample.
 func bucketsSQL(p Pushdown, ms merges) string {
 	return "SELECT fingerprint, bucket, " + ms.sql(&tierMerge) + " " +
-		"FROM " + p.window().table(p.Tier.table) + " " +
+		"FROM " + table(p.Tier.table, p.Cluster) + " " +
 		"WHERE " + seriesIn(p.window(), p.Matchers) + " " +
 		"AND bucket > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND bucket <= fromUnixTimestamp64Milli(end_ms) " +
@@ -251,7 +251,7 @@ func tierInstantRowsSQL(p Pushdown) string {
 		"AND (toUnixTimestamp64Milli(bucket) - start_ms) %% step_ms = 0 "+
 		"GROUP BY fingerprint, bucket) "+
 		"WHERE toUnixTimestamp64Milli(last.1) > t_ms - lookback_ms",
-		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, p.window().table(p.Tier.table),
+		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, table(p.Tier.table, p.Cluster),
 		seriesIn(p.window(), p.Matchers))
 }
 
@@ -271,6 +271,6 @@ func TierSamplesSQL(w Window, t Tier, selectors ...[]*labels.Matcher) string {
 		"AND timestamp > fromUnixTimestamp64Milli(%d) "+
 		"AND timestamp <= fromUnixTimestamp64Milli(%d) "+
 		"ORDER BY fingerprint, timestamp",
-		value.StaleNaN, w.table(t.table), seriesIn(w, selectors...),
+		value.StaleNaN, table(t.table, w.Cluster), seriesIn(w, selectors...),
 		w.FromMs, w.ToMs+t.WidthMs, w.FromMs, w.ToMs)
 }

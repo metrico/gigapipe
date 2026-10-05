@@ -174,7 +174,7 @@ const prevSQL = "maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerp
 // rawWindowSQL selects the raw samples of p's series in (start_ms − range_ms, end_ms], the last
 // written of each (fingerprint, timestamp).
 func rawWindowSQL(p Pushdown) string {
-	return "SELECT fingerprint, timestamp, value FROM " + p.window().table("metric_samples") + " FINAL " +
+	return "SELECT fingerprint, timestamp, value FROM " + table("metric_samples", p.Cluster) + " FINAL " +
 		"WHERE " + seriesIn(p.window(), p.Matchers) + " " +
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND timestamp <= fromUnixTimestamp64Milli(end_ms)"
