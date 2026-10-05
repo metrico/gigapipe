@@ -5,30 +5,21 @@ import (
 	"math"
 	"strings"
 
+	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
 	"github.com/metrico/qryn/v5/shared/metricindex"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
 // IndexQuery picks the metric_series rows the label endpoints read.
-type IndexQuery struct {
-	// Selectors are ORed; none picks every row.
-	Selectors [][]*labels.Matcher
-	// StartMs and EndMs bound the series' lifetime in unix milliseconds; nil drops the bound.
-	StartMs, EndMs *int64
-	// Limit reads one row more than it, for the truncation warning; 0 or math.MaxInt reads
-	// every row.
-	Limit int
-	// Cluster reads the distributed table.
-	Cluster bool
-}
+type IndexQuery = model.MetricIndexQuery
 
 // LabelNamesSQL selects the label names of the series q picks, sorted: from the label names
 // table without a selector, from the series index with one. Rows: label String.
 func LabelNamesSQL(q IndexQuery) string {
 	if len(q.Selectors) > 0 {
-		return "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM " + q.seriesTable() +
-			q.where() + " ORDER BY label" + q.limit()
+		return "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM " + indexTable(q) +
+			indexWhere(q) + " ORDER BY label" + indexLimit(q)
 	}
 	table := tables.GetTableName("metric_label_names")
 	if q.Cluster {
@@ -46,7 +37,7 @@ func LabelNamesSQL(q IndexQuery) string {
 	if len(conds) > 0 {
 		having = " HAVING " + strings.Join(conds, " AND ")
 	}
-	sql := "SELECT label FROM " + table + " GROUP BY label" + having + " ORDER BY label" + q.limit()
+	sql := "SELECT label FROM " + table + " GROUP BY label" + having + " ORDER BY label" + indexLimit(q)
 	if q.Cluster {
 		// A label has rows on every shard holding one of its series: the initiator merges them.
 		sql += " SETTINGS optimize_distributed_group_by_sharding_key = 0"
@@ -58,18 +49,18 @@ func LabelNamesSQL(q IndexQuery) string {
 // __name__ reads the name column. Rows: value String.
 func LabelValuesSQL(name string, q IndexQuery) string {
 	if name == labels.MetricName {
-		return "SELECT DISTINCT name AS value FROM " + q.seriesTable() + q.where() + " ORDER BY value" + q.limit()
+		return "SELECT DISTINCT name AS value FROM " + indexTable(q) + indexWhere(q) + " ORDER BY value" + indexLimit(q)
 	}
 	col := "labels[" + quote(name) + "]"
-	return "SELECT DISTINCT " + col + " AS value FROM " + q.seriesTable() + q.where(col+" != ''") +
-		" ORDER BY value" + q.limit()
+	return "SELECT DISTINCT " + col + " AS value FROM " + indexTable(q) + indexWhere(q, col+" != ''") +
+		" ORDER BY value" + indexLimit(q)
 }
 
 // SeriesListSQL selects one label set per series q picks, ordered by name and fingerprint.
 // Rows: label_set Map(String, String).
 func SeriesListSQL(q IndexQuery) string {
-	return "SELECT any(labels) AS label_set FROM " + q.seriesTable() + q.where() +
-		" GROUP BY name, fingerprint ORDER BY name, fingerprint" + q.limit()
+	return "SELECT any(labels) AS label_set FROM " + indexTable(q) + indexWhere(q) +
+		" GROUP BY name, fingerprint ORDER BY name, fingerprint" + indexLimit(q)
 }
 
 // MetadataSQL selects the latest metadata of every family, or of metric alone when set, up
@@ -108,24 +99,24 @@ func ExemplarsSQL(q IndexQuery) string {
 	if q.EndMs != nil {
 		conds = append(conds, fmt.Sprintf("e.timestamp <= fromUnixTimestamp64Milli(%d)", *q.EndMs))
 	}
-	return "WITH fp AS (SELECT fingerprint, any(labels) AS label_set FROM " + local.seriesTable() +
-		local.where() + " GROUP BY fingerprint) " +
+	return "WITH fp AS (SELECT fingerprint, any(labels) AS label_set FROM " + indexTable(local) +
+		indexWhere(local) + " GROUP BY fingerprint) " +
 		"SELECT e.fingerprint, fp.label_set, e.timestamp, e.value, e.labels FROM " + table + " AS e " +
 		"INNER JOIN fp ON e.fingerprint = fp.fingerprint " +
 		"WHERE " + strings.Join(conds, " AND ") +
 		" ORDER BY e.fingerprint, e.timestamp LIMIT 1 BY e.fingerprint, e.timestamp, e.trace_id"
 }
 
-func (q IndexQuery) seriesTable() string {
+func indexTable(q IndexQuery) string {
 	if q.Cluster {
 		return tables.GetTableName("metric_series_dist")
 	}
 	return tables.GetTableName("metric_series")
 }
 
-// where tests the series' lifetime for overlap with [StartMs, EndMs], allowing last_seen
+// indexWhere tests the series' lifetime for overlap with [StartMs, EndMs], allowing last_seen
 // to trail by the series-index lag, and applies the selectors.
-func (q IndexQuery) where(extra ...string) string {
+func indexWhere(q IndexQuery, extra ...string) string {
 	var conds []string
 	if q.StartMs != nil {
 		conds = append(conds, fmt.Sprintf("last_seen >= fromUnixTimestamp64Milli(%d)",
@@ -144,7 +135,7 @@ func (q IndexQuery) where(extra ...string) string {
 	return " WHERE " + strings.Join(conds, " AND ")
 }
 
-func (q IndexQuery) limit() string {
+func indexLimit(q IndexQuery) string {
 	if q.Limit <= 0 || q.Limit == math.MaxInt {
 		return ""
 	}

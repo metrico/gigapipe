@@ -40,6 +40,25 @@ func GetQueryLabelsServicePlugin() *QueryLabelsServicePlugin {
 	return queryLabelsServicePlugin
 }
 
+type MetricLabelsServicePlugin interface {
+	SetServiceData(data *model.ServiceData)
+	LabelNames(ctx context.Context, q model.MetricIndexQuery) ([]string, bool, error)
+	LabelValues(ctx context.Context, name string, q model.MetricIndexQuery) ([]string, bool, error)
+	Series(ctx context.Context, q model.MetricIndexQuery) ([]map[string]string, bool, error)
+	Metadata(ctx context.Context, metric string, limit int) (map[string][]model.MetricMetadata, error)
+	Exemplars(ctx context.Context, q model.MetricIndexQuery) ([]model.ExemplarSeries, error)
+}
+
+var metricLabelsServicePlugin *MetricLabelsServicePlugin
+
+func RegisterMetricLabelsServicePlugin(plugin MetricLabelsServicePlugin) {
+	metricLabelsServicePlugin = &plugin
+}
+
+func GetMetricLabelsServicePlugin() *MetricLabelsServicePlugin {
+	return metricLabelsServicePlugin
+}
+
 type QueryRangeServicePlugin interface {
 	SetServiceData(data *model.ServiceData)
 	Tail(ctx context.Context, query string, tailLimit int64, startNs int64) (model.IWatcher, error)
