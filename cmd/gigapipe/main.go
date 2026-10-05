@@ -73,9 +73,14 @@ type schemaStep struct {
 }
 
 // schemaSteps returns the ctrl steps to run, in order, for a mode; none when OMIT_CREATE_TABLES is set.
-func schemaSteps(mode string, omitCreateTables bool) []schemaStep {
-	if omitCreateTables || !slices.Contains([]string{"all", "writer", "init_only"}, mode) {
-		return nil
+// OMIT_CREATE_TABLES is read only in a mode that does schema work.
+func schemaSteps(mode string) ([]schemaStep, error) {
+	if !slices.Contains([]string{"all", "writer", "init_only"}, mode) {
+		return nil, nil
+	}
+	omit, err := boolEnv("OMIT_CREATE_TABLES")
+	if err != nil || omit {
+		return nil, err
 	}
 	steps := []schemaStep{
 		{"init", func(cfg *clconfig.ClokiConfig) error { return ctrl.Init(cfg, "gigapipe") }},
@@ -86,15 +91,15 @@ func schemaSteps(mode string, omitCreateTables bool) []schemaStep {
 			return ctrl.ImportMetrics(cfg, "gigapipe")
 		}})
 	}
-	return steps
+	return steps, nil
 }
 
 func initDB(cfg *clconfig.ClokiConfig) {
-	omit, err := boolEnv("OMIT_CREATE_TABLES")
+	steps, err := schemaSteps(cfg.Setting.SYSTEM_SETTINGS.Mode)
 	if err != nil {
 		panic(err)
 	}
-	for _, step := range schemaSteps(cfg.Setting.SYSTEM_SETTINGS.Mode, omit) {
+	for _, step := range steps {
 		if err = step.run(cfg); err != nil {
 			panic(err)
 		}

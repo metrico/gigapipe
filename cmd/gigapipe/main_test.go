@@ -221,9 +221,15 @@ func TestStartRejectsAnUnknownReadTier(t *testing.T) {
 	}
 }
 
-func schemaStepNames(mode string, omitCreateTables bool) []string {
+func schemaStepNames(t *testing.T, mode string, omitCreateTables string) []string {
+	t.Helper()
+	t.Setenv("OMIT_CREATE_TABLES", omitCreateTables)
+	steps, err := schemaSteps(mode)
+	if err != nil {
+		t.Fatalf("mode %q, OMIT_CREATE_TABLES=%q: %v", mode, omitCreateTables, err)
+	}
 	var names []string
-	for _, s := range schemaSteps(mode, omitCreateTables) {
+	for _, s := range steps {
 		names = append(names, s.name)
 	}
 	return names
@@ -231,22 +237,32 @@ func schemaStepNames(mode string, omitCreateTables bool) []string {
 
 func TestSchemaStepsRunTheMetricImportAfterInitAndRotate(t *testing.T) {
 	for _, mode := range []string{"all", "writer"} {
-		if got := schemaStepNames(mode, false); !slices.Equal(got, []string{"init", "rotate", "import"}) {
+		if got := schemaStepNames(t, mode, ""); !slices.Equal(got, []string{"init", "rotate", "import"}) {
 			t.Errorf("mode %q: schema steps %v, want [init rotate import]", mode, got)
 		}
 	}
-	if got := schemaStepNames("init_only", false); !slices.Equal(got, []string{"init", "rotate"}) {
+	if got := schemaStepNames(t, "init_only", ""); !slices.Equal(got, []string{"init", "rotate"}) {
 		t.Errorf(`mode "init_only": schema steps %v, want [init rotate]`, got)
 	}
-	if got := schemaStepNames("reader", false); len(got) != 0 {
+	if got := schemaStepNames(t, "reader", ""); len(got) != 0 {
 		t.Errorf(`mode "reader": schema steps %v, want none`, got)
 	}
 }
 
 func TestOmitCreateTablesSkipsEverySchemaStep(t *testing.T) {
 	for _, mode := range []string{"all", "writer", "init_only"} {
-		if got := schemaStepNames(mode, true); len(got) != 0 {
+		if got := schemaStepNames(t, mode, "true"); len(got) != 0 {
 			t.Errorf("mode %q with OMIT_CREATE_TABLES: schema steps %v, want none", mode, got)
 		}
+	}
+}
+
+func TestOmitCreateTablesIsReadOnlyInASchemaMode(t *testing.T) {
+	if got := schemaStepNames(t, "reader", "maybe"); len(got) != 0 {
+		t.Errorf(`mode "reader": schema steps %v, want none`, got)
+	}
+	t.Setenv("OMIT_CREATE_TABLES", "maybe")
+	if _, err := schemaSteps("writer"); err == nil {
+		t.Error(`mode "writer" accepted OMIT_CREATE_TABLES=maybe`)
 	}
 }
