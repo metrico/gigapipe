@@ -90,10 +90,10 @@ func TestDeprecationWarningNamesTheReplacement(t *testing.T) {
 	}
 }
 
-// TestRetiredSettingWarningSaysWhatReplacesIt covers settings that are read by
-// nothing: the warning says so and names what stands in their place.
-func TestRetiredSettingWarningSaysWhatReplacesIt(t *testing.T) {
-	for name, replacement := range map[string]string{
+// TestRetiredSettingWarningStatesItsEffect covers settings that are read by
+// nothing: the warning says so and what stands in their place, if anything.
+func TestRetiredSettingWarningStatesItsEffect(t *testing.T) {
+	for name, want := range map[string]string{
 		"METRICS_15S_ENABLED": "the metric retention tiers always exist",
 		"COMPAT_4_0_19":       "nothing replaces it",
 	} {
@@ -104,8 +104,8 @@ func TestRetiredSettingWarningSaysWhatReplacesIt(t *testing.T) {
 			if idx < 0 {
 				t.Fatalf("no warning for %s, got %v", name, warnings)
 			}
-			if !strings.Contains(warnings[idx], "has no effect") || !strings.Contains(warnings[idx], replacement) {
-				t.Errorf("warning does not say %s has no effect and %q: %q", name, replacement, warnings[idx])
+			if !strings.Contains(warnings[idx], "has no effect") || !strings.Contains(warnings[idx], want) {
+				t.Errorf("warning does not say %s has no effect and %q: %q", name, want, warnings[idx])
 			}
 		})
 	}
