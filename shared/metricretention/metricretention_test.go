@@ -155,15 +155,15 @@ func TestARollupLifetimeMustBeAPositiveNumberOfDays(t *testing.T) {
 }
 
 func TestErrorsNameTheGigapipeSettings(t *testing.T) {
-	for vars, want := range map[string]map[string]string{
+	for want, vars := range map[string]map[string]string{
 		"GIGAPIPE_METRICS_1H_DAYS: invalid value":                                  {"METRICS_1H_DAYS": "off"},
 		"METRICS_15S_TTL_DAYS: invalid value":                                      {"METRICS_15S_TTL_DAYS": "off"},
 		"GIGAPIPE_METRICS_5M_DAYS (20) must not be shorter than the raw tier (30)": {"METRICS_5M_DAYS": "20"},
 		"GIGAPIPE_METRICS_1H_DAYS (40) must not be shorter than GIGAPIPE_METRICS_5M_DAYS (50)": {
 			"METRICS_5M_DAYS": "50", "METRICS_1H_DAYS": "40"},
 	} {
-		if _, err := tiersFrom(30, want); err == nil || !strings.HasPrefix(err.Error(), vars) {
-			t.Errorf("error = %v, want one starting %q", err, vars)
+		if _, err := tiersFrom(30, vars); err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("error = %v, want one starting %q", err, want)
 		}
 	}
 }
