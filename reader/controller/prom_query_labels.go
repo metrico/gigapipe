@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	jsoniter "github.com/json-iterator/go"
+	readermodel "github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/prometheus/common/model"
@@ -191,7 +192,7 @@ func exemplarQuery(r *http.Request) (metricread.IndexQuery, error) {
 
 // marshalExemplars writes Prometheus's exemplar response: values as strings, timestamps as
 // seconds with a millisecond fraction.
-func marshalExemplars(res []service.ExemplarSeries) []byte {
+func marshalExemplars(res []readermodel.ExemplarSeries) []byte {
 	stream := jsoniter.ConfigCompatibleWithStandardLibrary.BorrowStream(nil)
 	defer jsoniter.ConfigCompatibleWithStandardLibrary.ReturnStream(stream)
 	stream.WriteRaw(`{"status":"success","data":[`)
