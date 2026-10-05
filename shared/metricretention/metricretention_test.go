@@ -1,6 +1,9 @@
 package metricretention
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func env(vars map[string]string) func(string) string {
 	return func(name string) string { return vars[name] }
@@ -147,6 +150,20 @@ func TestARollupLifetimeMustBeAPositiveNumberOfDays(t *testing.T) {
 	for _, v := range []string{"0", "-1", "1.5", "off"} {
 		if s, err := FromEnv(env(map[string]string{"METRICS_15S_TTL_DAYS": v})); err == nil {
 			t.Errorf("METRICS_15S_TTL_DAYS=%s: FromEnv = %+v, want an error", v, s)
+		}
+	}
+}
+
+func TestErrorsNameTheGigapipeSettings(t *testing.T) {
+	for vars, want := range map[string]map[string]string{
+		"GIGAPIPE_METRICS_1H_DAYS: invalid value":                                  {"METRICS_1H_DAYS": "off"},
+		"METRICS_15S_TTL_DAYS: invalid value":                                      {"METRICS_15S_TTL_DAYS": "off"},
+		"GIGAPIPE_METRICS_5M_DAYS (20) must not be shorter than the raw tier (30)": {"METRICS_5M_DAYS": "20"},
+		"GIGAPIPE_METRICS_1H_DAYS (40) must not be shorter than GIGAPIPE_METRICS_5M_DAYS (50)": {
+			"METRICS_5M_DAYS": "50", "METRICS_1H_DAYS": "40"},
+	} {
+		if _, err := tiersFrom(30, want); err == nil || !strings.HasPrefix(err.Error(), vars) {
+			t.Errorf("error = %v, want one starting %q", err, vars)
 		}
 	}
 }

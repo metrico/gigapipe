@@ -134,7 +134,7 @@ func TestAQueryAgainstADatabaseItsTiersDoNotFitFails(t *testing.T) {
 	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db},
 		Tiers: &TierRouting{Settings: metricretention.Settings{FiveMinuteDays: 20}}}).
 		SetOidAndDB(context.Background(), parse(t, "x"))
-	if _, err := queryable.Querier(0, 60000); err == nil || !strings.Contains(err.Error(), "METRICS_5M_DAYS") {
-		t.Errorf("Querier = %v, want a METRICS_5M_DAYS error", err)
+	if _, err := queryable.Querier(0, 60000); err == nil || !strings.Contains(err.Error(), "GIGAPIPE_METRICS_5M_DAYS") {
+		t.Errorf("Querier = %v, want a GIGAPIPE_METRICS_5M_DAYS error", err)
 	}
 }

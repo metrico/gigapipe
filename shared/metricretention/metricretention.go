@@ -33,13 +33,13 @@ const defaultSamplesDays = 7
 func FromEnv(getenv func(string) string) (Settings, error) {
 	s := Settings{ReadTier: getenv("METRICS_READ_TIER")}
 	for _, d := range []struct {
-		name string
-		dst  *int
+		name, shown string
+		dst         *int
 	}{
-		{"METRICS_RAW_DAYS", &s.RawDays},
-		{"METRICS_5M_DAYS", &s.FiveMinuteDays},
-		{"METRICS_1H_DAYS", &s.HourDays},
-		{"METRICS_15S_TTL_DAYS", &s.RollupDays},
+		{"METRICS_RAW_DAYS", "GIGAPIPE_METRICS_RAW_DAYS", &s.RawDays},
+		{"METRICS_5M_DAYS", "GIGAPIPE_METRICS_5M_DAYS", &s.FiveMinuteDays},
+		{"METRICS_1H_DAYS", "GIGAPIPE_METRICS_1H_DAYS", &s.HourDays},
+		{"METRICS_15S_TTL_DAYS", "METRICS_15S_TTL_DAYS", &s.RollupDays},
 	} {
 		v := getenv(d.name)
 		if v == "" {
@@ -47,7 +47,7 @@ func FromEnv(getenv func(string) string) (Settings, error) {
 		}
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			return Settings{}, fmt.Errorf("%s: invalid value %q, want a positive number of days", d.name, v)
+			return Settings{}, fmt.Errorf("%s: invalid value %q, want a positive number of days", d.shown, v)
 		}
 		*d.dst = n
 	}
@@ -65,11 +65,12 @@ func (s Settings) Tiers(samplesDays int) (Tiers, error) {
 	t.FiveMinuteDays = orDefault(s.FiveMinuteDays, max(30, t.RawDays))
 	t.HourDays = orDefault(s.HourDays, max(365, t.FiveMinuteDays))
 	if t.FiveMinuteDays < t.RawDays {
-		return Tiers{}, fmt.Errorf("METRICS_5M_DAYS (%d) must not be shorter than METRICS_RAW_DAYS (%d)",
+		return Tiers{}, fmt.Errorf("GIGAPIPE_METRICS_5M_DAYS (%d) must not be shorter than the raw tier (%d)",
 			t.FiveMinuteDays, t.RawDays)
 	}
 	if t.HourDays < t.FiveMinuteDays {
-		return Tiers{}, fmt.Errorf("METRICS_1H_DAYS (%d) must not be shorter than METRICS_5M_DAYS (%d)",
+		return Tiers{}, fmt.Errorf(
+			"GIGAPIPE_METRICS_1H_DAYS (%d) must not be shorter than GIGAPIPE_METRICS_5M_DAYS (%d)",
 			t.HourDays, t.FiveMinuteDays)
 	}
 	return t, nil
