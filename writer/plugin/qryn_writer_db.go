@@ -142,25 +142,14 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			OnBeforeInsert: func() { tsSvc.PlanFlush() },
 		})
 
-		metricOpts := func() model.InsertServiceOpts {
-			return model.InsertServiceOpts{
-				Session:      p.ServicesObject.Dbv3Map[i],
-				Node:         &node,
-				Interval:     time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
-				ParallelNum:  config.SYSTEM_SETTINGS.ChannelsSample,
-				AsyncInsert:  node.AsyncInsert,
-				MaxQueueSize: int64(config.SYSTEM_SETTINGS.DBBulk),
-			}
-		}
-		metricSvcs := []struct {
-			svcs service.InsertSvcMap
-			svc  service.IInsertServiceV2
-		}{
-			{MetricStagingSvcs, insert.NewMetricStagingInsertService(metricOpts())},
-			{MetricSeriesSvcs, insert.NewMetricSeriesInsertService(metricOpts())},
-			{MetricMetaSvcs, insert.NewMetricMetadataInsertService(metricOpts())},
-			{MetricExmplSvcs, insert.NewMetricExemplarsInsertService(metricOpts())},
-		}
+		metricSvcs := newMetricServices(model.InsertServiceOpts{
+			Session:      p.ServicesObject.Dbv3Map[i],
+			Node:         &node,
+			Interval:     time.Millisecond * time.Duration(config.SYSTEM_SETTINGS.DBTimer*1000),
+			ParallelNum:  config.SYSTEM_SETTINGS.ChannelsSample,
+			AsyncInsert:  node.AsyncInsert,
+			MaxQueueSize: int64(config.SYSTEM_SETTINGS.DBBulk),
+		})
 
 		var tempoTagsSvc service.IInsertServiceV2
 
@@ -202,7 +191,15 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 		})
 
 		// Initialize and run services
-		for _, m := range metricSvcs {
+		for _, m := range []struct {
+			svcs service.InsertSvcMap
+			svc  service.IInsertServiceV2
+		}{
+			{MetricStagingSvcs, metricSvcs.staging},
+			{MetricSeriesSvcs, metricSvcs.series},
+			{MetricMetaSvcs, metricSvcs.metadata},
+			{MetricExmplSvcs, metricSvcs.exemplars},
+		} {
 			m.svcs[node.Node] = m.svc
 			m.svc.Init()
 			go m.svc.Run()
@@ -271,5 +268,24 @@ func (p *QrynWriterPlugin) CreateStaticServiceRegistry(config config.ClokiBaseSe
 			Conns:     p.ServicesObject.Dbv3Map[0],
 			IsCluster: p.ServicesObject.DatabaseNodeMap[0].ClusterName != "",
 		})
+	}
+}
+
+// metricServices are a node's four metric insert services.
+type metricServices struct {
+	staging, series, metadata, exemplars service.IInsertServiceV2
+}
+
+// newMetricServices builds a node's metric insert services from opts. The staging and exemplar
+// services plan a flush of the series service before each of their inserts.
+func newMetricServices(opts model.InsertServiceOpts) metricServices {
+	series := insert.NewMetricSeriesInsertService(opts)
+	afterSeries := opts
+	afterSeries.OnBeforeInsert = func() { series.PlanFlush() }
+	return metricServices{
+		staging:   insert.NewMetricStagingInsertService(afterSeries),
+		series:    series,
+		metadata:  insert.NewMetricMetadataInsertService(opts),
+		exemplars: insert.NewMetricExemplarsInsertService(afterSeries),
 	}
 }
