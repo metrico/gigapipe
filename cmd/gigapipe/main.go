@@ -73,7 +73,7 @@ type schemaStep struct {
 }
 
 // schemaSteps returns the ctrl steps to run, in order, for a mode; none when OMIT_CREATE_TABLES is set.
-// OMIT_CREATE_TABLES is read only in a mode that does schema work.
+// OMIT_CREATE_TABLES is read only in a mode that does schema work; a malformed value is an error.
 func schemaSteps(mode string) ([]schemaStep, error) {
 	if !slices.Contains([]string{"all", "writer", "init_only"}, mode) {
 		return nil, nil
