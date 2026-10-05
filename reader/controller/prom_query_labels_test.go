@@ -15,6 +15,7 @@ func TestLabelEndpointTimesParseAsTheSharedParser(t *testing.T) {
 		{"seconds", "1785416892", ms(1785416892000)},
 		{"fractional seconds", "1785416892.5", ms(1785416892500)},
 		{"milliseconds", "1785416892123", ms(1785416892123)},
+		{"microseconds", "1785416892123456", ms(1785416892123)},
 		{"nanoseconds", "1785416892123456789", ms(1785416892123)},
 		{"rfc3339", "2026-07-30T13:00:00Z", ms(1785416400000)},
 		{"rfc3339 fraction", "2026-07-30T13:00:00.25Z", ms(1785416400250)},
