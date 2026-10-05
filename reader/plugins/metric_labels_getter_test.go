@@ -103,13 +103,18 @@ func TestSelectNamesSubstituteSeriesFromTheLabelsGetterPlugin(t *testing.T) {
 			Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "__name__", "a|b")}}}
 	selectPoints(t, db, expr, &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	pluginReads := 0
 	for _, q := range db.Queries() {
 		if strings.Contains(q, "any(labels)") {
 			t.Errorf("query reads labels from the series index: %s", q)
 		}
-		if !strings.Contains(q, "ARRAY JOIN") &&
-			!strings.Contains(q, "FROM (SELECT fingerprint, label_set FROM plugin_series WHERE 1 -240000 300000)") {
+		if strings.Contains(q, "FROM (SELECT fingerprint, label_set FROM plugin_series WHERE 1 -240000 300000)") {
+			pluginReads++
+		} else if !strings.Contains(q, "ARRAY JOIN") {
 			t.Errorf("labels read %q does not select from the plugin's query", q)
 		}
+	}
+	if pluginReads == 0 {
+		t.Errorf("no query selects from the plugin's query: %q", db.Queries())
 	}
 }
