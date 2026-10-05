@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -129,28 +128,22 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 			MoveTo: p.MoveTo,
 		}
 	}
-	metrics15sTTLDays, err := rollupTTLDays(dbObject)
-	if err != nil {
-		return err
-	}
-	tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+	tiers, err := tierLifetimes(dbObject)
 	if err != nil {
 		return err
 	}
 	return Rotate(connDb, dbObject.ClusterName, dbObject.ClusterName != "",
-		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, tiers, dbObject.StoragePolicy, logger.Logger)
+		ttlPolicy, dbObject.TTLDays, rollupTTLDays(dbObject), tiers, dbObject.StoragePolicy, logger.Logger)
+}
+
+// tierLifetimes is the tier lifetimes of dbObject under the configured metric retention settings.
+func tierLifetimes(dbObject *config.ClokiBaseDataBase) (metricretention.Tiers, error) {
+	return metricretention.Configured().Tiers(dbObject.TTLDays)
 }
 
 // rollupTTLDays is the lifetime of metrics_15s: METRICS_15S_TTL_DAYS, else the database's TTL.
-func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
-	if v := os.Getenv("METRICS_15S_TTL_DAYS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			return 0, fmt.Errorf("METRICS_15S_TTL_DAYS=%q: expected a positive number of days", v)
-		}
-		return n, nil
-	}
-	return dbObject.TTLDays, nil
+func rollupTTLDays(dbObject *config.ClokiBaseDataBase) int {
+	return metricretention.Configured().Rollup(dbObject.TTLDays)
 }
 
 // MetricMigration is a checked metric migration of each database in turn.
@@ -172,16 +165,12 @@ func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, 
 	}
 	m := &MetricMigration{base: base, opts: opts, open: openMigratorExecutor}
 	for _, dbObject := range base {
-		rollupDays, err := rollupTTLDays(&dbObject)
-		if err != nil {
-			return nil, &MigrationRefusedError{Reason: err.Error()}
-		}
-		tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+		tiers, err := tierLifetimes(&dbObject)
 		if err != nil {
 			return nil, &MigrationRefusedError{Reason: fmt.Sprintf("database %s: %v", dbObject.Name, err)}
 		}
 		m.rawDays = append(m.rawDays, tiers.RawDays)
-		m.rollupDays = append(m.rollupDays, rollupDays)
+		m.rollupDays = append(m.rollupDays, rollupTTLDays(&dbObject))
 	}
 	return m, nil
 }

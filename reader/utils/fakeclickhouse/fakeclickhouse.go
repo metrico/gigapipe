@@ -31,10 +31,13 @@ type ContextHandler func(ctx context.Context, query string) (Result, error)
 type DB struct {
 	// ClusterName is the cluster the database is configured on; empty for a single node.
 	ClusterName string
-	handler     ContextHandler
-	db          *sql.DB
-	mtx         sync.Mutex
-	queries     []string
+	// TTLDays is the database's ttl_days.
+	TTLDays int
+
+	handler ContextHandler
+	db      *sql.DB
+	mtx     sync.Mutex
+	queries []string
 }
 
 func New(handler Handler) *DB {
@@ -63,7 +66,7 @@ func (d *DB) answer(ctx context.Context, query string) (Result, error) {
 }
 
 func (d *DB) GetDB(context.Context) (*model.DataDatabasesMap, error) {
-	return &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{ClusterName: d.ClusterName}, Session: d}, nil
+	return &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{ClusterName: d.ClusterName, TTLDays: d.TTLDays}, Session: d}, nil
 }
 func (d *DB) Run()        {}
 func (d *DB) Stop()       {}

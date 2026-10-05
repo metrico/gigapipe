@@ -2,7 +2,6 @@ package router
 
 import (
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -62,17 +61,7 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST", "OPTIONS")
 }
 
-// tierRouting reads the tier lifetimes and METRICS_READ_TIER. The raw tier's lifetime defaults
-// to the first database's ttl_days, 7 when unset. Without valid lifetimes every read is raw.
+// tierRouting routes queries by the metric retention settings start-up configured.
 func tierRouting() *service.TierRouting {
-	samplesDays := 7
-	if dbs := config.Cloki.Setting.DATABASE_DATA; len(dbs) > 0 && dbs[0].TTLDays > 0 {
-		samplesDays = dbs[0].TTLDays
-	}
-	lifetimes, err := metricretention.FromEnv(samplesDays, os.Getenv)
-	if err != nil {
-		logger.Error("metric tiers: ", err.Error())
-		return nil
-	}
-	return &service.TierRouting{Lifetimes: lifetimes, Forced: os.Getenv("METRICS_READ_TIER")}
+	return &service.TierRouting{Settings: metricretention.Configured()}
 }

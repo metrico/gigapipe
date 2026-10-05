@@ -217,12 +217,16 @@ func TestAClusterDatabaseIsNotRefusedBeforeTheSchemaStep(t *testing.T) {
 	}
 }
 
-func TestABadMetrics15sTTLExitsTwoBeforeTheSchemaStep(t *testing.T) {
+func TestABadMetrics15sTTLExitsTwoAtStartUp(t *testing.T) {
 	t.Setenv("METRICS_15S_TTL_DAYS", "-1")
-	code, out, schemaRan := migrateMain(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1})
-	want := "metric migration refused: METRICS_15S_TTL_DAYS=\"-1\": expected a positive number of days\n"
-	if code != 2 || out != want || schemaRan {
-		t.Fatalf("exit %d, %q, schema step ran: %v", code, out, schemaRan)
+	err := portEnv(configWithDatabases(t))
+	if err == nil {
+		t.Fatal("portEnv accepted METRICS_15S_TTL_DAYS=-1")
+	}
+	var out strings.Builder
+	want := "metric migration refused: METRICS_15S_TTL_DAYS: invalid value \"-1\", want a positive number of days\n"
+	if code := refuseMigration(err, &out); code != 2 || out.String() != want {
+		t.Fatalf("exit %d, %q", code, out.String())
 	}
 }
 

@@ -92,6 +92,13 @@ func runSchemaStep(cfg *clconfig.ClokiConfig) (err error) {
 	return nil
 }
 
+// refuseMigration prints err as a migrate_metrics refusal and returns its exit code.
+func refuseMigration(err error, out io.Writer) int {
+	return runMigrateMetrics(context.Background(), func(context.Context) ([]maintenance.MetricMigrationReport, error) {
+		return nil, &maintenance.MigrationRefusedError{Reason: err.Error()}
+	}, out)
+}
+
 // runMigrateMetrics runs migrate, prints each database's summary or the failure, and returns
 // the exit code: 0 success, 1 failure or signal, 2 refused, 3 lease held.
 func runMigrateMetrics(ctx context.Context, migrate func(context.Context) ([]maintenance.MetricMigrationReport, error), out io.Writer) int {

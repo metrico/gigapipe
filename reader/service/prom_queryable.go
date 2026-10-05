@@ -79,11 +79,10 @@ type CLokiQueriable struct {
 	Tiers *TierRouting
 }
 
-// TierRouting holds what tier selection reads besides the query: the tier lifetimes and the
-// METRICS_READ_TIER knob.
+// TierRouting holds what tier selection reads besides the query: the metric retention
+// settings, whose lifetimes it resolves for the database a query runs against.
 type TierRouting struct {
-	Lifetimes metricretention.Tiers
-	Forced    string
+	Settings metricretention.Settings
 }
 
 func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
@@ -91,10 +90,14 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 	if err != nil {
 		return nil, err
 	}
+	tier, err := c.tier(db)
+	if err != nil {
+		return nil, err
+	}
 	res := &CLokiQuerier{
 		db:   db,
 		expr: c.Expr,
-		tier: c.tier(),
+		tier: tier,
 	}
 	if p := plugins.GetMetricLabelsGetterPlugin(); p != nil {
 		res.labelsPlugin = *p
@@ -104,17 +107,22 @@ func (c *CLokiQueriable) Querier(mint, maxt int64) (storage.Querier, error) {
 
 // tier is the one tier the query is served from. A query that was not transpiled reads raw
 // unless a tier is forced.
-func (c *CLokiQueriable) tier() metricread.Tier {
+func (c *CLokiQueriable) tier(db *model.DataDatabasesMap) (metricread.Tier, error) {
 	if c.Tiers == nil {
-		return metricread.RawTier
+		return metricread.RawTier, nil
 	}
+	forced := c.Tiers.Settings.ReadTier
 	if c.Expr == nil {
-		if t, ok := metricread.TierNamed(c.Tiers.Forced); ok {
-			return t
+		if t, ok := metricread.TierNamed(forced); ok {
+			return t, nil
 		}
-		return metricread.RawTier
+		return metricread.RawTier, nil
 	}
-	return metricread.SelectTier(c.Expr.Read, c.Tiers.Lifetimes, time.Now(), c.Tiers.Forced)
+	lifetimes, err := c.Tiers.Settings.Tiers(db.Config.TTLDays)
+	if err != nil {
+		return metricread.Tier{}, err
+	}
+	return metricread.SelectTier(c.Expr.Read, lifetimes, time.Now(), forced), nil
 }
 
 func (c *CLokiQueriable) SetOidAndDB(ctx context.Context, expr *promql_parser.Expr) *CLokiQueriable {
