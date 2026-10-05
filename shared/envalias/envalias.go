@@ -44,20 +44,29 @@ var irregular = map[string][]string{
 	"GIGAPIPE_METRICS_READ_TIER": {"METRICS_READ_TIER"},
 }
 
+// replacement is what stands in for a deprecated name: the GIGAPIPE_ name that
+// replaces it, or, for a setting nothing reads, what takes its place.
+type replacement struct {
+	name    string
+	retired string
+}
+
 // deprecated lists the legacy names worth warning about individually when they
-// are set without their GIGAPIPE_ equivalent. Config keys reached through
-// viper's prefix are not enumerated: there are too many, and they are not
-// deprecated one by one.
-var deprecated = map[string]string{
-	"QRYN_LOGIN":                        "GIGAPIPE_LOGIN",
-	"CLOKI_LOGIN":                       "GIGAPIPE_LOGIN",
-	"QRYN_PASSWORD":                     "GIGAPIPE_PASSWORD",
-	"CLOKI_PASSWORD":                    "GIGAPIPE_PASSWORD",
-	"CLOKIAPPLOGPATH":                   "GIGAPIPE_APPLOGPATH",
-	"CLOKIAPPLOGNAME":                   "GIGAPIPE_APPLOGNAME",
-	"QRYN_RULER_ENABLED":                "GIGAPIPE_RULER_ENABLED",
-	"QRYN_RULER_POLL_INTERVAL":          "GIGAPIPE_RULER_POLL_INTERVAL",
-	"QRYN_RULER_MAX_LOGQL_RESULT_BYTES": "GIGAPIPE_RULER_MAX_LOGQL_RESULT_BYTES",
+// are set without their GIGAPIPE_ equivalent, and the settings nothing reads.
+// Config keys reached through viper's prefix are not enumerated: there are too
+// many, and they are not deprecated one by one.
+var deprecated = map[string]replacement{
+	"QRYN_LOGIN":                        {name: "GIGAPIPE_LOGIN"},
+	"CLOKI_LOGIN":                       {name: "GIGAPIPE_LOGIN"},
+	"QRYN_PASSWORD":                     {name: "GIGAPIPE_PASSWORD"},
+	"CLOKI_PASSWORD":                    {name: "GIGAPIPE_PASSWORD"},
+	"CLOKIAPPLOGPATH":                   {name: "GIGAPIPE_APPLOGPATH"},
+	"CLOKIAPPLOGNAME":                   {name: "GIGAPIPE_APPLOGNAME"},
+	"QRYN_RULER_ENABLED":                {name: "GIGAPIPE_RULER_ENABLED"},
+	"QRYN_RULER_POLL_INTERVAL":          {name: "GIGAPIPE_RULER_POLL_INTERVAL"},
+	"QRYN_RULER_MAX_LOGQL_RESULT_BYTES": {name: "GIGAPIPE_RULER_MAX_LOGQL_RESULT_BYTES"},
+	"METRICS_15S_ENABLED":               {retired: "the metric retention tiers always exist"},
+	"COMPAT_4_0_19":                     {retired: "nothing replaces it"},
 }
 
 // Apply copies every GIGAPIPE_-prefixed variable onto the legacy name or names
@@ -69,7 +78,7 @@ var deprecated = map[string]string{
 // existing configurations keep working untouched.
 //
 // It returns one message per legacy variable that is set without its GIGAPIPE_
-// equivalent, for the caller to log. Apply does not log itself, because it must
+// equivalent and per retired setting that is set, for the caller to log. Apply does not log itself, because it must
 // run before the logger is configured.
 func Apply() []string {
 	warnings := deprecationWarnings()
@@ -96,21 +105,26 @@ func legacyNamesFor(name string) []string {
 }
 
 // deprecationWarnings reports legacy variables that are set while their
-// GIGAPIPE_ equivalent is not, so an operator is told which name to move to.
+// GIGAPIPE_ equivalent is not, so an operator is told which name to move to,
+// and retired settings that are set, with what takes their place.
 // It runs before Apply rewrites anything, so it sees what the deployment
 // actually set.
 func deprecationWarnings() []string {
 	var out []string
-	for legacy, current := range deprecated {
+	for legacy, r := range deprecated {
 		if _, set := os.LookupEnv(legacy); !set {
 			continue
 		}
-		if _, set := os.LookupEnv(current); set {
+		if r.retired != "" {
+			out = append(out, fmt.Sprintf("%s has no effect; %s", legacy, r.retired))
+			continue
+		}
+		if _, set := os.LookupEnv(r.name); set {
 			continue
 		}
 		out = append(out, fmt.Sprintf(
 			"%s is deprecated and will be removed in a future release; use %s instead",
-			legacy, current))
+			legacy, r.name))
 	}
 	sort.Strings(out)
 	return out
