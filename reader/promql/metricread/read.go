@@ -14,17 +14,26 @@ type Window struct {
 	ToMs   int64
 	// Cluster reads the distributed tables, each shard filtering its samples by its own series.
 	Cluster bool
+	// Series, when set, names the series in place of the series index.
+	Series SeriesSource
 }
 
-// SeriesSQL selects the fingerprint and label set of every series matching the selectors
-// that may have samples in w. Rows: fingerprint UInt64, label_set Map(String, String).
-func SeriesSQL(w Window, selectors ...[]*labels.Matcher) string {
+// SeriesSource selects the fingerprint and label set of every series matching matchers that
+// may have samples in w. Rows: fingerprint UInt64, label_set Map(String, String).
+type SeriesSource func(w Window, matchers []*labels.Matcher) string
+
+// SeriesSQL selects the fingerprint and label set of every series matching matchers that may
+// have samples in w, from w.Series when set. Rows: fingerprint UInt64, label_set Map(String, String).
+func SeriesSQL(w Window, matchers []*labels.Matcher) string {
+	if w.Series != nil {
+		return w.Series(w, matchers)
+	}
 	return fmt.Sprintf("SELECT fingerprint, any(labels) AS label_set FROM %s WHERE %s GROUP BY fingerprint",
-		w.table("metric_series"), seriesWhere(w, selectors))
+		w.table("metric_series"), seriesWhere(w, [][]*labels.Matcher{matchers}))
 }
 
-// seriesIn keeps the fingerprints of the series SeriesSQL selects, read from the local series
-// index: on a cluster each shard holds the series rows of its own samples.
+// seriesIn keeps the fingerprints of the series matching the selectors in w, read from the local
+// series index: on a cluster each shard holds the series rows of its own samples.
 func seriesIn(w Window, selectors ...[]*labels.Matcher) string {
 	return fmt.Sprintf("fingerprint IN (SELECT fingerprint FROM %s WHERE %s)",
 		tables.GetTableName("metric_series"), seriesWhere(w, selectors))
