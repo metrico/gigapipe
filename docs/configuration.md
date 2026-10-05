@@ -54,10 +54,11 @@ With `CLUSTER_NAME` set, every metric table has a `Distributed` table over it, n
 Gigapipe's own variables are prefixed **`GIGAPIPE_`**. New deployments should
 use that prefix.
 
-The former `QRYN_` and `CLOKI_` prefixes are still accepted so existing
-deployments keep working unchanged. At start-up each `GIGAPIPE_` variable is
-applied to its legacy equivalent, so when both are set the `GIGAPIPE_` value is
-the one that takes effect. Setting only a legacy name logs a deprecation
+The former `QRYN_` and `CLOKI_` prefixes, and the unprefixed metric tier names
+listed under [Metric retention tiers](#metric-retention-tiers), are still
+accepted so existing deployments keep working unchanged. At start-up each
+`GIGAPIPE_` variable is applied to its legacy equivalent, so when both are set
+the `GIGAPIPE_` value is the one that takes effect. Setting only a legacy name logs a deprecation
 warning naming the variable to move to. Setting `METRICS_15S_ENABLED` or
 `COMPAT_4_0_19`, which nothing reads, logs a warning that it has no effect.
 
