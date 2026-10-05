@@ -259,7 +259,7 @@ var withMetricServices = WithPreRequest(func(w http.ResponseWriter, r *http.Requ
 	dsn := r.Context().Value(utils.ContextKeyDSN).(string)
 	svcs, err := ResolveMetricServices(dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get metric services: %v", err)
 	}
 	setServices(r, svcs)
 	return nil
@@ -271,7 +271,7 @@ var withLogAndMetricServices = WithPreRequest(func(w http.ResponseWriter, r *htt
 	dsn := r.Context().Value(utils.ContextKeyDSN).(string)
 	svcs, err := ResolveLogAndMetricServices(dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get log and metric services: %v", err)
 	}
 	setServices(r, svcs)
 	return nil
