@@ -89,7 +89,7 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 
 ## Storage and Retention
 
-- **`SAMPLES_DAYS`** - TTL in days for logs, traces and profiles, and the default lifetime of raw metric samples (default: `7`)
+- **`SAMPLES_DAYS`** - TTL in days for logs, traces and profiles, and the default lifetime of raw metric samples (default: `7`). A request's `X-Ttl-Days` header (`x-ttl-days` gRPC metadata) or a `__ttl_days__` label sets the TTL of the log rows it carries; metric samples ignore both and live as long as their tier (see [Metric retention tiers](#metric-retention-tiers)), and `__ttl_days__` is dropped from their labels.
 - **`STORAGE_POLICY`** - ClickHouse storage policy name for data placement
 - **`METRICS_15S_TTL_DAYS`** - TTL in days for the `metrics_15s` table, the 15-second log rollup that LogQL `rate` and `count_over_time` over a plain stream selector read (default: the database's samples TTL). This sets when rollup rows are dropped; any move-to-disk rules from the samples retention policy still apply to the table unchanged, so a longer rollup TTL keeps rows past the point where the policy has already moved them to colder storage.
 
