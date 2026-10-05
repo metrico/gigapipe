@@ -6,6 +6,7 @@ import (
 
 	"github.com/ClickHouse/ch-go/proto"
 	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/plugins"
 	"github.com/metrico/qryn/v5/writer/service"
 )
 
@@ -51,6 +52,9 @@ func appendMs(col *proto.ColDateTime64, ms []int64) {
 }
 
 func NewMetricStagingInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	if plugin := plugins.GetMetricStagingInsertServicePlugin(); plugin != nil {
+		return (*plugin)(opts)
+	}
 	return newMetricInsertService(opts, "metric_samples_in", "metric_samples",
 		[]string{"fingerprint", "timestamp", "value", "prev_timestamp", "prev_value", "aggregate"},
 		func() []service.IColPoolRes {
@@ -80,6 +84,9 @@ func NewMetricStagingInsertService(opts model.InsertServiceOpts) service.IInsert
 }
 
 func NewMetricSeriesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	if plugin := plugins.GetMetricSeriesInsertServicePlugin(); plugin != nil {
+		return (*plugin)(opts)
+	}
 	return newMetricInsertService(opts, "metric_series", "metric_series",
 		[]string{"name", "fingerprint", "labels", "first_seen", "last_seen"},
 		func() []service.IColPoolRes {
@@ -104,6 +111,9 @@ func NewMetricSeriesInsertService(opts model.InsertServiceOpts) service.IInsertS
 }
 
 func NewMetricMetadataInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	if plugin := plugins.GetMetricMetadataInsertServicePlugin(); plugin != nil {
+		return (*plugin)(opts)
+	}
 	return newMetricInsertService(opts, "metric_metadata", "metric_metadata",
 		[]string{"name", "type", "help", "unit", "updated_at"},
 		func() []service.IColPoolRes {
@@ -127,6 +137,9 @@ func NewMetricMetadataInsertService(opts model.InsertServiceOpts) service.IInser
 }
 
 func NewMetricExemplarsInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
+	if plugin := plugins.GetMetricExemplarsInsertServicePlugin(); plugin != nil {
+		return (*plugin)(opts)
+	}
 	return newMetricInsertService(opts, "metric_exemplars", "metric_exemplars",
 		[]string{"fingerprint", "timestamp", "value", "trace_id", "labels"},
 		func() []service.IColPoolRes {
