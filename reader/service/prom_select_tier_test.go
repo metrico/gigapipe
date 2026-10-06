@@ -19,10 +19,10 @@ var lifetimes = metricretention.Tiers{RawDays: 7, FiveMinuteDays: 30, HourDays: 
 
 func TestSelectReadsASubstituteFromTheTierAndEndsItOnTheQueryGrid(t *testing.T) {
 	// The tier SQL stamps each point at the query's own timestamp, one minute apart.
-	db := substituteRows(
-		[]driver.Value{uint64(1), map[string]string{"job": "a"}, int64(300000), 1.0},
-		[]driver.Value{uint64(1), map[string]string{"job": "a"}, int64(360000), 1.0},
-		[]driver.Value{uint64(1), map[string]string{"job": "a"}, int64(420000), 2.0})
+	db := substituteRows([][]driver.Value{{uint64(1), map[string]string{"job": "a"}}},
+		[]driver.Value{uint64(1), int64(300000), 1.0},
+		[]driver.Value{uint64(1), int64(360000), 1.0},
+		[]driver.Value{uint64(1), int64(420000), 2.0})
 	expr := parse(t, "__metric_subst__1")
 	pushdown := metricread.Pushdown{Grid: metricread.Grid{StartMs: 60000, EndMs: 600000, StepMs: 60000},
 		Func: "rate", RangeMs: 60000, Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "__name__", "x")}}
@@ -37,8 +37,8 @@ func TestSelectReadsASubstituteFromTheTierAndEndsItOnTheQueryGrid(t *testing.T) 
 		t.Errorf("got %v, want %v", g, want)
 	}
 	pushdown.Tier = metricread.Tier5m
-	if q := db.Queries(); len(q) != 1 || q[0] != metricread.PushdownSQL(pushdown) {
-		t.Errorf("queries = %q, want the pushdown from the 5m tier", q)
+	if q := db.Queries(); !sameQueries(q, metricread.PushdownSQL(pushdown), metricread.PushdownLabelsSQL(pushdown)) {
+		t.Errorf("queries = %q, want the pushdown from the 5m tier and its labels", q)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 		{"raw forced past raw", &TierRouting{Lifetimes: lifetimes, Forced: "raw"}, read(60000, 60000), "metric_samples"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			db := substituteRows()
+			db := substituteRows(nil)
 			expr := parse(t, "__metric_subst__1")
 			expr.Substitutes["__metric_subst__1"] = &promql_parser.Substitute{MetricName: "__metric_subst__1",
 				Pushdown: metricread.Pushdown{Grid: tc.read.Grid, Func: "rate", RangeMs: 300000,
@@ -95,7 +95,7 @@ func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 			expr.Read = tc.read
 			selectRouted(t, db, tc.routing, expr, &storage.SelectHints{Start: tc.read.Grid.StartMs, End: tc.read.Grid.EndMs},
 				labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
-			if q := db.Queries(); len(q) != 1 || !strings.Contains(q[0], " FROM "+tc.want+" ") {
+			if q := pointsReads(db.Queries()); len(q) != 1 || !strings.Contains(q[0], " FROM "+tc.want+" ") {
 				t.Errorf("queries = %q, want a read of %s", q, tc.want)
 			}
 		})

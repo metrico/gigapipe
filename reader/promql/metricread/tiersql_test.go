@@ -23,13 +23,11 @@ func localSeries(fromMs, toMs int64) string {
 		"AND last_seen >= fromUnixTimestamp64Milli(%d) AND first_seen <= fromUnixTimestamp64Milli(%d))", fromMs, toMs)
 }
 
+// tierBuckets5m merges what a counter function reads of each 5m bucket.
 func tierBuckets5m(seriesFromMs, seriesToMs int64) string {
 	return "SELECT fingerprint, bucket, " +
-		"minIfMerge(first) AS b_first, maxIfMerge(last) AS b_last, " +
-		"sum(count) AS b_count, sum(sum) AS b_sum, varPopStableIfMergeState(var) AS b_var, " +
-		"minIfMerge(min) AS b_min, maxIfMerge(max) AS b_max, " +
-		"sum(resets) AS b_resets, sum(reset_drop) AS b_reset_drop, sum(changes) AS b_changes, " +
-		"max(stale_at) AS b_stale_at " +
+		"minIfMerge(first) AS b_first, maxIfMerge(last) AS b_last, sum(count) AS b_count, " +
+		"sum(reset_drop) AS b_reset_drop " +
 		"FROM metrics_5m " +
 		"WHERE " + localSeries(seriesFromMs, seriesToMs) + " " +
 		"AND bucket > fromUnixTimestamp64Milli(start_ms - range_ms) " +
@@ -38,26 +36,17 @@ func tierBuckets5m(seriesFromMs, seriesToMs int64) string {
 		"HAVING b_count > 0"
 }
 
+// tierRows is a counter function's row shape from the 5m tier.
 func tierRows(header string, seriesFromMs, seriesToMs int64) string {
 	return header +
 		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps, " +
 		"prev_b_ms > 0 AND prev_b_ms > start_ms + k * step_ms - range_ms AS prev_in " +
 		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, " +
-		"min(b_first) AS first, " +
-		"max(b_last) AS last, " +
+		"(min(b_first.1), argMin(b_first.2, b_first.1)) AS first, " +
+		"(max(b_last.1), argMax(b_last.2, b_last.1)) AS last, " +
 		"sum(b_count) AS count, " +
-		"if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum, " +
-		"if(min(b_min) > max(b_max), nan, min(b_min)) AS min, " +
-		"if(min(b_min) > max(b_max), nan, max(b_max)) AS max, " +
-		"sum(b_resets) + countIf(prev_in AND b_first.2 < prev_last.2) AS resets, " +
-		"sum(b_reset_drop) + sumIf(prev_last.2, prev_in AND b_first.2 < prev_last.2) AS reset_drop, " +
-		"sum(b_changes) + countIf(prev_in AND b_first.2 != prev_last.2 " +
-		"AND NOT (isNaN(b_first.2) AND isNaN(prev_last.2))) AS changes, " +
-		"max(b_stale_at) AS stale_at, " +
-		"argMax(if(prev_in, prev_last, b_first), b_ms) AS penult, " +
-		"varPopStableIfMerge(b_var) AS var " +
-		"FROM (SELECT fingerprint, b_first, b_last, b_count, b_sum, b_var, b_min, b_max, " +
-		"b_resets, b_reset_drop, b_changes, b_stale_at, " +
+		"sum(b_reset_drop) + sumIf(prev_last.2, prev_in AND b_first.2 < prev_last.2) AS reset_drop " +
+		"FROM (SELECT fingerprint, b_first, b_last, b_count, b_reset_drop, " +
 		"toUnixTimestamp64Milli(bucket) AS b_ms, " +
 		"lagInFrame(b_last) OVER w AS prev_last, " +
 		"lagInFrame(b_ms) OVER w AS prev_b_ms, " +
@@ -79,7 +68,7 @@ func TestTierPushdownSQLMergesWholeBucketsAtAnAlignedRead(t *testing.T) {
 	if got := rowsOf(t, sql); got != want {
 		t.Errorf("rows\ngot  %s\nwant %s", got, want)
 	}
-	if !strings.HasPrefix(sql, "WITH fp AS (") || !strings.Contains(sql, "WITH 600000 AS range_ms, 1 AS is_counter, 1 AS per_second, ") {
+	if !strings.HasPrefix(sql, "WITH rows AS (") || !strings.Contains(sql, "WITH 600000 AS range_ms, 1 AS is_counter, 1 AS per_second, ") {
 		t.Errorf("not evaluated as rate[10m] at the query's own timestamps: %s", sql)
 	}
 }
@@ -115,8 +104,8 @@ func TestTierPushdownSQLSnapsTimestampsAndWidensRanges(t *testing.T) {
 			if !strings.HasPrefix(sql, tc.wantStamp) {
 				t.Fatalf("not stamped at the query's timestamps: %s", sql)
 			}
-			const tail = "SELECT fingerprint, labels, start_ms + k * step_ms AS t_ms, value FROM (" +
-				"SELECT fingerprint, labels, t_ms AS tier_ms, value FROM (WITH fp AS ("
+			const tail = "SELECT fingerprint, start_ms + k * step_ms AS t_ms, value FROM (" +
+				"SELECT fingerprint, t_ms AS tier_ms, value FROM (WITH rows AS ("
 			if !strings.HasPrefix(sql[len(tc.wantStamp):], tail) {
 				t.Errorf("stamp\ngot  %s\nwant %s", sql[len(tc.wantStamp):], tail)
 			}
@@ -151,9 +140,11 @@ func TestTierPushdownSQLInstantSelectorReadsTheBucketsLast(t *testing.T) {
 	if got := rowsOf(t, sql); got != want {
 		t.Errorf("rows\ngot  %s\nwant %s", got, want)
 	}
-	points, lbls := pointsOf(t, sql)
-	if points != "SELECT fingerprint, t_ms, last.2 AS value FROM rows WHERE last.1 > stale_at" || lbls != "label_set" {
-		t.Errorf("points %s with labels %s", points, lbls)
+	if points := pointsOf(t, sql); points != "SELECT fingerprint, t_ms, last.2 AS value FROM rows WHERE last.1 > stale_at" {
+		t.Errorf("points %s", points)
+	}
+	if strings.Contains(sql, "SETTINGS") {
+		t.Errorf("a tier read carries the raw dedup settings: %s", sql)
 	}
 }
 
@@ -173,5 +164,33 @@ func TestTierSamplesSQL(t *testing.T) {
 		"ORDER BY fingerprint, timestamp"
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestTierRowShapeCarriesWhatTheFunctionReads(t *testing.T) {
+	grid := Grid{StartMs: 1767225600000, EndMs: 1767226200000, StepMs: 300000}
+	sql := PushdownSQL(Pushdown{Grid: grid, Func: "avg_over_time", RangeMs: 600000, Matchers: probeSelector(), Tier: Tier5m})
+	want := "WITH 1767225600000 AS start_ms, 1767226200000 AS end_ms, 300000 AS step_ms, 600000 AS range_ms, 300000 AS w_ms, " +
+		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps " +
+		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, " +
+		"sum(b_count) AS count, " +
+		"if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum " +
+		"FROM (SELECT fingerprint, b_count, b_sum, " +
+		"toUnixTimestamp64Milli(bucket) AS b_ms, " +
+		"greatest(0, if(b_ms >= start_ms, intDiv(b_ms - start_ms + step_ms - 1, step_ms), " +
+		"-intDiv(start_ms - b_ms, step_ms))) AS k_min, " +
+		"least(n_steps - 1, intDiv(b_ms - w_ms + range_ms - start_ms, step_ms)) AS k_max " +
+		"FROM (SELECT fingerprint, bucket, sum(count) AS b_count, sum(sum) AS b_sum " +
+		"FROM metrics_5m " +
+		"WHERE " + localSeries(1767223200000, 1767226200000) + " " +
+		"AND bucket > fromUnixTimestamp64Milli(start_ms - range_ms) " +
+		"AND bucket <= fromUnixTimestamp64Milli(end_ms) " +
+		"GROUP BY fingerprint, bucket " +
+		"HAVING b_count > 0)) " +
+		"ARRAY JOIN range(k_min, k_max + 1) AS k " +
+		"GROUP BY fingerprint, k " +
+		"HAVING count > 0"
+	if got := rowsOf(t, sql); got != want {
+		t.Errorf("rows\ngot  %s\nwant %s", got, want)
 	}
 }

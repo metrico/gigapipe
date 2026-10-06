@@ -2,6 +2,8 @@ package metricread
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/value"
@@ -11,19 +13,28 @@ import (
 // to the tier grid and each range widened to whole buckets, at least one; each point is
 // stamped at the query's own timestamp. An aligned read is evaluated as it stands.
 func tierPushdownSQL(p Pushdown) string {
-	w := p.Tier.WidthMs
-	q := p
-	q.Grid = snap(p.Grid, w)
+	q := tierRead(p)
 	rows := tierInstantRowsSQL(q)
 	if q.Func != "" {
-		q.RangeMs = max(w, (p.RangeMs+w-1)/w*w)
 		rows = tierRowsSQL(q)
 	}
 	sql := pushdownSQL(q, rows)
 	if q.Grid == p.Grid {
 		return sql
 	}
-	return stamp(sql, p.Grid, w)
+	return stamp(sql, p.Grid, p.Tier.WidthMs)
+}
+
+// tierRead is p as its tier evaluates it: the grid snapped down and a range function's range
+// widened to whole buckets, at least one.
+func tierRead(p Pushdown) Pushdown {
+	w := p.Tier.WidthMs
+	q := p
+	q.Grid = snap(p.Grid, w)
+	if q.Func != "" {
+		q.RangeMs = max(w, (p.RangeMs+w-1)/w*w)
+	}
+	return q
 }
 
 // snap moves g's timestamps down to the grid of width w: its step stays when a multiple of w
@@ -43,8 +54,8 @@ func stamp(sql string, g Grid, w int64) string {
 	step := max(g.StepMs, 1)
 	return fmt.Sprintf("WITH %d AS start_ms, %d AS step_ms, %d AS w_ms, "+
 		"intDiv(%d - start_ms, step_ms) + 1 AS n_steps "+
-		"SELECT fingerprint, labels, start_ms + k * step_ms AS t_ms, value FROM ("+
-		"SELECT fingerprint, labels, t_ms AS tier_ms, value FROM (%s)) "+
+		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, value FROM ("+
+		"SELECT fingerprint, t_ms AS tier_ms, value FROM (%s)) "+
 		"ARRAY JOIN range(greatest(0, if(tier_ms >= start_ms, intDiv(tier_ms - start_ms + step_ms - 1, step_ms), "+
 		"-intDiv(start_ms - tier_ms, step_ms))), "+
 		"least(n_steps - 1, intDiv(tier_ms + w_ms - 1 - start_ms, step_ms)) + 1) AS k "+
@@ -53,54 +64,174 @@ func stamp(sql string, g Grid, w int64) string {
 }
 
 // tierRowsSQL is the row shape per (fingerprint, t) from whole buckets inside (t − range, t],
-// partial rows merged per bucket. The pair spanning two buckets is the previous bucket's last
-// and this bucket's first, counted when the previous bucket is in the window. penult is the
-// previous bucket's last, or the bucket's own first when it is the window's only bucket; var
-// merges the variance states of every bucket in the window. An all-NaN bucket holds min +Inf
-// and max −Inf.
+// partial rows merged per bucket, carrying the columns p's function reads.
 func tierRowsSQL(p Pushdown) string {
+	ms := tierBuckets.merges(shapeOf(p.Func))
+	return bucketRowsSQL(p, tierBuckets, p.Tier.WidthMs, ms, bucketsSQL(p, ms))
+}
+
+// bucketRead is a source of buckets keyed by their end: the columns a window's row takes from
+// them, the bucket merges each column reads, and the bucket key in unix ms.
+type bucketRead struct {
+	columns *[nColumns]string
+	reads   *[nColumns][]merge
+	// lags reports whether a column reads the previous bucket's last.
+	lags func(column) bool
+	ms   string
+}
+
+// tierBuckets reads a tier's partial rows merged per bucket.
+var tierBuckets = bucketRead{columns: &tierColumn, reads: &columnMerges, lags: column.readsPrev,
+	ms: "toUnixTimestamp64Milli(bucket)"}
+
+// bucketRowsSQL is the row shape per (fingerprint, t) from the buckets of width widthMs that
+// buckets selects, carrying the columns p's function reads. A bucket keyed K holds (K − w, K]
+// and serves every t with K ≤ t ≤ K − w + range. The pair spanning two buckets is the previous
+// bucket's last and this bucket's first, counted when the previous bucket is in the window.
+func bucketRowsSQL(p Pushdown, b bucketRead, widthMs int64, ms merges, buckets string) string {
+	cols := shapeOf(p.Func)
+	prevIn, lag, window := "", "", ""
+	if slices.ContainsFunc(cols, b.lags) {
+		prevIn = ", prev_b_ms > 0 AND prev_b_ms > start_ms + k * step_ms - range_ms AS prev_in"
+		lag = "lagInFrame(b_last) OVER w AS prev_last, lagInFrame(b_ms) OVER w AS prev_b_ms, "
+		window = " WINDOW w AS (PARTITION BY fingerprint ORDER BY bucket ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)"
+	}
 	return fmt.Sprintf("WITH %d AS start_ms, %d AS end_ms, %d AS step_ms, %d AS range_ms, %d AS w_ms, "+
-		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps, "+
-		"prev_b_ms > 0 AND prev_b_ms > start_ms + k * step_ms - range_ms AS prev_in "+
-		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, "+
-		"min(b_first) AS first, "+
-		"max(b_last) AS last, "+
-		"sum(b_count) AS count, "+
-		"if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum, "+
-		"if(min(b_min) > max(b_max), nan, min(b_min)) AS min, "+
-		"if(min(b_min) > max(b_max), nan, max(b_max)) AS max, "+
-		"sum(b_resets) + countIf(prev_in AND b_first.2 < prev_last.2) AS resets, "+
-		"sum(b_reset_drop) + sumIf(prev_last.2, prev_in AND b_first.2 < prev_last.2) AS reset_drop, "+
-		"sum(b_changes) + countIf(prev_in AND b_first.2 != prev_last.2 "+
-		"AND NOT (isNaN(b_first.2) AND isNaN(prev_last.2))) AS changes, "+
-		"max(b_stale_at) AS stale_at, "+
-		"argMax(if(prev_in, prev_last, b_first), b_ms) AS penult, "+
-		"varPopStableIfMerge(b_var) AS var "+
-		"FROM (SELECT fingerprint, b_first, b_last, b_count, b_sum, b_var, b_min, b_max, "+
-		"b_resets, b_reset_drop, b_changes, b_stale_at, "+
-		"toUnixTimestamp64Milli(bucket) AS b_ms, "+
-		"lagInFrame(b_last) OVER w AS prev_last, "+
-		"lagInFrame(b_ms) OVER w AS prev_b_ms, "+
+		"intDiv(end_ms - start_ms, step_ms) + 1 AS n_steps%s "+
+		"SELECT fingerprint, start_ms + k * step_ms AS t_ms, %s "+
+		"FROM (SELECT fingerprint, %s, "+
+		"%s AS b_ms, %s"+
 		"greatest(0, if(b_ms >= start_ms, intDiv(b_ms - start_ms + step_ms - 1, step_ms), "+
 		"-intDiv(start_ms - b_ms, step_ms))) AS k_min, "+
 		"least(n_steps - 1, intDiv(b_ms - w_ms + range_ms - start_ms, step_ms)) AS k_max "+
-		"FROM (%s) "+
-		"WINDOW w AS (PARTITION BY fingerprint ORDER BY bucket ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)) "+
+		"FROM (%s)%s) "+
 		"ARRAY JOIN range(k_min, k_max + 1) AS k "+
 		"GROUP BY fingerprint, k "+
 		"HAVING count > 0",
-		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, p.Tier.WidthMs, bucketsSQL(p))
+		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, widthMs, prevIn,
+		cols.list(b.columns), ms.names(), b.ms, lag, buckets, window)
+}
+
+// tierColumn is each column's aggregate over the merged buckets of a window. penult is the
+// previous bucket's last, or the bucket's own first when it is the window's only bucket; var
+// merges the variance states of every bucket in the window. An all-NaN bucket holds min +Inf
+// and max −Inf.
+var tierColumn = [nColumns]string{
+	colFirst:     "(min(b_first.1), argMin(b_first.2, b_first.1)) AS first",
+	colLast:      "(max(b_last.1), argMax(b_last.2, b_last.1)) AS last",
+	colCount:     "sum(b_count) AS count",
+	colSum:       "if(isFinite(sum(b_sum)), sumKahan(b_sum), sum(b_sum)) AS sum",
+	colMin:       "if(min(b_min) > max(b_max), nan, min(b_min)) AS min",
+	colMax:       "if(min(b_min) > max(b_max), nan, max(b_max)) AS max",
+	colResets:    "sum(b_resets) + countIf(prev_in AND b_first.2 < prev_last.2) AS resets",
+	colResetDrop: "sum(b_reset_drop) + sumIf(prev_last.2, prev_in AND b_first.2 < prev_last.2) AS reset_drop",
+	colChanges: "sum(b_changes) + countIf(prev_in AND b_first.2 != prev_last.2 " +
+		"AND NOT (isNaN(b_first.2) AND isNaN(prev_last.2))) AS changes",
+	colStaleAt: "max(b_stale_at) AS stale_at",
+	colPenult:  "argMax(if(prev_in, prev_last, b_first), b_ms) AS penult",
+	colVar:     "varPopStableIfMerge(b_var) AS var",
+}
+
+// merge is one per-bucket value a window's row is built from.
+type merge int
+
+// The bucket merges, in the order a bucket carries them; b_count is always carried.
+const (
+	bFirst merge = iota
+	bLast
+	bCount
+	bSum
+	bVar
+	bMin
+	bMax
+	bResets
+	bResetDrop
+	bChanges
+	bStaleAt
+	bPenult
+	nMerges
+)
+
+// mergeName is each merge's alias.
+var mergeName = [nMerges]string{
+	bFirst: "b_first", bLast: "b_last", bCount: "b_count", bSum: "b_sum", bVar: "b_var", bMin: "b_min",
+	bMax: "b_max", bResets: "b_resets", bResetDrop: "b_reset_drop", bChanges: "b_changes",
+	bStaleAt: "b_stale_at", bPenult: "b_penult",
+}
+
+// tierMerge is each merge of a tier's partial rows; a tier keeps no penult.
+var tierMerge = [nMerges]string{
+	bFirst:     "minIfMerge(first)",
+	bLast:      "maxIfMerge(last)",
+	bCount:     "sum(count)",
+	bSum:       "sum(sum)",
+	bVar:       "varPopStableIfMergeState(var)",
+	bMin:       "minIfMerge(min)",
+	bMax:       "maxIfMerge(max)",
+	bResets:    "sum(resets)",
+	bResetDrop: "sum(reset_drop)",
+	bChanges:   "sum(changes)",
+	bStaleAt:   "max(stale_at)",
+}
+
+// columnMerges is the bucket merges each column's tier aggregate reads.
+var columnMerges = [nColumns][]merge{
+	colFirst:     {bFirst},
+	colLast:      {bLast},
+	colCount:     {bCount},
+	colSum:       {bSum},
+	colMin:       {bMin, bMax},
+	colMax:       {bMin, bMax},
+	colResets:    {bResets, bFirst},
+	colResetDrop: {bResetDrop, bFirst},
+	colChanges:   {bChanges, bFirst},
+	colStaleAt:   {bStaleAt},
+	colPenult:    {bFirst},
+	colVar:       {bVar},
+}
+
+// merges is a set of bucket merges.
+type merges [nMerges]bool
+
+// merges is the bucket merges the shape reads from b; the predecessor is the previous bucket's last.
+func (b bucketRead) merges(s shape) merges {
+	var res merges
+	for _, c := range s {
+		for _, m := range b.reads[c] {
+			res[m] = true
+		}
+		if b.lags(c) {
+			res[bLast] = true
+		}
+	}
+	return res
+}
+
+func (ms merges) names() string {
+	var res []string
+	for m, ok := range ms {
+		if ok {
+			res = append(res, mergeName[m])
+		}
+	}
+	return strings.Join(res, ", ")
+}
+
+// sql lists the merges, each from aggs.
+func (ms merges) sql(aggs *[nMerges]string) string {
+	var res []string
+	for m, ok := range ms {
+		if ok {
+			res = append(res, aggs[m]+" AS "+mergeName[m])
+		}
+	}
+	return strings.Join(res, ", ")
 }
 
 // bucketsSQL merges the partial rows of p's tier per (fingerprint, bucket) for the buckets inside
 // (start_ms − range_ms, end_ms] that hold a sample.
-func bucketsSQL(p Pushdown) string {
-	return "SELECT fingerprint, bucket, " +
-		"minIfMerge(first) AS b_first, maxIfMerge(last) AS b_last, " +
-		"sum(count) AS b_count, sum(sum) AS b_sum, varPopStableIfMergeState(var) AS b_var, " +
-		"minIfMerge(min) AS b_min, maxIfMerge(max) AS b_max, " +
-		"sum(resets) AS b_resets, sum(reset_drop) AS b_reset_drop, sum(changes) AS b_changes, " +
-		"max(stale_at) AS b_stale_at " +
+func bucketsSQL(p Pushdown, ms merges) string {
+	return "SELECT fingerprint, bucket, " + ms.sql(&tierMerge) + " " +
 		"FROM " + p.window().table(p.Tier.table) + " " +
 		"WHERE " + seriesIn(p.window(), p.Matchers) + " " +
 		"AND bucket > fromUnixTimestamp64Milli(start_ms - range_ms) " +

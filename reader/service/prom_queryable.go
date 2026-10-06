@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/annotations"
+	"golang.org/x/sync/errgroup"
 )
 
 type StatsStore struct {
@@ -124,6 +125,9 @@ type CLokiQuerier struct {
 	db   *model.DataDatabasesMap
 	expr *promql_parser.Expr
 	tier metricread.Tier
+
+	mtx     sync.Mutex
+	cancels []context.CancelFunc
 }
 
 // appendStaleMarker ends each run of a substitute series' points, taken one step apart, with a
@@ -145,6 +149,8 @@ func appendStaleMarker(samples []model.Sample, stepMs int64, queryEndMs int64) [
 	return res
 }
 
+// Select starts the selector's reads and returns at once; the set's first Next or Err waits
+// for them, so the engine's selectors read concurrently.
 func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints,
 	matchers ...*labels.Matcher) storage.SeriesSet {
 
@@ -157,22 +163,51 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	}
 	matchers = _matchers
 
-	var (
-		series []*model.SeriesV2
-		err    error
-	)
-	if sub := c.substitute(matchers); sub != nil {
-		series, err = c.selectSubstitute(ctx, sub)
-	} else {
-		series, err = c.selectRaw(ctx, hints, matchers)
-	}
-	if err != nil {
-		return &model.SeriesSet{Error: err}
-	}
-	res := model.SeriesSet{Series: c.sortSeries(c.ReshuffleSeries(series))}
-	res.Reset()
-	return &res
+	ctx, cancel := context.WithCancel(ctx)
+	c.mtx.Lock()
+	c.cancels = append(c.cancels, cancel)
+	c.mtx.Unlock()
+	set := &pendingSeriesSet{done: make(chan struct{})}
+	go func() {
+		defer close(set.done)
+		var (
+			series []*model.SeriesV2
+			err    error
+		)
+		if sub := c.substitute(matchers); sub != nil {
+			series, err = c.selectSubstitute(ctx, sub)
+		} else {
+			series, err = c.selectRaw(ctx, hints, matchers)
+		}
+		if err != nil {
+			set.set = model.SeriesSet{Error: err}
+			return
+		}
+		set.set = model.SeriesSet{Series: c.sortSeries(c.ReshuffleSeries(series))}
+		set.set.Reset()
+	}()
+	return set
 }
+
+// pendingSeriesSet is a series set whose reads are in flight until done closes.
+type pendingSeriesSet struct {
+	done chan struct{}
+	set  model.SeriesSet
+}
+
+func (s *pendingSeriesSet) Next() bool {
+	<-s.done
+	return s.set.Next()
+}
+
+func (s *pendingSeriesSet) At() storage.Series { return s.set.At() }
+
+func (s *pendingSeriesSet) Err() error {
+	<-s.done
+	return s.set.Err()
+}
+
+func (s *pendingSeriesSet) Warnings() annotations.Annotations { return nil }
 
 // substitute returns the substitute a matcher names, if any.
 func (c *CLokiQuerier) substitute(matchers []*labels.Matcher) *promql_parser.Substitute {
@@ -225,35 +260,49 @@ func (c *CLokiQuerier) selectRaw(ctx context.Context, hints *storage.SelectHints
 }
 
 // selectSubstitute evaluates a substitute's pushdown at the query's own timestamps, from the
-// query's tier.
+// query's tier, and names each of its series from one label row per fingerprint. The points and
+// labels are read concurrently with one predicate and window; a series indexed between the two
+// reads gets its labels from one more labels read.
 func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.Substitute) ([]*model.SeriesV2, error) {
 	pushdown := sub.Pushdown
 	pushdown.Tier = c.tier
 	pushdown.Cluster = c.cluster()
-	rows, err := c.query(ctx, metricread.PushdownSQL(pushdown))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	labelsSQL := metricread.PushdownLabelsSQL(pushdown)
 	var (
 		series []*model.SeriesV2
-		lbls   = seriesLabels{}
-		fp     uint64
-		set    map[string]string
-		tMs    int64
-		val    float64
+		lbls   seriesLabels
 	)
-	for rows.Next() {
-		if err := rows.Scan(&fp, &set, &tMs, &val); err != nil {
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		series, err = c.readPoints(gctx, metricread.PushdownSQL(pushdown))
+		if err == nil && len(series) == 0 {
+			return errNoPoints
+		}
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		lbls, err = c.readSeries(gctx, labelsSQL)
+		return err
+	})
+	if err := g.Wait(); err != nil {
+		if errors.Is(err, errNoPoints) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if slices.ContainsFunc(series, func(s *model.SeriesV2) bool { _, ok := lbls[s.Fp]; return !ok }) {
+		var err error
+		if lbls, err = c.readSeries(ctx, labelsSQL); err != nil {
 			return nil, err
 		}
-		if _, ok := lbls[fp]; !ok {
-			lbls[fp] = labelsFromMap(set)
-		}
-		series = appendSample(series, lbls, fp, tMs, val)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	for _, s := range series {
+		if _, ok := lbls[s.Fp]; !ok {
+			return nil, fmt.Errorf("pushdown series %d has no labels", s.Fp)
+		}
+		s.LabelsGetter = lbls
 	}
 	if err := uniqueLabelSets(series); err != nil {
 		return nil, err
@@ -263,6 +312,31 @@ func (c *CLokiQuerier) selectSubstitute(ctx context.Context, sub *promql_parser.
 		s.Samples = appendStaleMarker(s.Samples, grid.StepMs, grid.EndMs)
 	}
 	return series, nil
+}
+
+// errNoPoints ends a substitute's labels read when the pushdown returns no points.
+var errNoPoints = errors.New("no points")
+
+// readPoints returns the series of the (fingerprint, t_ms, value) rows of query, unnamed.
+func (c *CLokiQuerier) readPoints(ctx context.Context, query string) ([]*model.SeriesV2, error) {
+	rows, err := c.query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var (
+		series []*model.SeriesV2
+		fp     uint64
+		tMs    int64
+		val    float64
+	)
+	for rows.Next() {
+		if err := rows.Scan(&fp, &tMs, &val); err != nil {
+			return nil, err
+		}
+		series = appendSample(series, nil, fp, tMs, val)
+	}
+	return series, rows.Err()
 }
 
 // errSameLabelset is the engine's error for a function result holding two series with one
@@ -283,7 +357,7 @@ func uniqueLabelSets(series []*model.SeriesV2) error {
 	return nil
 }
 
-// readSeries returns the label set of every fingerprint the series query selects.
+// readSeries returns the label set of every fingerprint the (fingerprint, labels) query selects.
 func (c *CLokiQuerier) readSeries(ctx context.Context, query string) (seriesLabels, error) {
 	rows, err := c.query(ctx, query)
 	if err != nil {
@@ -378,8 +452,14 @@ func (c *CLokiQuerier) LabelNames(ctx context.Context, hints *storage.LabelHints
 	return nil, nil, nil
 }
 
-// Close releases the resources of the Querier.
+// Close stops the reads of every set Select returned.
 func (c *CLokiQuerier) Close() error {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	for _, cancel := range c.cancels {
+		cancel()
+	}
+	c.cancels = nil
 	return nil
 }
 

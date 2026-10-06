@@ -23,18 +23,26 @@ type Result struct {
 // Handler answers a query.
 type Handler func(query string) (Result, error)
 
+// ContextHandler answers a query with the context it was issued under.
+type ContextHandler func(ctx context.Context, query string) (Result, error)
+
 // DB records every query and answers it with its handler. It implements model.ISqlxDB and
 // model.IDBRegistry.
 type DB struct {
 	// ClusterName is the cluster the database is configured on; empty for a single node.
 	ClusterName string
-	handler     Handler
-	db      *sql.DB
-	mtx     sync.Mutex
-	queries []string
+	handler     ContextHandler
+	db          *sql.DB
+	mtx         sync.Mutex
+	queries     []string
 }
 
 func New(handler Handler) *DB {
+	return NewWithContext(func(_ context.Context, query string) (Result, error) { return handler(query) })
+}
+
+// NewWithContext answers each query with handler, which sees the query's context.
+func NewWithContext(handler ContextHandler) *DB {
 	d := &DB{handler: handler}
 	d.db = sql.OpenDB(connector{d})
 	return d
@@ -47,11 +55,11 @@ func (d *DB) Queries() []string {
 	return append([]string(nil), d.queries...)
 }
 
-func (d *DB) answer(query string) (Result, error) {
+func (d *DB) answer(ctx context.Context, query string) (Result, error) {
 	d.mtx.Lock()
 	d.queries = append(d.queries, query)
 	d.mtx.Unlock()
-	return d.handler(query)
+	return d.handler(ctx, query)
 }
 
 func (d *DB) GetDB(context.Context) (*model.DataDatabasesMap, error) {
@@ -84,8 +92,8 @@ func (c conn) Prepare(string) (driver.Stmt, error) {
 }
 func (c conn) Close() error              { return nil }
 func (c conn) Begin() (driver.Tx, error) { return nil, errors.New("fakeclickhouse: no transactions") }
-func (c conn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
-	res, err := c.d.answer(query)
+func (c conn) QueryContext(ctx context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	res, err := c.d.answer(ctx, query)
 	if err != nil {
 		return nil, err
 	}

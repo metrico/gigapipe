@@ -234,11 +234,13 @@ func TestClusterLabelEndpointsAndMetadata(t *testing.T) {
 	waitReady(t)
 	sfx := time.Now().UnixNano()
 	name := fmt.Sprintf("it_cluster_lbl_%d", sfx)
+	key := fmt.Sprintf("it_cluster_key_%d", sfx)
 	t0 := time.Now().Add(-time.Hour).Truncate(time.Second).UnixMilli()
 	var req []*prompb.TimeSeries
 	for i := range 8 {
 		req = append(req, &prompb.TimeSeries{
-			Labels:    []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "lbl"}, {Name: "pod", Value: fmt.Sprint(i)}},
+			Labels: []*prompb.Label{{Name: "__name__", Value: name}, {Name: "job", Value: "lbl"}, {Name: "pod", Value: fmt.Sprint(i)},
+				{Name: key, Value: "v"}},
 			Samples:   []*prompb.Sample{{Timestamp: t0, Value: float64(i)}},
 			Exemplars: []*prompb.Exemplar{{Labels: []*prompb.Label{{Name: "trace_id", Value: fmt.Sprintf("t%d", i)}}, Value: float64(i), Timestamp: t0}},
 		})
@@ -268,6 +270,14 @@ func TestClusterLabelEndpointsAndMetadata(t *testing.T) {
 	names, _ := labelGet(t, "/api/v1/labels", match)
 	if got := decode[[]string](t, names.Data); !slices.Contains(got, "job") || !slices.Contains(got, "pod") {
 		t.Errorf("labels = %v", got)
+	}
+	// Each shard's view indexes the label names of its own series; the wrapper reads them all.
+	eventually(t, fmt.Sprintf("SELECT count() > 0 FROM metric_label_names_dist WHERE label = '%s'", key), "1")
+	all, _ := labelGet(t, "/api/v1/labels", url.Values{})
+	allNames := decode[[]string](t, all.Data)
+	if !slices.Contains(allNames, key) || !slices.Contains(allNames, "pod") ||
+		len(slices.Compact(slices.Clone(allNames))) != len(allNames) {
+		t.Errorf("labels without a selector = %v, want each name once with %s and pod", allNames, key)
 	}
 	values, _ := labelGet(t, "/api/v1/label/pod/values", match)
 	if got := decode[[]string](t, values.Data); len(got) != 8 {

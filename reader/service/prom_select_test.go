@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +123,22 @@ func TestSelectReadsRawSamplesOfTheSelectedSeries(t *testing.T) {
 	}
 }
 
+// sameQueries reports whether got holds the want queries in any order.
+func sameQueries(got []string, want ...string) bool {
+	return slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want)))
+}
+
+// pointsReads keeps the pushdown reads of queries, leaving out the label reads.
+func pointsReads(queries []string) []string {
+	var res []string
+	for _, q := range queries {
+		if strings.Contains(q, "ARRAY JOIN") {
+			res = append(res, q)
+		}
+	}
+	return res
+}
+
 func equalPoints(a, b []point) bool {
 	if len(a) != len(b) {
 		return false
@@ -135,17 +152,18 @@ func equalPoints(a, b []point) bool {
 }
 
 func TestSelectEndsASubstituteSeriesOneStepAfterItsLastPoint(t *testing.T) {
-	db := fakeclickhouse.New(func(query string) (fakeclickhouse.Result, error) {
-		return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels", "t_ms", "value"},
-			Rows: [][]driver.Value{
-				{uint64(1), map[string]string{"job": "a"}, int64(60000), 1.0},
-				{uint64(1), map[string]string{"job": "a"}, int64(120000), 2.0},
-				{uint64(2), map[string]string{"job": "b"}, int64(240000), 3.0},
-				{uint64(3), map[string]string{"job": "c"}, int64(60000), 4.0},
-				{uint64(3), map[string]string{"job": "c"}, int64(180000), 5.0},
-				{uint64(3), map[string]string{"job": "c"}, int64(240000), 6.0},
-			}}, nil
-	})
+	db := substituteRows(
+		[][]driver.Value{
+			{uint64(1), map[string]string{"job": "a"}},
+			{uint64(2), map[string]string{"job": "b"}},
+			{uint64(3), map[string]string{"job": "c"}},
+		},
+		[]driver.Value{uint64(1), int64(60000), 1.0},
+		[]driver.Value{uint64(1), int64(120000), 2.0},
+		[]driver.Value{uint64(2), int64(240000), 3.0},
+		[]driver.Value{uint64(3), int64(60000), 4.0},
+		[]driver.Value{uint64(3), int64(180000), 5.0},
+		[]driver.Value{uint64(3), int64(240000), 6.0})
 	pushdown := metricread.Pushdown{
 		Grid:     metricread.Grid{StartMs: 60000, EndMs: 300000, StepMs: 60000},
 		Func:     "rate",
@@ -172,19 +190,70 @@ func TestSelectEndsASubstituteSeriesOneStepAfterItsLastPoint(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", lbls, g, pts)
 		}
 	}
-	if q := db.Queries(); len(q) != 1 || q[0] != metricread.PushdownSQL(pushdown) {
-		t.Errorf("queries = %q, want the substitute's pushdown only", q)
+	if q := db.Queries(); !sameQueries(q, metricread.PushdownSQL(pushdown), metricread.PushdownLabelsSQL(pushdown)) {
+		t.Errorf("queries = %q, want the substitute's pushdown and its labels", q)
+	}
+}
+
+func TestSelectNamesASubstitutesSeriesFromItsLabelRows(t *testing.T) {
+	db := substituteRows(
+		[][]driver.Value{
+			{uint64(7), map[string]string{"job": "a", "env": "prod"}},
+			{uint64(8), map[string]string{"job": "b"}},
+			{uint64(9), map[string]string{"job": "unread"}},
+		},
+		[]driver.Value{uint64(7), int64(60000), 1.0},
+		[]driver.Value{uint64(7), int64(120000), 2.0},
+		[]driver.Value{uint64(8), int64(60000), 3.0})
+	got := selectSeries(t, db, rateSubstitute(t), &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	want := map[string][]point{
+		`{env="prod", job="a"}`: {{60000, math.Float64bits(1)}, {120000, math.Float64bits(2)}, {180000, staleMarkerBits}},
+		`{job="b"}`:             {{60000, math.Float64bits(3)}, {120000, staleMarkerBits}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d series %v, want %d", len(got), got, len(want))
+	}
+	for lbls, pts := range want {
+		if g := got[lbls]; !equalPoints(g, pts) {
+			t.Errorf("%s: got %v, want %v", lbls, g, pts)
+		}
+	}
+}
+
+func TestSelectFailsOnASubstitutesSeriesWithoutALabelRow(t *testing.T) {
+	db := substituteRows([][]driver.Value{{uint64(7), map[string]string{"job": "a"}}},
+		[]driver.Value{uint64(7), int64(60000), 1.0},
+		[]driver.Value{uint64(10), int64(60000), 4.0})
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
+		SetOidAndDB(context.Background(), rateSubstitute(t))
+	querier, err := queryable.Querier(0, 300000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := querier.Select(context.Background(), true, &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	if set.Next() || set.Err() == nil || set.Err().Error() != "pushdown series 10 has no labels" {
+		t.Fatalf("err = %v, want the missing-labels error", set.Err())
+	}
+}
+
+func TestSelectReadsThePushdownOnceAndNamesNoSeriesForASubstituteWithoutPoints(t *testing.T) {
+	db := substituteRows([][]driver.Value{{uint64(1), map[string]string{"job": "a"}}})
+	got := selectSeries(t, db, rateSubstitute(t), &storage.SelectHints{Start: -239999, End: 300000, Step: 60000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+	if len(got) != 0 {
+		t.Errorf("got %v, want no series", got)
+	}
+	if q := pointsReads(db.Queries()); len(q) != 1 {
+		t.Errorf("points reads = %q, want the pushdown once", q)
 	}
 }
 
 func TestSelectLeavesASubstituteSeriesReachingTheQueryEndUnmarked(t *testing.T) {
-	db := fakeclickhouse.New(func(query string) (fakeclickhouse.Result, error) {
-		return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels", "t_ms", "value"},
-			Rows: [][]driver.Value{
-				{uint64(1), map[string]string{"__name__": "x"}, int64(240000), 1.0},
-				{uint64(1), map[string]string{"__name__": "x"}, int64(300000), 2.0},
-			}}, nil
-	})
+	db := substituteRows([][]driver.Value{{uint64(1), map[string]string{"__name__": "x"}}},
+		[]driver.Value{uint64(1), int64(240000), 1.0},
+		[]driver.Value{uint64(1), int64(300000), 2.0})
 	expr := parse(t, "__metric_subst__1")
 	expr.Substitutes["__metric_subst__1"] = &promql_parser.Substitute{MetricName: "__metric_subst__1",
 		Pushdown: metricread.Pushdown{Grid: metricread.Grid{StartMs: 60000, EndMs: 330000, StepMs: 60000},
@@ -221,10 +290,14 @@ func TestSelectStopsWhenTheEngineCancelsTheQuery(t *testing.T) {
 	}
 }
 
-// substituteRows answers every query with pushdown rows (fingerprint, labels, t_ms, value).
-func substituteRows(rows ...[]driver.Value) *fakeclickhouse.DB {
-	return fakeclickhouse.New(func(string) (fakeclickhouse.Result, error) {
-		return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels", "t_ms", "value"}, Rows: rows}, nil
+// substituteRows answers a pushdown with points (fingerprint, t_ms, value) and its labels query
+// with lbls (fingerprint, labels).
+func substituteRows(lbls [][]driver.Value, points ...[]driver.Value) *fakeclickhouse.DB {
+	return fakeclickhouse.New(func(query string) (fakeclickhouse.Result, error) {
+		if strings.Contains(query, "ARRAY JOIN") {
+			return fakeclickhouse.Result{Columns: []string{"fingerprint", "t_ms", "value"}, Rows: points}, nil
+		}
+		return fakeclickhouse.Result{Columns: []string{"fingerprint", "labels"}, Rows: lbls}, nil
 	})
 }
 
@@ -239,9 +312,10 @@ func rateSubstitute(t *testing.T) *promql_parser.Expr {
 
 func TestSelectRejectsSubstituteSeriesSharingALabelSetAtOneTimestamp(t *testing.T) {
 	db := substituteRows(
-		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(60000), 1.0},
-		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(120000), 2.0},
-		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(120000), 3.0})
+		[][]driver.Value{{uint64(1), map[string]string{"job": "x"}}, {uint64(2), map[string]string{"job": "x"}}},
+		[]driver.Value{uint64(1), int64(60000), 1.0},
+		[]driver.Value{uint64(1), int64(120000), 2.0},
+		[]driver.Value{uint64(2), int64(120000), 3.0})
 	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
 		SetOidAndDB(context.Background(), rateSubstitute(t))
 	querier, err := queryable.Querier(0, 300000)
@@ -258,9 +332,11 @@ func TestSelectRejectsSubstituteSeriesSharingALabelSetAtOneTimestamp(t *testing.
 // The engine checks a range function's whole result, so disjoint timestamps do not help.
 func TestSelectRejectsSubstituteSeriesSharingALabelSetAtDisjointTimestamps(t *testing.T) {
 	db := substituteRows(
-		[]driver.Value{uint64(1), map[string]string{"job": "x"}, int64(60000), 1.0},
-		[]driver.Value{uint64(2), map[string]string{"job": "x"}, int64(240000), 4.0},
-		[]driver.Value{uint64(3), map[string]string{"job": "y"}, int64(240000), 5.0})
+		[][]driver.Value{{uint64(1), map[string]string{"job": "x"}}, {uint64(2), map[string]string{"job": "x"}},
+			{uint64(3), map[string]string{"job": "y"}}},
+		[]driver.Value{uint64(1), int64(60000), 1.0},
+		[]driver.Value{uint64(2), int64(240000), 4.0},
+		[]driver.Value{uint64(3), int64(240000), 5.0})
 	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db}}).
 		SetOidAndDB(context.Background(), rateSubstitute(t))
 	querier, err := queryable.Querier(0, 300000)

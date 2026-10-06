@@ -73,3 +73,16 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_1h_dist {{.OnCluster}} (
   changes     SimpleAggregateFunction(sum, UInt64),
   stale_at    SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = Distributed('{{.CLUSTER}}', '{{.DB}}', 'metrics_1h', fingerprint) {{.DIST_CREATE_SETTINGS}};
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_label_names_dist {{.OnCluster}} (
+  label      String,
+  first_seen SimpleAggregateFunction(min, DateTime64(3)),
+  last_seen  SimpleAggregateFunction(max, DateTime64(3))
+) ENGINE = Distributed('{{.CLUSTER}}', '{{.DB}}', 'metric_label_names', rand()) {{.DIST_CREATE_SETTINGS}};
+
+INSERT INTO {{.DB}}.metric_label_names_dist (label, first_seen, last_seen)
+SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen
+FROM {{.DB}}.metric_series_dist
+ARRAY JOIN mapKeys(labels) AS label
+GROUP BY label
+SETTINGS insert_distributed_sync = 1;

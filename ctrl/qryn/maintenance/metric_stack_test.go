@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -39,11 +40,12 @@ func statement(t *testing.T, scripts []string, object string) string {
 func TestRetentionTiersSetTheMetricTablesTTLs(t *testing.T) {
 	scripts := renderedMetricStack(t)
 	for object, ttl := range map[string]string{
-		"metric_samples":   "TTL toDateTime(timestamp) + INTERVAL 3 DAY",
-		"metric_exemplars": "TTL toDateTime(timestamp) + INTERVAL 3 DAY",
-		"metrics_5m":       "TTL toDateTime(bucket) + INTERVAL 14 DAY",
-		"metrics_1h":       "TTL toDateTime(bucket) + INTERVAL 90 DAY",
-		"metric_series":    "TTL toDateTime(last_seen) + INTERVAL 90 DAY",
+		"metric_samples":     "TTL toDateTime(timestamp) + INTERVAL 3 DAY",
+		"metric_exemplars":   "TTL toDateTime(timestamp) + INTERVAL 3 DAY",
+		"metrics_5m":         "TTL toDateTime(bucket) + INTERVAL 14 DAY",
+		"metrics_1h":         "TTL toDateTime(bucket) + INTERVAL 90 DAY",
+		"metric_series":      "TTL toDateTime(last_seen) + INTERVAL 90 DAY",
+		"metric_label_names": "TTL toDateTime(last_seen) + INTERVAL 90 DAY",
 	} {
 		if s := statement(t, scripts, object); !strings.Contains(s, ttl) {
 			t.Errorf("%s lacks %q:\n%s", object, ttl, s)
@@ -144,5 +146,32 @@ func TestAggregateTiersKeepAMergeableVariance(t *testing.T) {
 		if item := selectList(t, statement(t, scripts, mv))["var"]; item != "varPopStableIfState(value, NOT stale) AS var" {
 			t.Errorf("%s: var = %q", mv, item)
 		}
+	}
+}
+
+func TestLabelNamesAreKeptPerLabelFromEverySeriesRow(t *testing.T) {
+	scripts := renderedMetricStack(t)
+	table := statement(t, scripts, "metric_label_names")
+	for _, want := range []string{
+		"  label      String,\n",
+		"  first_seen SimpleAggregateFunction(min, DateTime64(3)),\n",
+		"  last_seen  SimpleAggregateFunction(max, DateTime64(3))\n",
+		"ENGINE = AggregatingMergeTree\nORDER BY label\n",
+	} {
+		if !strings.Contains(table, want) {
+			t.Errorf("metric_label_names lacks %q:\n%s", want, table)
+		}
+	}
+	const perLabel = "SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen\n" +
+		"FROM cloki.metric_series\nARRAY JOIN mapKeys(labels) AS label\nGROUP BY label"
+	mv := statement(t, scripts, "metric_label_names_mv")
+	if !strings.Contains(mv, "TO cloki.metric_label_names AS\n"+perLabel) {
+		t.Errorf("metric_label_names_mv does not feed one row per label from metric_series:\n%s", mv)
+	}
+	// The rows indexed before the view existed are copied once, after it.
+	backfill := "INSERT INTO cloki.metric_label_names (label, first_seen, last_seen)\n" + perLabel
+	i := slices.IndexFunc(scripts, func(s string) bool { return strings.TrimSuffix(s, ";") == backfill })
+	if i < 0 || i < slices.Index(scripts, mv) {
+		t.Errorf("no backfill after the view:\n%s", strings.Join(scripts, "\n\n"))
 	}
 }

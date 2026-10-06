@@ -123,9 +123,16 @@ func rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 	return putSetting(db, "rotate", r.setting, rotateTTLStr)
 }
 
-// metricStoringTables are the metric tables that hold data.
-var metricStoringTables = []string{
-	"metric_samples", "metric_exemplars", "metric_series", "metric_metadata", "metrics_5m", "metrics_1h",
+// metricStoragePolicies groups the metric tables that hold data by the setting recording the
+// storage policy applied to them; each setting covers the tables that existed when it was introduced.
+var metricStoragePolicies = []struct {
+	setting string
+	tables  []string
+}{
+	{"metric_storage_policy", []string{
+		"metric_samples", "metric_exemplars", "metric_series", "metric_metadata", "metrics_5m", "metrics_1h",
+	}},
+	{"metric_label_names_storage_policy", []string{"metric_label_names"}},
 }
 
 // metricRotations lists the TTL of each metric table that expires, from the retention tiers.
@@ -164,6 +171,13 @@ func metricRotations(tiers metricretention.Tiers) []tableRotation {
 			insertTime: "toDateTime(last_seen)",
 			dropTTL:    dropAfter("toDateTime(last_seen)", tiers.HourDays),
 			tables:     []string{"metric_series"},
+		},
+		{
+			setting:    "metric_label_names_days",
+			minTTL:     time.Minute,
+			insertTime: "toDateTime(last_seen)",
+			dropTTL:    dropAfter("toDateTime(last_seen)", tiers.HourDays),
+			tables:     []string{"metric_label_names"},
 		},
 	}
 }
@@ -206,10 +220,11 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 	if err != nil {
 		return err
 	}
-	err = storagePolicyUpdate(db, clusterName, distributed, storagePolicy, "metric_storage_policy",
-		metricStoringTables...)
-	if err != nil {
-		return err
+	for _, p := range metricStoragePolicies {
+		err = storagePolicyUpdate(db, clusterName, distributed, storagePolicy, p.setting, p.tables...)
+		if err != nil {
+			return err
+		}
 	}
 	metrics15sExists, err := tableExists(db, "metrics_15s")
 	if err != nil {

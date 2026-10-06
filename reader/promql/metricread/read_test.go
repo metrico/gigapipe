@@ -23,12 +23,12 @@ func TestSeriesSQL(t *testing.T) {
 
 func TestRawSamplesSQL(t *testing.T) {
 	got := RawSamplesSQL(probe, []*labels.Matcher{matcher(labels.MatchEqual, "__name__", "x")})
-	want := "SELECT fingerprint, timestamp, value FROM metric_samples " +
+	want := "SELECT fingerprint, timestamp, value FROM metric_samples FINAL " +
 		"WHERE " + localSeries(1767223800000, 1767226200000) + " " +
 		"AND timestamp > fromUnixTimestamp64Milli(1767225600000) " +
 		"AND timestamp <= fromUnixTimestamp64Milli(1767226200000) " +
 		"ORDER BY fingerprint, timestamp " +
-		"LIMIT 1 BY fingerprint, timestamp"
+		"SETTINGS do_not_merge_across_partitions_select_final = 1"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}

@@ -155,3 +155,24 @@ GROUP BY fingerprint, bucket;
 INSERT INTO {{.DB}}.settings (fingerprint, type, name, value, inserted_at)
 SELECT cityHash64('update_metric_stack'), 'update', 'metric_stack', toString(toUnixTimestamp(NOW())), NOW()
 WHERE (SELECT count() FROM {{.DB}}.settings WHERE type = 'update' AND name = 'metric_stack') = 0;
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.metric_label_names {{.OnCluster}} (
+  label      String,
+  first_seen SimpleAggregateFunction(min, DateTime64(3)),
+  last_seen  SimpleAggregateFunction(max, DateTime64(3))
+) ENGINE = {{.AggregatingMergeTree}}
+ORDER BY label
+TTL toDateTime(last_seen) + INTERVAL {{.SERIES_DAYS}} DAY
+{{.CREATE_SETTINGS}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metric_label_names_mv {{.OnCluster}} TO {{.DB}}.metric_label_names AS
+SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen
+FROM {{.DB}}.metric_series
+ARRAY JOIN mapKeys(labels) AS label
+GROUP BY label;
+
+INSERT INTO {{.DB}}.metric_label_names (label, first_seen, last_seen)
+SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen
+FROM {{.DB}}.metric_series
+ARRAY JOIN mapKeys(labels) AS label
+GROUP BY label;
