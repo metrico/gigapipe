@@ -247,3 +247,31 @@ func withMetricsParser(fn func(ctx *ParserCtx) iMetricsParser) buildOption {
 		return builder
 	}
 }
+
+// MetricSeries is one label set's samples, ready for the metric entry point.
+type MetricSeries struct {
+	Labels       [][]string
+	TimestampsMs []int64
+	Values       []float64
+}
+
+type metricSeriesDec struct {
+	series []MetricSeries
+	metricSink
+}
+
+func (d *metricSeriesDec) Decode() error {
+	for _, s := range d.series {
+		if err := d.onMetricSamples(sanitizeLabels(s.Labels), s.TimestampsMs, s.Values, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MetricSeriesParser feeds series straight into the metric entry point.
+func MetricSeriesParser(series []MetricSeries) ParsingFunction {
+	return Build(withMetricsParser(func(*ParserCtx) iMetricsParser {
+		return &metricSeriesDec{series: series}
+	}))
+}

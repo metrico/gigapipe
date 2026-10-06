@@ -2,58 +2,63 @@ package ruler
 
 import (
 	"context"
-	"maps"
+	"fmt"
 
 	writerController "github.com/metrico/qryn/v5/writer/controller"
-	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
+	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 )
 
-// vectorToWriteRequest turns an evaluated recording-rule vector into a
-// Prometheus remote-write request. Each sample becomes a single-point series
-// whose labels are the source sample's labels with the rule's static labels
-// added on top and __name__ set to the record name. On a name collision the
-// rule label takes precedence over the sample label, and the record name takes
-// precedence over both. Fingerprinting happens downstream in the writer's
-// metrics parser and is order-independent, so labels are not sorted here.
-func vectorToWriteRequest(record string, ruleLabels map[string]string, v promql.Vector) *prompb.WriteRequest {
-	wr := &prompb.WriteRequest{}
+// recordedVector names an evaluated vector's samples for write-back: each
+// keeps its labels under the rule's labels and the record name, its value,
+// and is stamped at ts. Two samples sharing a label set are an error.
+func recordedVector(record string, ruleLabels map[string]string, v promql.Vector, ts int64) (promql.Vector, error) {
+	out := make(promql.Vector, 0, len(v))
+	seen := make(map[uint64]struct{}, len(v))
+	b := labels.NewBuilder(labels.EmptyLabels())
 	for _, sample := range v {
-		merged := make(map[string]string)
-		sample.Metric.Range(func(l labels.Label) {
-			merged[l.Name] = l.Value
-		})
-		maps.Copy(merged, ruleLabels)
-		merged["__name__"] = record
-
-		lbls := make([]*prompb.Label, 0, len(merged))
-		for k, val := range merged {
-			lbls = append(lbls, &prompb.Label{Name: k, Value: val})
+		b.Reset(sample.Metric)
+		for k, val := range ruleLabels {
+			b.Set(k, val)
 		}
-		wr.Timeseries = append(wr.Timeseries, &prompb.TimeSeries{
-			Labels:  lbls,
-			Samples: []*prompb.Sample{{Value: sample.F, Timestamp: sample.T}},
-		})
+		b.Set(labels.MetricName, record)
+		lbls := b.Labels()
+		h := lbls.Hash()
+		if _, dup := seen[h]; dup {
+			return nil, fmt.Errorf("vector contains metrics with the same labelset after applying rule labels: %s", lbls)
+		}
+		seen[h] = struct{}{}
+		out = append(out, promql.Sample{Metric: lbls, T: ts, F: sample.F})
 	}
-	return wr
+	return out, nil
 }
 
-// inProcessWriter writes recording-rule results back through the writer's
-// static insert registry and metrics parser, without HTTP, snappy, auth, or a
-// remote-write loopback. See docs/adr/0001.
+// inProcessWriter writes recorded samples through the writer's metric entry
+// point in-process, without HTTP, snappy or auth.
 type inProcessWriter struct{}
 
-// NewInProcessWriter returns the default RecordingRuleWriter, which pushes
-// results straight into the writer's metrics pipeline. The writer module must
-// be initialized first (its registry and fingerprint cache must be ready).
+// NewInProcessWriter returns the default RecordingRuleWriter. The writer
+// module must be initialized first (its registry and caches must be ready).
 func NewInProcessWriter() RecordingRuleWriter {
 	return inProcessWriter{}
 }
 
-func (inProcessWriter) Write(record string, ruleLabels map[string]string, v promql.Vector) error {
+func (inProcessWriter) Write(v promql.Vector) error {
 	if len(v) == 0 {
 		return nil
 	}
-	return writerController.PushPromWriteRequest(context.Background(), vectorToWriteRequest(record, ruleLabels, v))
+	series := make([]unmarshal.MetricSeries, 0, len(v))
+	for _, sample := range v {
+		lbls := make([][]string, 0, sample.Metric.Len())
+		sample.Metric.Range(func(l labels.Label) {
+			lbls = append(lbls, []string{l.Name, l.Value})
+		})
+		series = append(series, unmarshal.MetricSeries{
+			Labels:       lbls,
+			TimestampsMs: []int64{sample.T},
+			Values:       []float64{sample.F},
+		})
+	}
+	return writerController.PushMetricSeries(context.Background(), series)
 }

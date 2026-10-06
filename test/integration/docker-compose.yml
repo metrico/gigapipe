@@ -26,6 +26,8 @@ services:
       PORT: "3100"
       # Flush ingested spans quickly so the trace round-trip test stays fast.
       BULK_MAX_AGE_MS: "100"
+      GIGAPIPE_RULER_ENABLED: "true"
+      GIGAPIPE_RULER_POLL_INTERVAL: 1s
     ports:
       - "3100:3100"
 

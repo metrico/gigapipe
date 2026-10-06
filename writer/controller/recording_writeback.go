@@ -1,32 +1,21 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 
-	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
-	"google.golang.org/protobuf/proto"
 )
 
-// PushPromWriteRequest ingests a Prometheus remote-write request in-process
-// through the remote-write parser and the metric insert services. It is the
-// in-process write-back path for recording rules: no HTTP, snappy, or auth.
-//
-// The writer module must be initialized first, so Registry and the caches are set.
-func PushPromWriteRequest(ctx context.Context, wr *prompb.WriteRequest) error {
-	if wr == nil || len(wr.GetTimeseries()) == 0 {
+// PushMetricSeries writes series through the metric entry point into the
+// metric insert services and returns once the inserts complete. The writer
+// module must be initialized first, so Registry and the caches are set.
+func PushMetricSeries(ctx context.Context, series []unmarshal.MetricSeries) error {
+	if len(series) == 0 {
 		return nil
 	}
-
-	data, err := proto.Marshal(wr)
-	if err != nil {
-		return err
-	}
-
 	svcs, err := ResolveMetricServices("")
 	if err != nil {
 		return err
 	}
-	return IngestParsed(ctx, Bind(Parser(unmarshal.UnmarshallMetricsWriteProtoV2), bytes.NewReader(data)), svcs)
+	return IngestParsed(ctx, PreDecoded(Parser(unmarshal.MetricSeriesParser(series))), svcs)
 }

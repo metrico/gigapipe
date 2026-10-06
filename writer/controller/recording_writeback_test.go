@@ -11,10 +11,10 @@ import (
 	"github.com/metrico/qryn/v5/writer/service"
 	"github.com/metrico/qryn/v5/writer/service/registry"
 	"github.com/metrico/qryn/v5/writer/utils/metriccache"
-	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
+	"github.com/metrico/qryn/v5/writer/utils/unmarshal"
 )
 
-func TestPushPromWriteRequestReachesTheStagingService(t *testing.T) {
+func TestPushMetricSeriesReachesTheMetricServices(t *testing.T) {
 	installConfig(t)
 	config.Cloki.Setting.FingerPrintType = clcwriter.FINGERPRINT_CityHash
 	installFPCache(t, "n")
@@ -24,7 +24,7 @@ func TestPushPromWriteRequestReachesTheStagingService(t *testing.T) {
 		MetricCaches.Stop()
 		MetricCaches = oldCaches
 	})
-	staging, series := &recorderSvc{}, &recorderSvc{}
+	staging, series, meta := &recorderSvc{}, &recorderSvc{}, &recorderSvc{}
 	one := func(s service.IInsertServiceV2) map[string]service.IInsertServiceV2 {
 		return map[string]service.IInsertServiceV2{"n": s}
 	}
@@ -32,19 +32,17 @@ func TestPushPromWriteRequestReachesTheStagingService(t *testing.T) {
 	Registry = registry.NewStaticServiceRegistry(registry.StaticServiceRegistryOpts{
 		MetricStagingSvcs: one(staging),
 		MetricSeriesSvcs:  one(series),
-		MetricMetaSvcs:    one(&recorderSvc{}),
+		MetricMetaSvcs:    one(meta),
 		MetricExmplSvcs:   one(&recorderSvc{}),
 	})
 	t.Cleanup(func() { Registry = oldRegistry })
 
 	const staleBits = 0x7ff0000000000002
-	err := PushPromWriteRequest(context.Background(), &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{{
-		Labels: []*prompb.Label{{Name: "__name__", Value: "job:up:sum"}},
-		Samples: []*prompb.Sample{
-			{Timestamp: 1000, Value: 3},
-			{Timestamp: 2000, Value: math.Float64frombits(staleBits)},
-		},
-	}}})
+	err := PushMetricSeries(context.Background(), []unmarshal.MetricSeries{{
+		Labels:       [][]string{{"__name__", "job:up:sum"}, {"job", "api"}},
+		TimestampsMs: []int64{1000, 2000},
+		Values:       []float64{3, math.Float64frombits(staleBits)},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,5 +59,12 @@ func TestPushPromWriteRequestReachesTheStagingService(t *testing.T) {
 	}
 	if len(series.reqs()) != 1 {
 		t.Fatalf("series requests: got %d, want 1", len(series.reqs()))
+	}
+	sd := series.reqs()[0].(*model.MetricSeriesData)
+	if sd.MName[0] != "job:up:sum" || sd.MLabels[0]["job"] != "api" || sd.MFingerprint[0] != d.MFingerprint[0] {
+		t.Fatalf("series row: name %q, labels %v", sd.MName[0], sd.MLabels[0])
+	}
+	if n := len(meta.reqs()); n != 0 {
+		t.Fatalf("metadata requests: got %d, want 0", n)
 	}
 }

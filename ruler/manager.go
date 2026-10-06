@@ -3,10 +3,14 @@ package ruler
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/value"
+	"github.com/prometheus/prometheus/promql"
 )
 
 // PrometheusRule is one recording rule in the Prometheus /api/v1/rules format.
@@ -40,12 +44,29 @@ type RuleHealth struct {
 	EvaluationTime float64 // seconds
 }
 
-// intervalRoutine evaluates all rules sharing one interval on its own ticker.
+// intervalRoutine evaluates all rules sharing one interval at each point of
+// the interval's grid.
 type intervalRoutine struct {
 	interval time.Duration
-	ticker   *time.Ticker
 	ctx      context.Context
 	cancel   context.CancelFunc
+}
+
+type clock interface {
+	Now() time.Time
+	After(d time.Duration) <-chan time.Time
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time                         { return time.Now() }
+func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
+
+// gridFloor returns now floored to a multiple of interval since the Unix
+// epoch, in UTC.
+func gridFloor(now time.Time, interval time.Duration) time.Time {
+	ms := interval.Milliseconds()
+	return time.UnixMilli(now.UnixMilli() / ms * ms).UTC()
 }
 
 // RuleManager evaluates recording rules on a schedule and writes results back.
@@ -60,6 +81,11 @@ type RuleManager struct {
 	// health keyed by namespace:group:record; always in memory.
 	health sync.Map
 
+	// lastSeries holds each rule's last written label sets, keyed by
+	// ruleSeriesKey and then by label-set hash.
+	lastSeries    map[string]map[uint64]labels.Labels
+	lastSeriesMtx sync.Mutex
+
 	routines    map[time.Duration]*intervalRoutine
 	routinesMtx sync.RWMutex
 
@@ -68,6 +94,7 @@ type RuleManager struct {
 	wg     sync.WaitGroup
 
 	pollInterval time.Duration
+	clock        clock
 }
 
 // NewRuleManager builds a manager from its dependencies.
@@ -77,7 +104,9 @@ func NewRuleManager(evaluator RuleEvaluator, reader RuleReader, writer Recording
 		reader:       reader,
 		writer:       writer,
 		routines:     make(map[time.Duration]*intervalRoutine),
+		lastSeries:   make(map[string]map[uint64]labels.Labels),
 		pollInterval: pollInterval,
+		clock:        realClock{},
 	}
 }
 
@@ -107,7 +136,6 @@ func (m *RuleManager) Stop() error {
 	m.routinesMtx.Lock()
 	for _, routine := range m.routines {
 		routine.cancel()
-		routine.ticker.Stop()
 	}
 	m.routinesMtx.Unlock()
 
@@ -123,6 +151,9 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	for _, gs := range groups {
 		for _, g := range gs {
 			d, err := time.ParseDuration(g.Interval)
+			if err == nil && (d < time.Millisecond || d%time.Millisecond != 0) {
+				err = fmt.Errorf("interval %s is not a positive whole number of milliseconds", g.Interval)
+			}
 			if err != nil {
 				logger.Error("RuleManager: skipping group with invalid interval ", g.Name, ": ", err.Error())
 				continue
@@ -135,7 +166,6 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	for interval, routine := range m.routines {
 		if !intervals[interval] {
 			routine.cancel()
-			routine.ticker.Stop()
 			delete(m.routines, interval)
 		}
 	}
@@ -146,7 +176,6 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 		ctx, cancel := context.WithCancel(m.ctx)
 		routine := &intervalRoutine{
 			interval: interval,
-			ticker:   time.NewTicker(interval),
 			ctx:      ctx,
 			cancel:   cancel,
 		}
@@ -159,6 +188,7 @@ func (m *RuleManager) updateRoutines(groups NamespaceRuleGroups) {
 	// Reconcile health with the live rule set so entries for rules that have
 	// been deleted or renamed do not accumulate in the map forever.
 	m.pruneHealth(groups)
+	m.pruneLastSeries(groups)
 }
 
 // pruneHealth drops health entries whose rule no longer exists in groups,
@@ -182,27 +212,33 @@ func (m *RuleManager) pruneHealth(groups NamespaceRuleGroups) {
 	})
 }
 
+// runIntervalRoutine evaluates at each grid point of the interval, starting
+// with the first one after now. A wake-up past a later grid point evaluates
+// at that point and skips the ones in between.
 func (m *RuleManager) runIntervalRoutine(routine *intervalRoutine) {
 	defer m.wg.Done()
+	last := gridFloor(m.clock.Now(), routine.interval)
 	for {
 		select {
 		case <-routine.ctx.Done():
 			return
-		case <-routine.ticker.C:
-			m.evaluateInterval(routine.ctx, routine.interval)
+		case <-m.clock.After(last.Add(routine.interval).Sub(m.clock.Now())):
+			if t := gridFloor(m.clock.Now(), routine.interval); t.After(last) {
+				last = t
+				m.evaluateInterval(routine.ctx, routine.interval, t)
+			}
 		}
 	}
 }
 
-// evaluateInterval evaluates every recording rule whose group interval equals
-// interval. Rules are re-read each cycle to pick up changes.
-func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Duration) {
+// evaluateInterval evaluates at t every recording rule whose group interval
+// equals interval. Rules are re-read each cycle to pick up changes.
+func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Duration, t time.Time) {
 	groups, err := m.reader.GetAllRuleGroups(ctx)
 	if err != nil {
 		logger.Error("RuleManager: load rules for evaluation: ", err.Error())
 		return
 	}
-	now := time.Now().UTC()
 	for namespace, gs := range groups {
 		for _, g := range gs {
 			d, err := time.ParseDuration(g.Interval)
@@ -211,39 +247,94 @@ func (m *RuleManager) evaluateInterval(ctx context.Context, interval time.Durati
 			}
 			for _, rule := range g.Rules {
 				if rule.IsRecording() {
-					m.evaluateRecordingRule(namespace, g.Name, rule, now)
+					m.evaluateRecordingRule(namespace, g.Name, rule, t)
 				}
 			}
 		}
 	}
 }
 
-// evaluateRecordingRule evaluates one recording rule, records its health, and
-// writes the result back. A failed evaluation records an error and writes
-// nothing.
-func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Rule, now time.Time) {
+// evaluateRecordingRule evaluates one recording rule at t, writes the result
+// back stamped at t and records its health. A failed evaluation or write-back
+// records an error.
+func (m *RuleManager) evaluateRecordingRule(namespace, groupName string, rule Rule, t time.Time) {
 	start := time.Now()
-	result, err := m.evaluator.Evaluate(m.ctx, rule.Expr, now)
-	dur := time.Since(start)
+	result, err := m.evaluator.Evaluate(m.ctx, rule.Expr, t)
+	if err == nil {
+		result, err = recordedVector(rule.Record, rule.Labels, result, t.UnixMilli())
+	}
+	key := ruleSeriesKey(namespace, groupName, rule)
+	if err == nil {
+		err = m.writer.Write(append(result, m.vanished(key, result, t.UnixMilli())...))
+	}
+	if err == nil {
+		m.setLastSeries(key, result)
+	}
+	h := RuleHealth{Health: "ok", LastEvalTime: t, EvaluationTime: time.Since(start).Seconds()}
 	if err != nil {
-		m.setRuleHealth(namespace, groupName, rule.Record, RuleHealth{
-			Health:         "err",
-			LastError:      err.Error(),
-			LastEvalTime:   now,
-			EvaluationTime: dur.Seconds(),
-		})
-		logger.Error("RuleManager: evaluate recording rule ", rule.Record, ": ", err.Error())
-		return
+		h.Health, h.LastError = "err", err.Error()
+		logger.Error("RuleManager: recording rule ", rule.Record, ": ", err.Error())
 	}
-	m.setRuleHealth(namespace, groupName, rule.Record, RuleHealth{
-		Health:         "ok",
-		LastEvalTime:   now,
-		EvaluationTime: dur.Seconds(),
-	})
+	m.setRuleHealth(namespace, groupName, rule.Record, h)
+}
 
-	if err := m.writer.Write(rule.Record, rule.Labels, result); err != nil {
-		logger.Error("RuleManager: write back recording rule ", rule.Record, ": ", err.Error())
+// vanished returns a stale marker at ts for each label set the rule's last
+// written result held and result lacks.
+func (m *RuleManager) vanished(key string, result promql.Vector, ts int64) promql.Vector {
+	m.lastSeriesMtx.Lock()
+	defer m.lastSeriesMtx.Unlock()
+	last := m.lastSeries[key]
+	if len(last) == 0 {
+		return nil
 	}
+	present := make(map[uint64]struct{}, len(result))
+	for _, s := range result {
+		present[s.Metric.Hash()] = struct{}{}
+	}
+	var markers promql.Vector
+	for h, lbls := range last {
+		if _, ok := present[h]; !ok {
+			markers = append(markers, promql.Sample{Metric: lbls, T: ts, F: math.Float64frombits(value.StaleNaN)})
+		}
+	}
+	return markers
+}
+
+func (m *RuleManager) setLastSeries(key string, result promql.Vector) {
+	set := make(map[uint64]labels.Labels, len(result))
+	for _, s := range result {
+		set[s.Metric.Hash()] = s.Metric
+	}
+	m.lastSeriesMtx.Lock()
+	m.lastSeries[key] = set
+	m.lastSeriesMtx.Unlock()
+}
+
+// pruneLastSeries drops the last results of rules no longer in groups.
+func (m *RuleManager) pruneLastSeries(groups NamespaceRuleGroups) {
+	valid := make(map[string]struct{})
+	for namespace, gs := range groups {
+		for _, g := range gs {
+			for _, rule := range g.Rules {
+				if rule.IsRecording() {
+					valid[ruleSeriesKey(namespace, g.Name, rule)] = struct{}{}
+				}
+			}
+		}
+	}
+	m.lastSeriesMtx.Lock()
+	defer m.lastSeriesMtx.Unlock()
+	for k := range m.lastSeries {
+		if _, ok := valid[k]; !ok {
+			delete(m.lastSeries, k)
+		}
+	}
+}
+
+// ruleSeriesKey identifies a rule by its group, record name and labels; a rule
+// whose expression changes keeps its last result.
+func ruleSeriesKey(namespace, groupName string, rule Rule) string {
+	return ruleHealthKey(namespace, groupName, rule.Record) + "\x00" + labels.FromMap(rule.Labels).String()
 }
 
 // GetPrometheusRules returns recording rules in the Prometheus API format,
