@@ -35,12 +35,6 @@ func (uc *MiscController) Rules(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"data": {"groups": []},"status": "success"}`))
 }
 
-func (uc *MiscController) Metadata(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status": "success","data": {}}`))
-}
-
 func (uc *MiscController) Buildinfo(w http.ResponseWriter, r *http.Request) {
 	//w.Header().Set("Content-Type", "application/json")
 	//w.WriteHeader(http.StatusOK)
