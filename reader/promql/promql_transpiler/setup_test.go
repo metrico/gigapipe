@@ -11,7 +11,7 @@ import (
 // TestMain initializes the package-global config.Cloki once before any test in
 // this package runs.
 //
-// The accelerated transpiler path (TranspileExpressionV2, now the default) reads
+// The accelerated transpiler path (TranspileExpressionV2) reads
 // config.Cloki.Setting while building SQL -- StreamSelectPlanner dereferences it
 // directly. Setting it here makes every test order-independent, instead of the
 // package relying on whichever test happened to run first to initialize the

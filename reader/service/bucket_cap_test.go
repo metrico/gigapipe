@@ -98,43 +98,29 @@ func TestBucketCapAgreesAcrossLayers(t *testing.T) {
 
 // TestAdjustHintsForRate covers what the request layer settles the step to, for
 // each shape that reaches it.
-//
-// The cases that matter for routing: useRawData in transpileLabelMatchers
-// rejects any step under 15000, the metrics_15s grid. A change function whose
-// range is small enough that half of it falls under that grid cannot be served
-// from the downsampled table at all -- no bucket width on a table stamped every
-// 15s can put two distinct samples inside a 20s window -- so the cap dropping
-// the step below the grid is what routes it to raw samples, where the engine
-// computes it from real timestamps instead.
 func TestAdjustHintsForRate(t *testing.T) {
-	const grid = int64(15000)
 	for _, tc := range []struct {
 		name     string
 		fn       string
 		step, ry int64
 		want     int64
-		wantRaw  bool
 	}{
-		{"change function coarser than half its range is capped", "rate", 3600000, 300000, 150000, false},
-		{"change function already fine enough is left alone", "rate", 30000, 300000, 30000, false},
-		{"irate is a change function too", "irate", 3600000, 300000, 150000, false},
-		{"idelta is a change function too", "idelta", 3600000, 300000, 150000, false},
-		{"range too small for the 15s grid routes to raw", "deriv", 3600000, 20000, 10000, true},
-		{"reducers keep the query's own step", "sum_over_time", 3600000, 300000, 3600000, false},
-		{"unaccelerated functions keep the query's own step", "quantile_over_time", 3600000, 300000, 3600000, false},
-		{"instant query has no step of its own", "rate", 0, 300000, 150000, false},
-		{"bare instant query falls back to the grid", "", 0, 0, 15000, false},
-		{"change function over a subquery reports no range", "rate", 3600000, 0, 15000, false},
+		{"change function coarser than half its range is capped", "rate", 3600000, 300000, 150000},
+		{"change function already fine enough is left alone", "rate", 30000, 300000, 30000},
+		{"irate is a change function too", "irate", 3600000, 300000, 150000},
+		{"idelta is a change function too", "idelta", 3600000, 300000, 150000},
+		{"change function over a short range is capped under the 15s grid", "deriv", 3600000, 20000, 10000},
+		{"reducers keep the query's own step", "sum_over_time", 3600000, 300000, 3600000},
+		{"unaccelerated functions keep the query's own step", "quantile_over_time", 3600000, 300000, 3600000},
+		{"instant query has no step of its own", "rate", 0, 300000, 150000},
+		{"bare instant query falls back to the grid", "", 0, 0, 15000},
+		{"change function over a subquery reports no range", "rate", 3600000, 0, 15000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			hints := &storage.SelectHints{Func: tc.fn, Step: tc.step, Range: tc.ry}
 			(&CLokiQuerier{}).adjustHintsForRate(hints)
 			if hints.Step != tc.want {
 				t.Errorf("step: got %d, want %d", hints.Step, tc.want)
-			}
-			if gotRaw := hints.Step < grid; gotRaw != tc.wantRaw {
-				t.Errorf("routes to raw samples: got %v, want %v (step %d vs grid %d)",
-					gotRaw, tc.wantRaw, hints.Step, grid)
 			}
 		})
 	}

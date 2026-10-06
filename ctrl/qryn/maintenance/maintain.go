@@ -11,6 +11,7 @@ import (
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/maintenance"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 )
 
 func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
@@ -29,25 +30,17 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 	if dbObject.TTLDays == 0 {
 		return fmt.Errorf("ttl_days should be set for node#%s", dbObject.Node)
 	}
+	tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+	if err != nil {
+		return err
+	}
 	readCluster := os.Getenv("CLICKHOUSE_READ_CLUSTER")
 	readSuffix := os.Getenv("CLICKHOUSE_READ_DIST_SUFFIX")
 	if readSuffix == "" {
 		readSuffix = "_dist"
 	}
-	err = UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
-		dbObject.TTLDays, dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
-	if err != nil {
-		return err
-	}
-	m15Enabled := true
-	if v := os.Getenv("METRICS_15S_ENABLED"); v != "" {
-		m15Enabled, err = strconv.ParseBool(v)
-		if err != nil {
-			return fmt.Errorf("METRICS_15S_ENABLED: invalid value %q", v)
-		}
-	}
-	return SyncMetrics15s(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "",
-		m15Enabled, logger)
+	return UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
+		dbObject.TTLDays, dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, tiers, logger)
 }
 
 func InitDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error {
@@ -148,26 +141,12 @@ func rotateDB(dbObject *config.ClokiBaseDataBase) error {
 		}
 		metrics15sTTLDays = n
 	}
+	tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+	if err != nil {
+		return err
+	}
 	return Rotate(connDb, dbObject.ClusterName, dbObject.ClusterName != "",
-		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, dbObject.StoragePolicy, logger.Logger)
-}
-
-func RecodecDB(dbObject *config.ClokiBaseDataBase) error {
-	connDb, err := maintenance.ConnectV2(dbObject, true)
-	if err != nil {
-		return err
-	}
-	defer connDb.Close()
-	return UpdateTextCodec(connDb, dbObject.ClusterName != "", dbObject.TextCodec)
-}
-
-func ReindexDB(dbObject *config.ClokiBaseDataBase) error {
-	connDb, err := maintenance.ConnectV2(dbObject, true)
-	if err != nil {
-		return err
-	}
-	defer connDb.Close()
-	return UpdateLogsIndex(connDb, dbObject.ClusterName != "", dbObject.LogsIndex, int(dbObject.LogsIndexGranularity))
+		ttlPolicy, dbObject.TTLDays, metrics15sTTLDays, tiers, dbObject.StoragePolicy, logger.Logger)
 }
 
 func effectivePort(db *config.ClokiBaseDataBase) uint32 {

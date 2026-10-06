@@ -29,6 +29,7 @@ import (
 	"github.com/metrico/qryn/v5/shared/commonroutes"
 	"github.com/metrico/qryn/v5/shared/distconfig"
 	"github.com/metrico/qryn/v5/shared/envalias"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 	"github.com/metrico/qryn/v5/view"
 	"github.com/metrico/qryn/v5/writer"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
@@ -276,6 +277,11 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		cfg.Setting.LOG_SETTINGS.Level = os.Getenv("LOG_LEVEL")
 	}
 
+	for _, db := range cfg.Setting.DATABASE_DATA {
+		if _, err := metricretention.FromEnv(db.TTLDays, os.Getenv); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

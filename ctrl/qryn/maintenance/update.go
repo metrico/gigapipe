@@ -14,6 +14,7 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
 	"github.com/metrico/qryn/v5/shared/distconfig"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 )
 
 const (
@@ -24,67 +25,66 @@ const (
 
 func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
-	logger logger.ILogger) error {
+	tiers metricretention.Tiers, logger logger.ILogger) error {
 	return UpdateWithReadCluster(db, dbname, clusterName, "", "", mode,
-		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, tiers, logger)
 }
 
 func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string,
 	readCluster string, readSuffix string, mode int,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
-	logger logger.ILogger) error {
+	tiers metricretention.Tiers, logger logger.ILogger) error {
 	checkMode := func(m int) bool { return mode&m == m }
+	env := migrationEnv(dbname, clusterName, checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy,
+		advancedSamplesOrdering, skipUnavailableShards, tiers)
 	var err error
-	err = updateScripts(db, dbname, clusterName, 1, sql.LogScript, checkMode(CLUST_MODE_CLOUD),
-		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+	err = updateScripts(db, clusterName, 1, sql.LogScript, env, logger)
 	if err != nil {
 		return err
 	}
 	if checkMode(CLUST_MODE_DISTRIBUTED) {
-		err = updateScripts(db, dbname, clusterName, 3, sql.LogDistScript,
-			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		err = updateScripts(db, clusterName, 3, sql.LogDistScript, env, logger)
 		if err != nil {
 			return err
 		}
 	}
-	err = updateScripts(db, dbname, clusterName, 2, sql.TracesScript,
-		checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+	err = updateScripts(db, clusterName, 2, sql.TracesScript, env, logger)
 	if err != nil {
 		return err
 	}
 	if checkMode(CLUST_MODE_DISTRIBUTED) {
-		err = updateScripts(db, dbname, clusterName, 4, sql.TracesDistScript,
-			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		err = updateScripts(db, clusterName, 4, sql.TracesDistScript, env, logger)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = updateScripts(db, dbname, clusterName, 5, sql.ProfilesScript,
-		checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+	err = updateScripts(db, clusterName, 5, sql.ProfilesScript, env, logger)
 	if err != nil {
 		return err
 	}
 	if checkMode(CLUST_MODE_DISTRIBUTED) {
-		err = updateScripts(db, dbname, clusterName, 6, sql.ProfilesDistScript,
-			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		err = updateScripts(db, clusterName, 6, sql.ProfilesDistScript, env, logger)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Ruler rule-group storage (recording/alerting rule groups).
-	err = updateScripts(db, dbname, clusterName, 10, sql.RulesScript,
-		checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+	err = updateScripts(db, clusterName, 10, sql.RulesScript, env, logger)
 	if err != nil {
 		return err
 	}
 	if checkMode(CLUST_MODE_DISTRIBUTED) {
-		err = updateScripts(db, dbname, clusterName, 11, sql.RulesDistScript,
-			checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
+		err = updateScripts(db, clusterName, 11, sql.RulesDistScript, env, logger)
 		if err != nil {
 			return err
 		}
+	}
+
+	err = updateScripts(db, clusterName, 12, sql.MetricsScript, env, logger)
+	if err != nil {
+		return err
 	}
 
 	// Cross-cluster read-path tables: when a separate read cluster is configured,
@@ -196,13 +196,9 @@ func updateReadDistScripts(db clickhouse.Conn, dbname string, clusterName string
 	return nil
 }
 
-func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int64, file string, replicated bool,
-	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool, logger logger.ILogger) error {
-	scripts, err := getSQLFile(file)
-	if err != nil {
-		return err
-	}
-	verTable := "ver"
+// migrationEnv holds the values the migration templates are rendered with.
+func migrationEnv(dbname string, clusterName string, replicated bool, ttlDays int, storagePolicy string,
+	advancedSamplesOrdering string, skipUnavailableShards bool, tiers metricretention.Tiers) map[string]string {
 	env := map[string]string{
 		"DB":                   dbname,
 		"CLUSTER":              clusterName,
@@ -211,6 +207,11 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 		"CREATE_SETTINGS":      "",
 		"SAMPLES_ORDER_RUL":    "timestamp_ns",
 		"DIST_CREATE_SETTINGS": "",
+		// SAMPLES_DAYS is the raw metric tier's lifetime; the log tables use DefaultTtlDays.
+		"SAMPLES_DAYS":    strconv.Itoa(tiers.RawDays),
+		"METRICS_5M_DAYS": strconv.Itoa(tiers.FiveMinuteDays),
+		"METRICS_1H_DAYS": strconv.Itoa(tiers.HourDays),
+		"SERIES_DAYS":     strconv.Itoa(tiers.HourDays),
 	}
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)
@@ -239,6 +240,36 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 		env["MergeTree"] = "MergeTree"
 		env["AggregatingMergeTree"] = "AggregatingMergeTree"
 	}
+	return env
+}
+
+// renderScripts splits a migration file into its statements, each rendered with env.
+func renderScripts(file string, env map[string]string) ([]string, error) {
+	scripts, err := getSQLFile(file)
+	if err != nil {
+		return nil, err
+	}
+	for i, script := range scripts {
+		tpl, err := template.New(fmt.Sprintf("script_%d", i)).Parse(script)
+		if err != nil {
+			return nil, err
+		}
+		buf := bytes.NewBuffer(nil)
+		if err = tpl.Execute(buf, env); err != nil {
+			return nil, err
+		}
+		scripts[i] = buf.String()
+	}
+	return scripts, nil
+}
+
+func updateScripts(db clickhouse.Conn, clusterName string, k int64, file string, env map[string]string,
+	logger logger.ILogger) error {
+	scripts, err := renderScripts(file, env)
+	if err != nil {
+		return err
+	}
+	verTable := "ver"
 	exec := getDBExec(db, env, logger)
 	err = exec(`CREATE TABLE IF NOT EXISTS ver {{.OnCluster}} (k UInt64, ver UInt64) 
 ENGINE={{.ReplacingMergeTree}}(ver) ORDER BY k`)
@@ -270,7 +301,7 @@ ENGINE=Distributed('{{.CLUSTER}}','{{.DB}}', 'ver', rand())`)
 	}
 	for i := ver; i < uint64(len(scripts)); i++ {
 		logger.Info(fmt.Sprintf("Upgrade v.%d to v.%d ", i, i+1))
-		err = exec(scripts[i])
+		err = db.Exec(context.Background(), scripts[i])
 		if err != nil {
 			logger.Error(scripts[i])
 			return err

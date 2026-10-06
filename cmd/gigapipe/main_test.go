@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	clconfig "github.com/metrico/cloki-config"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
 
@@ -201,5 +202,13 @@ func TestHTTPRootReaderModeLeavesProtocolsDefault(t *testing.T) {
 	}
 	if protocols != nil {
 		t.Errorf("reader-only nodes must leave Protocols at net/http's default, got %+v", protocols)
+	}
+}
+
+func TestStartRejectsACoarserTierShorterThanAFinerOne(t *testing.T) {
+	t.Setenv("METRICS_5M_DAYS", "3")
+	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
+	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "METRICS_5M_DAYS") {
+		t.Errorf("portEnv = %v, want a METRICS_5M_DAYS error", err)
 	}
 }
