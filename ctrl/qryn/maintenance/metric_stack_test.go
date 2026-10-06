@@ -133,3 +133,16 @@ func TestAggregateBucketsAreKeyedByTheirEnd(t *testing.T) {
 		}
 	}
 }
+
+func TestAggregateTiersKeepAMergeableVariance(t *testing.T) {
+	scripts := renderedMetricStack(t)
+	for table, mv := range map[string]string{"metrics_5m": "metrics_5m_mv", "metrics_1h": "metrics_1h_mv"} {
+		if s := statement(t, scripts, table); !strings.Contains(s, "var         AggregateFunction(varPopStableIf, Float64, UInt8),") ||
+			strings.Contains(s, "sum_sq") {
+			t.Errorf("%s does not hold a variance state:\n%s", table, s)
+		}
+		if item := selectList(t, statement(t, scripts, mv))["var"]; item != "varPopStableIfState(value, NOT stale) AS var" {
+			t.Errorf("%s: var = %q", mv, item)
+		}
+	}
+}

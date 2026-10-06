@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 
 	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
@@ -49,7 +51,6 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(400, err.Error(), w)
 		return
 	}
-	req.Start, req.End = snapQueryRangeToNativeResolution(req.Start, req.End)
 	if req.Step <= 0 {
 		PromError(400,
 			"zero or negative query resolution step widths are not accepted. Try a positive integer",
@@ -60,7 +61,7 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 	// This is sufficient for 60s resolution for a week or 1h resolution for a year.
 	if req.End.Sub(req.Start)/req.Step > 11000 {
 		PromError(
-			500,
+			400,
 			"exceeded maximum resolution of 11,000 points per timeseries. Try decreasing the query resolution (?step=XX)",
 			w)
 		return
@@ -71,9 +72,14 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(400, err.Error(), w)
 		return
 	}
-	versionInfo := q.Storage.ResolveVersionInfo(internalCtx)
+	expr, err = promql_transpiler.TranspileExpressionV2(expr, metricread.Grid{
+		StartMs: req.Start.UnixMilli(), EndMs: req.End.UnixMilli(), StepMs: req.Step.Milliseconds()})
+	if err != nil {
+		logger.Error("[PQRC005] " + err.Error())
+		PromError(500, err.Error(), w)
+		return
+	}
 	queryStorage := q.Storage.SetOidAndDB(internalCtx, expr)
-	queryStorage.VersionInfo = versionInfo
 	rangeQuery, err := q.Engine.NewRangeQuery(internalCtx, queryStorage, nil,
 		expr.Expr.String(), req.Start, req.End, req.Step)
 	if err != nil {
@@ -93,21 +99,6 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(500, err.Error(), w)
 		return
 	}
-}
-
-// snapQueryRangeToNativeResolution aligns a query_range window to the
-// metrics_15s table's native 15s grid before it is handed to the PromQL
-// engine as the literal Start/End of the range query.
-//
-// Both bounds are floored (rounded towards -Inf), never ceiled: the engine
-// evaluates a data point at every Start+k*Step <= End, so rounding End up
-// to the next 15s boundary -- as this used to do -- fabricated one extra
-// timestamp strictly after the caller's requested end whenever end wasn't
-// already a multiple of 15. Flooring both bounds keeps Start <= End and
-// guarantees the returned window never extends past what was asked for,
-// matching real Prometheus (which never returns a point after `end`).
-func snapQueryRangeToNativeResolution(start, end time.Time) (time.Time, time.Time) {
-	return time.Unix(start.Unix()/15*15, 0), time.Unix(end.Unix()/15*15, 0)
 }
 
 func parseQueryRangePropsV2(r *http.Request) (QueryRangeProps, error) {

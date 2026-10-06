@@ -35,9 +35,11 @@ the default sort key.)
 
 Three things to know before setting it:
 
-- **It affects one table.** `samples_v3` only — the raw samples store shared by
-  logs and metrics, distinguished by the `type` column. It does not touch
-  `metrics_15s`, `time_series`, the traces tables, or the profiles tables.
+- **It affects one table.** `samples_v3` only — the raw log samples store. Metric
+  samples are written to `metric_samples`; metric rows written by earlier releases
+  stay in `samples_v3` under `type` 2 until they age out. It does not touch
+  `metrics_15s`, `time_series`, the metric tables, the traces tables, or the
+  profiles tables.
 - **It applies at table creation only.** The migration runner is version-gated:
   it records the number of applied scripts per schema file and skips everything
   below that watermark. Setting the variable on a deployment where `samples_v3`
@@ -87,29 +89,26 @@ Definitions live in `ctrl/qryn/sql/log.sql`, `traces.sql`, and `profiles.sql`.
 
 ## Choosing a sort key for `samples_v3`
 
-Both read paths filter `samples_v3` the same way — a fingerprint set intersected
-with a timestamp range:
+LogQL filters `samples_v3` with a fingerprint set intersected with a timestamp
+range: it puts the `timestamp_ns` range in `PREWHERE`
+(`reader/logql/logql_transpiler/clickhouse_planner/planner_main_init.go`) and
+adds `samples.fingerprint IN (…)` whenever the query carries a stream selector
+(`planner_fingerprint_filter.go`). PromQL reads the metric tables, not
+`samples_v3`.
 
-- **PromQL** filters `fingerprint IN (…)` plus a `timestamp_ns` range
-  (`reader/promql/promql_transpiler/planner/values.go`).
-- **LogQL** puts the `timestamp_ns` range in `PREWHERE`
-  (`reader/logql/logql_transpiler/clickhouse_planner/planner_main_init.go`) and
-  adds `samples.fingerprint IN (…)` whenever the query carries a stream selector
-  (`planner_fingerprint_filter.go`).
-
-Both also filter on `type`, which is **not** part of the default sort key.
+LogQL also filters on `type`, which is **not** part of the default sort key.
 
 So the question is which predicate is more selective for your data:
 
 - **`timestamp_ns` (default)** suits workloads where queries sweep a narrow time
-  window across many series — typical log search.
-- **`(fingerprint, timestamp_ns)`** suits workloads where each query touches few
-  series out of a large total — typical high-cardinality metrics. It also
-  aligns `samples_v3` with the layout `metrics_15s` already uses, and it is the
-  shape in which the `fingerprint` column compresses — a storage effect separate
-  from the scan-selectivity argument, covered below.
-- **Adding `type`** can help deployments that mix heavy log and metric volume in
-  one database, since every query filters on it.
+  window across many streams — typical log search.
+- **`(fingerprint, timestamp_ns)`** suits workloads where each query selects a few
+  streams out of a large total. It also aligns `samples_v3` with the layout
+  `metrics_15s` already uses, and it is the shape in which the `fingerprint`
+  column compresses — a storage effect separate from the scan-selectivity
+  argument, covered below.
+- **Adding `type`** helps only while a large volume of metric rows from earlier
+  releases remains in the table, since every LogQL query filters on it.
 
 The sort key decides compression as well as scan cost, and the two do not always
 point the same way. A codec only helps when adjacent rows are similar, and what
@@ -183,12 +182,10 @@ configurable without the view's would guarantee a mismatch; making both
 configurable would hand operators two free-text variables that must agree, with
 corruption as the failure mode.
 
-There is also nothing to gain. Every reader of the table queries it the same way —
-a fingerprint set intersected with a `timestamp_ns` range, which is exactly the
+There is also nothing to gain. The table's one reader queries it with a
+fingerprint set intersected with a `timestamp_ns` range, which is exactly the
 access pattern `(fingerprint, timestamp_ns, type)` already serves:
 
-- `reader/promql/promql_transpiler/planner/bucket_producer.go`
-- `reader/promql/promql_transpiler/planner/downsample_values.go`
 - `reader/logql/logql_transpiler/clickhouse_planner/planner_metrics15s_shortcut.go`
   — the LogQL `rate` / `count_over_time` shortcut, wrapped in
   `FingerprintFilterPlanner` by `planner.go`, which supplies the fingerprint

@@ -22,6 +22,7 @@ import (
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/ctrl"
 	"github.com/metrico/qryn/v5/reader"
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/middleware"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
@@ -268,11 +269,6 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		}
 	}
 
-	cfg.Setting.ClokiReader.Compat_4_0_19, err = boolEnv("COMPAT_4_0_19")
-	if err != nil {
-		return err
-	}
-
 	if os.Getenv("LOG_LEVEL") != "" {
 		cfg.Setting.LOG_SETTINGS.Level = os.Getenv("LOG_LEVEL")
 	}
@@ -280,6 +276,11 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 	for _, db := range cfg.Setting.DATABASE_DATA {
 		if _, err := metricretention.FromEnv(db.TTLDays, os.Getenv); err != nil {
 			return err
+		}
+	}
+	if v := os.Getenv("METRICS_READ_TIER"); v != "" {
+		if _, ok := metricread.TierNamed(v); !ok {
+			return fmt.Errorf("METRICS_READ_TIER: invalid value %q, want raw, 5m or 1h", v)
 		}
 	}
 	return nil

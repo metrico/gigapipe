@@ -1,7 +1,7 @@
 package promql_parser
 
 import (
-	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -9,21 +9,16 @@ import (
 type Expr struct {
 	Expr        parser.Expr
 	Substitutes map[string]*Substitute
+	// Read is what tier selection knows of the query.
+	Read metricread.Read
 }
 
+// Substitute is an expression the querier answers with its pushdown's points instead of the
+// engine, selected by a matcher on its MetricName.
 type Substitute struct {
 	MetricName string
-	Notes      SubstituteNotes
 	Node       parser.Node
-	Request    shared.SQLRequestPlanner
-}
-
-type SubstituteNotes struct {
-	NeedsLabelsValues bool
-	// DropMetricName mirrors prometheus: range functions (rate, increase,
-	// *_over_time, ...) return an instant vector without __name__, whereas a
-	// bare selector keeps it. Only set for the range-function path.
-	DropMetricName bool
+	Pushdown   metricread.Pushdown
 }
 
 const (

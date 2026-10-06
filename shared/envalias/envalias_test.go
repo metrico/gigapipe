@@ -116,3 +116,12 @@ func TestRetentionTierDaysAreMapped(t *testing.T) {
 		}
 	}
 }
+
+func TestReadTierIsMapped(t *testing.T) {
+	t.Setenv("METRICS_READ_TIER", "")
+	t.Setenv(Prefix+"METRICS_READ_TIER", "5m")
+	Apply()
+	if got := os.Getenv("METRICS_READ_TIER"); got != "5m" {
+		t.Errorf("METRICS_READ_TIER = %q, want %q", got, "5m")
+	}
+}
