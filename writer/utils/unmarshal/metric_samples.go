@@ -122,6 +122,18 @@ func (b *metricBatch) addMetadata(name string, m metadata.Entry) {
 	d.Size += 8 + len(name) + len(m.Type) + len(m.Help) + len(m.Unit)
 }
 
+// seriesBounds returns the bounds of the series row the samples need, if any.
+func (b *metricBatch) seriesBounds(fp uint64, timestampsMs []int64) (firstMs, lastMs int64, ok bool) {
+	if len(timestampsMs) == 0 {
+		return 0, 0, false
+	}
+	minTs, maxTs := int64(math.MaxInt64), int64(math.MinInt64)
+	for _, ts := range timestampsMs {
+		minTs, maxTs = min(minTs, ts), max(maxTs, ts)
+	}
+	return b.node.Fingerprints.Emit(fp, minTs, maxTs)
+}
+
 func labelValue(labels [][]string, name string) string {
 	for _, l := range labels {
 		if l[0] == name {
@@ -156,11 +168,7 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 		b.addMetadata(name, meta)
 	}
 
-	if len(timestampsMs) > 0 && b.node.Fingerprints.FirstSight(fp) {
-		minTs, maxTs := int64(math.MaxInt64), int64(math.MinInt64)
-		for _, ts := range timestampsMs {
-			minTs, maxTs = min(minTs, ts), max(maxTs, ts)
-		}
+	if first, last, ok := b.seriesBounds(fp, timestampsMs); ok {
 		lblMap := make(map[string]string, len(filtered))
 		size := 24 + len(name)
 		for _, l := range filtered {
@@ -171,8 +179,8 @@ func (p *parserDoer) onMetricSamples(labels [][]string, timestampsMs []int64, va
 		d.MName = append(d.MName, name)
 		d.MFingerprint = append(d.MFingerprint, fp)
 		d.MLabels = append(d.MLabels, lblMap)
-		d.MFirstSeenMs = append(d.MFirstSeenMs, minTs)
-		d.MLastSeenMs = append(d.MLastSeenMs, maxTs)
+		d.MFirstSeenMs = append(d.MFirstSeenMs, first)
+		d.MLastSeenMs = append(d.MLastSeenMs, last)
 		d.Size += size
 	}
 
