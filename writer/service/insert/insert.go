@@ -15,10 +15,6 @@ func (f *DevInsertServiceFactory) NewSamplesInsertService(opts model.InsertServi
 	return NewSamplesInsertService(opts)
 }
 
-func (f *DevInsertServiceFactory) NewMetricsInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
-	return NewMetricsInsertService(opts)
-}
-
 func (f *DevInsertServiceFactory) NewTempoSamplesInsertService(opts model.InsertServiceOpts) service.IInsertServiceV2 {
 	return NewTempoSamplesInsertService(opts)
 }

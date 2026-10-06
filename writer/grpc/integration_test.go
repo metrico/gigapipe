@@ -17,6 +17,7 @@ import (
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/service"
 	"github.com/metrico/qryn/v5/writer/utils/helpers"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	"github.com/metrico/qryn/v5/writer/utils/promise"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -78,6 +79,10 @@ type fakeRegistry struct {
 	spanAttrs  *recorderSvc
 	samples    *recorderSvc
 	timeSeries *recorderSvc
+	staging    *recorderSvc
+	series     *recorderSvc
+	meta       *recorderSvc
+	exemplars  *recorderSvc
 }
 
 func (f *fakeRegistry) GetTimeSeriesService(id string) (service.IInsertServiceV2, error) {
@@ -92,8 +97,17 @@ func (f *fakeRegistry) GetSamplesService(id string) (service.IInsertServiceV2, e
 	}
 	return f.samples, nil
 }
-func (f *fakeRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
-	return nil, nil
+func (f *fakeRegistry) GetMetricStagingService(string) (service.IInsertServiceV2, error) {
+	return f.staging, nil
+}
+func (f *fakeRegistry) GetMetricSeriesService(string) (service.IInsertServiceV2, error) {
+	return f.series, nil
+}
+func (f *fakeRegistry) GetMetricMetadataService(string) (service.IInsertServiceV2, error) {
+	return f.meta, nil
+}
+func (f *fakeRegistry) GetMetricExemplarsService(string) (service.IInsertServiceV2, error) {
+	return f.exemplars, nil
 }
 func (f *fakeRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {
 	return f.spans, nil
@@ -122,18 +136,26 @@ func installFakeRegistry(t *testing.T) *recorderSvc {
 	return spans
 }
 
-// installFakeMetricsRegistry installs a fakeRegistry (save/restore) whose
-// samples and time-series insert services record pushed rows, and returns the
-// two recorders to assert on.
-func installFakeMetricsRegistry(t *testing.T) (samples, timeSeries *recorderSvc) {
+// installFakeMetricsRegistry installs a fakeRegistry (save/restore) with
+// recording log and metric insert services and the metric caches, and returns
+// the registry to assert on.
+func installFakeMetricsRegistry(t *testing.T) *fakeRegistry {
 	t.Helper()
-	samples = &recorderSvc{node: "n"}
-	timeSeries = &recorderSvc{node: "n"}
-	fr := &fakeRegistry{samples: samples, timeSeries: timeSeries}
+	fr := &fakeRegistry{
+		samples: &recorderSvc{node: "n"}, timeSeries: &recorderSvc{node: "n"},
+		staging: &recorderSvc{node: "n"}, series: &recorderSvc{node: "n"},
+		meta: &recorderSvc{node: "n"}, exemplars: &recorderSvc{node: "n"},
+	}
 	old := controller.Registry
 	controller.Registry = fr
-	t.Cleanup(func() { controller.Registry = old })
-	return samples, timeSeries
+	oldCaches := controller.MetricCaches
+	controller.MetricCaches = metriccache.New()
+	t.Cleanup(func() {
+		controller.Registry = old
+		controller.MetricCaches.Stop()
+		controller.MetricCaches = oldCaches
+	})
+	return fr
 }
 
 // installFPCache registers a trivial per-node fingerprint cache for node "n" and
@@ -271,10 +293,11 @@ func TestGRPCTraces_EndToEnd(t *testing.T) {
 // in-memory bufconn connection through the production Mux stack. The request
 // mixes an ingestible cumulative monotonic sum with a delta sum that the
 // ingest policy rejects, asserting both halves of the contract at once: the
-// stored half reaches the samples and time-series insert services with the
+// stored half reaches the metric staging and series services with the
 // translated name, and the rejected half is reported via partial_success.
 func TestGRPCMetrics_EndToEnd(t *testing.T) {
-	samples, timeSeries := installFakeMetricsRegistry(t)
+	reg := installFakeMetricsRegistry(t)
+	samples, timeSeries := reg.staging, reg.series
 	installFPCache(t, "n")
 	installConfig(t)
 
@@ -349,9 +372,9 @@ func TestGRPCMetrics_EndToEnd(t *testing.T) {
 
 	gotSamples := samples.reqs()
 	if len(gotSamples) == 0 {
-		t.Fatal("samples insert service received no requests")
+		t.Fatal("metric staging service received no requests")
 	}
-	spl, ok := gotSamples[0].(*model.TimeSamplesData)
+	spl, ok := gotSamples[0].(*model.MetricSamplesData)
 	if !ok {
 		t.Fatalf("samples request had unexpected type %T", gotSamples[0])
 	}
@@ -361,23 +384,26 @@ func TestGRPCMetrics_EndToEnd(t *testing.T) {
 
 	gotTS := timeSeries.reqs()
 	if len(gotTS) == 0 {
-		t.Fatal("time series insert service received no requests")
+		t.Fatal("metric series service received no requests")
 	}
-	ts, ok := gotTS[0].(*model.TimeSeriesData)
+	ts, ok := gotTS[0].(*model.MetricSeriesData)
 	if !ok {
-		t.Fatalf("time series request had unexpected type %T", gotTS[0])
+		t.Fatalf("series request had unexpected type %T", gotTS[0])
 	}
 	var sawTotal bool
-	for _, lbls := range ts.MLabels {
-		if strings.Contains(lbls, `"__name__":"http_requests_total"`) {
+	for _, name := range ts.MName {
+		if name == "http_requests_total" {
 			sawTotal = true
 		}
-		if strings.Contains(lbls, "delta_requests") {
-			t.Fatalf("delta metric series must not be stored: %s", lbls)
+		if strings.Contains(name, "delta_requests") {
+			t.Fatalf("delta metric series must not be stored: %s", name)
 		}
 	}
 	if !sawTotal {
-		t.Fatalf("expected a stored series named http_requests_total, got %v", ts.MLabels)
+		t.Fatalf("expected a stored series named http_requests_total, got %v", ts.MName)
+	}
+	if len(reg.samples.reqs()) != 0 || len(reg.timeSeries.reqs()) != 0 {
+		t.Fatal("OTLP metrics reached a log insert service")
 	}
 
 	if sentinel.wasCalled() {

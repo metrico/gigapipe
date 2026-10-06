@@ -29,8 +29,7 @@ type OrgCheckerFactory interface {
 	CreateOrgChecker() OrgChecker
 }
 
-type onEntriesHandler func(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8) error
+type onEntriesHandler func(labels [][]string, timestampsNS []int64, message []string) error
 
 type onProfileHandler func(timestampNs uint64,
 	Type string,
@@ -91,6 +90,7 @@ type parserBuilder struct {
 	LogsParser    func(ctx *ParserCtx) iLogsParser
 	ProfileParser func(ctx *ParserCtx) iProfilesParser
 	SpansParser   func(ctx *ParserCtx) iSpansParser
+	MetricsParser func(ctx *ParserCtx) iMetricsParser
 	payloadType   int8
 }
 
@@ -99,6 +99,7 @@ type parserDoer struct {
 	LogsParser    iLogsParser
 	SpansParser   iSpansParser
 	ProfileParser iProfilesParser
+	MetricsParser iMetricsParser
 	ctx           *ParserCtx
 	ttlDays       uint16
 
@@ -109,6 +110,7 @@ type parserDoer struct {
 	profile     *model.ProfileData
 	spans       *model.TempoSamples
 	attrs       *model.TempoTag
+	metrics     *metricBatch
 }
 
 func (p *parserDoer) Do() chan *model.ParserResponse {
@@ -116,7 +118,7 @@ func (p *parserDoer) Do() chan *model.ParserResponse {
 	for _, fn := range p.PreParse {
 		err := fn(p.ctx)
 		if err != nil {
-			go func() { p.res <- &model.ParserResponse{Error: err}; close(p.res) }()
+			p.fail(err)
 			return p.res
 		}
 	}
@@ -127,9 +129,19 @@ func (p *parserDoer) Do() chan *model.ParserResponse {
 		p.doParseSpans()
 	} else if p.ProfileParser != nil {
 		p.doParseProfile()
+	} else if p.MetricsParser != nil {
+		p.doParseMetrics()
 	}
 
 	return p.res
+}
+
+// fail reports err as the parser's only response.
+func (p *parserDoer) fail(err error) {
+	go func() {
+		p.res <- &model.ParserResponse{Error: err}
+		close(p.res)
+	}()
 }
 
 func (p *parserDoer) doParseProfile() {
@@ -173,6 +185,12 @@ func (p *parserDoer) doParseLogs() {
 
 	parser.SetOnEntries(p.onEntries)
 	p.tsSpl.reset()
+	if sink, ok := parser.(iMetricSink); ok {
+		if err := p.initMetrics(sink); err != nil {
+			p.fail(err)
+			return
+		}
+	}
 
 	go func() {
 		defer p.tamePanic()
@@ -184,6 +202,9 @@ func (p *parserDoer) doParseLogs() {
 		}
 		p.tsSpl.flush()
 		p.tsSpl.reset()
+		if p.metrics != nil {
+			p.metrics.flush()
+		}
 		close(p.res)
 	}()
 }
@@ -316,35 +337,33 @@ func (p *parserDoer) discoverServiceName(labels *[][]string) {
 	}
 }
 
-func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
-	message []string, value []float64, types []uint8,
-) error {
-	ttlDays := p.ttlDays
-
-	// Extract metadata from labels
-	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
-
-	// Filter special labels (__ttl_days__, __metric_type__, __metric_help__, __metric_unit__)
-	filtered := make([][]string, 0, len(labels))
+// stripSpecialLabels drops the __metric_*__ labels and, while ttlDays is 0 or
+// stripAllTTL is set, the __ttl_days__ label, taking ttlDays from it. It
+// returns the kept labels and ttlDays.
+func stripSpecialLabels(labels [][]string, ttlDays uint16, stripAllTTL bool) ([][]string, uint16) {
+	filtered := make([][]string, 0, len(labels)+1)
 	for _, label := range labels {
-		lname := label[0]
-		lval := label[1]
-
-		// Check for TTL override if not already set
-		if lname == "__ttl_days__" && ttlDays == 0 {
-			if ttl, err := strconv.ParseInt(lval, 10, 16); err == nil {
+		if label[0] == "__ttl_days__" && (ttlDays == 0 || stripAllTTL) {
+			if ttl, err := strconv.ParseInt(label[1], 10, 16); err == nil {
 				ttlDays = uint16(ttl)
 			}
 			continue
 		}
-
-		// Skip metadata labels
-		if metadata.IsMetadataLabel(lname) {
+		if metadata.IsMetadataLabel(label[0]) {
 			continue
 		}
-
 		filtered = append(filtered, label)
 	}
+	return filtered, ttlDays
+}
+
+// onEntries is the log entry point: every row it produces is typed
+// SAMPLE_TYPE_LOG with value 0.
+func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64, message []string) error {
+	// Extract metadata from labels
+	metricMetadata := metadata.ExtractMetadataFromLabels(labels)
+
+	filtered, ttlDays := stripSpecialLabels(labels, p.ttlDays, false)
 
 	p.discoverServiceName(&filtered)
 
@@ -352,16 +371,11 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	fp := fingerprintLabels(filtered)
 
 	p.tsSpl.spl.MMessage = append(p.tsSpl.spl.MMessage, message...)
-	p.tsSpl.spl.MValue = append(p.tsSpl.spl.MValue, value...)
+	p.tsSpl.spl.MValue = append(p.tsSpl.spl.MValue, make([]float64, len(timestampsNS))...)
 	p.tsSpl.spl.MTimestampNS = append(p.tsSpl.spl.MTimestampNS, timestampsNS...)
 	p.tsSpl.spl.MFingerprint = append(p.tsSpl.spl.MFingerprint, slices.Repeat([]uint64{fp}, len(timestampsNS))...)
 	p.tsSpl.spl.MTTLDays = append(p.tsSpl.spl.MTTLDays, slices.Repeat([]uint16{ttlDays}, len(timestampsNS))...)
-	p.tsSpl.spl.MType = append(p.tsSpl.spl.MType, types...)
-
-	var tps [3]bool
-	for _, t := range types {
-		tps[t] = true
-	}
+	p.tsSpl.spl.MType = append(p.tsSpl.spl.MType, slices.Repeat([]uint8{model.SAMPLE_TYPE_LOG}, len(timestampsNS))...)
 
 	for i, tsns := range timestampsNS {
 		dates[time.Unix(tsns/1000000000, 0).Truncate(time.Hour*24)] = true
@@ -377,19 +391,13 @@ func (p *parserDoer) onEntries(labels [][]string, timestampsNS []int64,
 	for d := range dates {
 		if maybeAddFp(d, fp, p.ctx.fpCache) {
 			_labels := encodeLabels(filtered)
-			for t := range tps {
-				if !tps[t] {
-					continue
-				}
-
-				p.tsSpl.ts.MDate = append(p.tsSpl.ts.MDate, d)
-				p.tsSpl.ts.MLabels = append(p.tsSpl.ts.MLabels, _labels)
-				p.tsSpl.ts.MFingerprint = append(p.tsSpl.ts.MFingerprint, fp)
-				p.tsSpl.ts.MType = append(p.tsSpl.ts.MType, uint8(t))
-				p.tsSpl.ts.MTTLDays = append(p.tsSpl.ts.MTTLDays, ttlDays)
-				p.tsSpl.ts.MMetadata = append(p.tsSpl.ts.MMetadata, metadataJSON)
-				p.tsSpl.ts.Size += 14 + len(_labels) + len(metadataJSON)
-			}
+			p.tsSpl.ts.MDate = append(p.tsSpl.ts.MDate, d)
+			p.tsSpl.ts.MLabels = append(p.tsSpl.ts.MLabels, _labels)
+			p.tsSpl.ts.MFingerprint = append(p.tsSpl.ts.MFingerprint, fp)
+			p.tsSpl.ts.MType = append(p.tsSpl.ts.MType, model.SAMPLE_TYPE_LOG)
+			p.tsSpl.ts.MTTLDays = append(p.tsSpl.ts.MTTLDays, ttlDays)
+			p.tsSpl.ts.MMetadata = append(p.tsSpl.ts.MMetadata, metadataJSON)
+			p.tsSpl.ts.Size += 14 + len(_labels) + len(metadataJSON)
 		}
 	}
 
@@ -460,6 +468,8 @@ func Build(options ...buildOption) ParsingFunction {
 			doer.LogsParser = builder.LogsParser(doer.ctx)
 		} else if builder.SpansParser != nil {
 			doer.SpansParser = builder.SpansParser(doer.ctx)
+		} else if builder.MetricsParser != nil {
+			doer.MetricsParser = builder.MetricsParser(doer.ctx)
 		} else {
 			doer.ProfileParser = builder.ProfileParser(doer.ctx)
 		}

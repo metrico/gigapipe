@@ -41,7 +41,10 @@ type QrynWriterPlugin struct {
 var (
 	TsSvcs            = make(service.InsertSvcMap)
 	SplSvcs           = make(service.InsertSvcMap)
-	MtrSvcs           = make(service.InsertSvcMap)
+	MetricStagingSvcs = make(service.InsertSvcMap)
+	MetricSeriesSvcs  = make(service.InsertSvcMap)
+	MetricMetaSvcs    = make(service.InsertSvcMap)
+	MetricExmplSvcs   = make(service.InsertSvcMap)
 	TempoSamplesSvcs  = make(service.InsertSvcMap)
 	TempoTagsSvcs     = make(service.InsertSvcMap)
 	ProfileInsertSvcs = make(service.InsertSvcMap)
@@ -150,8 +153,9 @@ func (p *QrynWriterPlugin) Stop() error {
 	logger.Info("pattern controller stopped.")
 
 	allServices := []service.InsertSvcMap{
-		TsSvcs, SplSvcs, MtrSvcs, TempoSamplesSvcs,
+		TsSvcs, SplSvcs, TempoSamplesSvcs,
 		TempoTagsSvcs, ProfileInsertSvcs, PatternInsertSvcs,
+		MetricStagingSvcs, MetricSeriesSvcs, MetricMetaSvcs, MetricExmplSvcs,
 	}
 	for _, svcMap := range allServices {
 		for _, svc := range svcMap {
@@ -180,7 +184,10 @@ func (p *QrynWriterPlugin) Stop() error {
 	p.Conn = nil
 	TsSvcs = make(service.InsertSvcMap)
 	SplSvcs = make(service.InsertSvcMap)
-	MtrSvcs = make(service.InsertSvcMap)
+	MetricStagingSvcs = make(service.InsertSvcMap)
+	MetricSeriesSvcs = make(service.InsertSvcMap)
+	MetricMetaSvcs = make(service.InsertSvcMap)
+	MetricExmplSvcs = make(service.InsertSvcMap)
 	TempoSamplesSvcs = make(service.InsertSvcMap)
 	TempoTagsSvcs = make(service.InsertSvcMap)
 	ProfileInsertSvcs = make(service.InsertSvcMap)
@@ -189,6 +196,8 @@ func (p *QrynWriterPlugin) Stop() error {
 	ServiceRegistry = nil
 	GoCache.Stop()
 	GoCache = nil
+	MetricCaches.Stop()
+	MetricCaches = nil
 
 	logger.Info("writer successfully cleaned up")
 	return nil

@@ -322,6 +322,8 @@ func (svc *InsertServiceV2) IngestSize(input *proto.InputColumn) int {
 		return 2 * input.Data.Rows()
 	case proto.ColFloat64:
 		return 8 * input.Data.Rows()
+	case *proto.ColDateTime64, *ColSimpleAggDateTime64:
+		return 8 * input.Data.Rows()
 	case *proto.ColFixedStr:
 		return len(input.Data.(*proto.ColFixedStr).Buf)
 	case proto.ColInt8:

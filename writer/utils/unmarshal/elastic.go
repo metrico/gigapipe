@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils"
 	customErrors "github.com/metrico/qryn/v5/writer/utils/errors"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
@@ -31,8 +30,7 @@ func (e *ElasticUnmarshal) Decode() error {
 	if id, ok := e.ctx.ctxMap[utils.ContextKeyID]; ok {
 		labels = append(labels, []string{"_id", id})
 	}
-	return e.onEntries(labels, []int64{time.Now().UnixNano()}, []string{string(e.ctx.bodyBuffer)}, []float64{0},
-		[]uint8{model.SAMPLE_TYPE_LOG})
+	return e.onEntries(labels, []int64{time.Now().UnixNano()}, []string{string(e.ctx.bodyBuffer)})
 }
 func (e *ElasticUnmarshal) SetOnEntries(h onEntriesHandler) {
 	e.onEntries = h
@@ -110,8 +108,7 @@ func (e *elasticBulkDec) decodeLine(line []byte) error {
 	}
 
 	// Invoke onEntries with the processed data
-	return e.onEntries(e.labels, []int64{time.Now().UnixNano()}, []string{string(line)}, []float64{0},
-		[]uint8{model.SAMPLE_TYPE_LOG})
+	return e.onEntries(e.labels, []int64{time.Now().UnixNano()}, []string{string(line)})
 }
 
 func (e *elasticBulkDec) decodeCreateObj(dec *jx.Decoder) error {

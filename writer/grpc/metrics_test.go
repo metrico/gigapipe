@@ -10,6 +10,7 @@ import (
 	"github.com/metrico/qryn/v5/writer/controller"
 	"github.com/metrico/qryn/v5/writer/service"
 	"github.com/metrico/qryn/v5/writer/utils/helpers"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	"github.com/metrico/qryn/v5/writer/utils/promise"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -60,7 +61,16 @@ func (r *failingRegistry) GetTimeSeriesService(string) (service.IInsertServiceV2
 func (r *failingRegistry) GetSamplesService(string) (service.IInsertServiceV2, error) {
 	return r.svc, nil
 }
-func (r *failingRegistry) GetMetricsService(string) (service.IInsertServiceV2, error) {
+func (r *failingRegistry) GetMetricStagingService(string) (service.IInsertServiceV2, error) {
+	return r.svc, nil
+}
+func (r *failingRegistry) GetMetricSeriesService(string) (service.IInsertServiceV2, error) {
+	return r.svc, nil
+}
+func (r *failingRegistry) GetMetricMetadataService(string) (service.IInsertServiceV2, error) {
+	return r.svc, nil
+}
+func (r *failingRegistry) GetMetricExemplarsService(string) (service.IInsertServiceV2, error) {
 	return r.svc, nil
 }
 func (r *failingRegistry) GetSpansService(string) (service.IInsertServiceV2, error) {
@@ -112,7 +122,13 @@ func TestMetricsExport_TransientFailureRetryableAndOpaque(t *testing.T) {
 	controller.Registry = &failingRegistry{svc: &failingSvc{
 		err: errors.New("n-clickhouse://user:secret@ch-1.internal:9000/gigapipe?secure=false: dial: connection refused"),
 	}}
-	t.Cleanup(func() { controller.Registry = old })
+	oldCaches := controller.MetricCaches
+	controller.MetricCaches = metriccache.New()
+	t.Cleanup(func() {
+		controller.Registry = old
+		controller.MetricCaches.Stop()
+		controller.MetricCaches = oldCaches
+	})
 
 	_, err := (&metricsServer{}).Export(context.Background(), sampleMetricsRequest())
 	if err == nil {

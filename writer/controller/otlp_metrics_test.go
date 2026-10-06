@@ -14,6 +14,7 @@ import (
 	"github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/service"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
@@ -23,12 +24,13 @@ import (
 )
 
 // metricsFakeRegistry satisfies registry.ServiceRegistry with recorder-backed
-// samples, time-series and profile services, which is the set
-// withTSAndSampleService resolves.
+// log, profile and metric services.
 type metricsFakeRegistry struct {
 	samples    *recorderSvc
 	timeSeries *recorderSvc
 	profile    *recorderSvc
+	staging    *recorderSvc
+	series     *recorderSvc
 }
 
 func (f *metricsFakeRegistry) GetTimeSeriesService(id string) (service.IInsertServiceV2, error) {
@@ -37,7 +39,16 @@ func (f *metricsFakeRegistry) GetTimeSeriesService(id string) (service.IInsertSe
 func (f *metricsFakeRegistry) GetSamplesService(id string) (service.IInsertServiceV2, error) {
 	return f.samples, nil
 }
-func (f *metricsFakeRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
+func (f *metricsFakeRegistry) GetMetricStagingService(string) (service.IInsertServiceV2, error) {
+	return f.staging, nil
+}
+func (f *metricsFakeRegistry) GetMetricSeriesService(string) (service.IInsertServiceV2, error) {
+	return f.series, nil
+}
+func (f *metricsFakeRegistry) GetMetricMetadataService(string) (service.IInsertServiceV2, error) {
+	return nil, nil
+}
+func (f *metricsFakeRegistry) GetMetricExemplarsService(string) (service.IInsertServiceV2, error) {
 	return nil, nil
 }
 func (f *metricsFakeRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {
@@ -57,16 +68,34 @@ func (f *metricsFakeRegistry) Stop() {}
 
 // newMetricsHandler wires OTLPMetricsV2 with the production middleware chain
 // (WithOverallContextMiddleware for DSN/gzip handling) against fake insert
-// services, returning the handler plus the samples recorder to assert on.
+// services, returning the handler plus the metric staging recorder to assert
+// on. A request that reaches a log service fails t.
 func newMetricsHandler(t *testing.T) (http.HandlerFunc, *recorderSvc) {
 	t.Helper()
 	installConfig(t)
 	installFPCache(t, "n")
-	samples := &recorderSvc{}
+	installMetricCaches(t)
+	reg := &metricsFakeRegistry{samples: &recorderSvc{}, timeSeries: &recorderSvc{}, profile: &recorderSvc{},
+		staging: &recorderSvc{}, series: &recorderSvc{}}
 	old := Registry
-	Registry = &metricsFakeRegistry{samples: samples, timeSeries: &recorderSvc{}, profile: &recorderSvc{}}
-	t.Cleanup(func() { Registry = old })
-	return OTLPMetricsV2(NewMiddlewareConfig(WithOverallContextMiddleware)), samples
+	Registry = reg
+	t.Cleanup(func() {
+		Registry = old
+		if len(reg.samples.reqs()) != 0 || len(reg.timeSeries.reqs()) != 0 {
+			t.Error("OTLP metrics reached a log insert service")
+		}
+	})
+	return OTLPMetricsV2(NewMiddlewareConfig(WithOverallContextMiddleware)), reg.staging
+}
+
+func installMetricCaches(t *testing.T) {
+	t.Helper()
+	old := MetricCaches
+	MetricCaches = metriccache.New()
+	t.Cleanup(func() {
+		MetricCaches.Stop()
+		MetricCaches = old
+	})
 }
 
 func sampleMetricsRequest() *metricsv1.MetricsData {
@@ -113,10 +142,10 @@ func TestOTLPMetricsHTTP_ProtoHappyPath(t *testing.T) {
 
 	got := samples.reqs()
 	if len(got) == 0 {
-		t.Fatal("samples insert service received no requests")
+		t.Fatal("metric staging service received no requests")
 	}
-	spl := got[0].(*model.TimeSamplesData)
-	if len(spl.MValue) != 1 || spl.MValue[0] != 42.5 {
+	spl := got[0].(*model.MetricSamplesData)
+	if len(spl.MValue) != 1 || spl.MValue[0] != 42.5 || spl.MTimestampMs[0] != 1700000000_000 {
 		t.Fatalf("expected one sample with value 42.5, got %#v", spl.MValue)
 	}
 }
@@ -153,9 +182,9 @@ func TestOTLPMetricsHTTP_JSONWithPartialSuccess(t *testing.T) {
 
 	got := samples.reqs()
 	if len(got) == 0 {
-		t.Fatal("samples insert service received no requests")
+		t.Fatal("metric staging service received no requests")
 	}
-	spl := got[0].(*model.TimeSamplesData)
+	spl := got[0].(*model.MetricSamplesData)
 	if len(spl.MValue) != 1 || spl.MValue[0] != 1.5 {
 		t.Fatalf("expected only the gauge sample, got %#v", spl.MValue)
 	}

@@ -14,71 +14,96 @@ import (
 	"github.com/go-faster/jx"
 	clcwriter "github.com/metrico/cloki-config/config/writer"
 	"github.com/metrico/qryn/v5/writer/config"
-	"github.com/metrico/qryn/v5/writer/model"
+	"github.com/metrico/qryn/v5/writer/metric"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 	"github.com/metrico/qryn/v5/writer/utils/helputils"
 	"github.com/metrico/qryn/v5/writer/utils/helputils/cityhash102"
 	"github.com/metrico/qryn/v5/writer/utils/logger"
 )
 
+// RejectLokiPushValue is the counted reason for a Loki JSON push rejected
+// because an entry carries a value.
+const RejectLokiPushValue = "loki_push_value"
+
+type lokiStream struct {
+	labels [][]string
+	tsNs   []int64
+	lines  []string
+}
+
+// pushRequestDec decodes a Loki JSON push. The whole request is decoded before
+// any entry is emitted, and an entry carrying a value fails it with a 400.
 type pushRequestDec struct {
 	ctx       *ParserCtx
 	onEntries onEntriesHandler
 
-	Labels [][]string
-
-	TsNs   []int64
-	String []string
-	Value  []float64
-	Types  []uint8
+	streams []lokiStream
+	valueAt int
 }
 
 func (p *pushRequestDec) Decode() error {
-	p.TsNs = make([]int64, 0, 1000)
-	p.String = make([]string, 0, 1000)
-	p.Value = make([]float64, 0, 1000)
-	p.Labels = make([][]string, 0, 10)
-	p.Types = make([]uint8, 0, 1000)
-
 	d := jx.Decode(p.ctx.bodyReader, 64*1024)
-	return jsonParseError(d.Obj(func(d *jx.Decoder, key string) error {
+	err := jsonParseError(d.Obj(func(d *jx.Decoder, key string) error {
 		switch key {
 		case "streams":
 			return d.Arr(func(d *jx.Decoder) error {
-				p.TsNs = p.TsNs[:0]
-				p.String = p.String[:0]
-				p.Value = p.Value[:0]
-				p.Labels = p.Labels[:0]
-				p.Types = p.Types[:0]
-
-				err := p.decodeStream(d)
-				if err != nil {
+				p.streams = append(p.streams, lokiStream{})
+				p.valueAt = -1
+				s := &p.streams[len(p.streams)-1]
+				if err := p.decodeStream(d, s); err != nil {
 					return err
 				}
-				return p.onEntries(p.Labels, p.TsNs, p.String, p.Value, p.Types)
+				if p.valueAt >= 0 {
+					metric.IngestRejected.WithLabelValues(RejectLokiPushValue).Inc()
+					return errors.New400Error(fmt.Sprintf(
+						"stream %s: entry %d carries a value; the Loki push API accepts log lines only",
+						formatLokiLabels(s.labels), p.valueAt))
+				}
+				return nil
 			})
 		default:
 			d.Skip()
 		}
 		return nil
 	}))
+	if err != nil {
+		return err
+	}
+	for _, s := range p.streams {
+		if err := p.onEntries(s.labels, s.tsNs, s.lines); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func formatLokiLabels(lbls [][]string) string {
+	parts := make([]string, len(lbls))
+	for i, l := range lbls {
+		parts[i] = l[0] + "=" + strconv.Quote(l[1])
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 func (p *pushRequestDec) SetOnEntries(h onEntriesHandler) {
 	p.onEntries = h
 }
 
-func (p *pushRequestDec) decodeStream(d *jx.Decoder) error {
+func (p *pushRequestDec) decodeStream(d *jx.Decoder, s *lokiStream) error {
 	err := d.Obj(func(d *jx.Decoder, key string) error {
 		switch key {
 		case "stream":
-			return p.decodeStreamStream(d)
+			return p.decodeStreamStream(d, s)
 		case "labels":
-			return p.decodeStreamLabels(d)
+			return p.decodeStreamLabels(d, s)
 		case "values":
-			return p.decodeStreamValues(d)
+			return d.Arr(func(d *jx.Decoder) error {
+				return p.decodeStreamValue(d, s)
+			})
 		case "entries":
-			return p.decodeStreamEntries(d)
+			return d.Arr(func(d *jx.Decoder) error {
+				return p.decodeStreamEntry(d, s)
+			})
 		default:
 			d.Skip()
 		}
@@ -87,51 +112,50 @@ func (p *pushRequestDec) decodeStream(d *jx.Decoder) error {
 	return err
 }
 
-func (p *pushRequestDec) decodeStreamStream(d *jx.Decoder) error {
+func (p *pushRequestDec) decodeStreamStream(d *jx.Decoder, s *lokiStream) error {
 	err := d.Obj(func(d *jx.Decoder, key string) error {
 		val, err := d.Str()
 		if err != nil {
 			return errors.NewUnmarshalError(err)
 		}
-		p.Labels = append(p.Labels, []string{key, val})
+		s.labels = append(s.labels, []string{key, val})
 		return nil
 	})
 	if err != nil {
 		return errors.NewUnmarshalError(err)
 	}
 
-	p.Labels = sanitizeLabels(p.Labels)
+	s.labels = sanitizeLabels(s.labels)
 
 	return nil
 }
 
-func (p *pushRequestDec) decodeStreamLabels(d *jx.Decoder) error {
+func (p *pushRequestDec) decodeStreamLabels(d *jx.Decoder, s *lokiStream) error {
 	labelsBytes, err := d.StrBytes()
 	if err != nil {
 		return errors.NewUnmarshalError(err)
 	}
-	p.Labels, err = parseLabelsLokiFormat(labelsBytes, p.Labels)
+	s.labels, err = parseLabelsLokiFormat(labelsBytes, s.labels)
 	if err != nil {
 		return errors.NewUnmarshalError(err)
 	}
-	p.Labels = sanitizeLabels(p.Labels)
+	s.labels = sanitizeLabels(s.labels)
 	return err
 }
 
-func (p *pushRequestDec) decodeStreamValues(d *jx.Decoder) error {
-	return d.Arr(func(d *jx.Decoder) error {
-		return p.decodeStreamValue(d)
-	})
+// markValue records the stream's first entry that carries a value.
+func (p *pushRequestDec) markValue(s *lokiStream) {
+	if p.valueAt < 0 {
+		p.valueAt = len(s.tsNs)
+	}
 }
 
-func (p *pushRequestDec) decodeStreamValue(d *jx.Decoder) error {
+func (p *pushRequestDec) decodeStreamValue(d *jx.Decoder, s *lokiStream) error {
 	j := -1
 	var (
 		tsNs int64
 		str  string
-		val  float64
 		err  error
-		tp   uint8
 	)
 	err = d.Arr(func(d *jx.Decoder) error {
 		j++
@@ -145,61 +169,34 @@ func (p *pushRequestDec) decodeStreamValue(d *jx.Decoder) error {
 			return err
 		case 1:
 			str, err = d.Str()
-			tp |= model.SAMPLE_TYPE_LOG
 			return err
 		case 2:
-			if d.Next() != jx.Number {
-				return d.Skip()
+			if d.Next() == jx.Number {
+				p.markValue(s)
 			}
-			val, err = d.Float64()
-			tp |= model.SAMPLE_TYPE_METRIC
-			return err
+			return d.Skip()
 		default:
 			d.Skip()
 		}
 		return nil
 	})
-
-	if tp == 3 {
-		tp = 0
-	}
-
 	if err != nil {
 		return errors.NewUnmarshalError(err)
 	}
 
-	p.TsNs = append(p.TsNs, tsNs)
-	p.String = append(p.String, str)
-	p.Value = append(p.Value, val)
-	p.Types = append(p.Types, tp)
-
+	s.tsNs = append(s.tsNs, tsNs)
+	s.lines = append(s.lines, str)
 	return nil
 }
 
-func (p *pushRequestDec) decodeStreamEntries(d *jx.Decoder) error {
-	return d.Arr(func(d *jx.Decoder) error {
-		return p.decodeStreamEntry(d)
-	})
-}
-
-func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
+func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder, s *lokiStream) error {
 	var (
 		tsNs int64
 		str  string
-		val  float64
-		err  error
-		tp   uint8
 	)
-	err = d.Obj(func(d *jx.Decoder, key string) error {
+	err := d.Obj(func(d *jx.Decoder, key string) error {
 		switch key {
-		case "ts":
-			bTs, err := d.StrBytes()
-			if err != nil {
-				return err
-			}
-			tsNs, err = parseTime(bTs)
-			return err
-		case "timestamp":
+		case "ts", "timestamp":
 			bTs, err := d.StrBytes()
 			if err != nil {
 				return err
@@ -207,13 +204,12 @@ func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
 			tsNs, err = parseTime(bTs)
 			return err
 		case "line":
+			var err error
 			str, err = d.Str()
-			tp |= model.SAMPLE_TYPE_LOG
 			return err
 		case "value":
-			val, err = d.Float64()
-			tp |= model.SAMPLE_TYPE_METRIC
-			return err
+			p.markValue(s)
+			return d.Skip()
 		default:
 			return d.Skip()
 		}
@@ -222,17 +218,8 @@ func (p *pushRequestDec) decodeStreamEntry(d *jx.Decoder) error {
 		return errors.NewUnmarshalError(err)
 	}
 
-	if tp == 3 {
-		tp = 0
-	}
-
-	p.TsNs = append(p.TsNs, tsNs)
-	p.String = append(p.String, str)
-	p.Value = append(p.Value, val)
-	p.Types = append(p.Types, tp)
-	if err != nil {
-		return errors.NewUnmarshalError(err)
-	}
+	s.tsNs = append(s.tsNs, tsNs)
+	s.lines = append(s.lines, str)
 	return nil
 }
 

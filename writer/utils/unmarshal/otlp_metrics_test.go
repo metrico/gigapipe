@@ -1,17 +1,14 @@
 package unmarshal
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
-	"unsafe"
 
-	clconfig "github.com/metrico/cloki-config"
-	clokiconfig "github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v5/writer/config"
-	"github.com/metrico/qryn/v5/writer/model"
-	"github.com/metrico/qryn/v5/writer/utils/numbercache"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -46,60 +43,39 @@ type collectedSample struct {
 	labels string
 	ts     int64
 	value  float64
-	str    string
 }
 
 type metricsCollector struct {
-	samples  []collectedSample
-	metadata map[string]string
+	samples      []collectedSample
+	metadata     map[string]metadataRow
+	metadataRows []metadataRow
+	exemplars    []exemplarRow
+	fpLabels     map[uint64]string
 }
 
-// collectMetrics runs the OTLP metrics parser over md and joins emitted
-// samples with their series labels via fingerprint.
+// collectMetrics runs the OTLP metrics parser over md through the metric
+// entry point and joins staging rows with their series labels by fingerprint.
 func collectMetrics(t *testing.T, md *metricsv1.MetricsData, stats *OTLPMetricsStats) *metricsCollector {
 	t.Helper()
-	// onEntries -> fingerprintLabels reads config.Cloki.Setting.FingerPrintType;
-	// install a minimal global config so that read does not nil-pointer panic.
-	old := config.Cloki
-	config.Cloki = &clconfig.ClokiConfig{Setting: &clokiconfig.ClokiBaseSettingServer{}}
-	t.Cleanup(func() { config.Cloki = old })
-	cache := numbercache.NewCache(time.Minute, func(val uint64) []byte {
-		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
-	}, map[string]*model.DataDatabasesMap{})
-	defer cache.Stop()
-
-	ch := OTLPMetricsFromData(md, stats)(context.Background(), nil, cache)
-	fpLabels := map[uint64]string{}
-	fpMetadata := map[uint64]string{}
-	type rawSample struct {
-		fp    uint64
-		ts    int64
-		value float64
-		str   string
-	}
-	var raw []rawSample
-	for resp := range ch {
-		if resp.Error != nil {
-			t.Fatalf("unexpected parser error: %v", resp.Error)
+	withCityHashFingerprints(t)
+	ctx := metriccache.NewContext(context.Background(), newNode(t))
+	rows := collectMetricRows(t, OTLPMetricsFromData(md, stats)(ctx, nil, nil))
+	col := &metricsCollector{metadata: map[string]metadataRow{}, exemplars: rows.exemplars, fpLabels: map[uint64]string{}}
+	for _, sr := range rows.series {
+		lbls := make([][]string, 0, len(sr.labels))
+		for k, v := range sr.labels {
+			lbls = append(lbls, []string{k, v})
 		}
-		if tsReq, ok := resp.TimeSeriesRequest.(*model.TimeSeriesData); ok && tsReq != nil {
-			for i, fp := range tsReq.MFingerprint {
-				fpLabels[fp] = tsReq.MLabels[i]
-				fpMetadata[fp] = tsReq.MMetadata[i]
-			}
-		}
-		if splReq, ok := resp.SamplesRequest.(*model.TimeSamplesData); ok && splReq != nil {
-			for i, fp := range splReq.MFingerprint {
-				raw = append(raw, rawSample{fp, splReq.MTimestampNS[i], splReq.MValue[i], splReq.MMessage[i]})
-			}
-		}
+		slices.SortFunc(lbls, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
+		col.fpLabels[sr.fp] = encodeLabels(lbls)
 	}
-	col := &metricsCollector{metadata: map[string]string{}}
-	for _, r := range raw {
-		lbls := fpLabels[r.fp]
-		col.samples = append(col.samples, collectedSample{lbls, r.ts, r.value, r.str})
-		col.metadata[lbls] = fpMetadata[r.fp]
+	for _, r := range rows.staging {
+		col.samples = append(col.samples, collectedSample{col.fpLabels[r.fp], r.tsMs, r.value})
 	}
+	for _, m := range rows.metadata {
+		col.metadata[m.name] = m
+	}
+	col.metadataRows = rows.metadata
 	return col
 }
 
@@ -143,7 +119,10 @@ func wrapMetrics(res *resourcev1.Resource, metrics ...*metricsv1.Metric) *metric
 	}}}
 }
 
-const testTS = uint64(1700000000_000000000)
+const (
+	testTS   = uint64(1700000000_000000000)
+	testTSMs = int64(1700000000_000)
+)
 
 func TestOTLPMetrics_GaugeWithResourceAndScope(t *testing.T) {
 	md := wrapMetrics(testResource(), &metricsv1.Metric{
@@ -162,7 +141,7 @@ func TestOTLPMetrics_GaugeWithResourceAndScope(t *testing.T) {
 		t.Fatalf("expected 1 queue_depth sample, got %d; all: %+v", len(got), col.samples)
 	}
 	s := got[0]
-	if s.value != 42.5 || s.ts != int64(testTS) {
+	if s.value != 42.5 || s.ts != testTSMs {
 		t.Errorf("bad sample: %+v", s)
 	}
 	for _, want := range []string{`"job":"shop/checkout"`, `"instance":"pod-1"`, `"queue":"q1"`,
@@ -174,8 +153,8 @@ func TestOTLPMetrics_GaugeWithResourceAndScope(t *testing.T) {
 	if strings.Contains(s.labels, "__metric_type__") {
 		t.Errorf("metadata label leaked into stored labels: %s", s.labels)
 	}
-	if !strings.Contains(col.metadata[s.labels], `"type":"gauge"`) {
-		t.Errorf("metadata missing gauge type: %s", col.metadata[s.labels])
+	if m := col.metadata["queue_depth"]; m.typ != "gauge" || m.help != "queue depth" {
+		t.Errorf("queue_depth metadata: got %+v", m)
 	}
 	if stats.RejectedDataPoints() != 0 {
 		t.Errorf("expected 0 rejected, got %d", stats.RejectedDataPoints())
@@ -200,8 +179,8 @@ func TestOTLPMetrics_MonotonicSumBecomesCounter(t *testing.T) {
 	if len(got) != 1 || got[0].value != 7 {
 		t.Fatalf("expected http_requests_total=7, got %+v", got)
 	}
-	if !strings.Contains(col.metadata[got[0].labels], `"type":"counter"`) {
-		t.Errorf("metadata missing counter type: %s", col.metadata[got[0].labels])
+	if m := col.metadata["http_requests_total"]; m.typ != "counter" {
+		t.Errorf("http_requests_total metadata: got %+v", m)
 	}
 }
 
@@ -457,7 +436,7 @@ func TestOTLPMetrics_TargetInfo(t *testing.T) {
 		t.Fatalf("expected 1 target_info sample, got %+v", got)
 	}
 	s := got[0]
-	if s.value != 1 || s.ts != int64(testTS) {
+	if s.value != 1 || s.ts != testTSMs {
 		t.Errorf("bad target_info sample: %+v", s)
 	}
 	for _, want := range []string{`"host_name":"node-a"`, `"job":"shop/checkout"`, `"instance":"pod-1"`} {
@@ -490,8 +469,7 @@ func TestOTLPMetrics_NoTargetInfoWithoutExtraAttrs(t *testing.T) {
 	}
 }
 
-func TestOTLPMetrics_ExemplarTraceIDStored(t *testing.T) {
-	traceID := []byte("0123456789abcdef")
+func TestOTLPMetrics_ExemplarOnNumberPoint(t *testing.T) {
 	md := wrapMetrics(testResource(), &metricsv1.Metric{
 		Name: "with.exemplar",
 		Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
@@ -500,17 +478,88 @@ func TestOTLPMetrics_ExemplarTraceIDStored(t *testing.T) {
 			DataPoints: []*metricsv1.NumberDataPoint{{
 				TimeUnixNano: testTS,
 				Value:        &metricsv1.NumberDataPoint_AsInt{AsInt: 1},
-				Exemplars:    []*metricsv1.Exemplar{{TraceId: traceID}},
+				Exemplars: []*metricsv1.Exemplar{{
+					TimeUnixNano:       testTS + 1_500_000,
+					Value:              &metricsv1.Exemplar_AsDouble{AsDouble: 0.25},
+					TraceId:            []byte("0123456789abcdef"),
+					SpanId:             []byte("01234567"),
+					FilteredAttributes: []*commonv1.KeyValue{kv("customer.id", "c1")},
+				}},
 			}},
 		}},
 	})
 	col := collectMetrics(t, md, &OTLPMetricsStats{})
-	got := col.find(`"__name__":"with_exemplar_total"`)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 sample, got %+v", got)
+	if len(col.exemplars) != 1 {
+		t.Fatalf("exemplar rows: got %+v, want 1", col.exemplars)
 	}
-	if got[0].str != "30313233343536373839616263646566" {
-		t.Errorf("expected hex trace id in string column, got %q", got[0].str)
+	ex := col.exemplars[0]
+	if !strings.Contains(col.fpLabels[ex.fp], `"__name__":"with_exemplar_total"`) {
+		t.Errorf("exemplar attached to %q, want the with_exemplar_total series", col.fpLabels[ex.fp])
+	}
+	const traceHex = "30313233343536373839616263646566"
+	want := exemplarRow{ex.fp, testTSMs + 1, 0.25, traceHex,
+		`{"customer_id":"c1","span_id":"3031323334353637","trace_id":"` + traceHex + `"}`}
+	if ex != want {
+		t.Errorf("exemplar row: got %+v, want %+v", ex, want)
+	}
+}
+
+func TestOTLPMetrics_HistogramExemplarsAttachToTheirBucket(t *testing.T) {
+	ex := func(v float64) *metricsv1.Exemplar {
+		return &metricsv1.Exemplar{TimeUnixNano: testTS, Value: &metricsv1.Exemplar_AsDouble{AsDouble: v}}
+	}
+	md := wrapMetrics(testResource(), &metricsv1.Metric{
+		Name: "req.duration", Unit: "s",
+		Data: &metricsv1.Metric_Histogram{Histogram: &metricsv1.Histogram{
+			AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints: []*metricsv1.HistogramDataPoint{{
+				TimeUnixNano:   testTS,
+				Count:          10,
+				ExplicitBounds: []float64{0.1, 1},
+				BucketCounts:   []uint64{4, 3, 3},
+				Exemplars:      []*metricsv1.Exemplar{ex(0.05), ex(1), ex(5)},
+			}},
+		}},
+	})
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+	assertExemplarBuckets(t, col, "req_duration_seconds_bucket", map[float64]string{0.05: "0.1", 1: "1", 5: "+Inf"})
+}
+
+func TestOTLPMetrics_ExponentialHistogramExemplarsAttachToTheirBucket(t *testing.T) {
+	ex := func(v float64) *metricsv1.Exemplar {
+		return &metricsv1.Exemplar{TimeUnixNano: testTS, Value: &metricsv1.Exemplar_AsDouble{AsDouble: v}}
+	}
+	md := wrapMetrics(testResource(), &metricsv1.Metric{
+		Name: "exp.duration", Unit: "s",
+		Data: &metricsv1.Metric_ExponentialHistogram{ExponentialHistogram: &metricsv1.ExponentialHistogram{
+			AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints: []*metricsv1.ExponentialHistogramDataPoint{{
+				TimeUnixNano: testTS,
+				Count:        7,
+				ZeroCount:    1,
+				Positive:     &metricsv1.ExponentialHistogramDataPoint_Buckets{BucketCounts: []uint64{2, 4}},
+				Exemplars:    []*metricsv1.Exemplar{ex(0), ex(3), ex(10)},
+			}},
+		}},
+	})
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+	// scale 0: bucket upper bounds 2 and 4; the zero bucket folds into le="2".
+	assertExemplarBuckets(t, col, "exp_duration_seconds_bucket", map[float64]string{0: "2", 3: "4", 10: "+Inf"})
+}
+
+func assertExemplarBuckets(t *testing.T, col *metricsCollector, name string, want map[float64]string) {
+	t.Helper()
+	if len(col.exemplars) != len(want) {
+		t.Fatalf("exemplar rows: got %+v, want %d", col.exemplars, len(want))
+	}
+	for _, ex := range col.exemplars {
+		lbls := col.fpLabels[ex.fp]
+		if !strings.Contains(lbls, `"__name__":"`+name+`"`) || !strings.Contains(lbls, `"le":"`+want[ex.value]+`"`) {
+			t.Errorf("exemplar %v attached to %s, want %s{le=%q}", ex.value, lbls, name, want[ex.value])
+		}
+		if ex.tsMs != testTSMs {
+			t.Errorf("exemplar %v timestamp: got %d, want %d", ex.value, ex.tsMs, testTSMs)
+		}
 	}
 }
 
@@ -665,7 +714,7 @@ func TestOTLPMetrics_TargetInfoSingleSamplePerResource(t *testing.T) {
 	dps := make([]*metricsv1.NumberDataPoint, points)
 	for i := range dps {
 		dps[i] = &metricsv1.NumberDataPoint{
-			TimeUnixNano: testTS + uint64(i),
+			TimeUnixNano: testTS + uint64(i)*uint64(time.Millisecond),
 			Value:        &metricsv1.NumberDataPoint_AsInt{AsInt: int64(i)},
 		}
 	}
@@ -678,8 +727,8 @@ func TestOTLPMetrics_TargetInfoSingleSamplePerResource(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("target_info: want exactly 1 sample for one target, got %d", len(got))
 	}
-	if got[0].ts != int64(testTS+points-1) {
-		t.Errorf("target_info timestamp: want the latest accepted (%d), got %d", int64(testTS+points-1), got[0].ts)
+	if got[0].ts != testTSMs+points-1 {
+		t.Errorf("target_info timestamp: want the latest accepted (%d), got %d", testTSMs+points-1, got[0].ts)
 	}
 }
 
@@ -848,5 +897,68 @@ func TestOTLPMetrics_ExpHistogramInfBucketWithoutPositiveBuckets(t *testing.T) {
 	got := col.find(`"__name__":"zeros_only_bucket"`, `"le":"+Inf"`)
 	if len(got) != 1 || got[0].value != 3 {
 		t.Errorf(`+Inf bucket: want 3, got %+v`, got)
+	}
+}
+
+func TestOTLPMetrics_MetadataIsOneRowPerFamily(t *testing.T) {
+	md := wrapMetrics(testResource(),
+		&metricsv1.Metric{
+			Name: "req.duration", Unit: "s", Description: "Request latency.",
+			Data: &metricsv1.Metric_Histogram{Histogram: &metricsv1.Histogram{
+				AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+				DataPoints: []*metricsv1.HistogramDataPoint{{
+					TimeUnixNano: testTS, Count: 2, Sum: float64p(1), ExplicitBounds: []float64{1}, BucketCounts: []uint64{1, 1},
+				}},
+			}},
+		},
+		&metricsv1.Metric{
+			Name: "gc.pause", Description: "GC pauses.",
+			Data: &metricsv1.Metric_Summary{Summary: &metricsv1.Summary{DataPoints: []*metricsv1.SummaryDataPoint{{
+				TimeUnixNano: testTS, Count: 1, Sum: 0.5,
+				QuantileValues: []*metricsv1.SummaryDataPoint_ValueAtQuantile{{Quantile: 0.5, Value: 0.5}},
+			}}}},
+		},
+		&metricsv1.Metric{
+			Name: "exp.latency", Unit: "ms", Description: "Exponential latency.",
+			Data: &metricsv1.Metric_ExponentialHistogram{ExponentialHistogram: &metricsv1.ExponentialHistogram{
+				AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+				DataPoints: []*metricsv1.ExponentialHistogramDataPoint{{
+					TimeUnixNano: testTS, Count: 3, Sum: float64p(4),
+					Positive: &metricsv1.ExponentialHistogramDataPoint_Buckets{BucketCounts: []uint64{1, 2}},
+				}},
+			}},
+		},
+		&metricsv1.Metric{
+			Name: "http.requests", Unit: "{requests}", Description: "Requests served.",
+			Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
+				AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+				IsMonotonic:            true,
+				DataPoints: []*metricsv1.NumberDataPoint{{
+					TimeUnixNano: testTS, Value: &metricsv1.NumberDataPoint_AsInt{AsInt: 7},
+				}},
+			}},
+		},
+		&metricsv1.Metric{
+			Name: "never.stored",
+			Data: &metricsv1.Metric_Gauge{Gauge: &metricsv1.Gauge{DataPoints: []*metricsv1.NumberDataPoint{{
+				Value: &metricsv1.NumberDataPoint_AsDouble{AsDouble: 1},
+			}}}},
+		},
+	)
+	col := collectMetrics(t, md, &OTLPMetricsStats{})
+	want := map[string]metadataRow{
+		"req_duration_seconds":     {"req_duration_seconds", "histogram", "Request latency.", "seconds"},
+		"gc_pause":                 {"gc_pause", "summary", "GC pauses.", ""},
+		"exp_latency_milliseconds": {"exp_latency_milliseconds", "histogram", "Exponential latency.", "milliseconds"},
+		"http_requests_total":      {"http_requests_total", "counter", "Requests served.", ""},
+		"target_info":              {"target_info", "gauge", "", ""},
+	}
+	if len(col.metadataRows) != len(want) {
+		t.Fatalf("metadata rows: got %+v, want %+v", col.metadataRows, want)
+	}
+	for name, w := range want {
+		if got := col.metadata[name]; got != w {
+			t.Errorf("metadata %s: got %+v, want %+v", name, got, w)
+		}
 	}
 }

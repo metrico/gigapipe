@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/go-faster/jx"
 	"github.com/influxdata/line-protocol/v2/lineprotocol"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
+	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 )
 
 const LEN = 64
@@ -66,88 +69,122 @@ func TestJsonError(t *testing.T) {
 	//fmt.Println(r.Str())
 }
 
-type influxEntry struct {
-	labels    map[string]string
-	nLabels   int
-	timestamp int64
-	message   string
-	value     float64
-	tp        uint8
+type influxLogRow struct {
+	tsNs    int64
+	message string
+	tp      uint8
 }
 
-func decodeInflux(t *testing.T, body string, precision lineprotocol.Precision) []influxEntry {
+// pushInflux runs a line-protocol body through the Influx parser and collects
+// the metric rows and the log rows it produces.
+func pushInflux(t *testing.T, body string, precision lineprotocol.Precision) (metricRows, []influxLogRow) {
 	t.Helper()
-	dec := &influxDec{ctx: &ParserCtx{
-		bodyReader: strings.NewReader(body),
-		ctx:        context.WithValue(context.Background(), utils.ContextKeyPrecision, precision),
-	}}
-	var res []influxEntry
-	dec.SetOnEntries(func(labels [][]string, timestampsNS []int64, message []string,
-		value []float64, types []uint8) error {
-		lbls := map[string]string{}
-		for _, l := range labels {
-			lbls[l[0]] = l[1]
+	withCityHashFingerprints(t)
+	ctx := context.WithValue(context.Background(), utils.ContextKeyPrecision, precision)
+	ctx = metriccache.NewContext(ctx, newNode(t))
+	var logRows []influxLogRow
+	metrics := make(chan *model.ParserResponse)
+	go func() {
+		defer close(metrics)
+		for resp := range UnmarshalInfluxDBLogsV2(ctx, strings.NewReader(body), newTestFPCache(t)) {
+			if d, ok := resp.SamplesRequest.(*model.TimeSamplesData); ok {
+				for i := range d.MMessage {
+					logRows = append(logRows, influxLogRow{d.MTimestampNS[i], d.MMessage[i], d.MType[i]})
+				}
+			}
+			resp.SamplesRequest, resp.TimeSeriesRequest = nil, nil
+			metrics <- resp
 		}
-		res = append(res, influxEntry{lbls, len(labels), timestampsNS[0], message[0], value[0], types[0]})
-		return nil
-	})
-	if err := dec.Decode(); err != nil {
-		t.Fatalf("decode %q: %v", body, err)
+	}()
+	return collectMetricRows(t, metrics), logRows
+}
+
+func seriesByName(rows metricRows) map[string]seriesRow {
+	res := map[string]seriesRow{}
+	for _, s := range rows.series {
+		res[s.name] = s
 	}
 	return res
 }
 
-func TestInfluxMetrics(t *testing.T) {
-	entries := decodeInflux(t, "cpu,host=a,region=eu-1 usage.idle=99.5,count=3i,ignored=\"x\" 1600000000\n",
-		lineprotocol.Millisecond)
-	if len(entries) != 2 {
-		t.Fatalf("want 2 entries, got %d: %+v", len(entries), entries)
+func TestInfluxLineWithoutMessageIsOneSamplePerNumericField(t *testing.T) {
+	rows, logs := pushInflux(t, "cpu,host=a,region=eu-1 usage.idle=99.5,count=3i,ignored=\"x\" 1600000000123456789\n",
+		lineprotocol.Nanosecond)
+	if len(logs) != 0 {
+		t.Fatalf("log rows: got %+v, want none", logs)
 	}
-	byName := map[string]influxEntry{}
-	for _, e := range entries {
-		if e.tp != model.SAMPLE_TYPE_METRIC {
-			t.Fatalf("want metric sample, got %d", e.tp)
-		}
-		if e.timestamp != 1600000000*int64(time.Millisecond) {
-			t.Fatalf("want ms precision timestamp, got %d", e.timestamp)
-		}
-		if e.labels["measurement"] != "cpu" || e.labels["host"] != "a" || e.labels["region"] != "eu-1" {
-			t.Fatalf("unexpected labels: %v", e.labels)
-		}
-		byName[e.labels["__name__"]] = e
+	series := seriesByName(rows)
+	if len(series) != 2 {
+		t.Fatalf("series rows: got %+v, want usage_idle and count", rows.series)
 	}
-	// string fields are skipped, dots in field names are sanitized
-	if e, ok := byName["usage_idle"]; !ok || e.value != 99.5 {
-		t.Fatalf("usage_idle: %+v", byName)
+	values := map[string]float64{"usage_idle": 99.5, "count": 3}
+	for name, want := range values {
+		s, ok := series[name]
+		if !ok {
+			t.Fatalf("no series %s in %+v", name, rows.series)
+		}
+		wantLabels := map[string]string{"__name__": name, "measurement": "cpu", "host": "a", "region": "eu-1",
+			"service_name": "unknown"}
+		if len(s.labels) != len(wantLabels) {
+			t.Fatalf("series %s labels: got %v, want %v", name, s.labels, wantLabels)
+		}
+		for k, v := range wantLabels {
+			if s.labels[k] != v {
+				t.Fatalf("series %s label %s: got %q, want %q", name, k, s.labels[k], v)
+			}
+		}
+		var found bool
+		for _, r := range rows.staging {
+			if r.fp == s.fp {
+				found = true
+				if r.tsMs != 1600000000123 || r.value != want {
+					t.Errorf("series %s sample: got %+v, want ts 1600000000123 value %v", name, r, want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no staging row for %s", name)
+		}
 	}
-	if e, ok := byName["count"]; !ok || e.value != 3 {
-		t.Fatalf("count: %+v", byName)
+}
+
+func TestInfluxLineWithMessageStaysALog(t *testing.T) {
+	rows, logs := pushInflux(t, "syslog,host=a message=\"hello\",severity=\"warn\" 1600000000000000000\n"+
+		"cpu value=1 1600000000000000000\n", lineprotocol.Nanosecond)
+	if len(logs) != 1 {
+		t.Fatalf("log rows: got %+v, want 1", logs)
+	}
+	if l := logs[0]; l.tp != model.SAMPLE_TYPE_LOG || l.tsNs != 1600000000000000000 || !strings.Contains(l.message, "message=hello") {
+		t.Fatalf("log row: got %+v", l)
+	}
+	if len(rows.series) != 1 || rows.series[0].name != "value" || len(rows.staging) != 1 {
+		t.Fatalf("metric rows: got %+v, want one sample of value", rows)
 	}
 }
 
 func TestInfluxLogs(t *testing.T) {
-	entries := decodeInflux(t, "syslog,host=a message=\"hello\",severity=\"warn\" 1600000000000000000\n",
+	rows, logs := pushInflux(t, "syslog,host=a message=\"hello\",severity=\"warn\" 1600000000000000000\n",
 		lineprotocol.Nanosecond)
-	if len(entries) != 1 {
-		t.Fatalf("want 1 entry, got %d", len(entries))
+	if len(logs) != 1 || len(rows.staging) != 0 {
+		t.Fatalf("want 1 log row and no samples, got %+v and %+v", logs, rows.staging)
 	}
-	e := entries[0]
-	if e.tp != model.SAMPLE_TYPE_LOG || e.timestamp != 1600000000000000000 {
-		t.Fatalf("unexpected entry: %+v", e)
+	l := logs[0]
+	if l.tp != model.SAMPLE_TYPE_LOG || l.tsNs != 1600000000000000000 {
+		t.Fatalf("unexpected log row: %+v", l)
 	}
-	if !strings.Contains(e.message, "message=hello") || !strings.Contains(e.message, "severity=warn") {
-		t.Fatalf("unexpected message: %q", e.message)
+	if !strings.Contains(l.message, "message=hello") || !strings.Contains(l.message, "severity=warn") {
+		t.Fatalf("unexpected message: %q", l.message)
 	}
 }
 
 func TestInfluxNoTimestamp(t *testing.T) {
-	before := time.Now().Truncate(time.Second).UnixNano()
-	entries := decodeInflux(t, "cpu value=1\n", lineprotocol.Second)
-	if len(entries) != 1 {
-		t.Fatalf("want 1 entry, got %d", len(entries))
+	before := time.Now().Truncate(time.Second).UnixMilli()
+	rows, _ := pushInflux(t, "cpu value=1\n", lineprotocol.Second)
+	if len(rows.staging) != 1 {
+		t.Fatalf("want 1 sample, got %+v", rows.staging)
 	}
-	if entries[0].timestamp < before || entries[0].timestamp%int64(time.Second) != 0 {
-		t.Fatalf("want now truncated to seconds, got %d", entries[0].timestamp)
+	if ts := rows.staging[0].tsMs; ts < before || ts%1000 != 0 {
+		t.Fatalf("want now truncated to seconds, got %d", ts)
 	}
 }
 
@@ -156,21 +193,31 @@ func TestInfluxParseError(t *testing.T) {
 		bodyReader: strings.NewReader("cpu,host=a\n"),
 		ctx:        context.WithValue(context.Background(), utils.ContextKeyPrecision, lineprotocol.Nanosecond),
 	}}
-	dec.SetOnEntries(func([][]string, []int64, []string, []float64, []uint8) error { return nil })
+	dec.SetOnEntries(func([][]string, []int64, []string) error { return nil })
 	if err := dec.Decode(); err == nil {
 		t.Fatal("want an error for a line without fields")
 	}
 }
 
 func TestInfluxDuplicateTag(t *testing.T) {
-	entries := decodeInflux(t, "cpu,host=a,host=b value=1 1\n", lineprotocol.Nanosecond)
-	if len(entries) != 1 {
-		t.Fatalf("want 1 entry, got %d", len(entries))
+	rows, _ := pushInflux(t, "cpu,host=a,host=b value=1 1\n", lineprotocol.Nanosecond)
+	if len(rows.series) != 1 {
+		t.Fatalf("want 1 series, got %+v", rows.series)
 	}
-	if got := entries[0].labels["host"]; got != "b" {
-		t.Fatalf("want the last tag value to win, got %q", got)
+	lbls := rows.series[0].labels
+	if lbls["host"] != "b" {
+		t.Fatalf("want the last tag value to win, got %q", lbls["host"])
 	}
-	if entries[0].nLabels != 3 { // measurement, host, __name__
-		t.Fatalf("want deduplicated labels, got %v", entries[0].labels)
+	if len(lbls) != 4 { // measurement, host, __name__, service_name
+		t.Fatalf("want deduplicated labels, got %v", lbls)
 	}
+}
+
+func newTestFPCache(t *testing.T) numbercache.ICache[uint64] {
+	t.Helper()
+	cache := numbercache.NewCache(time.Minute, func(val uint64) []byte {
+		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
+	}, map[string]*model.DataDatabasesMap{})
+	t.Cleanup(cache.Stop)
+	return cache
 }

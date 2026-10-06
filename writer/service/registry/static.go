@@ -9,7 +9,10 @@ import (
 type staticServiceRegistry struct {
 	TimeSeriesSvcs    []service.IInsertServiceV2
 	SamplesSvcs       []service.IInsertServiceV2
-	MetricSvcs        []service.IInsertServiceV2
+	MetricStagingSvcs []service.IInsertServiceV2
+	MetricSeriesSvcs  []service.IInsertServiceV2
+	MetricMetaSvcs    []service.IInsertServiceV2
+	MetricExmplSvcs   []service.IInsertServiceV2
 	TempoSamplesSvcs  []service.IInsertServiceV2
 	TempoTagsSvcs     []service.IInsertServiceV2
 	ProfileInsertSvcs []service.IInsertServiceV2
@@ -19,7 +22,10 @@ type staticServiceRegistry struct {
 type StaticServiceRegistryOpts struct {
 	TimeSeriesSvcs    map[string]service.IInsertServiceV2
 	SamplesSvcs       map[string]service.IInsertServiceV2
-	MetricSvcs        map[string]service.IInsertServiceV2
+	MetricStagingSvcs map[string]service.IInsertServiceV2
+	MetricSeriesSvcs  map[string]service.IInsertServiceV2
+	MetricMetaSvcs    map[string]service.IInsertServiceV2
+	MetricExmplSvcs   map[string]service.IInsertServiceV2
 	TempoSamplesSvcs  map[string]service.IInsertServiceV2
 	TempoTagsSvcs     map[string]service.IInsertServiceV2
 	ProfileInsertSvcs map[string]service.IInsertServiceV2
@@ -38,7 +44,10 @@ func NewStaticServiceRegistry(opts StaticServiceRegistryOpts) ServiceRegistry {
 	res := staticServiceRegistry{
 		TimeSeriesSvcs:    mapToSlice(opts.TimeSeriesSvcs),
 		SamplesSvcs:       mapToSlice(opts.SamplesSvcs),
-		MetricSvcs:        mapToSlice(opts.MetricSvcs),
+		MetricStagingSvcs: mapToSlice(opts.MetricStagingSvcs),
+		MetricSeriesSvcs:  mapToSlice(opts.MetricSeriesSvcs),
+		MetricMetaSvcs:    mapToSlice(opts.MetricMetaSvcs),
+		MetricExmplSvcs:   mapToSlice(opts.MetricExmplSvcs),
 		TempoSamplesSvcs:  mapToSlice(opts.TempoSamplesSvcs),
 		TempoTagsSvcs:     mapToSlice(opts.TempoTagsSvcs),
 		ProfileInsertSvcs: mapToSlice(opts.ProfileInsertSvcs),
@@ -75,8 +84,20 @@ func (r *staticServiceRegistry) GetSamplesService(id string) (service.IInsertSer
 	return r.getService(id, r.SamplesSvcs)
 }
 
-func (r *staticServiceRegistry) GetMetricsService(id string) (service.IInsertServiceV2, error) {
-	return r.getService(id, r.MetricSvcs)
+func (r *staticServiceRegistry) GetMetricStagingService(id string) (service.IInsertServiceV2, error) {
+	return r.getService(id, r.MetricStagingSvcs)
+}
+
+func (r *staticServiceRegistry) GetMetricSeriesService(id string) (service.IInsertServiceV2, error) {
+	return r.getService(id, r.MetricSeriesSvcs)
+}
+
+func (r *staticServiceRegistry) GetMetricMetadataService(id string) (service.IInsertServiceV2, error) {
+	return r.getService(id, r.MetricMetaSvcs)
+}
+
+func (r *staticServiceRegistry) GetMetricExemplarsService(id string) (service.IInsertServiceV2, error) {
+	return r.getService(id, r.MetricExmplSvcs)
 }
 
 func (r *staticServiceRegistry) GetSpansService(id string) (service.IInsertServiceV2, error) {

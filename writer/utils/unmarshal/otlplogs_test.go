@@ -27,7 +27,7 @@ func decodeOTLPLogs(t *testing.T, data *logsv1.LogsData) []string {
 	dec := &otlpLogDec{
 		ctx: &ParserCtx{bodyObject: data},
 	}
-	dec.SetOnEntries(func(labels [][]string, timestampsNS []int64, msg []string, value []float64, types []uint8) error {
+	dec.SetOnEntries(func(labels [][]string, timestampsNS []int64, msg []string) error {
 		messages = append(messages, msg...)
 		return nil
 	})

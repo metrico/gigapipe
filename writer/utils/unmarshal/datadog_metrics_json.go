@@ -2,12 +2,10 @@ package unmarshal
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/errors"
 )
 
@@ -15,12 +13,12 @@ type datadogMetricsRequestDec struct {
 	ctx *ParserCtx
 
 	Labels [][]string
-	tsNs   []int64
+	tsMs   []int64
 	values []float64
 
 	path []any
 
-	onEntries onEntriesHandler
+	metricSink
 }
 
 func (d *datadogMetricsRequestDec) Decode() error {
@@ -31,22 +29,17 @@ func (d *datadogMetricsRequestDec) Decode() error {
 			d.path = append(d.path, "series")
 			return d.WrapError(dec.Arr(func(dec *jx.Decoder) error {
 				d.Labels = d.Labels[:0]
-				d.tsNs = d.tsNs[:0]
+				d.tsMs = d.tsMs[:0]
 				d.values = d.values[:0]
 				err := d.WrapError(dec.Obj(d.DecodeSeriesItem))
 				if err != nil {
 					return err
 				}
-				return d.WrapError(d.onEntries(d.Labels, d.tsNs, make([]string, len(d.values)), d.values,
-					slices.Repeat([]uint8{model.SAMPLE_TYPE_METRIC}, len(d.values))))
+				return d.WrapError(d.onMetricSamples(d.Labels, d.tsMs, d.values, nil))
 			}))
 		}
 		return d.WrapError(dec.Skip())
 	}))
-}
-
-func (d *datadogMetricsRequestDec) SetOnEntries(h onEntriesHandler) {
-	d.onEntries = h
 }
 
 func (d *datadogMetricsRequestDec) DecodeSeriesItem(dec *jx.Decoder, key string) error {
@@ -75,20 +68,20 @@ func (d *datadogMetricsRequestDec) DecodeSeriesItem(dec *jx.Decoder, key string)
 		return d.WrapError(err)
 	case "points":
 		d.path = append(d.path, "points")
-		tsNs := time.Now().UnixNano()
-		val := float64(0)
 		i := -1
 		d.path = append(d.path, &i)
 		err := d.WrapError(dec.Arr(func(dec *jx.Decoder) error {
 			i++
+			tsMs := time.Now().UnixMilli()
+			val := float64(0)
 			err := d.WrapError(dec.Obj(func(dec *jx.Decoder, key string) error {
 				var err error
 				switch key {
 				case "timestamp":
 					d.path = append(d.path, "timestamp")
-					tsNs, err = dec.Int64()
+					tsMs, err = dec.Int64()
 					err = d.WrapError(err)
-					tsNs *= 1000000000
+					tsMs *= 1000
 					d.path = d.path[:len(d.path)-1]
 					return d.WrapError(err)
 				case "value":
@@ -100,7 +93,7 @@ func (d *datadogMetricsRequestDec) DecodeSeriesItem(dec *jx.Decoder, key string)
 				}
 				return d.WrapError(dec.Skip())
 			}))
-			d.tsNs = append(d.tsNs, tsNs)
+			d.tsMs = append(d.tsMs, tsMs)
 			d.values = append(d.values, val)
 			return d.WrapError(err)
 		}))
@@ -160,6 +153,6 @@ func (d *datadogMetricsRequestDec) WrapError(err error) error {
 }
 
 var UnmarshallDatadogMetricsV2JSONV2 = Build(
-	withLogsParser(func(ctx *ParserCtx) iLogsParser {
+	withMetricsParser(func(ctx *ParserCtx) iMetricsParser {
 		return &datadogMetricsRequestDec{ctx: ctx}
 	}))

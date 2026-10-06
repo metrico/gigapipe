@@ -18,6 +18,7 @@ import (
 	customErrors "github.com/metrico/qryn/v5/writer/utils/errors"
 	"github.com/metrico/qryn/v5/writer/utils/helpers"
 	"github.com/metrico/qryn/v5/writer/utils/logger"
+	"github.com/metrico/qryn/v5/writer/utils/metriccache"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	"github.com/metrico/qryn/v5/writer/utils/promise"
 	"github.com/metrico/qryn/v5/writer/utils/stat"
@@ -228,6 +229,9 @@ func doLogsPattern(s *model.TimeSamplesData) {
 // HTTP handlers and the gRPC receiver.
 func IngestParsed(ctx context.Context, parser BoundParser, svcs InsertServices) error {
 	fpNode := FPCache.DB(svcs.Node)
+	if MetricCaches != nil {
+		ctx = metriccache.NewContext(ctx, MetricCaches.Node(svcs.Node))
+	}
 	var promises []*promise.Promise[uint32]
 	res := parser(ctx, fpNode)
 	for response := range res {
@@ -244,6 +248,10 @@ func IngestParsed(ctx context.Context, parser BoundParser, svcs InsertServices) 
 			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, svcs.SpanAttrs),
 			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, svcs.Spans),
 			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, svcs.Profile),
+			doPush(response.MetricSamplesRequest, service.INSERT_MODE_SYNC, svcs.MetricStaging),
+			doPush(response.MetricSeriesRequest, service.INSERT_MODE_SYNC, svcs.MetricSeries),
+			doPush(response.MetricMetadataRequest, service.INSERT_MODE_SYNC, svcs.MetricMetadata),
+			doPush(response.MetricExemplarsRequest, service.INSERT_MODE_SYNC, svcs.MetricExemplars),
 		)
 		if response.SamplesRequest != nil {
 			doLogsPattern(response.SamplesRequest.(*model.TimeSamplesData))
@@ -264,7 +272,13 @@ func doParse(r *http.Request, parser Parser) error {
 		SpanAttrs: getService(r, utils.ContextKeySpanAttrsService),
 		Spans:     getService(r, utils.ContextKeySpansService),
 		Profile:   getService(r, utils.ContextKeyProfileService),
-		Node:      r.Context().Value(utils.ContextKeyNode).(string),
+
+		MetricStaging:   getService(r, utils.ContextKeyMetricStagingService),
+		MetricSeries:    getService(r, utils.ContextKeyMetricSeriesService),
+		MetricMetadata:  getService(r, utils.ContextKeyMetricMetadataService),
+		MetricExemplars: getService(r, utils.ContextKeyMetricExemplarsService),
+
+		Node: r.Context().Value(utils.ContextKeyNode).(string),
 	}
 	return IngestParsed(r.Context(), Bind(parser, getBodyStream(r)), svcs)
 }
