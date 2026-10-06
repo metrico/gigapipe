@@ -28,6 +28,8 @@ type Pushdown struct {
 	Tier        Tier
 	// Cluster reads the distributed tables.
 	Cluster bool
+	// Series, when set, names the series in place of the series index.
+	Series SeriesSource
 }
 
 // Aggregation is a sum, min, max, count or avg by, or without, the Grouping labels.
@@ -101,7 +103,7 @@ func pushdownSQL(p Pushdown, rows string) string {
 
 // window is the interval p reads, (start − range, end].
 func (p Pushdown) window() Window {
-	return Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs, Cluster: p.Cluster}
+	return Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs, Cluster: p.Cluster, Series: p.Series}
 }
 
 // groupsSQL maps each series p selects to its group's fingerprint, the hash of its group key.
@@ -172,7 +174,7 @@ const prevSQL = "maxIf((timestamp, value), NOT stale) OVER (PARTITION BY fingerp
 // rawWindowSQL selects the raw samples of p's series in (start_ms − range_ms, end_ms], the last
 // written of each (fingerprint, timestamp).
 func rawWindowSQL(p Pushdown) string {
-	return "SELECT fingerprint, timestamp, value FROM " + p.window().table("metric_samples") + " FINAL " +
+	return "SELECT fingerprint, timestamp, value FROM " + table("metric_samples", p.Cluster) + " FINAL " +
 		"WHERE " + seriesIn(p.window(), p.Matchers) + " " +
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) " +
 		"AND timestamp <= fromUnixTimestamp64Milli(end_ms)"

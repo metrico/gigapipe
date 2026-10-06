@@ -66,21 +66,43 @@ func boolEnv(key string) (bool, error) {
 	return false, fmt.Errorf("%s value must be one of [no, n, false, 0, yes, y, true, 1]", key)
 }
 
+// schemaStep is one ctrl step start-up runs on the database.
+type schemaStep struct {
+	name string
+	run  func(cfg *clconfig.ClokiConfig) error
+}
+
+// schemaSteps returns the ctrl steps to run, in order, for a mode; none when OMIT_CREATE_TABLES is set.
+// OMIT_CREATE_TABLES is read only in a mode that does schema work; a malformed value is an error.
+func schemaSteps(mode string) ([]schemaStep, error) {
+	if !slices.Contains([]string{"all", "writer", "init_only"}, mode) {
+		return nil, nil
+	}
+	omit, err := boolEnv("OMIT_CREATE_TABLES")
+	if err != nil || omit {
+		return nil, err
+	}
+	steps := []schemaStep{
+		{"init", func(cfg *clconfig.ClokiConfig) error { return ctrl.Init(cfg, "gigapipe") }},
+		{"rotate", func(cfg *clconfig.ClokiConfig) error { return ctrl.Rotate(cfg, "gigapipe") }},
+	}
+	if mode != "init_only" {
+		steps = append(steps, schemaStep{"import", func(cfg *clconfig.ClokiConfig) error {
+			return ctrl.ImportMetrics(cfg, "gigapipe")
+		}})
+	}
+	return steps, nil
+}
+
 func initDB(cfg *clconfig.ClokiConfig) {
-	bVal, err := boolEnv("OMIT_CREATE_TABLES")
+	steps, err := schemaSteps(cfg.Setting.SYSTEM_SETTINGS.Mode)
 	if err != nil {
 		panic(err)
 	}
-	if bVal {
-		return
-	}
-	err = ctrl.Init(cfg, "gigapipe")
-	if err != nil {
-		panic(err)
-	}
-	err = ctrl.Rotate(cfg, "gigapipe")
-	if err != nil {
-		panic(err)
+	for _, step := range steps {
+		if err = step.run(cfg); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -273,16 +295,21 @@ func portEnv(cfg *clconfig.ClokiConfig) error {
 		cfg.Setting.LOG_SETTINGS.Level = os.Getenv("LOG_LEVEL")
 	}
 
+	metricSettings, err := metricretention.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
 	for _, db := range cfg.Setting.DATABASE_DATA {
-		if _, err := metricretention.FromEnv(db.TTLDays, os.Getenv); err != nil {
-			return err
+		if _, err := metricSettings.Tiers(db.TTLDays); err != nil {
+			return fmt.Errorf("database %q (ttl_days %d): %w", db.Name, db.TTLDays, err)
 		}
 	}
-	if v := os.Getenv("METRICS_READ_TIER"); v != "" {
+	if v := metricSettings.ReadTier; v != "" {
 		if _, ok := metricread.TierNamed(v); !ok {
-			return fmt.Errorf("METRICS_READ_TIER: invalid value %q, want raw, 5m or 1h", v)
+			return fmt.Errorf("GIGAPIPE_METRICS_READ_TIER: invalid value %q, want raw, 5m or 1h", v)
 		}
 	}
+	metricretention.Configure(metricSettings)
 	return nil
 }
 
@@ -317,15 +344,9 @@ func start() {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
 
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "init_only" {
-		initDB(cfg)
-	}
+	initDB(cfg)
 	if os.Getenv("MODE") == "init_only" {
 		return
-	}
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" {
-		ctrl.ImportMetrics(cfg)
 	}
 
 	app := mux.NewRouter()

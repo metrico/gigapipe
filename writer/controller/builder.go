@@ -248,8 +248,8 @@ func IngestParsed(ctx context.Context, parser BoundParser, svcs InsertServices) 
 			doPush(response.SpansAttrsRequest, service.INSERT_MODE_SYNC, svcs.SpanAttrs),
 			doPush(response.SpansRequest, service.INSERT_MODE_SYNC, svcs.Spans),
 			doPush(response.ProfileRequest, service.INSERT_MODE_SYNC, svcs.Profile),
-			doPush(response.MetricSamplesRequest, service.INSERT_MODE_SYNC, svcs.MetricStaging),
 			doPush(response.MetricSeriesRequest, service.INSERT_MODE_SYNC, svcs.MetricSeries),
+			doPush(response.MetricSamplesRequest, service.INSERT_MODE_SYNC, svcs.MetricStaging),
 			doPush(response.MetricMetadataRequest, service.INSERT_MODE_SYNC, svcs.MetricMetadata),
 			doPush(response.MetricExemplarsRequest, service.INSERT_MODE_SYNC, svcs.MetricExemplars),
 		)

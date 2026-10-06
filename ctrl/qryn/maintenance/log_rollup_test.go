@@ -11,7 +11,7 @@ const logRowsOnly = "\nWHERE samples.type != 2\nGROUP BY fingerprint, timestamp_
 
 func renderedLogStack(t *testing.T) []string {
 	t.Helper()
-	scripts, err := renderScripts(sql.LogScript, migrationEnv("cloki", "", false, 7, "", "", false, testTiers))
+	scripts, err := renderScripts(sql.LogScript, migrationEnv("cloki", "", false, 7, "", "", false))
 	if err != nil {
 		t.Fatal(err)
 	}

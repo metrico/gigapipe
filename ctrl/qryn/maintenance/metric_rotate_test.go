@@ -1,37 +1,66 @@
 package maintenance
 
 import (
-	"regexp"
+	"context"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
 )
 
-// alter returns the rendered ALTER statements of every metric rotation that
-// touch table, and the TTL its rotation applies.
-func alter(t *testing.T, table string, days []RotatePolicy) (string, []string) {
+// recordingConn records every statement Rotate executes and answers every query with no rows.
+type recordingConn struct {
+	driver.Conn
+	execs []recordedExec
+}
+
+type recordedExec struct {
+	query string
+	args  []any
+}
+
+func (c *recordingConn) Exec(_ context.Context, query string, args ...any) error {
+	c.execs = append(c.execs, recordedExec{strings.Join(strings.Fields(query), " "), args})
+	return nil
+}
+
+func (c *recordingConn) Query(context.Context, string, ...any) (driver.Rows, error) {
+	return noRows{}, nil
+}
+
+type noRows struct{ driver.Rows }
+
+func (noRows) Next() bool   { return false }
+func (noRows) Close() error { return nil }
+func (noRows) Err() error   { return nil }
+
+// rotateOnce runs Rotate on a database without rotate settings and returns what it executed.
+func rotateOnce(t *testing.T, days []RotatePolicy, storagePolicy string) []recordedExec {
 	t.Helper()
-	for _, r := range metricRotations(testTiers) {
-		if !slices.Contains(r.tables, table) {
-			continue
-		}
-		ttl, stmts := r.statements("", days)
-		var own []string
-		for _, s := range stmts {
-			if strings.HasPrefix(s, "ALTER TABLE "+table+" ") {
-				own = append(own, s)
-			}
-		}
-		return ttl, own
+	conn := &recordingConn{}
+	if err := Rotate(conn, "", false, days, 7, 7, testTiers, storagePolicy, logger.Logger); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatalf("no metric rotation covers %s", table)
-	return "", nil
+	return conn.execs
+}
+
+// altersOf returns the ALTER statements Rotate executed on table.
+func altersOf(execs []recordedExec, table string) []string {
+	var res []string
+	for _, e := range execs {
+		if strings.HasPrefix(e.query, "ALTER TABLE "+table+" ") {
+			res = append(res, e.query)
+		}
+	}
+	return res
 }
 
 func TestRotateAppliesTheRetentionTiersToTheMetricTables(t *testing.T) {
+	execs := rotateOnce(t, nil, "")
 	for table, ttl := range map[string]string{
 		"metric_samples":     "toDateTime(timestamp) + toIntervalDay(3)",
 		"metric_exemplars":   "toDateTime(timestamp) + toIntervalDay(3)",
@@ -40,88 +69,72 @@ func TestRotateAppliesTheRetentionTiersToTheMetricTables(t *testing.T) {
 		"metric_series":      "toDateTime(last_seen) + toIntervalDay(90)",
 		"metric_label_names": "toDateTime(last_seen) + toIntervalDay(90)",
 	} {
-		_, stmts := alter(t, table, nil)
-		if !slices.ContainsFunc(stmts, func(s string) bool { return strings.HasSuffix(s, "MODIFY TTL "+ttl) }) {
+		stmts := altersOf(execs, table)
+		if !slices.Contains(stmts, "ALTER TABLE "+table+" MODIFY TTL "+ttl) {
 			t.Errorf("%s: no MODIFY TTL %s in %q", table, ttl, stmts)
+		}
+	}
+	if stmts := altersOf(execs, "metric_metadata"); len(stmts) != 0 {
+		t.Errorf("metric_metadata is given a TTL: %q", stmts)
+	}
+}
+
+func TestRotateSetsThePartSettingsOfTheMetricTables(t *testing.T) {
+	execs := rotateOnce(t, nil, "")
+	const merge = "merge_with_ttl_timeout = 3600, index_granularity = 8192"
+	for table, settings := range map[string]string{
+		"metric_samples":     "ttl_only_drop_parts = 1, " + merge,
+		"metric_exemplars":   "ttl_only_drop_parts = 1, " + merge,
+		"metrics_5m":         "ttl_only_drop_parts = 1, " + merge,
+		"metrics_1h":         "ttl_only_drop_parts = 1, " + merge,
+		"metric_series":      merge,
+		"metric_label_names": merge,
+	} {
+		stmts := altersOf(execs, table)
+		if !slices.Contains(stmts, "ALTER TABLE "+table+" MODIFY SETTING "+settings) {
+			t.Errorf("%s: no MODIFY SETTING %s in %q", table, settings, stmts)
 		}
 	}
 }
 
 func TestRotateAppliesTheMoveRulesToTheMetricTables(t *testing.T) {
-	days := []RotatePolicy{{TTL: 24 * time.Hour, MoveTo: "cold"}}
-	_, stmts := alter(t, "metrics_5m", days)
-	want := "MODIFY TTL toDateTime(bucket) + toIntervalSecond(86400) TO DISK 'cold', toDateTime(bucket) + toIntervalDay(14)"
-	if !slices.ContainsFunc(stmts, func(s string) bool { return strings.HasSuffix(s, want) }) {
+	execs := rotateOnce(t, []RotatePolicy{{TTL: 24 * time.Hour, MoveTo: "cold"}}, "")
+	want := "ALTER TABLE metrics_5m MODIFY TTL toDateTime(bucket) + toIntervalSecond(86400) TO DISK 'cold', " +
+		"toDateTime(bucket) + toIntervalDay(14)"
+	if stmts := altersOf(execs, "metrics_5m"); !slices.Contains(stmts, want) {
 		t.Errorf("metrics_5m: no %q in %q", want, stmts)
 	}
 }
 
-func TestSeriesIndexRowsExpireOneByOne(t *testing.T) {
-	for _, table := range []string{"metric_series", "metric_label_names"} {
-		_, stmts := alter(t, table, nil)
-		for _, s := range stmts {
-			if strings.Contains(s, "ttl_only_drop_parts") {
-				t.Errorf("%s is set to drop whole parts: %s", table, s)
-			}
+func TestOneStoragePolicySettingCoversEveryMetricTable(t *testing.T) {
+	execs := rotateOnce(t, nil, "cold_policy")
+	for _, table := range metricDataTables {
+		stmts := altersOf(execs, table)
+		if !slices.Contains(stmts, "ALTER TABLE "+table+" MODIFY SETTING storage_policy=$1") {
+			t.Errorf("%s: no storage policy in %q", table, stmts)
 		}
 	}
-	_, stmts := alter(t, "metric_samples", nil)
-	if !slices.ContainsFunc(stmts, func(s string) bool { return strings.Contains(s, "ttl_only_drop_parts = 1") }) {
-		t.Errorf("metric_samples is not set to drop whole parts: %q", stmts)
-	}
-}
-
-var createdTable = regexp.MustCompile(`^CREATE TABLE IF NOT EXISTS cloki\.(\w+) `)
-
-func TestStoragePolicyCoversEveryStoringMetricTable(t *testing.T) {
-	var want []string
-	for _, s := range renderedMetricStack(t) {
-		m := createdTable.FindStringSubmatch(s)
-		if m != nil && !strings.Contains(s, "ENGINE = Null") {
-			want = append(want, m[1])
+	var recorded []string
+	for _, e := range execs {
+		if strings.HasPrefix(e.query, "INSERT INTO settings ") && len(e.args) == 4 && e.args[3] == "cold_policy" {
+			recorded = append(recorded, e.args[2].(string))
 		}
 	}
-	slices.Sort(want)
-	var stored []string
-	for _, p := range metricStoragePolicies {
-		stored = append(stored, p.tables...)
-	}
-	got := slices.Sorted(slices.Values(stored))
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Errorf("storing metric tables = %v, want %v", got, want)
-	}
-	for _, r := range metricRotations(testTiers) {
-		for _, table := range r.tables {
-			if !slices.Contains(stored, table) {
-				t.Errorf("%s has a TTL but no storage policy", table)
-			}
-		}
-	}
-}
-
-// A deployment whose metric tables already carry the policy still moves metric_label_names.
-func TestStoragePolicyReachesTheLabelNamesTableAfterTheOtherMetricTables(t *testing.T) {
-	settingOf := func(table string) string {
-		for _, p := range metricStoragePolicies {
-			if slices.Contains(p.tables, table) {
-				return p.setting
-			}
-		}
-		t.Fatalf("no storage-policy setting covers %s", table)
-		return ""
-	}
-	if settingOf("metric_label_names") == settingOf("metric_samples") {
-		t.Errorf("metric_label_names shares %s, already applied to the other metric tables", settingOf("metric_samples"))
+	metric := slices.DeleteFunc(slices.Clone(recorded), func(name string) bool { return !strings.Contains(name, "metric") })
+	if !slices.Equal(metric, []string{"metric_storage_policy"}) {
+		t.Errorf("metric storage-policy settings = %q, want [metric_storage_policy]", metric)
 	}
 }
 
 func TestNewMetricTablesTakeTheStoragePolicyAtCreation(t *testing.T) {
-	env := migrationEnv("cloki", "", false, 7, "cold_policy", "", false, testTiers)
+	env := migrationEnv("cloki", "", false, 7, "cold_policy", "", false)
 	scripts, err := renderScripts(sql.MetricsScript, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := statement(t, scripts, "metric_label_names"); !strings.Contains(s, "SETTINGS storage_policy = 'cold_policy'") {
-		t.Errorf("metric_label_names is created without the storage policy:\n%s", s)
+	for _, table := range metricDataTables {
+		if s := statement(t, scripts, table); !strings.HasSuffix(strings.TrimSuffix(s, ";"), "SETTINGS storage_policy = 'cold_policy'") {
+			t.Errorf("%s is created without the storage policy:\n%s", table, s)
+		}
 	}
 }

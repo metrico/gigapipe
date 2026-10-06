@@ -25,7 +25,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
 	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 )
@@ -311,24 +310,6 @@ func TestClusterLabelEndpointsAndMetadata(t *testing.T) {
 	}
 }
 
-// clusterConn connects to the shard at CLICKHOUSE_HTTP_URL.
-func clusterConn(t *testing.T) clickhouse.Conn {
-	t.Helper()
-	u, err := url.Parse(shards(t)[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	pass, _ := u.User.Password()
-	conn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{u.Host}, Protocol: clickhouse.HTTP,
-		Auth:        clickhouse.Auth{Database: clickhouseDB(), Username: u.User.Username(), Password: pass},
-		ReadTimeout: 5 * time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { conn.Close() })
-	return conn
-}
-
 func TestClusterImportCopiesEachSeriesOntoItsShardOnce(t *testing.T) {
 	cluster := clusterName(t)
 	waitReady(t)
@@ -369,7 +350,7 @@ func TestClusterImportCopiesEachSeriesOntoItsShardOnce(t *testing.T) {
 	run := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		err := maintenance.ImportMetrics(ctx, clusterConn(t), maintenance.MetricImportOptions{
+		err := maintenance.ImportMetrics(ctx, clickhouseConnAt(t, shards(t)[0]), maintenance.MetricImportOptions{
 			Instance: "integration", Database: clickhouseDB(), Cluster: cluster, SamplesDays: 7, RollupDays: 30,
 			Settle: 10 * time.Millisecond, Poll: 200 * time.Millisecond, Quiet: 2 * time.Second,
 		})

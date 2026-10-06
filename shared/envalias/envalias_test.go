@@ -90,6 +90,27 @@ func TestDeprecationWarningNamesTheReplacement(t *testing.T) {
 	}
 }
 
+// TestRetiredSettingWarningStatesItsEffect covers settings that are read by
+// nothing: the warning says so and what stands in their place, if anything.
+func TestRetiredSettingWarningStatesItsEffect(t *testing.T) {
+	for name, want := range map[string]string{
+		"METRICS_15S_ENABLED": "the metric retention tiers always exist",
+		"COMPAT_4_0_19":       "nothing replaces it",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "false")
+			warnings := Apply()
+			idx := slices.IndexFunc(warnings, func(w string) bool { return strings.HasPrefix(w, name+" ") })
+			if idx < 0 {
+				t.Fatalf("no warning for %s, got %v", name, warnings)
+			}
+			if !strings.Contains(warnings[idx], "has no effect") || !strings.Contains(warnings[idx], want) {
+				t.Errorf("warning does not say %s has no effect and %q: %q", name, want, warnings[idx])
+			}
+		})
+	}
+}
+
 // TestNoWarningWhenAlreadyMigrated keeps the warning from firing at every
 // start-up for a deployment that has already moved: Apply writes the legacy
 // name itself, so a naive check would always see it set.
@@ -123,5 +144,21 @@ func TestReadTierIsMapped(t *testing.T) {
 	Apply()
 	if got := os.Getenv("METRICS_READ_TIER"); got != "5m" {
 		t.Errorf("METRICS_READ_TIER = %q, want %q", got, "5m")
+	}
+}
+
+func TestUnprefixedMetricSettingsWarnWithTheirGigapipeName(t *testing.T) {
+	for _, name := range []string{"METRICS_RAW_DAYS", "METRICS_5M_DAYS", "METRICS_1H_DAYS", "METRICS_READ_TIER"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "1")
+			warnings := Apply()
+			idx := slices.IndexFunc(warnings, func(w string) bool { return strings.HasPrefix(w, name+" ") })
+			if idx < 0 {
+				t.Fatalf("no warning for %s, got %v", name, warnings)
+			}
+			if !strings.Contains(warnings[idx], "use "+Prefix+name) {
+				t.Errorf("warning does not name %s: %q", Prefix+name, warnings[idx])
+			}
+		})
 	}
 }

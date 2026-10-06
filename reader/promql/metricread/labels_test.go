@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -14,7 +15,7 @@ var (
 )
 
 func TestLabelNamesSQLNarrowsUnderASelector(t *testing.T) {
-	got := LabelNamesSQL(IndexQuery{
+	got := LabelNamesSQL(model.MetricIndexQuery{
 		Selectors: [][]*labels.Matcher{{matcher(labels.MatchEqual, "__name__", "up")}},
 		StartMs:   &probeStart,
 		EndMs:     &probeEnd,
@@ -31,7 +32,7 @@ func TestLabelNamesSQLNarrowsUnderASelector(t *testing.T) {
 }
 
 func TestLabelNamesSQLWithoutBoundsSelectorsOrLimitReadsEveryLabelName(t *testing.T) {
-	got := LabelNamesSQL(IndexQuery{})
+	got := LabelNamesSQL(model.MetricIndexQuery{})
 	want := "SELECT label FROM metric_label_names GROUP BY label ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
@@ -40,18 +41,18 @@ func TestLabelNamesSQLWithoutBoundsSelectorsOrLimitReadsEveryLabelName(t *testin
 
 func TestLabelNamesSQLWithoutASelectorReadsTheLabelNamesTable(t *testing.T) {
 	for name, tc := range map[string]struct {
-		q    IndexQuery
+		q    model.MetricIndexQuery
 		want string
 	}{
-		"both bounds and a limit": {IndexQuery{StartMs: &probeStart, EndMs: &probeEnd, Limit: 100},
+		"both bounds and a limit": {model.MetricIndexQuery{StartMs: &probeStart, EndMs: &probeEnd, Limit: 100},
 			"SELECT label FROM metric_label_names GROUP BY label " +
 				"HAVING max(last_seen) >= fromUnixTimestamp64Milli(1790811000000) " +
 				"AND min(first_seen) <= fromUnixTimestamp64Milli(1790856000000) " +
 				"ORDER BY label LIMIT 101"},
-		"start only": {IndexQuery{StartMs: &probeStart},
+		"start only": {model.MetricIndexQuery{StartMs: &probeStart},
 			"SELECT label FROM metric_label_names GROUP BY label " +
 				"HAVING max(last_seen) >= fromUnixTimestamp64Milli(1790811000000) ORDER BY label"},
-		"end only": {IndexQuery{EndMs: &probeEnd},
+		"end only": {model.MetricIndexQuery{EndMs: &probeEnd},
 			"SELECT label FROM metric_label_names GROUP BY label " +
 				"HAVING min(first_seen) <= fromUnixTimestamp64Milli(1790856000000) ORDER BY label"},
 	} {
@@ -62,14 +63,14 @@ func TestLabelNamesSQLWithoutASelectorReadsTheLabelNamesTable(t *testing.T) {
 }
 
 func TestLabelNamesSQLOnAClusterReadsTheDistributedTable(t *testing.T) {
-	got := LabelNamesSQL(IndexQuery{Cluster: true})
+	got := LabelNamesSQL(model.MetricIndexQuery{Cluster: true})
 	want := "SELECT label FROM metric_label_names_dist GROUP BY label ORDER BY label " +
 		"SETTINGS optimize_distributed_group_by_sharding_key = 0"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
 	sel := [][]*labels.Matcher{{matcher(labels.MatchEqual, "__name__", "up")}}
-	got = LabelNamesSQL(IndexQuery{Cluster: true, Selectors: sel})
+	got = LabelNamesSQL(model.MetricIndexQuery{Cluster: true, Selectors: sel})
 	want = "SELECT DISTINCT arrayJoin(mapKeys(labels)) AS label FROM metric_series_dist WHERE (name = 'up') ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
@@ -77,7 +78,7 @@ func TestLabelNamesSQLOnAClusterReadsTheDistributedTable(t *testing.T) {
 }
 
 func TestLabelValuesSQLExcludesAMissingLabelUnderORedSelectors(t *testing.T) {
-	got := LabelValuesSQL("path", IndexQuery{
+	got := LabelValuesSQL("path", model.MetricIndexQuery{
 		Selectors: [][]*labels.Matcher{
 			{matcher(labels.MatchEqual, "__name__", "http_requests_total"), matcher(labels.MatchNotEqual, "status", "500"),
 				matcher(labels.MatchRegexp, "path", "/v1/.*")},
@@ -99,7 +100,7 @@ func TestLabelValuesSQLExcludesAMissingLabelUnderORedSelectors(t *testing.T) {
 }
 
 func TestNameValuesSQLReadsTheNameColumn(t *testing.T) {
-	got := LabelValuesSQL("__name__", IndexQuery{EndMs: &probeEnd, Limit: 1})
+	got := LabelValuesSQL("__name__", model.MetricIndexQuery{EndMs: &probeEnd, Limit: 1})
 	want := "SELECT DISTINCT name AS value FROM metric_series " +
 		"WHERE first_seen <= fromUnixTimestamp64Milli(1790856000000) " +
 		"ORDER BY value LIMIT 2"
@@ -109,7 +110,7 @@ func TestNameValuesSQLReadsTheNameColumn(t *testing.T) {
 }
 
 func TestSeriesListSQLGroupsUnmergedRowsPerSeries(t *testing.T) {
-	got := SeriesListSQL(IndexQuery{
+	got := SeriesListSQL(model.MetricIndexQuery{
 		Selectors: [][]*labels.Matcher{{matcher(labels.MatchNotEqual, "status", "")}},
 		Limit:     1,
 	})
@@ -140,7 +141,7 @@ func TestMetadataSQLReadsOneRowPerFamily(t *testing.T) {
 }
 
 func TestExemplarsSQLReadsTheSelectedSeriesInClosedBounds(t *testing.T) {
-	got := ExemplarsSQL(IndexQuery{
+	got := ExemplarsSQL(model.MetricIndexQuery{
 		Selectors: [][]*labels.Matcher{{matcher(labels.MatchEqual, "__name__", "up")}},
 		StartMs:   &probeStart,
 		EndMs:     &probeEnd,
@@ -162,7 +163,7 @@ func TestExemplarsSQLReadsTheSelectedSeriesInClosedBounds(t *testing.T) {
 }
 
 func TestExemplarsSQLOnAClusterReadsLocalSeriesUnderTheDistributedTable(t *testing.T) {
-	got := ExemplarsSQL(IndexQuery{
+	got := ExemplarsSQL(model.MetricIndexQuery{
 		Selectors: [][]*labels.Matcher{{matcher(labels.MatchEqual, "__name__", "up")}},
 		Cluster:   true,
 	})
@@ -179,7 +180,7 @@ func TestExemplarsSQLOnAClusterReadsLocalSeriesUnderTheDistributedTable(t *testi
 }
 
 func TestTheLargestLimitReadsEveryRow(t *testing.T) {
-	got := LabelNamesSQL(IndexQuery{Limit: math.MaxInt})
+	got := LabelNamesSQL(model.MetricIndexQuery{Limit: math.MaxInt})
 	want := "SELECT label FROM metric_label_names GROUP BY label ORDER BY label"
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)

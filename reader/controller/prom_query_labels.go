@@ -1,10 +1,8 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/metrico/qryn/v5/reader/promql/metricread"
+	readermodel "github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
@@ -166,8 +164,8 @@ func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *htt
 }
 
 // exemplarQuery reads the query, start and end parameters of /api/v1/query_exemplars.
-func exemplarQuery(r *http.Request) (metricread.IndexQuery, error) {
-	var q metricread.IndexQuery
+func exemplarQuery(r *http.Request) (readermodel.MetricIndexQuery, error) {
+	var q readermodel.MetricIndexQuery
 	if err := r.ParseForm(); err != nil {
 		return q, err
 	}
@@ -191,7 +189,7 @@ func exemplarQuery(r *http.Request) (metricread.IndexQuery, error) {
 
 // marshalExemplars writes Prometheus's exemplar response: values as strings, timestamps as
 // seconds with a millisecond fraction.
-func marshalExemplars(res []service.ExemplarSeries) []byte {
+func marshalExemplars(res []readermodel.ExemplarSeries) []byte {
 	stream := jsoniter.ConfigCompatibleWithStandardLibrary.BorrowStream(nil)
 	defer jsoniter.ConfigCompatibleWithStandardLibrary.ReturnStream(stream)
 	stream.WriteRaw(`{"status":"success","data":[`)
@@ -231,7 +229,7 @@ func promRespond(w http.ResponseWriter, data any, truncated bool) {
 	if truncated {
 		res.Warnings = []string{truncatedWarning}
 	}
-	body, err := json.Marshal(res)
+	body, err := jsoniter.ConfigCompatibleWithStandardLibrary.Marshal(res)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
@@ -242,8 +240,8 @@ func promRespond(w http.ResponseWriter, data any, truncated bool) {
 }
 
 // indexQuery reads the match[], start, end and limit parameters of a label endpoint.
-func indexQuery(r *http.Request) (metricread.IndexQuery, error) {
-	var q metricread.IndexQuery
+func indexQuery(r *http.Request) (readermodel.MetricIndexQuery, error) {
+	var q readermodel.MetricIndexQuery
 	if err := r.ParseForm(); err != nil {
 		return q, err
 	}
@@ -307,27 +305,17 @@ const (
 	promMaxTime = "292277025-08-18T07:12:54.999999999Z"
 )
 
-// optionalTimeMs parses a time in Unix seconds with fractions or RFC3339 into unix
-// milliseconds; an empty value or Prometheus's MinTime or MaxTime is nil.
+// optionalTimeMs parses a time with ParseTimeSecOrRFC into unix milliseconds; an empty value
+// or Prometheus's MinTime or MaxTime is nil.
 func optionalTimeMs(s string, name string) (*int64, error) {
 	if s == "" || s == promMinTime || s == promMaxTime {
 		return nil, nil
 	}
-	t, err := parsePromTime(s)
+	t, err := ParseTimeSecOrRFC(s, time.Time{})
 	if err != nil {
-		return nil, fmt.Errorf("invalid parameter %q: invalid time value for '%s': %w", name, name, err)
+		return nil, fmt.Errorf("invalid parameter %q: invalid time value for '%s': cannot parse %q to a valid timestamp",
+			name, name, s)
 	}
 	ms := t.UnixMilli()
 	return &ms, nil
-}
-
-func parsePromTime(s string) (time.Time, error) {
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		sec, frac := math.Modf(f)
-		return time.Unix(int64(sec), int64(math.Round(frac*1000))*int64(time.Millisecond)), nil
-	}
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("cannot parse %q to a valid timestamp", s)
 }

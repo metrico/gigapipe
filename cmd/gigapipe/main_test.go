@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -8,6 +9,9 @@ import (
 	"testing"
 
 	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/shared/envalias"
+	"github.com/metrico/qryn/v5/shared/metricretention"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
 
@@ -208,15 +212,127 @@ func TestHTTPRootReaderModeLeavesProtocolsDefault(t *testing.T) {
 func TestStartRejectsACoarserTierShorterThanAFinerOne(t *testing.T) {
 	t.Setenv("METRICS_5M_DAYS", "3")
 	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "METRICS_5M_DAYS") {
-		t.Errorf("portEnv = %v, want a METRICS_5M_DAYS error", err)
+	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "GIGAPIPE_METRICS_5M_DAYS") {
+		t.Errorf("portEnv = %v, want a GIGAPIPE_METRICS_5M_DAYS error", err)
 	}
 }
 
 func TestStartRejectsAnUnknownReadTier(t *testing.T) {
 	t.Setenv("METRICS_READ_TIER", "15s")
 	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "METRICS_READ_TIER") {
-		t.Errorf("portEnv = %v, want a METRICS_READ_TIER error", err)
+	if err := portEnv(cfg); err == nil || !strings.Contains(err.Error(), "GIGAPIPE_METRICS_READ_TIER") {
+		t.Errorf("portEnv = %v, want a GIGAPIPE_METRICS_READ_TIER error", err)
+	}
+}
+
+func schemaStepNames(t *testing.T, mode string, omitCreateTables string) []string {
+	t.Helper()
+	t.Setenv("OMIT_CREATE_TABLES", omitCreateTables)
+	steps, err := schemaSteps(mode)
+	if err != nil {
+		t.Fatalf("mode %q, OMIT_CREATE_TABLES=%q: %v", mode, omitCreateTables, err)
+	}
+	var names []string
+	for _, s := range steps {
+		names = append(names, s.name)
+	}
+	return names
+}
+
+func TestSchemaStepsRunTheMetricImportAfterInitAndRotate(t *testing.T) {
+	for _, mode := range []string{"all", "writer"} {
+		if got := schemaStepNames(t, mode, ""); !slices.Equal(got, []string{"init", "rotate", "import"}) {
+			t.Errorf("mode %q: schema steps %v, want [init rotate import]", mode, got)
+		}
+	}
+	if got := schemaStepNames(t, "init_only", ""); !slices.Equal(got, []string{"init", "rotate"}) {
+		t.Errorf(`mode "init_only": schema steps %v, want [init rotate]`, got)
+	}
+	if got := schemaStepNames(t, "reader", ""); len(got) != 0 {
+		t.Errorf(`mode "reader": schema steps %v, want none`, got)
+	}
+}
+
+func TestOmitCreateTablesSkipsEverySchemaStep(t *testing.T) {
+	for _, mode := range []string{"all", "writer", "init_only"} {
+		if got := schemaStepNames(t, mode, "true"); len(got) != 0 {
+			t.Errorf("mode %q with OMIT_CREATE_TABLES: schema steps %v, want none", mode, got)
+		}
+	}
+}
+
+func TestOmitCreateTablesIsReadOnlyInASchemaMode(t *testing.T) {
+	if got := schemaStepNames(t, "reader", "maybe"); len(got) != 0 {
+		t.Errorf(`mode "reader": schema steps %v, want none`, got)
+	}
+	t.Setenv("OMIT_CREATE_TABLES", "maybe")
+	if _, err := schemaSteps("writer"); err == nil {
+		t.Error(`mode "writer" accepted OMIT_CREATE_TABLES=maybe`)
+	}
+}
+
+// configWithDatabases returns a config file's settings holding one database per TTL.
+func configWithDatabases(t *testing.T, ttlDays ...int) *clconfig.ClokiConfig {
+	t.Helper()
+	prev := metricretention.Configured()
+	t.Cleanup(func() { metricretention.Configure(prev) })
+	cfg := clconfig.New(clconfig.CLOKI_READER, nil, "", "")
+	for i, d := range ttlDays {
+		cfg.Setting.DATABASE_DATA = append(cfg.Setting.DATABASE_DATA,
+			config.ClokiBaseDataBase{Name: fmt.Sprintf("db%d", i), TTLDays: d})
+	}
+	return cfg
+}
+
+func TestStartResolvesTheMetricTiersOfEachDatabaseAndTheForcedTier(t *testing.T) {
+	t.Setenv("METRICS_1H_DAYS", "400")
+	t.Setenv("METRICS_15S_TTL_DAYS", "9")
+	t.Setenv("METRICS_READ_TIER", "5m")
+	cfg := configWithDatabases(t, 3, 60)
+	if err := portEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
+	s := metricretention.Configured()
+	if s.ReadTier != "5m" || s.Rollup(3) != 9 {
+		t.Errorf("ReadTier = %q, Rollup = %d, want 5m and 9", s.ReadTier, s.Rollup(3))
+	}
+	for i, want := range []metricretention.Tiers{
+		{RawDays: 3, FiveMinuteDays: 30, HourDays: 400},
+		{RawDays: 60, FiveMinuteDays: 60, HourDays: 400},
+	} {
+		if got, err := s.Tiers(cfg.Setting.DATABASE_DATA[i].TTLDays); err != nil || got != want {
+			t.Errorf("database %d: tiers = %+v, %v, want %+v", i, got, err, want)
+		}
+	}
+}
+
+func TestStartConfiguresTheRawTierFromSamplesDaysAndTheGigapipeSettings(t *testing.T) {
+	t.Setenv("SAMPLES_DAYS", "12")
+	t.Setenv("METRICS_1H_DAYS", "")
+	t.Setenv("GIGAPIPE_METRICS_1H_DAYS", "400")
+	envalias.Apply()
+	cfg := configWithDatabases(t)
+	if err := portEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := metricretention.Tiers{RawDays: 12, FiveMinuteDays: 30, HourDays: 400}
+	if got, err := metricretention.Configured().Tiers(cfg.Setting.DATABASE_DATA[0].TTLDays); err != nil || got != want {
+		t.Errorf("tiers = %+v, %v, want %+v", got, err, want)
+	}
+}
+
+func TestStartRejectsTiersThatBreakTheRuleForOneDatabase(t *testing.T) {
+	t.Setenv("METRICS_5M_DAYS", "20")
+	err := portEnv(configWithDatabases(t, 7, 30))
+	if err == nil || !strings.Contains(err.Error(), `database "db1" (ttl_days 30)`) ||
+		!strings.Contains(err.Error(), "GIGAPIPE_METRICS_5M_DAYS (20)") {
+		t.Errorf("portEnv = %v, want a GIGAPIPE_METRICS_5M_DAYS error naming db1 and its ttl_days", err)
+	}
+}
+
+func TestStartRejectsABadRollupLifetime(t *testing.T) {
+	t.Setenv("METRICS_15S_TTL_DAYS", "off")
+	if err := portEnv(configWithDatabases(t)); err == nil || !strings.Contains(err.Error(), "METRICS_15S_TTL_DAYS") {
+		t.Errorf("portEnv = %v, want a METRICS_15S_TTL_DAYS error", err)
 	}
 }

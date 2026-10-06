@@ -4,20 +4,14 @@
 // raw samples, both aggregate tiers, the series index, metadata and exemplars,
 // with nothing in time_series or samples_v3. The request is shaped as
 // Prometheus sends it, one sample, exemplar or histogram per TimeSeries.
-//
-// The tables are read over ClickHouse's HTTP interface at CLICKHOUSE_HTTP_URL
-// (default http://localhost:8123), database CLICKHOUSE_DB (default cloki).
 
 package integration
 
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -25,34 +19,6 @@ import (
 	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 	"google.golang.org/protobuf/proto"
 )
-
-func clickhouseQuery(t *testing.T, sql string) string {
-	t.Helper()
-	base := os.Getenv("CLICKHOUSE_HTTP_URL")
-	if base == "" {
-		base = "http://localhost:8123"
-	}
-	return clickhouseQueryAt(t, base, sql)
-}
-
-// clickhouseQueryAt runs sql on the ClickHouse at base, whose user info, if any, authenticates.
-func clickhouseQueryAt(t *testing.T, base, sql string) string {
-	t.Helper()
-	db := os.Getenv("CLICKHOUSE_DB")
-	if db == "" {
-		db = "cloki"
-	}
-	resp, err := http.Post(strings.TrimRight(base, "/")+"/?database="+db, "text/plain", strings.NewReader(sql))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("clickhouse status = %d, body = %q", resp.StatusCode, raw)
-	}
-	return strings.TrimSpace(string(raw))
-}
 
 // eventually polls sql until it returns want or the insert services' flush
 // interval has long passed.

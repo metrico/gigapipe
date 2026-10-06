@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"database/sql/driver"
 	"math"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/utils/fakeclickhouse"
@@ -15,7 +17,11 @@ import (
 	"github.com/prometheus/prometheus/storage"
 )
 
-var lifetimes = metricretention.Tiers{RawDays: 7, FiveMinuteDays: 30, HourDays: 365}
+// routed selects tiers living 7, 30 and 365 days, with forced as METRICS_READ_TIER.
+func routed(forced string) *TierRouting {
+	return &TierRouting{Settings: metricretention.Settings{RawDays: 7, FiveMinuteDays: 30, HourDays: 365,
+		ReadTier: forced}}
+}
 
 func TestSelectReadsASubstituteFromTheTierAndEndsItOnTheQueryGrid(t *testing.T) {
 	// The tier SQL stamps each point at the query's own timestamp, one minute apart.
@@ -27,7 +33,7 @@ func TestSelectReadsASubstituteFromTheTierAndEndsItOnTheQueryGrid(t *testing.T) 
 	pushdown := metricread.Pushdown{Grid: metricread.Grid{StartMs: 60000, EndMs: 600000, StepMs: 60000},
 		Func: "rate", RangeMs: 60000, Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "__name__", "x")}}
 	expr.Substitutes["__metric_subst__1"] = &promql_parser.Substitute{MetricName: "__metric_subst__1", Pushdown: pushdown}
-	got := selectRouted(t, db, &TierRouting{Lifetimes: lifetimes, Forced: "5m"}, expr,
+	got := selectRouted(t, db, routed("5m"), expr,
 		&storage.SelectHints{Start: -239999, End: 600000, Step: 60000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
 
@@ -51,7 +57,7 @@ func TestSelectHandsTheEngineATiersLastSamplesAndStaleMarkers(t *testing.T) {
 			{uint64(1), ms(540000), 12.0},
 			{uint64(1), ms(560000), stale},
 		}))
-	got := selectRouted(t, db, &TierRouting{Lifetimes: lifetimes, Forced: "1h"}, parse(t, "x offset 1m"),
+	got := selectRouted(t, db, routed("1h"), parse(t, "x offset 1m"),
 		&storage.SelectHints{Start: 1, End: 600000, Step: 60000},
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "x"))
 
@@ -80,11 +86,11 @@ func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 		want    string
 	}{
 		{"no routing reads raw", nil, read(aligned, 300000), "metric_samples"},
-		{"aligned inside raw", &TierRouting{Lifetimes: lifetimes}, read(aligned, 300000), "metrics_5m"},
-		{"unaligned inside raw", &TierRouting{Lifetimes: lifetimes}, read(aligned, 60000), "metric_samples"},
-		{"past the 5m tier inside 1h", &TierRouting{Lifetimes: lifetimes}, read(fortyDaysBack, 60000), "metrics_1h"},
-		{"past the 1h tier", &TierRouting{Lifetimes: lifetimes}, read(60000, 60000), "metrics_1h"},
-		{"raw forced past raw", &TierRouting{Lifetimes: lifetimes, Forced: "raw"}, read(60000, 60000), "metric_samples"},
+		{"aligned inside raw", routed(""), read(aligned, 300000), "metrics_5m"},
+		{"unaligned inside raw", routed(""), read(aligned, 60000), "metric_samples"},
+		{"past the 5m tier inside 1h", routed(""), read(fortyDaysBack, 60000), "metrics_1h"},
+		{"past the 1h tier", routed(""), read(60000, 60000), "metrics_1h"},
+		{"raw forced past raw", routed("raw"), read(60000, 60000), "metric_samples"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := substituteRows(nil)
@@ -99,5 +105,36 @@ func TestSelectReadsTheTierTheQueryIsRoutedTo(t *testing.T) {
 				t.Errorf("queries = %q, want a read of %s", q, tc.want)
 			}
 		})
+	}
+}
+
+func TestSelectResolvesTheTiersOfTheDatabaseTheQueryRunsAgainst(t *testing.T) {
+	fortyDaysBack := time.Now().Add(-40 * 24 * time.Hour).Truncate(time.Hour).UnixMilli()
+	r := metricread.Read{Grid: metricread.Grid{StartMs: fortyDaysBack, EndMs: fortyDaysBack + 720000, StepMs: 60000},
+		EarliestMs: fortyDaysBack - 600000, RangesMs: []int64{300000}}
+	for ttlDays, want := range map[int]string{7: "metrics_1h", 60: "metric_samples"} {
+		db := substituteRows(nil)
+		db.TTLDays = ttlDays
+		expr := parse(t, "__metric_subst__1")
+		expr.Substitutes["__metric_subst__1"] = &promql_parser.Substitute{MetricName: "__metric_subst__1",
+			Pushdown: metricread.Pushdown{Grid: r.Grid, Func: "rate", RangeMs: 300000,
+				Matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "__name__", "x")}}}
+		expr.Read = r
+		selectRouted(t, db, &TierRouting{}, expr, &storage.SelectHints{Start: r.Grid.StartMs, End: r.Grid.EndMs},
+			labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
+		if q := pointsReads(db.Queries()); len(q) != 1 || !strings.Contains(q[0], " FROM "+want+" ") {
+			t.Errorf("ttl_days %d: queries = %q, want a read of %s", ttlDays, q, want)
+		}
+	}
+}
+
+func TestAQueryAgainstADatabaseItsTiersDoNotFitFails(t *testing.T) {
+	db := substituteRows(nil)
+	db.TTLDays = 30
+	queryable := (&CLokiQueriable{ServiceData: model.ServiceData{Session: db},
+		Tiers: &TierRouting{Settings: metricretention.Settings{FiveMinuteDays: 20}}}).
+		SetOidAndDB(context.Background(), parse(t, "x"))
+	if _, err := queryable.Querier(0, 60000); err == nil || !strings.Contains(err.Error(), "GIGAPIPE_METRICS_5M_DAYS") {
+		t.Errorf("Querier = %v, want a GIGAPIPE_METRICS_5M_DAYS error", err)
 	}
 }

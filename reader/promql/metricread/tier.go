@@ -19,7 +19,7 @@ var (
 	Tier1h  = Tier{Name: "1h", table: "metrics_1h", WidthMs: 3600000}
 )
 
-// TierNamed returns the tier METRICS_READ_TIER names: raw, 5m or 1h.
+// TierNamed returns the tier GIGAPIPE_METRICS_READ_TIER names: raw, 5m or 1h.
 func TierNamed(name string) (Tier, bool) {
 	for _, t := range []Tier{RawTier, Tier5m, Tier1h} {
 		if t.Name == name {
@@ -40,10 +40,10 @@ type Read struct {
 	EngineReads bool
 }
 
-// SelectTier picks the one tier a query is served from. A forced tier (METRICS_READ_TIER)
-// serves every read. Inside raw's lifetime the 5m tier serves an aligned read and raw the
-// rest; past it, the finest tier whose lifetime covers the earliest read serves, and past the
-// 1h tier's lifetime the 1h tier serves what it still holds.
+// SelectTier picks the one tier a query is served from. A forced tier
+// (GIGAPIPE_METRICS_READ_TIER) serves every read. Inside raw's lifetime the 5m tier serves an
+// aligned read and raw the rest; past it, the finest tier whose lifetime covers the earliest
+// read serves, and past the 1h tier's lifetime the 1h tier serves what it still holds.
 func SelectTier(r Read, lifetimes metricretention.Tiers, now time.Time, forced string) Tier {
 	if t, ok := TierNamed(forced); ok {
 		return t

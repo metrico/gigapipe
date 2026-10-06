@@ -14,7 +14,6 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 	"github.com/metrico/qryn/v5/ctrl/qryn/sql"
 	"github.com/metrico/qryn/v5/shared/distconfig"
-	"github.com/metrico/qryn/v5/shared/metricretention"
 )
 
 const (
@@ -25,18 +24,18 @@ const (
 
 func Update(db clickhouse.Conn, dbname string, clusterName string, mode int,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
-	tiers metricretention.Tiers, logger logger.ILogger) error {
+	logger logger.ILogger) error {
 	return UpdateWithReadCluster(db, dbname, clusterName, "", "", mode,
-		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, tiers, logger)
+		ttlDays, storagePolicy, advancedSamplesOrdering, skipUnavailableShards, logger)
 }
 
 func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string,
 	readCluster string, readSuffix string, mode int,
 	ttlDays int, storagePolicy string, advancedSamplesOrdering string, skipUnavailableShards bool,
-	tiers metricretention.Tiers, logger logger.ILogger) error {
+	logger logger.ILogger) error {
 	checkMode := func(m int) bool { return mode&m == m }
 	env := migrationEnv(dbname, clusterName, checkMode(CLUST_MODE_CLOUD), ttlDays, storagePolicy,
-		advancedSamplesOrdering, skipUnavailableShards, tiers)
+		advancedSamplesOrdering, skipUnavailableShards)
 	var err error
 	err = updateScripts(db, clusterName, 1, sql.LogScript, env, logger)
 	if err != nil {
@@ -204,7 +203,7 @@ func updateReadDistScripts(db clickhouse.Conn, dbname string, clusterName string
 
 // migrationEnv holds the values the migration templates are rendered with.
 func migrationEnv(dbname string, clusterName string, replicated bool, ttlDays int, storagePolicy string,
-	advancedSamplesOrdering string, skipUnavailableShards bool, tiers metricretention.Tiers) map[string]string {
+	advancedSamplesOrdering string, skipUnavailableShards bool) map[string]string {
 	env := map[string]string{
 		"DB":                   dbname,
 		"CLUSTER":              clusterName,
@@ -213,11 +212,6 @@ func migrationEnv(dbname string, clusterName string, replicated bool, ttlDays in
 		"CREATE_SETTINGS":      "",
 		"SAMPLES_ORDER_RUL":    "timestamp_ns",
 		"DIST_CREATE_SETTINGS": "",
-		// SAMPLES_DAYS is the raw metric tier's lifetime; the log tables use DefaultTtlDays.
-		"SAMPLES_DAYS":    strconv.Itoa(tiers.RawDays),
-		"METRICS_5M_DAYS": strconv.Itoa(tiers.FiveMinuteDays),
-		"METRICS_1H_DAYS": strconv.Itoa(tiers.HourDays),
-		"SERIES_DAYS":     strconv.Itoa(tiers.HourDays),
 	}
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)

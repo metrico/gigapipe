@@ -1,11 +1,7 @@
 ## The file is for the metric stack tables and views
 ## Queries are separated with ";" and one empty string
 ## APPEND ONLY!!!!!
-## Templating tokens beyond those of log.sql:
-##   {{.SAMPLES_DAYS}} - the raw tier's lifetime in days (METRICS_RAW_DAYS)
-##   {{.METRICS_5M_DAYS}} - the 5m tier's lifetime in days
-##   {{.METRICS_1H_DAYS}} - the 1h tier's lifetime in days
-##   {{.SERIES_DAYS}} - the series index lifetime in days, the 1h tier's
+## Templating tokens: see log.sql
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metric_samples {{.OnCluster}} (
   fingerprint UInt64,
@@ -13,9 +9,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_samples {{.OnCluster}} (
   value       Float64       CODEC(ZSTD(1))
 ) ENGINE = {{.ReplacingMergeTree}}
 PARTITION BY toDate(timestamp)
-ORDER BY (fingerprint, timestamp)
-TTL toDateTime(timestamp) + INTERVAL {{.SAMPLES_DAYS}} DAY
-SETTINGS ttl_only_drop_parts = 1;
+ORDER BY (fingerprint, timestamp) {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metric_exemplars {{.OnCluster}} (
   fingerprint UInt64,
@@ -25,9 +19,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_exemplars {{.OnCluster}} (
   labels      String        CODEC(ZSTD(1))
 ) ENGINE = {{.ReplacingMergeTree}}
 PARTITION BY toDate(timestamp)
-ORDER BY (fingerprint, timestamp, trace_id)
-TTL toDateTime(timestamp) + INTERVAL {{.SAMPLES_DAYS}} DAY
-SETTINGS ttl_only_drop_parts = 1;
+ORDER BY (fingerprint, timestamp, trace_id) {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metric_series {{.OnCluster}} (
   name        LowCardinality(String),
@@ -36,8 +28,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_series {{.OnCluster}} (
   first_seen  SimpleAggregateFunction(min, DateTime64(3)),
   last_seen   SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = {{.AggregatingMergeTree}}
-ORDER BY (name, fingerprint)
-TTL toDateTime(last_seen) + INTERVAL {{.SERIES_DAYS}} DAY;
+ORDER BY (name, fingerprint) {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metric_metadata {{.OnCluster}} (
   name       LowCardinality(String),
@@ -46,7 +37,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_metadata {{.OnCluster}} (
   unit       LowCardinality(String),
   updated_at DateTime64(3)
 ) ENGINE = {{.ReplacingMergeTree}}(updated_at)
-ORDER BY name;
+ORDER BY name {{.CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.metric_samples_in {{.OnCluster}} (
   fingerprint    UInt64,
@@ -76,9 +67,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_5m {{.OnCluster}} (
   stale_at    SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = {{.AggregatingMergeTree}}
 PARTITION BY toDate(bucket)
-ORDER BY (fingerprint, bucket)
-TTL toDateTime(bucket) + INTERVAL {{.METRICS_5M_DAYS}} DAY
-SETTINGS ttl_only_drop_parts = 1;
+ORDER BY (fingerprint, bucket) {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_5m_mv {{.OnCluster}} TO {{.DB}}.metrics_5m AS
 WITH
@@ -122,9 +111,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metrics_1h {{.OnCluster}} (
   stale_at    SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = {{.AggregatingMergeTree}}
 PARTITION BY toMonday(bucket)
-ORDER BY (fingerprint, bucket)
-TTL toDateTime(bucket) + INTERVAL {{.METRICS_1H_DAYS}} DAY
-SETTINGS ttl_only_drop_parts = 1;
+ORDER BY (fingerprint, bucket) {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_1h_mv {{.OnCluster}} TO {{.DB}}.metrics_1h AS
 WITH
@@ -161,9 +148,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.metric_label_names {{.OnCluster}} (
   first_seen SimpleAggregateFunction(min, DateTime64(3)),
   last_seen  SimpleAggregateFunction(max, DateTime64(3))
 ) ENGINE = {{.AggregatingMergeTree}}
-ORDER BY label
-TTL toDateTime(last_seen) + INTERVAL {{.SERIES_DAYS}} DAY
-{{.CREATE_SETTINGS}};
+ORDER BY label {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metric_label_names_mv {{.OnCluster}} TO {{.DB}}.metric_label_names AS
 SELECT label, min(first_seen) AS first_seen, max(last_seen) AS last_seen

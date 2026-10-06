@@ -48,7 +48,7 @@ func columns(t *testing.T, create string) []string {
 }
 
 func TestEveryMetricTableHasADistributedWrapperOnACluster(t *testing.T) {
-	env := migrationEnv("cloki", "c1", false, 7, "", "", true, testTiers)
+	env := migrationEnv("cloki", "c1", false, 7, "", "", true)
 	local := render(t, sql.MetricsScript, env)
 	dist := render(t, sql.MetricsDistScript, env)
 	for table, key := range metricWrappers {
@@ -83,7 +83,7 @@ func TestEveryMetricTableHasADistributedWrapperOnACluster(t *testing.T) {
 }
 
 func TestMetricTablesReplicateUnderCloudExceptTheStagingTable(t *testing.T) {
-	scripts := render(t, sql.MetricsScript, migrationEnv("cloki", "c1", true, 7, "", "", false, testTiers))
+	scripts := render(t, sql.MetricsScript, migrationEnv("cloki", "c1", true, 7, "", "", false))
 	for table := range metricWrappers {
 		s := statement(t, scripts, table)
 		replicated := strings.Contains(s, "ENGINE = Replicated")
@@ -100,7 +100,7 @@ func TestMetricTablesReplicateUnderCloudExceptTheStagingTable(t *testing.T) {
 }
 
 func TestMetricTablesHaveReadClusterVariants(t *testing.T) {
-	local := render(t, sql.MetricsScript, migrationEnv("cloki", "c1", false, 7, "", "", false, testTiers))
+	local := render(t, sql.MetricsScript, migrationEnv("cloki", "c1", false, 7, "", "", false))
 	scripts := render(t, sql.LogReadDistScript, map[string]string{
 		"DB": "cloki", "CLUSTER": "c1", "OnCluster": "ON CLUSTER `c1`",
 		"READ_CLUSTER": "rc", "READ_SUFFIX": "_rd",
@@ -116,6 +116,21 @@ func TestMetricTablesHaveReadClusterVariants(t *testing.T) {
 		}
 		if got, want := columns(t, s), columns(t, statement(t, local, table)); !slices.Equal(got, want) {
 			t.Errorf("%s_rd columns %v, want those of %s: %v", table, got, table, want)
+		}
+	}
+}
+
+func TestClusterMetricTablesTakeTheStoragePolicyAndNoTTLAtCreation(t *testing.T) {
+	for _, cloud := range []bool{false, true} {
+		scripts := render(t, sql.MetricsScript, migrationEnv("cloki", "c1", cloud, 7, "cold_policy", "", true))
+		for _, table := range metricDataTables {
+			s := statement(t, scripts, table)
+			if !strings.HasSuffix(strings.TrimSuffix(s, ";"), "SETTINGS storage_policy = 'cold_policy'") {
+				t.Errorf("cloud=%v: %s is created without the storage policy:\n%s", cloud, table, s)
+			}
+			if strings.Contains(s, "TTL") || strings.Contains(s, "ttl_only_drop_parts") {
+				t.Errorf("cloud=%v: %s sets its TTL at creation:\n%s", cloud, table, s)
+			}
 		}
 	}
 }

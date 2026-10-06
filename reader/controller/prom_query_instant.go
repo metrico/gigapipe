@@ -9,6 +9,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
 )
 
 type queryInstantProps struct {
@@ -40,6 +41,7 @@ func (q *PromQueryRangeController) QueryInstant(w http.ResponseWriter, r *http.R
 	at := req.Time.UnixMilli()
 	expr, err = promql_transpiler.TranspileExpressionV2(expr, metricread.Grid{StartMs: at, EndMs: at})
 	if err != nil {
+		logger.Error("[PQRC005] " + err.Error())
 		PromError(500, err.Error(), w)
 		return
 	}

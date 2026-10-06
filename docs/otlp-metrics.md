@@ -75,6 +75,6 @@ attributes.
 `/api/v1/query_exemplars` answers in Prometheus's shape: the exemplars in
 `[start, end]` of every series the query's selectors pick, grouped per series
 with the series' label set. A missing `start` or `end` leaves that side
-unbounded. Exemplars live as long as raw samples (`METRICS_RAW_DAYS`), so the
-answer is the same whether a chart was served from raw samples or from an
-aggregate tier.
+unbounded. Exemplars live as long as raw samples
+(`GIGAPIPE_METRICS_RAW_DAYS`), so the answer is the same whether a chart was
+served from raw samples or from an aggregate tier.
