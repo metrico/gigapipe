@@ -32,7 +32,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/fastjson v1.6.10
 	go.opentelemetry.io/collector/pdata v1.68.0
-	go.opentelemetry.io/collector/pdata/pprofile v0.161.0
+	go.opentelemetry.io/collector/pdata/pprofile v0.162.0
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/sync v0.23.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5
