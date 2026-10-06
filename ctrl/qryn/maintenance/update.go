@@ -86,6 +86,12 @@ func UpdateWithReadCluster(db clickhouse.Conn, dbname string, clusterName string
 	if err != nil {
 		return err
 	}
+	if checkMode(CLUST_MODE_DISTRIBUTED) {
+		err = updateScripts(db, clusterName, 13, sql.MetricsDistScript, env, logger)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Cross-cluster read-path tables: when a separate read cluster is configured,
 	// create distributed tables that aggregate queries across multiple clusters.

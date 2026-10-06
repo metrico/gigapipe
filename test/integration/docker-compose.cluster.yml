@@ -1,0 +1,15 @@
+# Override of scripts/test/e2e/docker-compose.yml for the cluster checks in this package:
+# gigapipe is built from the current tree and both ClickHouse shards are reachable from the
+# host. Paths resolve against scripts/test/e2e.
+services:
+  e2e-aio:
+    image: gigapipe-cluster-check
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+  e2e-clickhouse:
+    ports:
+      - "18123:8123"
+  e2e-clickhouse2:
+    ports:
+      - "18124:8123"

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metrico/qryn/v5/reader/utils/tables"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -26,6 +25,8 @@ type Pushdown struct {
 	Matchers    []*labels.Matcher
 	Aggregation *Aggregation
 	Tier        Tier
+	// Cluster reads the distributed tables.
+	Cluster bool
 }
 
 // Aggregation is a sum, min, max, count or avg by, or without, the Grouping labels.
@@ -66,11 +67,16 @@ func PushdownSQL(p Pushdown) string {
 // pushdownSQL evaluates p from rows, the row shape per (fingerprint, t), which may read the fp
 // series CTE.
 func pushdownSQL(p Pushdown, rows string) string {
-	window := Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs}
+	window := p.window()
 	series := fmt.Sprintf("SELECT fingerprint, %s AS labels, t_ms, value FROM (%s) AS points "+
 		"INNER JOIN fp USING (fingerprint)", outputLabels(p), valueSQL(p))
 	return fmt.Sprintf("WITH fp AS (%s), rows AS (%s) %s ORDER BY fingerprint, t_ms",
 		SeriesSQL(window, p.Matchers), rows, aggregate(p.Aggregation, series))
+}
+
+// window is the interval p reads, (start − range, end].
+func (p Pushdown) window() Window {
+	return Window{FromMs: p.Grid.StartMs - p.RangeMs, ToMs: p.Grid.EndMs, Cluster: p.Cluster}
 }
 
 // aggregate applies a to the series, grouped by the labels it keeps; a group's fingerprint is
@@ -126,7 +132,7 @@ func rawRowsSQL(p Pushdown) string {
 		"-intDiv(start_ms - ts_ms, step_ms))) AS k_min, "+
 		"least(n_steps - 1, intDiv(ts_ms + range_ms - 1 - start_ms, step_ms)) AS k_max "+
 		"FROM (SELECT fingerprint, timestamp, value FROM %s "+
-		"WHERE fingerprint IN (SELECT fingerprint FROM fp) "+
+		"WHERE %s "+
 		"AND timestamp > fromUnixTimestamp64Milli(start_ms - range_ms) "+
 		"AND timestamp <= fromUnixTimestamp64Milli(end_ms) "+
 		"ORDER BY fingerprint, timestamp "+
@@ -134,7 +140,8 @@ func rawRowsSQL(p Pushdown) string {
 		"ARRAY JOIN range(k_min, k_max + 1) AS k "+
 		"GROUP BY fingerprint, k "+
 		"HAVING count > 0",
-		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, tables.GetTableName("metric_samples"))
+		p.Grid.StartMs, p.Grid.EndMs, max(p.Grid.StepMs, 1), p.RangeMs, p.window().table("metric_samples"),
+		seriesIn(p.window(), p.Matchers))
 }
 
 // valueSQL turns the row shape into the function's value at each t, as Prometheus computes it.

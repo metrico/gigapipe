@@ -10,6 +10,12 @@ type importTables struct {
 	timeSeries, samples, rollup string
 	staging, series, metadata   string
 	tiers                       []string
+	// settings holds the import's records and the metric stack's migration time.
+	settings string
+	// onCluster runs deletes and kills on every node.
+	onCluster string
+	// insertSettings ends every insert.
+	insertSettings string
 }
 
 var localImportTables = importTables{
@@ -20,6 +26,24 @@ var localImportTables = importTables{
 	series:     "metric_series",
 	metadata:   "metric_metadata",
 	tiers:      []string{"metrics_5m", "metrics_1h"},
+	settings:   "settings",
+}
+
+// clusterImportTables reads and writes through the distributed tables of cluster. Each insert
+// returns once its rows are on their shards.
+func clusterImportTables(cluster string) importTables {
+	return importTables{
+		timeSeries:     "time_series_dist",
+		samples:        "samples_v3_dist",
+		rollup:         "metrics_15s_dist",
+		staging:        "metric_samples_in_dist",
+		series:         "metric_series_dist",
+		metadata:       "metric_metadata_dist",
+		tiers:          []string{"metrics_5m", "metrics_1h"},
+		settings:       "settings_dist",
+		onCluster:      " ON CLUSTER `" + cluster + "`",
+		insertSettings: " SETTINGS insert_distributed_sync = 1",
+	}
 }
 
 const (
@@ -38,7 +62,7 @@ func stagedRows(t importTables, rows, where string) string {
 		"argMaxIf((timestamp, value), (timestamp, -timestamp_ns), reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 		"OVER (PARTITION BY fingerprint ORDER BY timestamp_ns ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev "+
 		"FROM (%s)) "+
-		"WHERE %s", t.staging, rows, where)
+		"WHERE %s%s", t.staging, rows, where, t.insertSettings)
 }
 
 func msBounds(from, to time.Time) string {
@@ -80,8 +104,8 @@ func tailSQL(t importTables, watermark, upper int64) string {
 func redoSQL(t importTables, u importUnit) []string {
 	var out []string
 	for _, tier := range t.tiers {
-		out = append(out, fmt.Sprintf("DELETE FROM %s WHERE bucket > fromUnixTimestamp64Milli(%d) "+
-			"AND bucket <= fromUnixTimestamp64Milli(%d)", tier, u.from.UnixMilli(), u.to.UnixMilli()))
+		out = append(out, fmt.Sprintf("DELETE FROM %s%s WHERE bucket > fromUnixTimestamp64Milli(%d) "+
+			"AND bucket <= fromUnixTimestamp64Milli(%d)", tier, t.onCluster, u.from.UnixMilli(), u.to.UnixMilli()))
 	}
 	return out
 }
@@ -104,7 +128,8 @@ func seriesSQL(t importTables, rollup bool) string {
 		"toDateTime64(last_day + INTERVAL 1 DAY, 3, 'UTC') AS last_seen "+
 		"FROM (SELECT fingerprint, any(name) AS series_name, any(labels) AS series_labels, "+
 		"min(date) AS first_day, max(date) AS last_day "+
-		"FROM %s WHERE %s GROUP BY fingerprint) AS series%s", t.series, firstSeen, t.timeSeries, metricRows, join)
+		"FROM %s WHERE %s GROUP BY fingerprint) AS series%s%s",
+		t.series, firstSeen, t.timeSeries, metricRows, join, t.insertSettings)
 }
 
 // metadataSQL copies the latest metadata of each metric family.
@@ -113,7 +138,7 @@ func metadataSQL(t importTables) string {
 		"SELECT name, JSONExtractString(latest, 'type') AS type, JSONExtractString(latest, 'help') AS help, "+
 		"JSONExtractString(latest, 'unit') AS unit, fromUnixTimestamp64Milli(intDiv(latest_ns, 1000000)) AS updated_at "+
 		"FROM (SELECT name, argMax(metadata, updated_at_ns) AS latest, max(updated_at_ns) AS latest_ns "+
-		"FROM %s WHERE %s AND metadata != '' GROUP BY name)", t.metadata, t.timeSeries, metricRows)
+		"FROM %s WHERE %s AND metadata != '' GROUP BY name)%s", t.metadata, t.timeSeries, metricRows, t.insertSettings)
 }
 
 // unitQueryID is the query id a unit's insert runs under, so one insert per unit runs at a time.
@@ -121,7 +146,31 @@ func unitQueryID(db, name string) string {
 	return "metric_import-" + db + "-" + name
 }
 
-// killSQL stops a query by id and waits for it to end.
-func killSQL(queryID string) string {
-	return fmt.Sprintf("KILL QUERY WHERE query_id = '%s' SYNC", queryID)
+// killSQL stops a query by id, with every query it started, and waits for them to end.
+func killSQL(t importTables, queryID string) string {
+	return fmt.Sprintf("KILL QUERY%s WHERE initial_query_id = '%s' SYNC", t.onCluster, queryID)
+}
+
+// recordsSQL reads the latest name and value of each import record of the type $1.
+func recordsSQL(t importTables) string {
+	return fmt.Sprintf("SELECT argMax(name, inserted_at), argMax(value, inserted_at) "+
+		"FROM %s WHERE type = $1 GROUP BY fingerprint", t.settings)
+}
+
+// recordPutSQL writes a record: fingerprint $1, type $2, name $3, value $4.
+func recordPutSQL(t importTables) string {
+	return fmt.Sprintf("INSERT INTO %s (fingerprint, type, name, value, inserted_at) "+
+		"SELECT $1, $2, $3, $4, now64(9)%s", t.settings, t.insertSettings)
+}
+
+// recordAgeSQL is the server time in ms since the record of fingerprint $1 was last written.
+func recordAgeSQL(t importTables) string {
+	return fmt.Sprintf("SELECT dateDiff('millisecond', max(inserted_at), now64(9)) FROM %s WHERE fingerprint = $1",
+		t.settings)
+}
+
+// migrationTimeSQL reads T0, the unix time the metric stack was created.
+func migrationTimeSQL(t importTables) string {
+	return fmt.Sprintf("SELECT argMax(value, inserted_at) FROM %s WHERE type = 'update' AND name = 'metric_stack'",
+		t.settings)
 }

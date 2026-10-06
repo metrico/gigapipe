@@ -25,10 +25,10 @@ type point struct {
 	bits uint64
 }
 
-// metricStack answers the series read with series and the raw read with samples.
+// metricStack answers the series read with series and every other read with samples.
 func metricStack(series, samples [][]driver.Value) fakeclickhouse.Handler {
 	return func(query string) (fakeclickhouse.Result, error) {
-		if strings.HasPrefix(query, "WITH fp AS") {
+		if !strings.HasPrefix(query, "SELECT fingerprint, any(labels)") {
 			return fakeclickhouse.Result{Columns: []string{"fingerprint", "timestamp", "value"}, Rows: samples}, nil
 		}
 		return fakeclickhouse.Result{Columns: []string{"fingerprint", "label_set"}, Rows: series}, nil
@@ -271,5 +271,19 @@ func TestSelectRejectsSubstituteSeriesSharingALabelSetAtDisjointTimestamps(t *te
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "__metric_subst__1"))
 	if set.Next() || set.Err() == nil || set.Err().Error() != "vector cannot contain metrics with the same labelset" {
 		t.Fatalf("err = %v, want the same-labelset error", set.Err())
+	}
+}
+
+func TestSelectOnAClusterReadsTheDistributedTables(t *testing.T) {
+	db := fakeclickhouse.New(metricStack(
+		[][]driver.Value{{uint64(1), map[string]string{"__name__": "x"}}},
+		[][]driver.Value{{uint64(1), ms(15000), 1.0}}))
+	db.ClusterName = "c1"
+	selectSeries(t, db, parse(t, "x"), &storage.SelectHints{Start: 1000, End: 60000, Step: 15000},
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "x"))
+	queries := db.Queries()
+	if len(queries) != 2 || !strings.Contains(queries[0], "FROM metric_series_dist ") ||
+		!strings.Contains(queries[1], "FROM metric_samples_dist ") {
+		t.Fatalf("queries = %q", queries)
 	}
 }

@@ -29,6 +29,8 @@ type MetricImportOptions struct {
 	Instance string
 	// Database names the database in each unit's query id.
 	Database string
+	// Cluster runs the import through the distributed tables of this cluster when set.
+	Cluster string
 	// SamplesDays and RollupDays are the lifetimes of samples_v3 and metrics_15s.
 	SamplesDays int
 	RollupDays  int
@@ -92,11 +94,15 @@ func RunMetricImport(ctx context.Context, db clickhouse.Conn, opts MetricImportO
 // instance holding the lease. It returns nil once the import is recorded complete.
 func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOptions) error {
 	opts = opts.withDefaults()
-	done, err := getSetting(db, false, "update", importRecordType)
-	if err != nil || done != "" {
+	tables := localImportTables
+	if opts.Cluster != "" {
+		tables = clusterImportTables(opts.Cluster)
+	}
+	records := &settingsRecords{db: db, tables: tables}
+	done, err := records.completed(ctx)
+	if err != nil || done {
 		return err
 	}
-	records := &settingsRecords{db: db}
 	lease := &importLease{
 		records:  records,
 		instance: opts.Instance,
@@ -124,10 +130,10 @@ func ImportMetrics(ctx context.Context, db clickhouse.Conn, opts MetricImportOpt
 			}
 		}
 	}()
-	job := &metricImport{db: db, records: records, lease: lease, tables: localImportTables, opts: opts}
+	job := &metricImport{db: db, records: records, lease: lease, tables: tables, opts: opts}
 	err = job.run(runCtx)
 	if err == nil {
-		err = putSetting(db, "update", importRecordType, strconv.FormatInt(time.Now().Unix(), 10))
+		err = records.complete(ctx)
 	}
 	cancel()
 	<-renewed
@@ -225,7 +231,7 @@ func (j *metricImport) copyUnit(ctx context.Context, u importUnit, query string)
 	}
 	queryID := unitQueryID(j.opts.Database, u.name())
 	if pending[0].redo {
-		for _, q := range append([]string{killSQL(queryID)}, redoSQL(j.tables, u)...) {
+		for _, q := range append([]string{killSQL(j.tables, queryID)}, redoSQL(j.tables, u)...) {
 			if err = j.db.Exec(ctx, q); err != nil {
 				return err
 			}
@@ -257,10 +263,8 @@ func (j *metricImport) series(ctx context.Context) error {
 
 // h0 is the start of the hour before T0, the metric stack's migration time.
 func (j *metricImport) h0(ctx context.Context) (time.Time, error) {
-	settings := "settings"
 	var t0 string
-	err := j.db.QueryRow(ctx, fmt.Sprintf("SELECT argMax(value, inserted_at) FROM %s "+
-		"WHERE type = 'update' AND name = 'metric_stack'", settings)).Scan(&t0)
+	err := j.db.QueryRow(ctx, migrationTimeSQL(j.tables)).Scan(&t0)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -353,15 +357,19 @@ func (j *metricImport) tail(ctx context.Context, h0 time.Time, recorded string) 
 	}
 }
 
-// settingsRecords keeps the import's records in settings under type 'metric_import'.
+// settingsRecords keeps the import's records in settings under type 'metric_import', and its
+// completion under type 'update'.
 type settingsRecords struct {
-	db clickhouse.Conn
+	db     clickhouse.Conn
+	tables importTables
 }
 
 func (s *settingsRecords) all(ctx context.Context) (map[string]string, error) {
-	settings := "settings"
-	rows, err := s.db.Query(ctx, fmt.Sprintf("SELECT argMax(name, inserted_at), argMax(value, inserted_at) "+
-		"FROM %s WHERE type = $1 GROUP BY fingerprint", settings), importRecordType)
+	return s.read(ctx, importRecordType)
+}
+
+func (s *settingsRecords) read(ctx context.Context, recordType string) (map[string]string, error) {
+	rows, err := s.db.Query(ctx, recordsSQL(s.tables), recordType)
 	if err != nil {
 		return nil, err
 	}
@@ -378,21 +386,31 @@ func (s *settingsRecords) all(ctx context.Context) (map[string]string, error) {
 }
 
 func (s *settingsRecords) put(ctx context.Context, name, value string) error {
-	return s.db.Exec(ctx, `INSERT INTO settings (fingerprint, type, name, value, inserted_at)
-VALUES ($1, $2, $3, $4, now64(9))`, importRecordFingerprint(name), importRecordType, name, value)
+	return s.db.Exec(ctx, recordPutSQL(s.tables), recordFingerprint(importRecordType, name), importRecordType, name, value)
 }
 
 func (s *settingsRecords) age(ctx context.Context, name string) (time.Duration, error) {
-	settings := "settings"
 	var ms int64
-	err := s.db.QueryRow(ctx, fmt.Sprintf("SELECT dateDiff('millisecond', max(inserted_at), now64(9)) "+
-		"FROM %s WHERE fingerprint = $1", settings), importRecordFingerprint(name)).Scan(&ms)
+	err := s.db.QueryRow(ctx, recordAgeSQL(s.tables), recordFingerprint(importRecordType, name)).Scan(&ms)
 	return time.Duration(ms) * time.Millisecond, err
 }
 
-func importRecordFingerprint(name string) uint32 {
+// completed reports whether the import is recorded complete.
+func (s *settingsRecords) completed(ctx context.Context) (bool, error) {
+	recs, err := s.read(ctx, "update")
+	return recs[importRecordType] != "", err
+}
+
+// complete records the import complete at the current unix time.
+func (s *settingsRecords) complete(ctx context.Context) error {
+	return s.db.Exec(ctx, recordPutSQL(s.tables), recordFingerprint("update", importRecordType), "update",
+		importRecordType, strconv.FormatInt(time.Now().Unix(), 10))
+}
+
+// recordFingerprint is the settings fingerprint of a record, as getSetting and putSetting compute it.
+func recordFingerprint(recordType, name string) uint32 {
 	return helputils.FingerprintLabelsDJBHashPrometheus(
-		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(importRecordType), strconv.Quote(name)))
+		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(recordType), strconv.Quote(name)))
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

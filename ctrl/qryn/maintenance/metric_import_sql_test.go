@@ -101,8 +101,62 @@ func TestEachUnitRunsUnderItsOwnQueryIDAndARedoKillsItFirst(t *testing.T) {
 	if got := unitQueryID("cloki", "tail"); got != "metric_import-cloki-tail" {
 		t.Errorf("tail query id = %s", got)
 	}
-	want := "KILL QUERY WHERE query_id = 'metric_import-cloki-chunk:" + chunkToMs + "' SYNC"
-	if got := killSQL(unitQueryID("cloki", u.name())); got != want {
+	want := "KILL QUERY WHERE initial_query_id = 'metric_import-cloki-chunk:" + chunkToMs + "' SYNC"
+	if got := killSQL(localImportTables, unitQueryID("cloki", u.name())); got != want {
 		t.Errorf("kill = %s, want %s", got, want)
 	}
+}
+
+var clusterTables = clusterImportTables("c1")
+
+const syncInsert = " SETTINGS insert_distributed_sync = 1"
+
+func TestOnAClusterEachCopyRunsThroughTheDistributedTablesAndWaitsForItsShards(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sql   string
+		parts []string
+	}{
+		"chunk":    {chunkSQL(clusterTables, at("2026-09-30 00:00"), at("2026-10-01 00:00")), []string{"INSERT INTO metric_samples_in_dist ", "FROM samples_v3_dist WHERE"}},
+		"span":     {spanSQL(clusterTables, at("2026-09-22 00:00"), at("2026-09-29 00:00"), at("2026-09-29 00:00")), []string{"INSERT INTO metric_samples_in_dist ", "FROM metrics_15s_dist WHERE"}},
+		"tail":     {tailSQL(clusterTables, 1790931600000000000, 1790935200000000000), []string{"INSERT INTO metric_samples_in_dist ", "FROM samples_v3_dist WHERE"}},
+		"series":   {seriesSQL(clusterTables, true), []string{"INSERT INTO metric_series_dist ", "FROM time_series_dist WHERE", "FROM metrics_15s_dist WHERE"}},
+		"metadata": {metadataSQL(clusterTables), []string{"INSERT INTO metric_metadata_dist ", "FROM time_series_dist WHERE"}},
+	} {
+		containsAll(t, name, tc.sql, tc.parts...)
+		if !strings.HasSuffix(tc.sql, syncInsert) {
+			t.Errorf("%s does not wait for its shards:\n%s", name, tc.sql)
+		}
+		if strings.Contains(tc.sql, "GLOBAL") {
+			t.Errorf("%s ships a set across shards:\n%s", name, tc.sql)
+		}
+	}
+	if sql := chunkSQL(localImportTables, at("2026-09-30 00:00"), at("2026-10-01 00:00")); strings.Contains(sql, "SETTINGS") {
+		t.Errorf("a single-node chunk carries settings:\n%s", sql)
+	}
+}
+
+func TestOnAClusterARedoDeletesAndKillsOnEveryNode(t *testing.T) {
+	got := redoSQL(clusterTables, importUnit{kind: "chunk", from: at("2026-09-30 00:00"), to: at("2026-10-01 00:00")})
+	bounds := " WHERE bucket > fromUnixTimestamp64Milli(" + chunkFromMs + ") AND bucket <= fromUnixTimestamp64Milli(" + chunkToMs + ")"
+	sameStrings(t, "redo", got, []string{
+		"DELETE FROM metrics_5m ON CLUSTER `c1`" + bounds, "DELETE FROM metrics_1h ON CLUSTER `c1`" + bounds})
+	want := "KILL QUERY ON CLUSTER `c1` WHERE initial_query_id = 'metric_import-cloki-tail' SYNC"
+	if got := killSQL(clusterTables, unitQueryID("cloki", "tail")); got != want {
+		t.Errorf("kill = %s, want %s", got, want)
+	}
+}
+
+func TestOnAClusterTheRecordsGoThroughTheDistributedSettings(t *testing.T) {
+	read := recordsSQL(clusterTables)
+	containsAll(t, "records", read,
+		"SELECT argMax(name, inserted_at), argMax(value, inserted_at) FROM settings_dist WHERE type = $1 GROUP BY fingerprint")
+	if strings.Contains(read, "FINAL") {
+		t.Errorf("records read with FINAL:\n%s", read)
+	}
+	put := recordPutSQL(clusterTables)
+	containsAll(t, "record write", put, "INSERT INTO settings_dist (fingerprint, type, name, value, inserted_at)")
+	if !strings.HasSuffix(put, syncInsert) {
+		t.Errorf("a record write does not wait for its shard:\n%s", put)
+	}
+	containsAll(t, "migration time", migrationTimeSQL(clusterTables), "FROM settings_dist WHERE")
 }
