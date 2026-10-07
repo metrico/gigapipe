@@ -11,7 +11,6 @@ import (
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 
-	"github.com/gorilla/schema"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -31,10 +30,10 @@ type QueryRangeProps struct {
 	Query string
 	Step  time.Duration
 	Raw   struct {
-		Start string `form:"start"`
-		End   string `form:"end"`
-		Query string `form:"query"`
-		Step  string `form:"step"`
+		Start string
+		End   string
+		Query string
+		Step  string
 	}
 }
 
@@ -152,24 +151,11 @@ func parseQueryRangePropsV3(r *http.Request) (QueryRangeProps, error) {
 		if err != nil {
 			return res, err
 		}
-		dec := schema.NewDecoder()
-		err = dec.Decode(&res.Raw, r.Form)
-		if err != nil {
-			return res, err
-		}
 	}
-	if res.Raw.Start == "" {
-		res.Raw.Start = r.URL.Query().Get("start")
-	}
-	if res.Raw.End == "" {
-		res.Raw.End = r.URL.Query().Get("end")
-	}
-	if res.Raw.Query == "" {
-		res.Raw.Query = r.URL.Query().Get("query")
-	}
-	if res.Raw.Step == "" {
-		res.Raw.Step = r.URL.Query().Get("step")
-	}
+	res.Raw.Start = r.FormValue("start")
+	res.Raw.End = r.FormValue("end")
+	res.Raw.Query = r.FormValue("query")
+	res.Raw.Step = r.FormValue("step")
 	res.Start, err = ParseTimeSecOrRFC(res.Raw.Start, time.Now().Add(time.Hour*-6))
 	if err != nil {
 		return res, err
