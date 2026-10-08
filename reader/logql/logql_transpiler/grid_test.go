@@ -179,6 +179,14 @@ func reference(lines []logLine, q refQuery, times []int64) map[string]map[int64]
 				v = vs[len(vs)-1]
 			case "quantile_over_time":
 				v = quantileOf(q.q, vs)
+			case "stdvar_over_time", "stddev_over_time":
+				mean := sum / n
+				for _, x := range vs {
+					v += (x - mean) * (x - mean)
+				}
+				if v /= n; q.fn == "stddev_over_time" {
+					v = math.Sqrt(v)
+				}
 			default:
 				panic(q.fn)
 			}

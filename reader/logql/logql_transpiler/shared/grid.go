@@ -64,3 +64,11 @@ func FloorDiv(a, b int64) int64 {
 	}
 	return q
 }
+
+// Gcd returns the greatest common divisor of a and b.
+func Gcd(a, b int64) int64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}

@@ -24,7 +24,8 @@ type BinaryExprProcessor struct {
 	RightScalar float64
 	IsScalar    bool
 	// OnGrid gives each operand its own context with From floored and To ceiled
-	// to Step, so grid and R-bucket operands emit the same timestamps.
+	// to Step, so grid operands and metrics_15s shortcut operands, which emit
+	// R-bucket timestamps, line up.
 	OnGrid bool
 }
 

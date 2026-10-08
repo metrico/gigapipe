@@ -1,7 +1,6 @@
 package clickhouse_planner
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -13,10 +12,11 @@ type LRAPlanner struct {
 	Duration   time.Duration
 	Func       string
 	WithLabels bool
+	Offset     time.Duration
 }
 
 func (l *LRAPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	main, err := l.Main.Process(ctx)
+	main, err := readWindowRows(ctx, l.Main, l.Duration, l.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -32,36 +32,16 @@ func (l *LRAPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		}
 	}
 
-	var col sql.SQLObject
+	var fn windowFn
 	switch l.Func {
 	case "rate":
-		col = sql.NewRawObject(fmt.Sprintf("toFloat64(COUNT()) / %f",
-			float64(l.Duration.Milliseconds())/1000))
+		fn = windowFn{summand: "1", final: perSecond(l.Duration)}
 	case "count_over_time":
-		col = sql.NewRawObject("toFloat64(COUNT())")
-	case "bytes_rate":
-		col = sql.NewRawObject(fmt.Sprintf("toFloat64(sum(length(_string))) / %f",
-			float64(l.Duration.Milliseconds())/1000))
-	case "bytes_over_time":
-		col = sql.NewRawObject(fmt.Sprintf("toFloat64(sum(length(_string))) / %f",
-			float64(l.Duration.Milliseconds())/1000))
+		fn = windowFn{summand: "1", final: plainSum}
+	case "bytes_rate", "bytes_over_time":
+		fn = windowFn{summand: "length(_string)", final: perSecond(l.Duration)}
+	default:
+		return nil, &shared.NotSupportedError{Msg: l.Func + " is not supported"}
 	}
-
-	withAgg := sql.NewWith(main, "agg_a")
-	res := sql.NewSelect().With(withAgg).
-		Select(
-			sql.NewSimpleCol(
-				fmt.Sprintf("intDiv(time_series.timestamp_ns, %d) * %[1]d", l.Duration.Nanoseconds()),
-				"timestamp_ns",
-			),
-			sql.NewSimpleCol("fingerprint", "fingerprint"),
-			sql.NewSimpleCol(`''`, "string"),
-			sql.NewCol(col, "value"),
-		).
-		From(sql.NewCol(sql.NewWithRef(withAgg), "time_series")).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ns"))
-	if l.WithLabels {
-		res.Select(append(res.GetSelect(), sql.NewSimpleCol("any(labels)", "labels"))...)
-	}
-	return res, nil
+	return windowSelect(ctx, main, fn, l.Duration, l.WithLabels)
 }

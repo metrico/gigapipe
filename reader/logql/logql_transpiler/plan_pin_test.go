@@ -13,8 +13,9 @@ import (
 	"time"
 )
 
-// pinnedQueries are served by the metrics_15s shortcut or the raw SQL
-// planners; their SQL and root processor are pinned.
+// pinnedQueries are served by the metrics_15s shortcut, plus one log query;
+// their SQL and root processor are pinned. Raw SQL range aggregations are
+// checked by value in rawsql_clickhouse_test.go.
 var pinnedQueries = []string{
 	`rate({job="a"} [5m])`,
 	`count_over_time({job="a"} [1h])`,
@@ -24,18 +25,7 @@ var pinnedQueries = []string{
 	`count_over_time({job="a"} [5m] offset 7m)`,
 	`count_over_time({job="a"} [5m]) > 3`,
 	`topk(2, sum by (l) (rate({job="a"} [5m])))`,
-	`count_over_time({job="a"} != "x" [5m])`,
-	`sum by (l) (rate({job="a"} != "x" [15m]))`,
-	`count_over_time({job="a"} != "x" [5m] offset 7m)`,
-	`bytes_over_time({job="a"} [5m])`,
-	`bytes_rate({job="a"} [1h])`,
-	`sum by (l) (sum_over_time({job="a"} | regexp "size=(?P<size>[0-9]+)" | unwrap size [5m]))`,
-	`avg_over_time({job="a"} | regexp "size=(?P<size>[0-9]+)" | unwrap size [1h])`,
-	`max_over_time({job="a"} | regexp "size=(?P<size>[0-9]+)" | unwrap size [15m]) by (l)`,
-	`quantile_over_time(0.9, {job="a"} | regexp "size=(?P<size>[0-9]+)" | unwrap size [5m])`,
-	`sum by (a) (count_over_time({job="a"} | json a="x" [5m]))`,
 	`rate({job="a"} [5m]) / rate({job="b"} [5m])`,
-	`sum(rate({job="a"} != "x" [5m])) * 2`,
 	`{job="a"} |= "x"`,
 }
 

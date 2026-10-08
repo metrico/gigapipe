@@ -3,6 +3,7 @@ package logql_transpiler
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
@@ -151,6 +152,10 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 			ClickhouseRequestPlanner: plan,
 			Matrix:                   script.Head.StrSelector == nil,
 		}
+		if proc.IsMatrix() && !clickhouse_planner.AnalyzeMetrics15sShortcut(script) {
+			proc, err = gridPostProcessors(script, proc)
+			return shared.RequestProcessorChain{proc}, err
+		}
 	} else {
 		breakpoint, err := GetBreakpoint(script)
 		if err != nil {
@@ -182,8 +187,8 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 	return shared.RequestProcessorChain{proc}, err
 }
 
-// gridPostProcessors evaluates a Go-path range aggregation on the request's
-// evaluation grid.
+// gridPostProcessors evaluates a raw SQL or Go-path range aggregation on the
+// request's evaluation grid.
 func gridPostProcessors(script *log_parser.LogQLScript,
 	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
 	duration, err := shared.GetDuration(script)
@@ -290,9 +295,19 @@ func cancelJsonAndLogFmt(script *log_parser.LogQLScript) {
 	}
 }
 
-// planBinaryExpr plans a binary arithmetic expression as a single SQL query
-// using UNION ALL + conditional GROUP BY aggregation in ClickHouse.
+// planBinaryExpr plans a binary of SQL operands as one SQL query, or joins
+// them in memory when it mixes raw SQL and shortcut operands.
 func planBinaryExpr(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) {
+	leaves := binaryLeaves(script)
+	shortcuts := 0
+	for _, leaf := range leaves {
+		if clickhouse_planner.AnalyzeMetrics15sShortcut(leaf) {
+			shortcuts++
+		}
+	}
+	if shortcuts > 0 && shortcuts < len(leaves) {
+		return planBinaryExprRAM(script)
+	}
 	sqlPlanner, err := planScriptToSQL(script)
 	if err != nil {
 		return nil, err
@@ -301,11 +316,57 @@ func planBinaryExpr(script *log_parser.LogQLScript) (shared.RequestProcessorChai
 		ClickhouseRequestPlanner: sqlPlanner,
 		Matrix:                   true,
 	}
-	proc, err = MatrixPostProcessors(script, proc)
+	if shortcuts == 0 {
+		proc, err = binaryGridPlanner(leaves, proc)
+	} else {
+		proc, err = MatrixPostProcessors(script, proc)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return shared.RequestProcessorChain{proc}, nil
+}
+
+// binaryLeaves returns the non-scalar operands of a binary expression,
+// nested binaries flattened.
+func binaryLeaves(script *log_parser.LogQLScript) []*log_parser.LogQLScript {
+	script = unwrapParens(script)
+	if !script.IsBinary() {
+		return []*log_parser.LogQLScript{script}
+	}
+	var res []*log_parser.LogQLScript
+	for _, atom := range allBinaryAtoms(script) {
+		switch {
+		case atom.Scalar != "":
+		case atom.Paren != nil:
+			res = append(res, binaryLeaves(atom.Paren)...)
+		default:
+			res = append(res, &log_parser.LogQLScript{Head: atom})
+		}
+	}
+	return res
+}
+
+// binaryGridPlanner puts proc on the grid with a read range that covers the
+// range and offset of every leaf.
+func binaryGridPlanner(leaves []*log_parser.LogQLScript,
+	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
+	var reach, offset time.Duration
+	for i, leaf := range leaves {
+		r, err := shared.GetDuration(leaf)
+		if err != nil {
+			return nil, err
+		}
+		o, err := shared.GetOffset(leaf)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 || o < offset {
+			offset = o
+		}
+		reach = max(reach, r+o)
+	}
+	return &GridPlanner{Main: proc, Duration: reach - offset, Offset: offset}, nil
 }
 
 // planScriptToSQL converts any LogQLScript (binary or not) into a SQLRequestPlanner.

@@ -16,6 +16,7 @@ import (
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sqlsel "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -34,6 +35,8 @@ type request struct {
 	step         time.Duration
 	instant      bool
 	noMetrics15s bool
+	// cluster reads through the *_dist tables, as a sharded deployment does.
+	cluster bool
 }
 
 func rangeReq(start, end time.Time, step time.Duration) request {
@@ -60,16 +63,28 @@ type planned struct {
 	out  []shared.LogEntry
 }
 
+// recordingDB is a ClickHouse connection that keeps every statement sent.
+type recordingDB interface {
+	model.ISqlxDB
+	statements() []string
+}
+
 // runRequest serves query for req as the query API does, against a fake
 // ClickHouse that records the SQL and answers with the lines in its read bounds.
 func runRequest(t *testing.T, query string, req request, lines []logLine) planned {
+	t.Helper()
+	fake := newFakeCH(lines)
+	defer fake.Close()
+	return serveRequest(t, query, req, fake)
+}
+
+// serveRequest serves query for req as the query API does, against db.
+func serveRequest(t *testing.T, query string, req request, db recordingDB) planned {
 	t.Helper()
 	chain, err := Transpile(query)
 	if err != nil {
 		t.Fatalf("Transpile(%q): %v", query, err)
 	}
-	fake := newFakeCH(lines)
-	defer fake.Close()
 	fromNs, toNs := req.start.UnixNano(), req.end.UnixNano()
 	if req.instant {
 		fromNs = toNs - 300000000000
@@ -82,7 +97,7 @@ func runRequest(t *testing.T, query string, req request, lines []logLine) planne
 		Limit:                      100,
 		Ctx:                        ctx,
 		CancelCtx:                  cancel,
-		CHDb:                       fake,
+		CHDb:                       db,
 		CHFinalize:                 true,
 		Step:                       req.step,
 		Instant:                    req.instant,
@@ -95,6 +110,13 @@ func runRequest(t *testing.T, query string, req request, lines []logLine) planne
 		TimeSeriesGinDistTableName: "time_series_gin",
 		Metrics15sTableName:        "metrics_15s",
 		Metrics15sDistTableName:    "metrics_15s",
+	}
+	if req.cluster {
+		pctx.IsCluster = true
+		pctx.SamplesDistTableName = "samples_v3_dist"
+		pctx.TimeSeriesDistTableName = "time_series_dist"
+		pctx.TimeSeriesGinDistTableName = "time_series_gin_dist"
+		pctx.Metrics15sDistTableName = "metrics_15s_dist"
 	}
 	if req.noMetrics15s {
 		pctx.VersionInfo = dbversion.VersionInfo{}
@@ -115,7 +137,7 @@ func runRequest(t *testing.T, query string, req request, lines []logLine) planne
 			res.out = append(res.out, e)
 		}
 	}
-	res.sql = fake.statements()
+	res.sql = db.statements()
 	return res
 }
 

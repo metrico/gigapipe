@@ -98,7 +98,7 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 		}
 	}
 
-	if p.script.Head.StrSelector == nil {
+	if p.metrics15Shortcut {
 		duration, err := shared.GetDuration(p.script)
 		if err != nil {
 			return nil, err
@@ -117,7 +117,7 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 			NoStreamSelect: p.noStreamSelect,
 			Main:           p.samplesPlanner,
 			Fingerprints:   p.fpPlanner,
-			TimeSeries:     NewTimeSeriesInitPlanner(p.offsetModifier),
+			TimeSeries:     NewTimeSeriesInitPlanner(p.readOffset()),
 			FpCache:        &p.fpCache,
 		}
 	}
@@ -188,6 +188,23 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 	return nil
 }
 
+// readOffset shifts the request range for the shortcut's reads. A raw read
+// takes the range as given: the grid emitter has already moved it back by
+// the offset.
+func (p *planner) readOffset() *time.Duration {
+	if p.metrics15Shortcut {
+		return p.offsetModifier
+	}
+	return nil
+}
+
+func (p *planner) offset() time.Duration {
+	if p.offsetModifier == nil {
+		return 0
+	}
+	return *p.offsetModifier
+}
+
 func (p *planner) planDetectLabels() (shared.SQLRequestPlanner, error) {
 	if p.script == nil {
 		return &DetectLabelsPlanner{NoStreamSelect: p.noStreamSelect}, nil
@@ -237,7 +254,7 @@ func (p *planner) planTS() error {
 		LabelNames:     labelNames,
 		Ops:            ops,
 		Values:         values,
-		Offset:         p.offsetModifier,
+		Offset:         p.readOffset(),
 	}
 
 	p.fpPlanner = _fpPlanner
@@ -274,7 +291,7 @@ func (p *planner) planSpl() error {
 				NoStreamSelect: p.noStreamSelect,
 				Main:           &MainOrderByPlanner{[]string{"timestamp_ns"}, p.samplesPlanner},
 				Fingerprints:   p.fpPlanner,
-				TimeSeries:     NewTimeSeriesInitPlanner(p.offsetModifier),
+				TimeSeries:     NewTimeSeriesInitPlanner(p.readOffset()),
 				FpCache:        &p.fpCache,
 				LabelsCache:    &p.labelsCache,
 			}
@@ -359,6 +376,7 @@ func (p *planner) planLRA(lra *logql_parser.LRAOrUnwrap) error {
 		Duration:   duration,
 		Func:       lra.Fn,
 		WithLabels: p.labelsJoinIdx != -1,
+		Offset:     p.offset(),
 	}
 	return nil
 }
@@ -376,6 +394,7 @@ func (p *planner) planUnwrapFn(lra *logql_parser.LRAOrUnwrap) error {
 		Main:     p.samplesPlanner,
 		Func:     lra.Fn,
 		Duration: duration,
+		Offset:   p.offset(),
 	}
 	return nil
 }
@@ -460,6 +479,7 @@ func (p *planner) planQuantileOverTime(script *logql_parser.QuantileOverTime) er
 		Main:     p.samplesPlanner,
 		Param:    param,
 		Duration: duration,
+		Offset:   p.offset(),
 	}
 	return nil
 }

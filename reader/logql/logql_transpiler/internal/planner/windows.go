@@ -29,7 +29,7 @@ func newWindows(grid shared.EvalGrid, r, offset time.Duration) (windows, error) 
 	if rn <= 0 {
 		return windows{}, fmt.Errorf("range must be positive, got %s", r)
 	}
-	w := gcd(grid.StepNs, rn)
+	w := shared.Gcd(grid.StepNs, rn)
 	ws := windows{
 		grid:     grid,
 		base:     grid.FirstNs - rn,
@@ -43,13 +43,6 @@ func newWindows(grid shared.EvalGrid, r, offset time.Duration) (windows, error) 
 		return windows{}, errStreamTooLong
 	}
 	return ws, nil
-}
-
-func gcd(a, b int64) int64 {
-	for b != 0 {
-		a, b = b, a%b
-	}
-	return a
 }
 
 // bucket returns the bucket of a sample read at ts.
