@@ -116,7 +116,7 @@ func TranspileSelect(base shared.PlannerContext, req SelectRequest) (*TranspileR
 	}
 
 	if useRawData {
-		return TranspileLabelMatchers(hints, &ctx, matchers...)
+		return TranspileLabelMatchers(hints, &ctx, grid, matchers...)
 	}
 	return TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
 }

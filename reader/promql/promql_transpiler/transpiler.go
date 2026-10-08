@@ -15,10 +15,12 @@ type TranspileResponse struct {
 	Route     Route
 }
 
-func TranspileLabelMatchers(hints *storage.SelectHints,
-	ctx *logql_transpiler_shared.PlannerContext, matchers ...*labels.Matcher) (*TranspileResponse, error) {
+// TranspileLabelMatchers plans a raw read. grid, when set, is the selector's
+// evaluation grid.
+func TranspileLabelMatchers(hints *storage.SelectHints, ctx *logql_transpiler_shared.PlannerContext,
+	grid *planner.Grid, matchers ...*labels.Matcher) (*TranspileResponse, error) {
 	var p logql_transpiler_shared.SQLRequestPlanner = &planner.ValuesPlanner{Fp: streamSelect(matchers...)}
-	p = &planner.HintsPlanner{Main: p, Hints: hints}
+	p = &planner.HintsPlanner{Main: p, Hints: hints, Grid: grid}
 	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
 	return &TranspileResponse{Query: query, Route: RouteRaw}, err

@@ -19,6 +19,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/tables"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/annotations"
 )
@@ -37,6 +38,8 @@ type planOpts struct {
 	tag bool
 	// metrics15s makes metrics_15s available, so the optimizers run.
 	metrics15s bool
+	// ruler tags as the ruler does, leaving step-less subqueries untagged.
+	ruler bool
 }
 
 var testEngine = promql.NewEngine(promql.EngineOpts{
@@ -51,12 +54,29 @@ var testEngine = promql.NewEngine(promql.EngineOpts{
 // returns no series. It returns the reads in the order the engine makes them.
 func planSelects(t *testing.T, query string, eval EvalGrid, opts planOpts) []selectPlan {
 	t.Helper()
+	var rec *planRecorder
+	evalQuery(t, query, eval, opts, func(base shared.PlannerContext, subs map[string]*promql_parser.Substitute,
+		vi dbversion.VersionInfo) storage.Querier {
+		rec = &planRecorder{t: t, base: base, substitutes: subs, versionInfo: vi}
+		return rec
+	})
+	return rec.plans
+}
+
+// evalQuery prepares query as the query controllers do and evaluates it on
+// eval over the querier newQuerier returns.
+func evalQuery(t *testing.T, query string, eval EvalGrid, opts planOpts,
+	newQuerier func(shared.PlannerContext, map[string]*promql_parser.Substitute, dbversion.VersionInfo) storage.Querier,
+) parser.Value {
+	t.Helper()
 	expr, err := promql_parser.Parse(query)
 	if err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
 	if opts.tag {
-		eval.SubqueryStepMs = DefaultSubqueryIntervalMs
+		if !opts.ruler {
+			eval.SubqueryStepMs = DefaultSubqueryIntervalMs
+		}
 		TagGrid(expr.Expr, eval)
 	}
 	vi := dbversion.VersionInfo{}
@@ -68,8 +88,8 @@ func planSelects(t *testing.T, query string, eval EvalGrid, opts planOpts) []sel
 	}
 	var base shared.PlannerContext
 	tables.PopulateTableNames(&base, &model.DataDatabasesMap{Config: &clconfig.ClokiBaseDataBase{}})
-	rec := &planRecorder{t: t, base: base, substitutes: expr.Substitutes, versionInfo: vi}
-	queryable := storage.QueryableFunc(func(int64, int64) (storage.Querier, error) { return rec, nil })
+	querier := newQuerier(base, expr.Substitutes, vi)
+	queryable := storage.QueryableFunc(func(int64, int64) (storage.Querier, error) { return querier, nil })
 
 	var q promql.Query
 	if eval.StepMs == 0 {
@@ -82,10 +102,11 @@ func planSelects(t *testing.T, query string, eval EvalGrid, opts planOpts) []sel
 	if err != nil {
 		t.Fatalf("%s: %v", query, err)
 	}
-	if res := q.Exec(context.Background()); res.Err != nil {
+	res := q.Exec(context.Background())
+	if res.Err != nil {
 		t.Fatalf("%s: %v", query, res.Err)
 	}
-	return rec.plans
+	return res.Value
 }
 
 type planRecorder struct {
@@ -193,13 +214,34 @@ func TestTranspileSelectUntaggedSQLIsPinned(t *testing.T) {
 	}
 }
 
+// rawRegridded are the raw reads whose untagged bucket keys miss the
+// selector's evaluation points: a bare selector at a step above the lookback,
+// an @ off the lattice, and a step-less subquery.
+var rawRegridded = map[string]bool{
+	"gx range3600 m15s=False":                     true,
+	"gx offset 7m range3600 m15s=False":           true,
+	"abs(gy) range3600 m15s=False":                true,
+	"gx @ 1700000000 range60 m15s=False":          true,
+	"gx @ 1700000000 range300 m15s=False":         true,
+	"gx @ 1700000000 range3600 m15s=False":        true,
+	"gx @ 1700000000 instant m15s=False":          true,
+	"max_over_time(gy[1h:]) range60 m15s=False":   true,
+	"max_over_time(gy[1h:]) range300 m15s=False":  true,
+	"max_over_time(gy[1h:]) range3600 m15s=False": true,
+	"max_over_time(gy[1h:]) instant m15s=False":   true,
+}
+
 // A tagged selector on the 15s lattice whose function does not need sample
-// timestamps reads exactly what it reads untagged.
+// timestamps reads exactly what it reads untagged, unless it reads raw and
+// the untagged keys miss its grid (rawRegridded).
 func TestTranspileSelectOnLatticeSQLIsPinned(t *testing.T) {
 	routedRaw := []string{"irate(", "deriv(", "idelta(", "@ 1700000000"}
-	n := 0
+	n, regridded := 0, 0
 	for _, c := range loadSelectCases(t) {
-		skip := false
+		skip := rawRegridded[c.Name]
+		if skip {
+			regridded++
+		}
 		for _, s := range routedRaw {
 			skip = skip || (c.Metrics15s && strings.Contains(c.Query, s))
 		}
@@ -211,8 +253,8 @@ func TestTranspileSelectOnLatticeSQLIsPinned(t *testing.T) {
 			checkSelectHashes(t, c, planSelects(t, c.Query, c.eval(), planOpts{tag: true, metrics15s: c.Metrics15s}))
 		})
 	}
-	if n < 100 {
-		t.Fatalf("only %d cases checked", n)
+	if n < 100 || regridded != len(rawRegridded) {
+		t.Fatalf("%d cases checked, %d of %d regridded cases found", n, regridded, len(rawRegridded))
 	}
 }
 
