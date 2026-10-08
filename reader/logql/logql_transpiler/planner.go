@@ -172,10 +172,34 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 		if err != nil {
 			return nil, err
 		}
+		if proc.IsMatrix() && !isAbsentOverTime(script) {
+			proc, err = gridPostProcessors(script, proc)
+			return shared.RequestProcessorChain{proc}, err
+		}
 	}
 
 	proc, err = MatrixPostProcessors(script, proc)
 	return shared.RequestProcessorChain{proc}, err
+}
+
+func isAbsentOverTime(script *log_parser.LogQLScript) bool {
+	lra := log_parser.FindFirst[log_parser.LRAOrUnwrap](script)
+	return lra != nil && lra.Fn == "absent_over_time"
+}
+
+// gridPostProcessors evaluates a Go-path range aggregation on the request's
+// evaluation grid.
+func gridPostProcessors(script *log_parser.LogQLScript,
+	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
+	duration, err := shared.GetDuration(script)
+	if err != nil {
+		return nil, err
+	}
+	offset, err := shared.GetOffset(script)
+	if err != nil {
+		return nil, err
+	}
+	return &GridPlanner{Main: proc, Duration: duration, Offset: offset}, nil
 }
 
 func PlanLabels(scripts []*log_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
@@ -377,7 +401,7 @@ func breakScript(breakpoint int, script *log_parser.LogQLScript,
 		_script.StrSel = log_parser.StrSelector{}
 		return chScript, script, nil
 	case *log_parser.QuantileOverTime:
-		return nil, nil, &shared.NotSupportedError{Msg: "QuantileOverTime is not supported for this query"}
+		return dfs(&_script.StrSel)
 	}
 	return nil, nil, nil
 }

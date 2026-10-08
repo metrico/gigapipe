@@ -176,7 +176,7 @@ func (q *QueryRangeService) QueryVolume(ctx context.Context, query string, fromN
 	}
 	req := fmt.Sprintf("sum(bytes_over_time(%s [%dms])) by (%s)", query, stepMs,
 		strings.Join(aggregateByLabels, ","))
-	c, _, err := q.prepareOutput(ctx, req, fromNs, toNs, stepMs, 1000, true)
+	c, _, err := q.prepareOutput(ctx, req, fromNs, toNs, stepMs, 1000, true, false)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +414,7 @@ func (q *QueryRangeService) scan(rows *databaseSql.Rows) (PatternsResult, error)
 func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
 	limit int64, forward bool,
 ) (chan model.QueryRangeOutput, error) {
-	out, isMatrix, err := q.prepareOutput(ctx, query, fromNs, toNs, stepMs, limit, forward)
+	out, isMatrix, err := q.prepareOutput(ctx, query, fromNs, toNs, stepMs, limit, forward, false)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +527,7 @@ func (q *QueryRangeService) QueryRange(ctx context.Context, query string, fromNs
 }
 
 func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fromNs int64, toNs int64, stepMs int64,
-	limit int64, forward bool,
+	limit int64, forward bool, instant bool,
 ) (chan []shared.LogEntry, bool, error) {
 	conn, err := q.Session.GetDB(ctx)
 	if err != nil {
@@ -555,6 +555,7 @@ func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fro
 		CHDb:       conn.Session,
 		CHFinalize: true,
 		Step:       time.Duration(stepMs) * time.Millisecond,
+		Instant:    instant,
 		CHSqlCtx: &sql.Ctx{
 			Params: map[string]sql.SQLObject{},
 			Result: map[string]sql.SQLObject{},
@@ -568,7 +569,7 @@ func (q *QueryRangeService) prepareOutput(ctx context.Context, query string, fro
 func (q *QueryRangeService) QueryInstant(ctx context.Context, query string, timeNs int64, stepMs int64,
 	limit int64,
 ) (chan model.QueryRangeOutput, error) {
-	out, isMatrix, err := q.prepareOutput(ctx, query, timeNs-300000000000, timeNs, stepMs, limit, false)
+	out, isMatrix, err := q.prepareOutput(ctx, query, timeNs-300000000000, timeNs, stepMs, limit, false, true)
 	if err != nil {
 		return nil, err
 	}

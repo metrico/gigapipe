@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"time"
 
 	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/internal/planner"
@@ -22,12 +23,15 @@ type BinaryExprProcessor struct {
 	Op          string
 	RightScalar float64
 	IsScalar    bool
+	// OnGrid gives each operand its own context with From floored and To ceiled
+	// to Step, so grid and R-bucket operands emit the same timestamps.
+	OnGrid bool
 }
 
 func (b *BinaryExprProcessor) IsMatrix() bool { return true }
 
 func (b *BinaryExprProcessor) Process(ctx *shared.PlannerContext, _ chan []shared.LogEntry) (chan []shared.LogEntry, error) {
-	leftCh, err := b.Left[0].Process(ctx, nil)
+	leftCh, err := b.Left[0].Process(b.operandCtx(ctx), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +51,7 @@ func (b *BinaryExprProcessor) Process(ctx *shared.PlannerContext, _ chan []share
 		return out, nil
 	}
 
-	rightCh, err := b.Right[0].Process(ctx, nil)
+	rightCh, err := b.Right[0].Process(b.operandCtx(ctx), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +66,30 @@ func (b *BinaryExprProcessor) Process(ctx *shared.PlannerContext, _ chan []share
 		emitBinary(leftMap, rightMap, b.Op, out)
 	}()
 	return out, nil
+}
+
+func (b *BinaryExprProcessor) operandCtx(ctx *shared.PlannerContext) *shared.PlannerContext {
+	if !b.OnGrid || ctx.Instant || ctx.Step <= 0 {
+		return ctx
+	}
+	c := *ctx
+	step := ctx.Step.Nanoseconds()
+	c.From = time.Unix(0, shared.FloorDiv(ctx.From.UnixNano(), step)*step)
+	c.To = time.Unix(0, -shared.FloorDiv(-ctx.To.UnixNano(), step)*step)
+	return &c
+}
+
+// onGrid reports whether a chain evaluates on the request's evaluation grid.
+func onGrid(chain shared.RequestProcessorChain) bool {
+	switch p := chain[0].(type) {
+	case *GridPlanner:
+		return true
+	case *BinaryExprProcessor:
+		return p.OnGrid
+	case *ZeroEaterPlanner:
+		return onGrid(shared.RequestProcessorChain{p.Main})
+	}
+	return false
 }
 
 // sampleKey is the merge key for matrix entries.
@@ -167,10 +195,9 @@ func applyBinaryOp(left float64, op string, right float64) float64 {
 
 // planBinaryExprRAM plans a binary expression using in-process merging.
 // Each operand is planned as an independent RequestProcessorChain (including its
-// own ZeroEater + FixPeriod). The merged result has ZeroEater applied once more to
+// own matrix post-processors). The merged result has ZeroEater applied once more to
 // eat zeros produced by the arithmetic itself (e.g. a - a = 0).
-// FixPeriod is intentionally NOT re-applied: sub-chain timestamps are already at
-// step intervals, and re-expanding them would duplicate entries.
+// The post-processors are not re-applied to the merged result.
 func planBinaryExprRAM(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) {
 	current, err := planAtomChain(script.Head)
 	if err != nil {
@@ -190,6 +217,7 @@ func planBinaryExprRAM(script *log_parser.LogQLScript) (shared.RequestProcessorC
 				Op:          binOp.Op,
 				RightScalar: scalar,
 				IsScalar:    true,
+				OnGrid:      onGrid(current),
 			}
 		} else {
 			right, err := planAtomChain(binOp.Right)
@@ -197,9 +225,10 @@ func planBinaryExprRAM(script *log_parser.LogQLScript) (shared.RequestProcessorC
 				return nil, err
 			}
 			next = &BinaryExprProcessor{
-				Left:  current,
-				Right: right,
-				Op:    binOp.Op,
+				Left:   current,
+				Right:  right,
+				Op:     binOp.Op,
+				OnGrid: onGrid(current) || onGrid(right),
 			}
 		}
 

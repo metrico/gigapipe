@@ -6,6 +6,14 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 )
 
+// maxSeries bounds the output series of one aggregation.
+const maxSeries = 2000
+
+var (
+	errTooManySeries = &shared.NotSupportedError{Msg: "Too many time-series. Please try changing `by / without` clause."}
+	errStreamTooLong = &shared.NotSupportedError{Msg: "stream length is too large. Please try increasing duration."}
+)
+
 type AggregatorPlanner struct {
 	GenericPlanner
 	Duration time.Duration
@@ -18,9 +26,10 @@ func (g *AggregatorPlanner) IsMatrix() bool {
 func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 	in chan []shared.LogEntry, ops aggregatorPlannerOps) (chan []shared.LogEntry, error) {
 
-	streamLen := ctx.To.Sub(ctx.From).Nanoseconds() / p.Duration.Nanoseconds()
+	tl := p.timeline(ctx)
+	streamLen := tl.Points
 	if streamLen > 4000000000 {
-		return nil, &shared.NotSupportedError{Msg: "stream length is too large. Please try increasing duration."}
+		return nil, errStreamTooLong
 	}
 
 	res := map[uint64]*aggOpStream{}
@@ -31,10 +40,8 @@ func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 				return entry.Err
 			}
 			if _, ok := res[entry.Fingerprint]; !ok {
-				if len(res) >= 2000 {
-					return &shared.NotSupportedError{
-						Msg: "Too many time-series. Please try changing `by / without` clause.",
-					}
+				if len(res) >= maxSeries {
+					return errTooManySeries
 				}
 				res[entry.Fingerprint] = &aggOpStream{
 					labels: entry.Labels,
@@ -58,7 +65,7 @@ func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 					if v.values[i+1] > 0 {
 						entries = append(entries, shared.LogEntry{
 							Fingerprint: k,
-							TimestampNS: ctx.From.Add(time.Duration(i/2) * p.Duration).UnixNano(),
+							TimestampNS: tl.At(int64(i / 2)),
 							Labels:      v.labels,
 							Value:       v.values[i],
 						})
@@ -72,6 +79,19 @@ func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 		},
 	})
 
+}
+
+// timeline returns the output times: the evaluation grid, or R-wide slots
+// from ctx.From when there is none.
+func (p *AggregatorPlanner) timeline(ctx *shared.PlannerContext) shared.EvalGrid {
+	if ctx.Grid != nil {
+		return *ctx.Grid
+	}
+	return shared.EvalGrid{
+		FirstNs: ctx.From.UnixNano(),
+		StepNs:  p.Duration.Nanoseconds(),
+		Points:  ctx.To.Sub(ctx.From).Nanoseconds() / p.Duration.Nanoseconds(),
+	}
 }
 
 type aggregatorPlannerOps struct {
