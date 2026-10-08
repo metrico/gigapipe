@@ -231,14 +231,58 @@ var rawRegridded = map[string]bool{
 	"max_over_time(gy[1h:]) instant m15s=False":   true,
 }
 
+// singlePointRegridded are the raw instant reads of a selector without a
+// range, which bucket to the lookback of their single-point grid.
+var singlePointRegridded = map[string]bool{
+	"gx instant m15s=False":           true,
+	"gx offset 7m instant m15s=False": true,
+	"abs(gy) instant m15s=False":      true,
+}
+
+// downsampleRegridded are the metrics_15s reads keyed on the selector's grid:
+// every tagged read whose function does not need distinct samples.
+var downsampleRegridded = map[string]bool{
+	"gx range60 m15s=True":                         true,
+	"gx range300 m15s=True":                        true,
+	"gx range3600 m15s=True":                       true,
+	"gx instant m15s=True":                         true,
+	"gx offset 7m range60 m15s=True":               true,
+	"gx offset 7m range300 m15s=True":              true,
+	"gx offset 7m range3600 m15s=True":             true,
+	"gx offset 7m instant m15s=True":               true,
+	"absent_over_time(gx[5m]) range60 m15s=True":   true,
+	"absent_over_time(gx[5m]) range300 m15s=True":  true,
+	"absent_over_time(gx[5m]) range3600 m15s=True": true,
+	"absent_over_time(gx[5m]) instant m15s=True":   true,
+	"max_over_time(gy[1h:]) range60 m15s=True":     true,
+	"max_over_time(gy[1h:]) range300 m15s=True":    true,
+	"max_over_time(gy[1h:]) range3600 m15s=True":   true,
+	"max_over_time(gy[1h:]) instant m15s=True":     true,
+	"topk(1, gy) range60 m15s=True":                true,
+	"topk(1, gy) range300 m15s=True":               true,
+	"topk(1, gy) range3600 m15s=True":              true,
+	"topk(1, gy) instant m15s=True":                true,
+	"abs(gy) range60 m15s=True":                    true,
+	"abs(gy) range300 m15s=True":                   true,
+	"abs(gy) range3600 m15s=True":                  true,
+	"abs(gy) instant m15s=True":                    true,
+}
+
 // A tagged selector on the 15s lattice whose function does not need sample
-// timestamps reads exactly what it reads untagged, unless it reads raw and
-// the untagged keys miss its grid (rawRegridded).
+// timestamps reads exactly what it reads untagged, unless its keys follow its
+// grid (rawRegridded, singlePointRegridded, downsampleRegridded).
 func TestTranspileSelectOnLatticeSQLIsPinned(t *testing.T) {
 	routedRaw := []string{"irate(", "deriv(", "idelta(", "@ 1700000000"}
-	n, regridded := 0, 0
+	regriddedSets := []map[string]bool{rawRegridded, singlePointRegridded, downsampleRegridded}
+	n, regridded, want := 0, 0, 0
+	for _, set := range regriddedSets {
+		want += len(set)
+	}
 	for _, c := range loadSelectCases(t) {
-		skip := rawRegridded[c.Name]
+		skip := false
+		for _, set := range regriddedSets {
+			skip = skip || set[c.Name]
+		}
 		if skip {
 			regridded++
 		}
@@ -253,8 +297,8 @@ func TestTranspileSelectOnLatticeSQLIsPinned(t *testing.T) {
 			checkSelectHashes(t, c, planSelects(t, c.Query, c.eval(), planOpts{tag: true, metrics15s: c.Metrics15s}))
 		})
 	}
-	if n < 100 || regridded != len(rawRegridded) {
-		t.Fatalf("%d cases checked, %d of %d regridded cases found", n, regridded, len(rawRegridded))
+	if n < 100 || regridded != want {
+		t.Fatalf("%d cases checked, %d of %d regridded cases found", n, regridded, want)
 	}
 }
 
@@ -293,6 +337,8 @@ func TestTranspileSelectRoutesOffLatticeRaw(t *testing.T) {
 		{"subquery inner offset off the lattice",
 			"max_over_time((gx offset 7s)[1h:1m]) + max_over_time((gy offset 1m)[1h:1m])", rng(0, 3_600_000),
 			map[string]Route{"gx": raw, "gy": ds}},
+		{"lookback buckets of 15s read raw", "gx", rng(0, 15_000), map[string]Route{"gx": raw}},
+		{"range buckets of 15s read raw", "absent_over_time(gx[45s])", rng(0, 60_000), map[string]Route{"gx": raw}},
 		{"instant query off the lattice", "gx", instant(7_000), map[string]Route{"gx": raw}},
 		{"instant query on the lattice", "gx", instant(30_000), map[string]Route{"gx": ds}},
 		{"aligned irate, deriv and idelta read raw",

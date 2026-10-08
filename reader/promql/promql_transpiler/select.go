@@ -64,9 +64,9 @@ var supportedFunctions = map[string]bool{
 // req.Hints in place, and takes the database fields of the planner context
 // from base.
 //
-// A tagged selector reads raw samples when its grid is off the 15s lattice or
-// its function needs sample timestamps. An untagged selector routes on the
-// hints alone.
+// A tagged selector that is not a substitute steps on its grid. It reads raw
+// samples when its grid is off the 15s lattice or its function needs sample
+// timestamps. An untagged selector routes on the hints alone.
 func TranspileSelect(base shared.PlannerContext, req SelectRequest) (*TranspileResponse, error) {
 	hints := req.Hints
 	var grid *planner.Grid
@@ -76,8 +76,13 @@ func TranspileSelect(base shared.PlannerContext, req SelectRequest) (*TranspileR
 		matchers = rest
 	}
 	isSupported, ok := supportedFunctions[hints.Func]
-
-	AdjustHintsForRate(hints)
+	sub := substituteFor(matchers, req.Substitutes)
+	if grid != nil && sub == nil {
+		hints.Step = grid.StepMs
+	}
+	if grid == nil || sub != nil || hints.Range > 0 {
+		AdjustHintsForRate(hints)
+	}
 
 	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
 		hints.Start = hints.Start / planner.LatticeMs * planner.LatticeMs
@@ -90,7 +95,8 @@ func TranspileSelect(base shared.PlannerContext, req SelectRequest) (*TranspileR
 		!(isSupported || !ok)
 	if grid != nil {
 		useRawData = useRawData || !grid.OnLattice(planner.SelectorWindowMs(hints.Range)) ||
-			planner.NeedsSampleTimestamps(hints.Func)
+			planner.NeedsSampleTimestamps(hints.Func) ||
+			(planner.GridEdgeMs(*grid, hints.Range) == planner.LatticeMs && !distinctKeyed(hints))
 	}
 
 	start := hints.Start - hints.Range
@@ -102,23 +108,36 @@ func TranspileSelect(base shared.PlannerContext, req SelectRequest) (*TranspileR
 	ctx.Type = 2
 	ctx.VersionInfo = req.VersionInfo
 
-	for _, m := range matchers {
-		if m.Name != "__name__" {
-			continue
+	if sub != nil {
+		q, err := sub.Request.Process(&ctx)
+		if err != nil {
+			return nil, err
 		}
-		if sub, ok := req.Substitutes[m.Value]; ok {
-			q, err := sub.Request.Process(&ctx)
-			if err != nil {
-				return nil, err
-			}
-			return &TranspileResponse{Query: q, Route: RouteSubstitute}, nil
-		}
+		return &TranspileResponse{Query: q, Route: RouteSubstitute}, nil
 	}
 
 	if useRawData {
 		return TranspileLabelMatchers(hints, &ctx, grid, matchers...)
 	}
-	return TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
+	return TranspileLabelMatchersDownsample(hints, &ctx, grid, matchers...)
+}
+
+// distinctKeyed reports whether a metrics_15s read of hints keeps the epoch
+// keys of functions that need distinct samples.
+func distinctKeyed(hints *storage.SelectHints) bool {
+	return hints.Range > 0 && planner.NeedsDistinctSamples(hints.Func)
+}
+
+// substituteFor returns the substitute the selector's metric name stands for.
+func substituteFor(matchers []*labels.Matcher, subs map[string]*promql_parser.Substitute) *promql_parser.Substitute {
+	for _, m := range matchers {
+		if m.Name == "__name__" {
+			if sub, ok := subs[m.Value]; ok {
+				return sub
+			}
+		}
+	}
+	return nil
 }
 
 // AdjustHintsForRate settles the step the rest of the request runs on.

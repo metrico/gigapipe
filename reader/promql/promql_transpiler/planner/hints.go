@@ -108,11 +108,12 @@ func lastPerBucket(query sql.ISelect, anchor, width int64) sql.ISelect {
 // trailingWindow keeps the samples within window before each evaluation point
 // phase + k*step: [T-window, T] when closed, (T-window, T] otherwise.
 func trailingWindow(phase, step, window int64, closed bool) sql.SQLCondition {
-	ts := "timestamp_ms"
-	if phase != 0 {
-		ts = fmt.Sprintf("(timestamp_ms - %d)", phase)
-	}
-	msInStep := sql.NewRawObject(fmt.Sprintf("%s %% %d", ts, step))
+	return trailingWindowOn("timestamp_ms", phase, step, window, closed)
+}
+
+// trailingWindowOn is trailingWindow over the millisecond column col.
+func trailingWindowOn(col string, phase, step, window int64, closed bool) sql.SQLCondition {
+	msInStep := gridMod(col, phase, step)
 	edge := sql.Gt(msInStep, sql.NewIntVal(step-window))
 	if closed {
 		edge = sql.Ge(msInStep, sql.NewIntVal(step-window))

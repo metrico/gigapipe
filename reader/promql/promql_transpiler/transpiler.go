@@ -26,12 +26,20 @@ func TranspileLabelMatchers(hints *storage.SelectHints, ctx *logql_transpiler_sh
 	return &TranspileResponse{Query: query, Route: RouteRaw}, err
 }
 
-func TranspileLabelMatchersDownsample(hints *storage.SelectHints,
-	ctx *logql_transpiler_shared.PlannerContext, matchers ...*labels.Matcher) (*TranspileResponse, error) {
-	var p logql_transpiler_shared.SQLRequestPlanner = &planner.DownsampleValuesPlanner{
-		Fp: streamSelect(matchers...),
+// TranspileLabelMatchersDownsample plans a metrics_15s read. grid, when set,
+// is the selector's evaluation grid; functions that need distinct samples keep
+// the epoch keys.
+func TranspileLabelMatchersDownsample(hints *storage.SelectHints, ctx *logql_transpiler_shared.PlannerContext,
+	grid *planner.Grid, matchers ...*labels.Matcher) (*TranspileResponse, error) {
+	var p logql_transpiler_shared.SQLRequestPlanner
+	if grid != nil && !distinctKeyed(hints) {
+		p = &planner.DownsampleGridPlanner{Fp: streamSelect(matchers...), Hints: hints, Grid: *grid}
+	} else {
+		p = &planner.DownsampleHintsPlanner{
+			Main:  &planner.DownsampleValuesPlanner{ValuesPlanner: planner.ValuesPlanner{Fp: streamSelect(matchers...)}},
+			Hints: hints,
+		}
 	}
-	p = &planner.DownsampleHintsPlanner{Main: p, Hints: hints}
 	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
 	return &TranspileResponse{Query: query, Route: RouteMetrics15s}, err
