@@ -5,7 +5,7 @@ docker-compose ?= docker-compose
 # rather than duplicating the checkout.
 E2E_TESTS_REPO ?= https://github.com/metrico/gigapipe-tests.git
 E2E_TESTS_DIR ?= ./deps/gigapipe-tests
-# Branch, tag or commit of the suite to run; a PR may pin its own tests branch.
+# Branch, tag or commit of the suite that e2e-deps checks out.
 E2E_TESTS_REF ?= main
 
 # Enable the recording-rules ruler for e2e: exported so both the gigapipe
