@@ -40,11 +40,11 @@ func taggedGrid(vs *prom_parser.VectorSelector) *planner.Grid {
 	return &g
 }
 
-// onLattice reports whether vs, read over a window of rangeMs, may be pushed
+// pushable reports whether vs, with range rangeMs (0 for none), may be pushed
 // down. An untagged selector may.
-func onLattice(vs *prom_parser.VectorSelector, rangeMs int64) bool {
+func pushable(vs *prom_parser.VectorSelector, rangeMs int64) bool {
 	g := taggedGrid(vs)
-	return g == nil || g.OnLattice(rangeMs)
+	return g == nil || g.Pushable(rangeMs)
 }
 
 // streamSelect selects the series of vs by its label matchers, the grid

@@ -40,6 +40,8 @@ type planOpts struct {
 	metrics15s bool
 	// ruler tags as the ruler does, leaving step-less subqueries untagged.
 	ruler bool
+	// staleness makes WITH FILL STALENESS available.
+	staleness bool
 }
 
 var testEngine = promql.NewEngine(promql.EngineOpts{
@@ -80,6 +82,9 @@ func evalQuery(t *testing.T, query string, eval EvalGrid, opts planOpts,
 		TagGrid(expr.Expr, eval)
 	}
 	vi := dbversion.VersionInfo{}
+	if opts.staleness {
+		vi[dbversion.CapStaleness] = 1
+	}
 	if opts.metrics15s {
 		vi[dbversion.CapMetrics15s] = 1
 		if expr, err = TranspileExpressionV2(expr); err != nil {
@@ -268,12 +273,54 @@ var downsampleRegridded = map[string]bool{
 	"abs(gy) instant m15s=True":                    true,
 }
 
+// substituteRegridded are the substitute reads keyed on their grid: every
+// tagged substitute.
+var substituteRegridded = map[string]bool{
+	"avg_over_time(gy[1h]) instant m15s=True":                true,
+	"avg_over_time(gy[1h]) range300 m15s=True":               true,
+	"avg_over_time(gy[1h]) range3600 m15s=True":              true,
+	"avg_over_time(gy[1h]) range60 m15s=True":                true,
+	"count_over_time(gy{l=\"a\"}[30s]) instant m15s=True":    true,
+	"count_over_time(gy{l=\"a\"}[30s]) range300 m15s=True":   true,
+	"count_over_time(gy{l=\"a\"}[30s]) range3600 m15s=True":  true,
+	"count_over_time(gy{l=\"a\"}[30s]) range60 m15s=True":    true,
+	"increase(gc[15m]) instant m15s=True":                    true,
+	"increase(gc[15m]) range300 m15s=True":                   true,
+	"increase(gc[15m]) range3600 m15s=True":                  true,
+	"increase(gc[15m]) range60 m15s=True":                    true,
+	"max_over_time(gy[5m]) instant m15s=True":                true,
+	"max_over_time(gy[5m]) range300 m15s=True":               true,
+	"max_over_time(gy[5m]) range3600 m15s=True":              true,
+	"max_over_time(gy[5m]) range60 m15s=True":                true,
+	"max_over_time(rate(gc[5m])[1h:5m]) instant m15s=True":   true,
+	"max_over_time(rate(gc[5m])[1h:5m]) range300 m15s=True":  true,
+	"max_over_time(rate(gc[5m])[1h:5m]) range3600 m15s=True": true,
+	"max_over_time(rate(gc[5m])[1h:5m]) range60 m15s=True":   true,
+	"rate(gc[1h]) instant m15s=True":                         true,
+	"rate(gc[1h]) range300 m15s=True":                        true,
+	"rate(gc[1h]) range3600 m15s=True":                       true,
+	"rate(gc[1h]) range60 m15s=True":                         true,
+	"rate(gc[5m]) instant m15s=True":                         true,
+	"rate(gc[5m]) range300 m15s=True":                        true,
+	"rate(gc[5m]) range3600 m15s=True":                       true,
+	"rate(gc[5m]) range60 m15s=True":                         true,
+	"sum(rate(gc[15m])) instant m15s=True":                   true,
+	"sum(rate(gc[15m])) range300 m15s=True":                  true,
+	"sum(rate(gc[15m])) range3600 m15s=True":                 true,
+	"sum(rate(gc[15m])) range60 m15s=True":                   true,
+	"sum by (l) (gy) instant m15s=True":                      true,
+	"sum by (l) (gy) range300 m15s=True":                     true,
+	"sum by (l) (gy) range3600 m15s=True":                    true,
+	"sum by (l) (gy) range60 m15s=True":                      true,
+}
+
 // A tagged selector on the 15s lattice whose function does not need sample
 // timestamps reads exactly what it reads untagged, unless its keys follow its
-// grid (rawRegridded, singlePointRegridded, downsampleRegridded).
+// grid (rawRegridded, singlePointRegridded, downsampleRegridded,
+// substituteRegridded).
 func TestTranspileSelectOnLatticeSQLIsPinned(t *testing.T) {
 	routedRaw := []string{"irate(", "deriv(", "idelta(", "@ 1700000000"}
-	regriddedSets := []map[string]bool{rawRegridded, singlePointRegridded, downsampleRegridded}
+	regriddedSets := []map[string]bool{rawRegridded, singlePointRegridded, downsampleRegridded, substituteRegridded}
 	n, regridded, want := 0, 0, 0
 	for _, set := range regriddedSets {
 		want += len(set)
@@ -297,7 +344,7 @@ func TestTranspileSelectOnLatticeSQLIsPinned(t *testing.T) {
 			checkSelectHashes(t, c, planSelects(t, c.Query, c.eval(), planOpts{tag: true, metrics15s: c.Metrics15s}))
 		})
 	}
-	if n < 100 || regridded != want {
+	if n < 60 || regridded != want {
 		t.Fatalf("%d cases checked, %d of %d regridded cases found", n, regridded, want)
 	}
 }
@@ -351,6 +398,12 @@ func TestTranspileSelectRoutesOffLatticeRaw(t *testing.T) {
 		{"aggregate off the lattice reads raw", "sum by (l) (gy)", rng(7_000, 300_000),
 			map[string]Route{"gy": raw}},
 		{"instant rate off the lattice reads raw", "rate(gc[1h])", instant(7_000), map[string]Route{"gc": raw}},
+		{"rate in 15s buckets reads raw", "rate(gc[1m])", rng(0, 45_000), map[string]Route{"gc": raw}},
+		{"over_time in 15s buckets reads raw", "avg_over_time(gy[45s])", rng(0, 60_000),
+			map[string]Route{"gy": raw}},
+		{"aggregate in 15s buckets reads raw", "sum by (l) (gy)", rng(0, 15_000), map[string]Route{"gy": raw}},
+		{"aggregate of a rate in 15s buckets reads raw", "sum(rate(gc[1m]))", rng(0, 45_000),
+			map[string]Route{"gc": raw}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

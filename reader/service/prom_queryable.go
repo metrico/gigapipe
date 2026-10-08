@@ -212,9 +212,16 @@ func appendStaleMarker(samples []model.Sample, sqlFilled bool, stepMs int64, que
 // series). sqlFilled is the query-level gate from isSQLFilled: when false (e.g.
 // abs/topk and other non-substitute instant-vector functions, which are not
 // SQL-filled) no series is marked, so the engine's own 5m lookback is preserved.
-func (c *CLokiQuerier) applyStaleMarkers(series []*model.SeriesV2, sqlFilled bool,
+//
+// onGrid series, rows only on their evaluation points, are marked after every
+// gap (model.StaleAfterGaps).
+func (c *CLokiQuerier) applyStaleMarkers(series []*model.SeriesV2, sqlFilled, onGrid bool,
 	stepMs int64, queryEndMs int64) []*model.SeriesV2 {
 	for _, s := range series {
+		if sqlFilled && onGrid {
+			s.Samples = model.StaleAfterGaps(s.Samples, stepMs, queryEndMs)
+			continue
+		}
 		s.Samples = appendStaleMarker(s.Samples, sqlFilled, stepMs, queryEndMs)
 	}
 	return series
@@ -321,7 +328,7 @@ func (c *CLokiQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	if len(res.Series) > 0 && q.MapResult != nil {
 		res.Series[len(res.Series)-1].Samples = q.MapResult(res.Series[len(res.Series)-1].Samples)
 	}
-	res.Series = c.applyStaleMarkers(res.Series, isSQLFilled, hints.Step, hints.End)
+	res.Series = c.applyStaleMarkers(res.Series, isSQLFilled, q.OnGrid, hints.Step, hints.End)
 	err = lblsGetter.Fetch()
 	if err != nil {
 		return &model.SeriesSet{Error: err}

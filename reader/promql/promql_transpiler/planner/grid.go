@@ -34,6 +34,12 @@ func (g Grid) OnLattice(rangeMs int64) bool {
 	return g.PhaseMs%LatticeMs == 0 && gcd(g.StepMs, rangeMs)%LatticeMs == 0
 }
 
+// Pushable reports whether metrics_15s can serve a selector on g with range
+// rangeMs (0 for none) in buckets wider than one cell.
+func (g Grid) Pushable(rangeMs int64) bool {
+	return g.OnLattice(SelectorWindowMs(rangeMs)) && GridEdgeMs(g, rangeMs) > LatticeMs
+}
+
 // SelectorWindowMs is the window a selector reads at each evaluation point:
 // its range, or the lookback delta for a bare selector (rangeMs == 0).
 func SelectorWindowMs(rangeMs int64) int64 {

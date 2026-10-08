@@ -99,7 +99,7 @@ func GridEdgeMs(g Grid, rangeMs int64) int64 {
 func (d *DownsampleGridPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	shape := d.shape()
 	merge := d.merge()
-	edges, err := (&ValuesPlanner{Fp: d.Fp}).Process(ctx)
+	cells, edges, err := gridParts(ctx, d.Fp, shape.Phase, shape.Edge)
 	if err != nil {
 		return nil, err
 	}
@@ -108,20 +108,13 @@ func (d *DownsampleGridPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect
 		sql.NewSimpleCol(gridKey(gridMsCol, shape.Phase, shape.Width), "key_ms"),
 		sql.NewSimpleCol(merge.rawVal, "val"),
 		sql.NewSimpleCol(merge.rawAux, "aux"),
-	).AndWhere(
-		sql.Eq(gridMod(fmt.Sprintf("intDiv(samples.timestamp_ns, %d) * %d", LatticeMs*1000000, LatticeMs),
-			shape.Phase, shape.Edge), sql.NewIntVal(0)),
 	)
-	cells, err := (&DownsampleValuesPlanner{ValuesPlanner{Fp: d.Fp}}).Process(ctx)
-	if err != nil {
-		return nil, err
-	}
 	cells.Select(
 		sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
 		sql.NewSimpleCol(gridKey(gridMsCol, shape.Phase, shape.Width), "key_ms"),
 		sql.NewSimpleCol(merge.cellVal, "val"),
 		sql.NewSimpleCol(merge.cellAux, "aux"),
-	).AndWhere(sql.Neq(gridMod(gridMsCol, shape.Phase, shape.Edge), sql.NewIntVal(0)))
+	)
 	for _, p := range []sql.ISelect{cells, edges} {
 		if shape.FilterStep != 0 {
 			p.AndWhere(trailingWindowOn(gridMsCol, shape.Phase, shape.FilterStep, shape.FilterWindow, false))
@@ -145,12 +138,37 @@ func (d *DownsampleGridPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect
 		sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),
 		sql.NewOrderBy(sql.NewRawObject("timestamp_ms"), sql.ORDER_BY_DIRECTION_ASC),
 	)
-	for _, w := range edges.GetWith() {
+	return res.With(fpWith(edges)...), nil
+}
+
+// gridParts returns the two reads of a grid-keyed read over (ctx.From,
+// ctx.To]: the metrics_15s cells that do not start on an edge, phase + k*edge,
+// and the raw samples of the cells that do. Both read from the alias samples.
+func gridParts(ctx *shared.PlannerContext, fp shared.SQLRequestPlanner, phase, edge int64) (cells, edges sql.ISelect,
+	err error) {
+	edges, err = (&ValuesPlanner{Fp: fp}).Process(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	edges.AndWhere(sql.Eq(gridMod(fmt.Sprintf("intDiv(samples.timestamp_ns, %d) * %d", LatticeMs*1000000, LatticeMs),
+		phase, edge), sql.NewIntVal(0)))
+	cells, err = (&DownsampleValuesPlanner{ValuesPlanner{Fp: fp}}).Process(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	cells.AndWhere(sql.Neq(gridMod(gridMsCol, phase, edge), sql.NewIntVal(0)))
+	return cells, edges, nil
+}
+
+// fpWith returns the fingerprint CTE of sel, for hoisting onto a select built
+// over it.
+func fpWith(sel sql.ISelect) []*sql.With {
+	for _, w := range sel.GetWith() {
 		if w.GetAlias() == "fp" {
-			res.With(w)
+			return []*sql.With{w}
 		}
 	}
-	return res, nil
+	return nil
 }
 
 // gridKey keys the millisecond column col to the end of its (K-width, K]

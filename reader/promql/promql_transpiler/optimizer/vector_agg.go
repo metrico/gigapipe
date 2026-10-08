@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 
-	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
@@ -37,7 +36,7 @@ func (v *Aggregate) Applicable(expr prom_parser.Expr) bool {
 		return false
 	}
 	vs, ok := _expr.Expr.(*prom_parser.VectorSelector)
-	if !ok || !onLattice(vs, model.LookbackDeltaMs) {
+	if !ok || !pushable(vs, 0) {
 		return false
 	}
 	_, ok = aggFns[_expr.Op]
@@ -75,7 +74,7 @@ func (v *Aggregate) aggregate(fn string) prom_parser.Expr {
 		// A bare instant vector: carry each series forward 5m before combining,
 		// so out-of-phase series all contribute at every step rather than
 		// sawtoothing as their raw samples land on different steps.
-		p.Main = planner.NewInstantVectorPlanner(streamSelect(v.selector))
+		p.Main = planner.NewInstantVectorPlanner(streamSelect(v.selector), taggedGrid(v.selector))
 	}
 
 	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int64())

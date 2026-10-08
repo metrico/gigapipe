@@ -13,6 +13,8 @@ type TranspileResponse struct {
 	MapResult func(samples []model.Sample) []model.Sample
 	Query     sql.ISelect
 	Route     Route
+	// OnGrid is set when the rows are only the selector's evaluation points.
+	OnGrid bool
 }
 
 // TranspileLabelMatchers plans a raw read. grid, when set, is the selector's
@@ -27,12 +29,11 @@ func TranspileLabelMatchers(hints *storage.SelectHints, ctx *logql_transpiler_sh
 }
 
 // TranspileLabelMatchersDownsample plans a metrics_15s read. grid, when set,
-// is the selector's evaluation grid; functions that need distinct samples keep
-// the epoch keys.
+// is the selector's evaluation grid.
 func TranspileLabelMatchersDownsample(hints *storage.SelectHints, ctx *logql_transpiler_shared.PlannerContext,
 	grid *planner.Grid, matchers ...*labels.Matcher) (*TranspileResponse, error) {
 	var p logql_transpiler_shared.SQLRequestPlanner
-	if grid != nil && !distinctKeyed(hints) {
+	if grid != nil {
 		p = &planner.DownsampleGridPlanner{Fp: streamSelect(matchers...), Hints: hints, Grid: *grid}
 	} else {
 		p = &planner.DownsampleHintsPlanner{
