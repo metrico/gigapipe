@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/prometheus/prometheus/util/annotations"
 	"slices"
@@ -24,7 +23,6 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/tables"
 
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
-	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -129,82 +127,22 @@ type CLokiQuerier struct {
 	versionInfo dbversion.VersionInfo
 }
 
-var supportedFunctions = map[string]bool{
-	// Over time
-	"avg_over_time":      true,
-	"min_over_time":      true,
-	"max_over_time":      true,
-	"sum_over_time":      true,
-	"count_over_time":    true,
-	"quantile_over_time": false,
-	"stddev_over_time":   false,
-	"stdvar_over_time":   false,
-	"last_over_time":     true,
-	"present_over_time":  true,
-	"absent_over_time":   true,
-	//instant
-	"":    true,
-	"abs": true, "absent": true, "ceil": true, "exp": true, "floor": true,
-	"ln": true, "log2": true, "log10": true, "round": true, "scalar": true,
-	"sgn": true, "sort": true, "sqrt": true, "timestamp": true, "atan": true,
-	"cos": true, "cosh": true, "sin": true, "sinh": true, "tan": true,
-	"tanh": true, "deg": true, "rad": true,
-	//agg
-	"sum":   true,
-	"min":   true,
-	"max":   true,
-	"group": true,
-	"avg":   true,
-}
-
-func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
-	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
-	isSupported, ok := supportedFunctions[hints.Func]
-
-	c.adjustHintsForRate(hints)
-
-	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
-		hints.Start = hints.Start / 15000 * 15000
+// transpileLabelMatchers builds the read for one selector.
+func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints, matchers []*labels.Matcher,
+	versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
+	base := shared.PlannerContext{
+		IsCluster: c.db.Config.ClusterName != "",
+		Ctx:       c.ctx,
+		CHDb:      c.db.Session,
+		CancelCtx: nil,
 	}
-
-	useRawData := !versionInfo.Metrics15sAvailable((hints.Start-hints.Range)*1000000) ||
-		hints.Start%15000 != 0 ||
-		hints.Step < 15000 ||
-		(hints.Range > 0 && hints.Range < 15000) ||
-		!(isSupported || !ok)
-
-	start := hints.Start - hints.Range
-
-	ctx := shared.PlannerContext{
-		IsCluster:   c.db.Config.ClusterName != "",
-		From:        time.Unix(0, start*1000000),
-		To:          time.Unix(0, hints.End*1000000),
-		Ctx:         c.ctx,
-		CHDb:        c.db.Session,
-		CancelCtx:   nil,
-		Step:        time.Millisecond * time.Duration(hints.Step),
-		Type:        2,
+	tables.PopulateTableNames(&base, c.db)
+	return promql_transpiler.TranspileSelect(base, promql_transpiler.SelectRequest{
+		Hints:       hints,
+		Matchers:    matchers,
+		Substitutes: c.expr.Substitutes,
 		VersionInfo: versionInfo,
-	}
-	tables.PopulateTableNames(&ctx, c.db)
-
-	for _, m := range matchers {
-		if m.Name != "__name__" {
-			continue
-		}
-		if _, ok := c.expr.Substitutes[m.Value]; ok {
-			q, err := c.expr.Substitutes[m.Value].Request.Process(&ctx)
-			if err != nil {
-				return nil, err
-			}
-			return &promql_transpiler.TranspileResponse{Query: q}, nil
-		}
-	}
-
-	if useRawData {
-		return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
-	}
-	return promql_transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
+	})
 }
 
 // prolongFunctions are the functions whose series the raw iterator carries
@@ -213,35 +151,6 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 // covers a different, larger set -- and the two must not be conflated back into
 // one list.
 var prolongFunctions = []string{"deriv", "rate", "delta"}
-
-// adjustHintsForRate settles the step the rest of the request runs on.
-//
-// Two separate jobs. A query with no step of its own (an instant query), or a
-// range function the engine reports no range for (its argument is a subquery
-// rather than a matrix selector), has nothing to size a bucket against; 15s is
-// the metrics_15s grid, the finest step that table can answer at.
-//
-// Otherwise the only adjustment is the one the planners need: a function that
-// measures a change across samples cannot answer from a single bucket, so its
-// step is capped to what planner.BucketResolution says that takes. Capping here
-// rather than only inside the planner is what keeps it visible to useRawData
-// below -- a step the cap drops under the 15s grid is one metrics_15s cannot
-// serve at all, and routes to raw samples instead of to a bucket finer than the
-// table's own resolution. The planners apply the same function to the same
-// numbers and so reach the same width; it is idempotent, so calling it at both
-// layers is not a conflict.
-func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
-	if hints.Step != 0 && !planner.NeedsDistinctSamples(hints.Func) {
-		return
-	}
-	if hints.Step == 0 || hints.Range == 0 {
-		hints.Step = max(hints.Range/2, 15000)
-		return
-	}
-	hints.Step = planner.BucketResolution(
-		time.Duration(hints.Step)*time.Millisecond,
-		time.Duration(hints.Range)*time.Millisecond).Milliseconds()
-}
 
 func (c *CLokiQuerier) isProlong(hints *storage.SelectHints, matchers []*labels.Matcher) bool {
 	for _, m := range matchers {

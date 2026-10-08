@@ -72,6 +72,12 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(400, err.Error(), w)
 		return
 	}
+	promql_transpiler.TagGrid(expr.Expr, promql_transpiler.EvalGrid{
+		StartMs:        req.Start.UnixMilli(),
+		EndMs:          req.End.UnixMilli(),
+		StepMs:         req.Step.Milliseconds(),
+		SubqueryStepMs: promql_transpiler.DefaultSubqueryIntervalMs,
+	})
 	// The optimizers push rate/increase/aggregations down into metrics_15s;
 	// skip them when the aggregation cannot cover the query window so the
 	// engine evaluates the original expression over raw samples instead. The

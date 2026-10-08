@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
@@ -63,7 +62,11 @@ func (v *VectorRange) Applicable(expr prom_parser.Expr) bool {
 	if len(_expr.Args) != 1 {
 		return false
 	}
-	if _, ok = _expr.Args[0].(*prom_parser.MatrixSelector); !ok {
+	ms, ok := _expr.Args[0].(*prom_parser.MatrixSelector)
+	if !ok {
+		return false
+	}
+	if !onLattice(ms.VectorSelector.(*prom_parser.VectorSelector), ms.Range.Milliseconds()) {
 		return false
 	}
 	_, ok = rangeFns[_expr.Func.Name]
@@ -85,20 +88,7 @@ func (v *VectorRange) Optimize(gExpr *promql_parser.Expr, expr prom_parser.Expr)
 }
 
 func (v *VectorRange) fpPlanner() shared.SQLRequestPlanner {
-	fpPlanner := &planner.StreamSelectPlanner{
-		clickhouse_planner.StreamSelectPlanner{
-			LabelNames: nil,
-			Ops:        nil,
-			Values:     nil,
-		},
-	}
-	strSelect := v.selector.VectorSelector.(*prom_parser.VectorSelector)
-	for _, lm := range strSelect.LabelMatchers {
-		fpPlanner.LabelNames = append(fpPlanner.LabelNames, lm.Name)
-		fpPlanner.Ops = append(fpPlanner.Ops, lm.Type.String())
-		fpPlanner.Values = append(fpPlanner.Values, lm.Value)
-	}
-	return fpPlanner
+	return streamSelect(v.selector.VectorSelector.(*prom_parser.VectorSelector))
 }
 
 // substitute swaps the call out for a synthetic vector selector and registers

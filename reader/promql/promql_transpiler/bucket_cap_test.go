@@ -1,29 +1,15 @@
-package service
+package promql_transpiler
 
 import (
-	"os"
 	"regexp"
 	"strconv"
 	"testing"
 
-	clconfig "github.com/metrico/cloki-config"
-	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/prometheus/prometheus/storage"
 )
-
-// TestMain initializes the package-global config.Cloki once before any test in
-// this package runs: DownsampleHintsPlanner.Process reads
-// config.Cloki.Setting.ClokiReader.Compat_4_0_19 directly, and is otherwise nil
-// in a plain `go test` of this package.
-func TestMain(m *testing.M) {
-	if config.Cloki == nil {
-		config.Cloki = clconfig.New(clconfig.CLOKI_READER, nil, "", "")
-	}
-	os.Exit(m.Run())
-}
 
 // capStubProducer stands in for the per-step group-by a real Main planner hands
 // DownsampleHintsPlanner: one row per (fingerprint, bucket) with placeholder
@@ -46,10 +32,10 @@ func (capStubProducer) Process(ctx *shared.PlannerContext) (sql.ISelect, error) 
 //
 // deriv is the function where both caps run on the same query: it has no
 // ClickHouse pushdown of its own, so it reaches DownsampleHintsPlanner, and it
-// is in rateFunctions, so adjustHintsForRate has already capped its step by the
+// is in rateFunctions, so AdjustHintsForRate has already capped its step by the
 // time it gets there.
 //
-// At a range under 30s the two disagree. adjustHintsForRate floors its cap at
+// At a range under 30s the two disagree. AdjustHintsForRate floors its cap at
 // 15s because metrics_15s rows are stamped on a 15s grid
 // (ctrl/qryn/maintenance/metrics15s.go), so a finer bucket cannot hold a second
 // row; DownsampleHintsPlanner's own cap has no floor and overrides that back
@@ -58,8 +44,7 @@ func (capStubProducer) Process(ctx *shared.PlannerContext) (sql.ISelect, error) 
 func TestBucketCapAgreesAcrossLayers(t *testing.T) {
 	hints := &storage.SelectHints{Func: "deriv", Range: 20000, Step: 3600000}
 
-	c := &CLokiQuerier{}
-	c.adjustHintsForRate(hints)
+	AdjustHintsForRate(hints)
 
 	p := &planner.DownsampleHintsPlanner{Main: capStubProducer{}, Hints: hints}
 	req, err := p.Process(&shared.PlannerContext{})
@@ -96,10 +81,10 @@ func TestBucketCapAgreesAcrossLayers(t *testing.T) {
 	}
 }
 
-// TestAdjustHintsForRate covers what the request layer settles the step to, for
+// TestAdjustHintsForRate covers what AdjustHintsForRate settles the step to, for
 // each shape that reaches it.
 //
-// The cases that matter for routing: useRawData in transpileLabelMatchers
+// The cases that matter for routing: useRawData in TranspileSelect
 // rejects any step under 15000, the metrics_15s grid. A change function whose
 // range is small enough that half of it falls under that grid cannot be served
 // from the downsampled table at all -- no bucket width on a table stamped every
@@ -128,7 +113,7 @@ func TestAdjustHintsForRate(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			hints := &storage.SelectHints{Func: tc.fn, Step: tc.step, Range: tc.ry}
-			(&CLokiQuerier{}).adjustHintsForRate(hints)
+			AdjustHintsForRate(hints)
 			if hints.Step != tc.want {
 				t.Errorf("step: got %d, want %d", hints.Step, tc.want)
 			}

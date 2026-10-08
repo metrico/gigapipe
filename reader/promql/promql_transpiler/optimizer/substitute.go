@@ -1,6 +1,8 @@
 package optimizer
 
 import (
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
+	"github.com/prometheus/prometheus/model/labels"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -18,9 +20,42 @@ func substituteSelector(src *prom_parser.VectorSelector, metricName string) *pro
 	sub := *src
 	sub.Name = metricName
 	// Load-bearing: the engine re-derives __name__ from Name, so keeping the
-	// original matchers breaks the substitute lookup in prom_queryable.
+	// original matchers breaks the substitute lookup in prom_queryable. Only
+	// the grid matcher carries over.
 	sub.LabelMatchers = nil
+	if g := taggedGrid(src); g != nil {
+		sub.LabelMatchers = []*labels.Matcher{g.Matcher()}
+	}
 	sub.UnexpandedSeriesSet = nil
 	sub.Series = nil
 	return &sub
+}
+
+// taggedGrid returns the grid vs is tagged with, or nil.
+func taggedGrid(vs *prom_parser.VectorSelector) *planner.Grid {
+	g, _, ok := planner.GridFromMatchers(vs.LabelMatchers)
+	if !ok {
+		return nil
+	}
+	return &g
+}
+
+// onLattice reports whether vs, read over a window of rangeMs, may be pushed
+// down. An untagged selector may.
+func onLattice(vs *prom_parser.VectorSelector, rangeMs int64) bool {
+	g := taggedGrid(vs)
+	return g == nil || g.OnLattice(rangeMs)
+}
+
+// streamSelect selects the series of vs by its label matchers, the grid
+// matcher excluded.
+func streamSelect(vs *prom_parser.VectorSelector) *planner.StreamSelectPlanner {
+	fp := &planner.StreamSelectPlanner{}
+	_, matchers, _ := planner.GridFromMatchers(vs.LabelMatchers)
+	for _, m := range matchers {
+		fp.LabelNames = append(fp.LabelNames, m.Name)
+		fp.Ops = append(fp.Ops, m.Type.String())
+		fp.Values = append(fp.Values, m.Value)
+	}
+	return fp
 }

@@ -12,6 +12,7 @@ import (
 type TranspileResponse struct {
 	MapResult func(samples []model.Sample) []model.Sample
 	Query     sql.ISelect
+	Route     Route
 }
 
 func TranspileLabelMatchers(hints *storage.SelectHints,
@@ -20,7 +21,7 @@ func TranspileLabelMatchers(hints *storage.SelectHints,
 	p = &planner.HintsPlanner{Main: p, Hints: hints}
 	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
-	return &TranspileResponse{nil, query}, err
+	return &TranspileResponse{Query: query, Route: RouteRaw}, err
 }
 
 func TranspileLabelMatchersDownsample(hints *storage.SelectHints,
@@ -31,7 +32,7 @@ func TranspileLabelMatchersDownsample(hints *storage.SelectHints,
 	p = &planner.DownsampleHintsPlanner{Main: p, Hints: hints}
 	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
-	return &TranspileResponse{nil, query}, err
+	return &TranspileResponse{Query: query, Route: RouteMetrics15s}, err
 }
 
 func streamSelect(matchers ...*labels.Matcher) logql_transpiler_shared.SQLRequestPlanner {
