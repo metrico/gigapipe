@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -26,7 +27,10 @@ func (g *AggregatorPlanner) IsMatrix() bool {
 func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 	in chan []shared.LogEntry, ops aggregatorPlannerOps) (chan []shared.LogEntry, error) {
 
-	tl := p.timeline(ctx)
+	if ctx.Grid == nil {
+		return nil, fmt.Errorf("aggregation: no evaluation grid")
+	}
+	tl := *ctx.Grid
 	streamLen := tl.Points
 	if streamLen > 4000000000 {
 		return nil, errStreamTooLong
@@ -46,9 +50,6 @@ func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 				res[entry.Fingerprint] = &aggOpStream{
 					labels: entry.Labels,
 					values: make([]float64, streamLen*2),
-				}
-				if ops.initStream != nil {
-					ops.initStream(ctx, res[entry.Fingerprint])
 				}
 			}
 			ops.addValue(ctx, entry, res[entry.Fingerprint])
@@ -81,21 +82,7 @@ func (p *AggregatorPlanner) process(ctx *shared.PlannerContext,
 
 }
 
-// timeline returns the output times: the evaluation grid, or R-wide slots
-// from ctx.From when there is none.
-func (p *AggregatorPlanner) timeline(ctx *shared.PlannerContext) shared.EvalGrid {
-	if ctx.Grid != nil {
-		return *ctx.Grid
-	}
-	return shared.EvalGrid{
-		FirstNs: ctx.From.UnixNano(),
-		StepNs:  p.Duration.Nanoseconds(),
-		Points:  ctx.To.Sub(ctx.From).Nanoseconds() / p.Duration.Nanoseconds(),
-	}
-}
-
 type aggregatorPlannerOps struct {
-	addValue   func(ctx *shared.PlannerContext, entry *shared.LogEntry, stream *aggOpStream)
-	finalize   func(ctx *shared.PlannerContext, stream *aggOpStream)
-	initStream func(ctx *shared.PlannerContext, stream *aggOpStream)
+	addValue func(ctx *shared.PlannerContext, entry *shared.LogEntry, stream *aggOpStream)
+	finalize func(ctx *shared.PlannerContext, stream *aggOpStream)
 }

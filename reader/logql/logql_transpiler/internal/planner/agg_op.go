@@ -26,7 +26,7 @@ func (a *AggOpPlanner) Process(ctx *shared.PlannerContext, in chan []shared.LogE
 }
 
 func (a *AggOpPlanner) addValue(ctx *shared.PlannerContext, entry *shared.LogEntry, stream *aggOpStream) {
-	idx, ok := a.timeline(ctx).Slot(entry.TimestampNS)
+	idx, ok := ctx.Grid.Slot(entry.TimestampNS)
 	if !ok {
 		return
 	}

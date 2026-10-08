@@ -172,7 +172,7 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 		if err != nil {
 			return nil, err
 		}
-		if proc.IsMatrix() && !isAbsentOverTime(script) {
+		if proc.IsMatrix() {
 			proc, err = gridPostProcessors(script, proc)
 			return shared.RequestProcessorChain{proc}, err
 		}
@@ -180,11 +180,6 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 
 	proc, err = MatrixPostProcessors(script, proc)
 	return shared.RequestProcessorChain{proc}, err
-}
-
-func isAbsentOverTime(script *log_parser.LogQLScript) bool {
-	lra := log_parser.FindFirst[log_parser.LRAOrUnwrap](script)
-	return lra != nil && lra.Fn == "absent_over_time"
 }
 
 // gridPostProcessors evaluates a Go-path range aggregation on the request's
@@ -398,7 +393,7 @@ func breakScript(breakpoint int, script *log_parser.LogQLScript,
 				},
 			},
 		}
-		_script.StrSel = log_parser.StrSelector{}
+		_script.StrSel = log_parser.StrSelector{StrSelCmds: _script.StrSel.StrSelCmds}
 		return chScript, script, nil
 	case *log_parser.QuantileOverTime:
 		return dfs(&_script.StrSel)

@@ -485,7 +485,7 @@ func TestBinaryOperandsShareTheGrid(t *testing.T) {
 	}{
 		{goCount + ` / count_over_time({job="g"} != "x" [5m])`, true},
 		{`count_over_time({job="g"} != "x" [5m]) / (` + goCount + ` * 2)`, true},
-		{`absent_over_time({job="g"} [5m]) * count_over_time({job="g"} [5m])`, false},
+		{`absent_over_time({job="g"} [5m]) * count_over_time({job="g"} [5m])`, true},
 	} {
 		chain, err := Transpile(c.query)
 		if err != nil {

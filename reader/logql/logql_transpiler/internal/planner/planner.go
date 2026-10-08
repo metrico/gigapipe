@@ -196,14 +196,26 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 		}
 	}
 
-	if len(lra.StrSel.Pipelines) > 0 && lra.StrSel.Pipelines[len(lra.StrSel.Pipelines)-1].Unwrap != nil {
+	switch {
+	case lra.Fn == "absent_over_time":
+		labels, err := absentLabels(lra.StrSel.StrSelCmds)
+		if err != nil {
+			return nil, err
+		}
+		proc = &AbsentOverTimePlanner{
+			GenericPlanner: GenericPlanner{proc},
+			Duration:       duration,
+			Offset:         offset,
+			Labels:         labels,
+		}
+	case hasUnwrap:
 		proc = planByWithout(proc, lra.ByOrWithoutPrefix, lra.ByOrWithoutSuffix)
 		proc = &UnwrapAggPlanner{
 			AggregatorPlanner: AggregatorPlanner{GenericPlanner: GenericPlanner{proc}, Duration: duration},
 			Function:          lra.Fn,
 			Offset:            offset,
 		}
-	} else {
+	default:
 		proc = &LRAPlanner{
 			AggregatorPlanner: AggregatorPlanner{GenericPlanner: GenericPlanner{proc}, Duration: duration},
 			Func:              lra.Fn,

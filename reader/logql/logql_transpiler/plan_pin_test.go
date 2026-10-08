@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// pinnedQueries are served by the metrics_15s shortcut, the raw SQL planners
-// or the R-bucket copy; their SQL and root processor are pinned.
+// pinnedQueries are served by the metrics_15s shortcut or the raw SQL
+// planners; their SQL and root processor are pinned.
 var pinnedQueries = []string{
 	`rate({job="a"} [5m])`,
 	`count_over_time({job="a"} [1h])`,
@@ -36,8 +36,6 @@ var pinnedQueries = []string{
 	`sum by (a) (count_over_time({job="a"} | json a="x" [5m]))`,
 	`rate({job="a"} [5m]) / rate({job="b"} [5m])`,
 	`sum(rate({job="a"} != "x" [5m])) * 2`,
-	`absent_over_time({job="a"} [5m])`,
-	`absent_over_time({job="a"} | line_format "{{__line__}}" [15m])`,
 	`{job="a"} |= "x"`,
 }
 
