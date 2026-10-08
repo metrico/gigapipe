@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// pinnedQueries are served by the metrics_15s shortcut, plus one log query;
-// their SQL and root processor are pinned. Raw SQL range aggregations are
-// checked by value in rawsql_clickhouse_test.go.
+// pinnedQueries are served by the metrics_15s shortcut on the 15s lattice,
+// plus one log query; their SQL and root processor are pinned. Values are
+// checked in shortcut_clickhouse_test.go and rawsql_clickhouse_test.go.
 var pinnedQueries = []string{
 	`rate({job="a"} [5m])`,
 	`count_over_time({job="a"} [1h])`,

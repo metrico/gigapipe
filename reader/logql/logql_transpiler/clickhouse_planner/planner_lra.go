@@ -32,15 +32,8 @@ func (l *LRAPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 		}
 	}
 
-	var fn windowFn
-	switch l.Func {
-	case "rate":
-		fn = windowFn{summand: "1", final: perSecond(l.Duration)}
-	case "count_over_time":
-		fn = windowFn{summand: "1", final: plainSum}
-	case "bytes_rate", "bytes_over_time":
-		fn = windowFn{summand: "length(_string)", final: perSecond(l.Duration)}
-	default:
+	fn, ok := lineFn(l.Func, l.Duration)
+	if !ok {
 		return nil, &shared.NotSupportedError{Msg: l.Func + " is not supported"}
 	}
 	return windowSelect(ctx, main, fn, l.Duration, l.WithLabels)

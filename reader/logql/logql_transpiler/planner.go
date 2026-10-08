@@ -152,10 +152,6 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 			ClickhouseRequestPlanner: plan,
 			Matrix:                   script.Head.StrSelector == nil,
 		}
-		if proc.IsMatrix() && !clickhouse_planner.AnalyzeMetrics15sShortcut(script) {
-			proc, err = gridPostProcessors(script, proc)
-			return shared.RequestProcessorChain{proc}, err
-		}
 	} else {
 		breakpoint, err := GetBreakpoint(script)
 		if err != nil {
@@ -177,18 +173,16 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 		if err != nil {
 			return nil, err
 		}
-		if proc.IsMatrix() {
-			proc, err = gridPostProcessors(script, proc)
-			return shared.RequestProcessorChain{proc}, err
-		}
 	}
 
-	proc, err = MatrixPostProcessors(script, proc)
+	if proc.IsMatrix() {
+		proc, err = gridPostProcessors(script, proc)
+	}
 	return shared.RequestProcessorChain{proc}, err
 }
 
-// gridPostProcessors evaluates a raw SQL or Go-path range aggregation on the
-// request's evaluation grid.
+// gridPostProcessors evaluates a range aggregation on the request's
+// evaluation grid.
 func gridPostProcessors(script *log_parser.LogQLScript,
 	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
 	duration, err := shared.GetDuration(script)
@@ -209,23 +203,6 @@ func PlanLabels(scripts []*log_parser.LogQLScript) (shared.SQLRequestPlanner, er
 		}
 	}
 	return clickhouse_planner.PlanLabels(scripts)
-}
-
-func MatrixPostProcessors(script *log_parser.LogQLScript,
-	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
-	if !proc.IsMatrix() {
-		return proc, nil
-	}
-	duration, err := shared.GetDuration(script)
-	if err != nil {
-		return nil, err
-	}
-	proc = &ZeroEaterPlanner{planner.GenericPlanner{Main: proc}}
-	proc = &FixPeriodPlanner{
-		Main:     proc,
-		Duration: duration,
-	}
-	return proc, nil
 }
 
 func PlanFingerprints(script *log_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
@@ -295,32 +272,16 @@ func cancelJsonAndLogFmt(script *log_parser.LogQLScript) {
 	}
 }
 
-// planBinaryExpr plans a binary of SQL operands as one SQL query, or joins
-// them in memory when it mixes raw SQL and shortcut operands.
+// planBinaryExpr plans a binary of SQL operands as one SQL query on the grid.
 func planBinaryExpr(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) {
-	leaves := binaryLeaves(script)
-	shortcuts := 0
-	for _, leaf := range leaves {
-		if clickhouse_planner.AnalyzeMetrics15sShortcut(leaf) {
-			shortcuts++
-		}
-	}
-	if shortcuts > 0 && shortcuts < len(leaves) {
-		return planBinaryExprRAM(script)
-	}
 	sqlPlanner, err := planScriptToSQL(script)
 	if err != nil {
 		return nil, err
 	}
-	var proc shared.RequestProcessor = &shared.ClickhouseGetterPlanner{
+	proc, err := binaryGridPlanner(binaryLeaves(script), &shared.ClickhouseGetterPlanner{
 		ClickhouseRequestPlanner: sqlPlanner,
 		Matrix:                   true,
-	}
-	if shortcuts == 0 {
-		proc, err = binaryGridPlanner(leaves, proc)
-	} else {
-		proc, err = MatrixPostProcessors(script, proc)
-	}
+	})
 	if err != nil {
 		return nil, err
 	}

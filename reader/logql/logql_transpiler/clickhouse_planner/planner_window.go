@@ -30,6 +30,20 @@ func (f windowFn) summable() bool {
 	return f.summand != ""
 }
 
+// lineFn is the window of a range aggregation over log lines; bytes count
+// length(_string).
+func lineFn(function string, r time.Duration) (windowFn, bool) {
+	switch function {
+	case "rate":
+		return windowFn{summand: "1", final: perSecond(r)}, true
+	case "count_over_time":
+		return windowFn{summand: "1", final: plainSum}, true
+	case "bytes_rate", "bytes_over_time":
+		return windowFn{summand: "length(_string)", final: perSecond(r)}, true
+	}
+	return windowFn{}, false
+}
+
 func perSecond(r time.Duration) func(s, n string) string {
 	return func(s, _ string) string {
 		return fmt.Sprintf("%s / %f", s, r.Seconds())

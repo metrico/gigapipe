@@ -43,7 +43,9 @@ func chLogURL(t *testing.T) string {
 	if u == "" {
 		t.Skip("GRID_TEST_CLICKHOUSE is not set")
 	}
-	chLogSeed.once.Do(func() { chLogSeed.err = seedLogClickHouse(u, append(gridLines(), nonFiniteLines()...)) })
+	chLogSeed.once.Do(func() {
+		chLogSeed.err = seedLogClickHouse(u, append(gridLines(), nonFiniteLines()...))
+	})
 	if chLogSeed.err != nil {
 		t.Fatal(chLogSeed.err)
 	}
@@ -91,7 +93,19 @@ func seedLogClickHouse(base string, lines []logLine) error {
 			ENGINE = ReplacingMergeTree ORDER BY (fingerprint, type)`,
 		`time_series_gin (date Date, key String, val String, fingerprint UInt64, type UInt8)
 			ENGINE = ReplacingMergeTree ORDER BY (key, val, fingerprint, type)`,
+		`metrics_15s (fingerprint UInt64, timestamp_ns Int64, last AggregateFunction(argMax, Float64, Int64),
+			max SimpleAggregateFunction(max, Float64), min SimpleAggregateFunction(min, Float64),
+			count AggregateFunction(count), sum SimpleAggregateFunction(sum, Float64),
+			bytes SimpleAggregateFunction(sum, Float64), type UInt8)
+			ENGINE = AggregatingMergeTree ORDER BY (fingerprint, timestamp_ns, type)`,
 	}
+	// metrics15sMV is the view that fills metrics_15s in a deployment.
+	const metrics15sMV = `CREATE MATERIALIZED VIEW metrics_15s_mv TO metrics_15s AS SELECT fingerprint,
+		intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
+		argMaxState(value, samples.timestamp_ns) as last, maxSimpleState(value) as max,
+		minSimpleState(value) as min, countState() as count, sumSimpleState(value) as sum,
+		sumSimpleState(length(string)) as bytes, type
+		FROM samples_v3 as samples GROUP BY fingerprint, timestamp_ns, type`
 	dbs := append([]string{chLogDB}, chShardDBs[:]...)
 	for _, db := range dbs {
 		for _, s := range []string{"DROP DATABASE IF EXISTS " + db, "CREATE DATABASE " + db} {
@@ -103,6 +117,9 @@ func seedLogClickHouse(base string, lines []logLine) error {
 			if err := chExec(base, db, "CREATE TABLE "+t); err != nil {
 				return err
 			}
+		}
+		if err := chExec(base, db, metrics15sMV); err != nil {
+			return err
 		}
 	}
 	type rows struct{ series, gin, samples strings.Builder }
@@ -145,7 +162,7 @@ func seedLogClickHouse(base string, lines []logLine) error {
 			return err
 		}
 	}
-	for _, t := range []string{"samples_v3", "time_series", "time_series_gin"} {
+	for _, t := range []string{"samples_v3", "time_series", "time_series_gin", "metrics_15s"} {
 		q := fmt.Sprintf("CREATE TABLE %s_dist AS %[1]s ENGINE = Distributed(%s, '', %[1]s)", t, chCluster)
 		if err := chExec(base, chLogDB, q); err != nil {
 			return err
@@ -380,33 +397,48 @@ func TestRawSQLNonFiniteSumsOnClickHouse(t *testing.T) {
 	}
 }
 
-// TestRawSQLTopKOnClickHouse checks that topk ranks the series at each T.
-func TestRawSQLTopKOnClickHouse(t *testing.T) {
+// TestTopKOnClickHouse checks that topk ranks the series at each T on the
+// raw SQL path and the shortcut. Points where the top value ties are skipped.
+func TestTopKOnClickHouse(t *testing.T) {
 	base := chLogURL(t)
 	lines := gridLines()
 	ref := refQuery{fn: "count_over_time", r: 5 * time.Minute, by: []string{"l"}, agg: "sum"}
-	for name, req := range gridRequests {
-		db := newChDB(base)
-		p := serveRequest(t, `topk(1, sum by (l) (`+rawCount5m+`))`, req, db)
-		db.Close()
-		all := reference(lines, ref, refGrid(req))
-		want := map[string]map[int64]float64{}
-		for _, ts := range refGrid(req) {
-			best, bestV := "", math.Inf(-1)
-			for k, pts := range all {
-				if v, ok := pts[ts]; ok && v > bestV {
-					best, bestV = k, v
+	for _, q := range []string{rawCount5m, `count_over_time({job="g"} [5m])`} {
+		for name, req := range gridRequests {
+			db := newChDB(base)
+			got := gotSeries(serveRequest(t, `topk(1, sum by (l) (`+q+`))`, req, db))
+			db.Close()
+			all := reference(lines, ref, refGrid(req))
+			want := map[string]map[int64]float64{}
+			for _, ts := range refGrid(req) {
+				best, bestV, tie := "", math.Inf(-1), false
+				for k, pts := range all {
+					if v, ok := pts[ts]; ok && v >= bestV {
+						tie = v == bestV
+						best, bestV = k, v
+					}
+				}
+				if tie {
+					for k := range got {
+						delete(got[k], ts)
+					}
+					continue
+				}
+				if best != "" {
+					if want[best] == nil {
+						want[best] = map[int64]float64{}
+					}
+					want[best][ts] = bestV
 				}
 			}
-			if best != "" {
-				if want[best] == nil {
-					want[best] = map[int64]float64{}
+			for k, pts := range got {
+				if len(pts) == 0 {
+					delete(got, k)
 				}
-				want[best][ts] = bestV
 			}
-		}
-		if d := diffSeries(gotSeries(p), want); len(d) > 0 {
-			t.Errorf("%s: %v", name, d[:min(len(d), 6)])
+			if d := diffSeries(got, want); len(d) > 0 {
+				t.Errorf("%s@%s: %v", q, name, d[:min(len(d), 6)])
+			}
 		}
 	}
 }
@@ -418,22 +450,6 @@ func TestRawSQLBinariesOnClickHouse(t *testing.T) {
 	lines := gridLines()
 	count := refQuery{fn: "count_over_time", r: 5 * time.Minute}
 	shifted := refQuery{fn: "count_over_time", r: 5 * time.Minute, offset: 5 * time.Minute}
-	join := func(a, b map[string]map[int64]float64, op func(x, y float64) float64) map[string]map[int64]float64 {
-		out := map[string]map[int64]float64{}
-		for k, pts := range a {
-			for ts, v := range pts {
-				w, ok := b[k][ts]
-				if !ok || op(v, w) == 0 {
-					continue
-				}
-				if out[k] == nil {
-					out[k] = map[int64]float64{}
-				}
-				out[k][ts] = op(v, w)
-			}
-		}
-		return out
-	}
 	for _, c := range []struct {
 		query string
 		op    func(x, y float64) float64
@@ -450,7 +466,7 @@ func TestRawSQLBinariesOnClickHouse(t *testing.T) {
 					defer db.Close()
 					p := serveRequest(t, c.query, req, db)
 					times := refGrid(req)
-					want := join(reference(lines, count, times), reference(lines, shifted, times), c.op)
+					want := joinSeries(reference(lines, count, times), reference(lines, shifted, times), c.op)
 					if d := diffSeries(gotSeries(p), want); len(d) > 0 {
 						t.Errorf("%v", d[:min(len(d), 6)])
 					}
@@ -458,4 +474,23 @@ func TestRawSQLBinariesOnClickHouse(t *testing.T) {
 			}
 		}
 	}
+}
+
+// joinSeries inner-joins a and b on series and time, applies op, and drops
+// zeros.
+func joinSeries(a, b map[string]map[int64]float64, op func(x, y float64) float64) map[string]map[int64]float64 {
+	out := map[string]map[int64]float64{}
+	for k, pts := range a {
+		for ts, v := range pts {
+			w, ok := b[k][ts]
+			if !ok || op(v, w) == 0 {
+				continue
+			}
+			if out[k] == nil {
+				out[k] = map[int64]float64{}
+			}
+			out[k][ts] = op(v, w)
+		}
+	}
+	return out
 }

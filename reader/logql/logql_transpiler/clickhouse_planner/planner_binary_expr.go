@@ -51,7 +51,7 @@ func (p *BinaryExprSQLPlanner) processScalar(leftSel sql.ISelect) (sql.ISelect, 
 	return leftSel.Select(cols...), nil
 }
 
-// processBinary builds:
+// processBinary inner-joins the operands on (fingerprint, timestamp_ns):
 //
 //	SELECT fingerprint,
 //	       anyIf(labels, side = 1)                          AS labels,
@@ -63,6 +63,7 @@ func (p *BinaryExprSQLPlanner) processScalar(leftSel sql.ISelect) (sql.ISelect, 
 //	    <right query with 2 as side>
 //	) AS binary_op
 //	GROUP BY fingerprint, timestamp_ns
+//	HAVING countIf(side = 1) > 0 AND countIf(side = 2) > 0
 //	ORDER BY fingerprint ASC, timestamp_ns ASC
 func (p *BinaryExprSQLPlanner) processBinary(leftSel, rightSel sql.ISelect) (sql.ISelect, error) {
 	addSide := func(sel sql.ISelect, side int) sql.ISelect {
@@ -104,6 +105,10 @@ func (p *BinaryExprSQLPlanner) processBinary(leftSel, rightSel sql.ISelect) (sql
 		GroupBy(
 			sql.NewRawObject("fingerprint"),
 			sql.NewRawObject("timestamp_ns"),
+		).
+		AndHaving(
+			sql.Gt(sql.NewRawObject("countIf(side = 1)"), sql.NewIntVal(0)),
+			sql.Gt(sql.NewRawObject("countIf(side = 2)"), sql.NewIntVal(0)),
 		).
 		OrderBy(
 			sql.NewOrderBy(sql.NewRawObject("fingerprint"), sql.ORDER_BY_DIRECTION_ASC),

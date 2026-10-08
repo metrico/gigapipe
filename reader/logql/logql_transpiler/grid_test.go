@@ -16,8 +16,22 @@ import (
 var gridD0 = time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 
 // gridLines holds three jittered streams of uneven density; l=a/pod=1 also
-// has a line on every 5m boundary.
+// has a line on every 5m boundary, and l=b/pod=2 has lines only on 15s
+// boundaries, on an irregular subset of them.
 func gridLines() []logLine {
+	lines := jitteredLines()
+	edges := map[string]string{"job": "g", "l": "b", "pod": "2"}
+	for s := 0; s < 8*60*4; s++ {
+		if (s*s*3+s*5)%7%3 != 0 {
+			continue
+		}
+		lines = append(lines, logLine{fp: 4, labels: edges, ts: gridD0.Add(time.Duration(s) * 15 * time.Second).UnixNano(),
+			line: fmt.Sprintf("size=%d pad=%s", s%61+1, strings.Repeat("z", s%29))})
+	}
+	return lines
+}
+
+func jitteredLines() []logLine {
 	streams := []map[string]string{
 		{"job": "g", "l": "a", "pod": "1"},
 		{"job": "g", "l": "a", "pod": "2"},
@@ -484,40 +498,37 @@ func TestGoPathBinaryJoinsPerT(t *testing.T) {
 	}
 }
 
-// TestBinaryOperandsShareTheGrid checks that a binary with a grid operand
-// runs every operand on its own context with From floored to Step.
+// TestBinaryOperandsShareTheGrid checks that every operand of an in-memory
+// binary runs on the grid emitter.
 func TestBinaryOperandsShareTheGrid(t *testing.T) {
-	for _, c := range []struct {
-		query  string
-		onGrid bool
-	}{
-		{goCount + ` / count_over_time({job="g"} != "x" [5m])`, true},
-		{`count_over_time({job="g"} != "x" [5m]) / (` + goCount + ` * 2)`, true},
-		{`absent_over_time({job="g"} [5m]) * count_over_time({job="g"} [5m])`, true},
+	for _, q := range []string{
+		goCount + ` / count_over_time({job="g"} != "x" [5m])`,
+		`count_over_time({job="g"} != "x" [5m]) / (` + goCount + ` * 2)`,
+		`absent_over_time({job="g"} [5m]) * count_over_time({job="g"} [5m])`,
 	} {
-		chain, err := Transpile(c.query)
+		chain, err := Transpile(q)
 		if err != nil {
 			t.Fatal(err)
 		}
 		bin := chain[0].(*ZeroEaterPlanner).Main.(*BinaryExprProcessor)
-		if bin.OnGrid != c.onGrid {
-			t.Errorf("%s: OnGrid %v, want %v", c.query, bin.OnGrid, c.onGrid)
+		for _, op := range []shared.RequestProcessorChain{bin.Left, bin.Right} {
+			if !onTheGrid(op[0]) {
+				t.Errorf("%s: operand %T is not on the grid", q, op[0])
+			}
 		}
 	}
-	left, right := &stubProcessor{}, &stubProcessor{}
-	bin := &BinaryExprProcessor{Left: shared.RequestProcessorChain{left}, Right: shared.RequestProcessorChain{right}, Op: "+", OnGrid: true}
-	ctx := &shared.PlannerContext{From: time.Unix(1234, 0), To: time.Unix(4000, 0), Step: 5 * time.Minute}
-	ch, err := bin.Process(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+}
+
+func onTheGrid(p shared.RequestProcessor) bool {
+	switch p := p.(type) {
+	case *GridPlanner:
+		return true
+	case *ZeroEaterPlanner:
+		return onTheGrid(p.Main)
+	case *BinaryExprProcessor:
+		return onTheGrid(p.Left[0]) && (p.IsScalar || onTheGrid(p.Right[0]))
 	}
-	for range ch {
-	}
-	for _, s := range []*stubProcessor{left, right} {
-		if s.ctx == ctx || s.ctx.From.Unix() != 1200 {
-			t.Errorf("operand context %p From %d, want a copy at 1200", s.ctx, s.ctx.From.Unix())
-		}
-	}
+	return false
 }
 
 type genProcessor struct {
@@ -533,26 +544,21 @@ func (g *genProcessor) Process(ctx *shared.PlannerContext, _ chan []shared.LogEn
 	return out, nil
 }
 
-// TestMixedBinaryJoinsEveryGridPoint joins a grid operand with an R-bucket
-// operand over a request that starts and ends off a step boundary.
-func TestMixedBinaryJoinsEveryGridPoint(t *testing.T) {
+// TestBinaryJoinsEveryGridPoint joins two grid operands over a request that
+// starts and ends off a step boundary.
+func TestBinaryJoinsEveryGridPoint(t *testing.T) {
 	r, step := 5*time.Minute, time.Minute
-	grid := &GridPlanner{Duration: r, Main: &genProcessor{gen: func(ctx *shared.PlannerContext) []shared.LogEntry {
-		var es []shared.LogEntry
-		for k := int64(0); k < ctx.Grid.Points; k++ {
-			es = append(es, shared.LogEntry{Fingerprint: 1, TimestampNS: ctx.Grid.At(k), Value: 1})
-		}
-		return es
-	}}}
-	buckets := &FixPeriodPlanner{Duration: r, Main: &genProcessor{gen: func(ctx *shared.PlannerContext) []shared.LogEntry {
-		var es []shared.LogEntry
-		for ts := ctx.From; ts.Before(ctx.To); ts = ts.Add(r) {
-			es = append(es, shared.LogEntry{Fingerprint: 1, TimestampNS: ts.UnixNano(), Value: 2})
-		}
-		return es
-	}}}
-	bin := &BinaryExprProcessor{Left: shared.RequestProcessorChain{grid}, Right: shared.RequestProcessorChain{buckets},
-		Op: "+", OnGrid: true}
+	operand := func(v float64) *GridPlanner {
+		return &GridPlanner{Duration: r, Main: &genProcessor{gen: func(ctx *shared.PlannerContext) []shared.LogEntry {
+			var es []shared.LogEntry
+			for k := int64(0); k < ctx.Grid.Points; k++ {
+				es = append(es, shared.LogEntry{Fingerprint: 1, TimestampNS: ctx.Grid.At(k), Value: v})
+			}
+			return es
+		}}}
+	}
+	bin := &BinaryExprProcessor{Left: shared.RequestProcessorChain{operand(1)},
+		Right: shared.RequestProcessorChain{operand(2)}, Op: "+"}
 	req := rangeReq(gridD0.Add(2*time.Hour+7*time.Second), gridD0.Add(3*time.Hour+31*time.Second), step)
 	ch, err := bin.Process(&shared.PlannerContext{From: req.start, To: req.end, Step: step}, nil)
 	if err != nil {

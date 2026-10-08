@@ -148,7 +148,7 @@ func TestRawSQLWindowShapes(t *testing.T) {
 }
 
 // TestRawSQLBinaryRouting: a binary of raw SQL operands stays one SQL query
-// on the grid; one that mixes them with shortcut operands joins in memory.
+// on the grid.
 func TestRawSQLBinaryRouting(t *testing.T) {
 	req := gridRequests["unaligned/300s"]
 	for _, q := range []string{
@@ -159,23 +159,6 @@ func TestRawSQLBinaryRouting(t *testing.T) {
 		p := runRequest(t, q, req, nil)
 		if !isGrid(p.root) || len(p.sql) != 1 {
 			t.Errorf("%s: root %T with %d statements, want *GridPlanner with 1", q, p.root, len(p.sql))
-		}
-	}
-	for _, q := range []string{
-		rawCount5m + ` / count_over_time({job="g"} [5m])`,
-		`count_over_time({job="g"} [5m]) - (` + rawCount5m + ` * 2)`,
-	} {
-		chain, err := Transpile(q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var bin *BinaryExprProcessor
-		zero, ok := chain[0].(*ZeroEaterPlanner)
-		if ok {
-			bin, ok = zero.Main.(*BinaryExprProcessor)
-		}
-		if !ok || !bin.OnGrid {
-			t.Errorf("%s: root %T, want an in-memory binary on the grid", q, chain[0])
 		}
 	}
 }
