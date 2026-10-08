@@ -6,7 +6,7 @@ docker-compose ?= docker-compose
 E2E_TESTS_REPO ?= https://github.com/metrico/gigapipe-tests.git
 E2E_TESTS_DIR ?= ./deps/gigapipe-tests
 # Branch, tag or commit of the suite that e2e-deps checks out.
-E2E_TESTS_REF ?= grid-logql-go-windows
+E2E_TESTS_REF ?= grid-logql-absent
 
 # Enable the recording-rules ruler for e2e: exported so both the gigapipe
 # server (via compose interpolation) and the test runner see the same value.
