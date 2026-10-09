@@ -34,7 +34,7 @@ require (
 	go.opentelemetry.io/collector/pdata v1.68.0
 	go.opentelemetry.io/collector/pdata/pprofile v0.161.0
 	go.opentelemetry.io/proto/otlp v1.11.0
-	golang.org/x/sync v0.23.0
+	golang.org/x/sync v0.24.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
