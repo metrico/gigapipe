@@ -12,8 +12,27 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// Plan plans script as SQL. A query the metrics_15s shortcut can serve gets
+// both the shortcut and the raw plan, and the request picks one.
 func Plan(script *logql_parser.LogQLScript, finalize bool) (shared.SQLRequestPlanner, error) {
-	return (&planner{script: script, finalize: finalize}).plan()
+	eligible := AnalyzeMetrics15sShortcut(script)
+	raw, err := (&planner{script: script, finalize: finalize, noShortcut: true, skipLineFormat: eligible}).plan()
+	if err != nil || !eligible {
+		return raw, err
+	}
+	shortcut, err := (&planner{script: script, finalize: finalize}).plan()
+	if err != nil {
+		return nil, err
+	}
+	duration, err := shared.GetDuration(script)
+	if err != nil {
+		return nil, err
+	}
+	offset, err := shared.GetOffset(script)
+	if err != nil {
+		return nil, err
+	}
+	return &ShortcutRoute{Shortcut: shortcut, Raw: raw, Duration: duration, Offset: offset}, nil
 }
 
 func PlanFingerprints(script *logql_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
@@ -35,6 +54,10 @@ func PlanLabels(scripts []*logql_parser.LogQLScript) (shared.SQLRequestPlanner, 
 type planner struct {
 	script   *logql_parser.LogQLScript
 	finalize bool
+	// noShortcut plans the raw SQL path even when metrics_15s could serve.
+	noShortcut bool
+	// skipLineFormat drops line_format, for a query that only counts lines.
+	skipLineFormat bool
 	//Analyze parameters
 	labelsJoinIdx            int
 	fpCache                  *sql.With
@@ -98,17 +121,6 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 		}
 	}
 
-	if p.script.Head.StrSelector == nil {
-		duration, err := shared.GetDuration(p.script)
-		if err != nil {
-			return nil, err
-		}
-		p.samplesPlanner = &StepFixPlanner{
-			Main:     p.samplesPlanner,
-			Duration: duration,
-		}
-	}
-
 	// A collapsed label set is already resolved: its labels are `map()` and its
 	// fingerprint is a hash of that empty set, so there is nothing in
 	// time_series to join against - the join would only shed every row.
@@ -117,7 +129,7 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 			NoStreamSelect: p.noStreamSelect,
 			Main:           p.samplesPlanner,
 			Fingerprints:   p.fpPlanner,
-			TimeSeries:     NewTimeSeriesInitPlanner(p.offsetModifier),
+			TimeSeries:     NewTimeSeriesInitPlanner(),
 			FpCache:        &p.fpCache,
 		}
 	}
@@ -177,15 +189,31 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 		if err != nil {
 			return err
 		}
-		p.samplesPlanner = &FingerprintFilterPlanner{
-			NoStreamSelect:             p.noStreamSelect,
-			FingerprintsSelectPlanner:  p.fpPlanner,
-			MainRequestPlanner:         NewMetrics15ShortcutPlanner(script.Fn, duration, p.offsetModifier),
-			FingerprintSelectWithCache: &p.fpCache,
+		filtered := func(main shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+			return &FingerprintFilterPlanner{
+				NoStreamSelect:             p.noStreamSelect,
+				FingerprintsSelectPlanner:  p.fpPlanner,
+				MainRequestPlanner:         main,
+				FingerprintSelectWithCache: &p.fpCache,
+			}
+		}
+		p.samplesPlanner = &Metrics15ShortcutPlanner{
+			Function: script.Fn,
+			Duration: duration,
+			Offset:   p.offset(),
+			Cells:    filtered(NewMetrics15sCells(script.Fn, duration)),
+			Edges:    filtered(&EdgeLinesPlanner{Duration: duration, Offset: p.offset()}),
 		}
 		return p.planComparison(script.Comparison)
 	}
 	return nil
+}
+
+func (p *planner) offset() time.Duration {
+	if p.offsetModifier == nil {
+		return 0
+	}
+	return *p.offsetModifier
 }
 
 func (p *planner) planDetectLabels() (shared.SQLRequestPlanner, error) {
@@ -237,7 +265,6 @@ func (p *planner) planTS() error {
 		LabelNames:     labelNames,
 		Ops:            ops,
 		Values:         values,
-		Offset:         p.offsetModifier,
 	}
 
 	p.fpPlanner = _fpPlanner
@@ -274,14 +301,16 @@ func (p *planner) planSpl() error {
 				NoStreamSelect: p.noStreamSelect,
 				Main:           &MainOrderByPlanner{[]string{"timestamp_ns"}, p.samplesPlanner},
 				Fingerprints:   p.fpPlanner,
-				TimeSeries:     NewTimeSeriesInitPlanner(p.offsetModifier),
+				TimeSeries:     NewTimeSeriesInitPlanner(),
 				FpCache:        &p.fpCache,
 				LabelsCache:    &p.labelsCache,
 			}
 		}
 		var err error
 		if ppl.LineFormat != nil {
-			err = p.planLineFormat(&ppl)
+			if !p.skipLineFormat {
+				err = p.planLineFormat(&ppl)
+			}
 		} else if ppl.LabelFilter != nil {
 			err = p.planLabelFilter(&ppl, i)
 		} else if ppl.LineFilter != nil {
@@ -359,6 +388,7 @@ func (p *planner) planLRA(lra *logql_parser.LRAOrUnwrap) error {
 		Duration:   duration,
 		Func:       lra.Fn,
 		WithLabels: p.labelsJoinIdx != -1,
+		Offset:     p.offset(),
 	}
 	return nil
 }
@@ -376,6 +406,7 @@ func (p *planner) planUnwrapFn(lra *logql_parser.LRAOrUnwrap) error {
 		Main:     p.samplesPlanner,
 		Func:     lra.Fn,
 		Duration: duration,
+		Offset:   p.offset(),
 	}
 	return nil
 }
@@ -460,6 +491,7 @@ func (p *planner) planQuantileOverTime(script *logql_parser.QuantileOverTime) er
 		Main:     p.samplesPlanner,
 		Param:    param,
 		Duration: duration,
+		Offset:   p.offset(),
 	}
 	return nil
 }

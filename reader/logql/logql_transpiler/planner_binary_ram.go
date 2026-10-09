@@ -167,10 +167,9 @@ func applyBinaryOp(left float64, op string, right float64) float64 {
 
 // planBinaryExprRAM plans a binary expression using in-process merging.
 // Each operand is planned as an independent RequestProcessorChain (including its
-// own ZeroEater + FixPeriod). The merged result has ZeroEater applied once more to
+// own matrix post-processors). The merged result has ZeroEater applied once more to
 // eat zeros produced by the arithmetic itself (e.g. a - a = 0).
-// FixPeriod is intentionally NOT re-applied: sub-chain timestamps are already at
-// step intervals, and re-expanding them would duplicate entries.
+// The post-processors are not re-applied to the merged result.
 func planBinaryExprRAM(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) {
 	current, err := planAtomChain(script.Head)
 	if err != nil {

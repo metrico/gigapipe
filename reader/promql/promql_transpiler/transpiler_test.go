@@ -78,7 +78,7 @@ func TestTranspilerV1(t *testing.T) {
 		Step:  (time.Second * 15).Milliseconds(),
 		Func:  "count_over_time",
 		Range: (time.Minute * 5).Milliseconds(),
-	}, ctx, &labels.Matcher{
+	}, ctx, nil, &labels.Matcher{
 		Type:  labels.MatchEqual,
 		Name:  "__name__",
 		Value: "aaa",
@@ -123,7 +123,7 @@ func TestCountOverTime_DoesNotGenerateRange(t *testing.T) {
 		End:   ctx.To.UnixMilli(),
 	}
 
-	q, err := TranspileLabelMatchersDownsample(hints, ctx,
+	q, err := TranspileLabelMatchersDownsample(hints, ctx, nil,
 		&labels.Matcher{
 			Type:  labels.MatchEqual,
 			Name:  "__name__",

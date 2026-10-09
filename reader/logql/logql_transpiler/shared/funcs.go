@@ -48,6 +48,15 @@ func GetDuration(script any) (time.Duration, error) {
 	return 0, nil
 }
 
+// GetOffset returns the offset of the script's range aggregation, 0 if none.
+func GetOffset(script any) (time.Duration, error) {
+	lra := logql_parser.FindFirst[logql_parser.LRAOrUnwrap](script)
+	if lra == nil || lra.Offset == nil {
+		return 0, nil
+	}
+	return lra.Offset.Duration()
+}
+
 func GetStrSelector(script any) *logql_parser.StrSelector {
 	dfs := func(node ...any) *logql_parser.StrSelector {
 		for _, n := range node {

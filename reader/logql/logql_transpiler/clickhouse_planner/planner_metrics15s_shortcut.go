@@ -10,83 +10,175 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// cellNs is the width of a metrics_15s cell; cell c holds the lines in
+// [c, c+15s).
+const cellNs = int64(15 * time.Second)
+
+// ShortcutRoute serves a query from metrics_15s when metrics15sServes the
+// request, and from its raw SQL plan otherwise.
+type ShortcutRoute struct {
+	Shortcut shared.SQLRequestPlanner
+	Raw      shared.SQLRequestPlanner
+	Duration time.Duration
+	Offset   time.Duration
+}
+
+func (s *ShortcutRoute) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if metrics15sServes(ctx, s.Duration, s.Offset) {
+		return s.Shortcut.Process(ctx)
+	}
+	return s.Raw.Process(ctx)
+}
+
+// metrics15sServes reports whether metrics_15s exists and every evaluation
+// time, r and the offset are multiples of 15s.
+func metrics15sServes(ctx *shared.PlannerContext, r, offset time.Duration) bool {
+	if ctx.Grid == nil {
+		return false
+	}
+	if ctx.VersionInfo != nil && !ctx.VersionInfo.HasCapability(dbversion.CapMetrics15s) {
+		return false
+	}
+	g := ctx.Grid
+	return g.FirstNs%cellNs == 0 && g.StepNs%cellNs == 0 &&
+		r.Nanoseconds()%cellNs == 0 && offset.Nanoseconds()%cellNs == 0
+}
+
+// Metrics15ShortcutPlanner evaluates rate or count_over_time over (T-R, T]
+// from the metrics_15s cells of [T-R, T), each raw line exactly on T or T-R
+// moved one cell back.
 type Metrics15ShortcutPlanner struct {
 	Function string
 	Duration time.Duration
-	Offset   *time.Duration
+	Offset   time.Duration
+	// Cells reads the cells of [From, To): fingerprint, c (cell start) and
+	// cnt (line count).
+	Cells shared.SQLRequestPlanner
+	// Edges reads the lines on the window edges: fingerprint, ts and k (line
+	// count).
+	Edges shared.SQLRequestPlanner
 }
 
-func NewMetrics15ShortcutPlanner(function string, duration time.Duration,
-	offset *time.Duration) shared.SQLRequestPlanner {
-	p := plugins.GetMetrics15ShortcutPlannerPlugin()
-	if p != nil {
+// NewMetrics15sCells reads the metrics_15s cells, or the plugin's
+// replacement.
+func NewMetrics15sCells(function string, duration time.Duration) shared.SQLRequestPlanner {
+	if p := plugins.GetMetrics15ShortcutPlannerPlugin(); p != nil {
 		return (*p)(function, duration)
 	}
-	return &Metrics15ShortcutPlanner{
-		Function: function,
-		Duration: duration,
-		Offset:   offset,
-	}
-}
-
-func (m *Metrics15ShortcutPlanner) GetQuery(ctx *shared.PlannerContext, col sql.SQLObject, table string) sql.ISelect {
-	from := ctx.From
-	to := ctx.To
-	offsetNsStr := ""
-	if m.Offset != nil {
-		from = from.Add(*m.Offset)
-		to = to.Add(*m.Offset)
-		offsetNsStr = fmt.Sprintf(" + %d", m.Offset.Nanoseconds())
-	}
-	return sql.NewSelect().
-		Select(
-			sql.NewSimpleCol(
-				fmt.Sprintf("intDiv(samples.timestamp_ns%s, %d) * %[2]d",
-					offsetNsStr,
-					m.Duration.Nanoseconds()),
-				"timestamp_ns",
-			),
-			sql.NewSimpleCol("fingerprint", "fingerprint"),
-			sql.NewSimpleCol(`''`, "string"),
-			sql.NewCol(col, "value")).
-		From(sql.NewSimpleCol(table, "samples")).
-		AndWhere(
-			sql.Ge(sql.NewRawObject("samples.timestamp_ns"),
-				sql.NewIntVal(from.UnixNano()/15000000000*15000000000)),
-			sql.Lt(sql.NewRawObject("samples.timestamp_ns"),
-				sql.NewIntVal((to.UnixNano()/15000000000)*15000000000)),
-			GetTypes(ctx)).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ns"))
+	return &metrics15sCells{}
 }
 
 func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	// Log rows flow into metrics_15s even when metric aggregation is opted
-	// out, so only a missing table forces the raw path here.
-	if ctx.VersionInfo != nil && !ctx.VersionInfo.HasCapability(dbversion.CapMetrics15s) {
-		// Same query shape over raw samples: count() per row replaces the
-		// merged count state.
-		var col sql.SQLObject
-		switch m.Function {
-		case "rate":
-			col = sql.NewRawObject(
-				fmt.Sprintf("toFloat64(count()) / %f",
-					float64(m.Duration.Milliseconds())/1000))
-		case "count_over_time":
-			col = sql.NewRawObject("count()")
+	if ctx.Grid == nil {
+		return nil, errNoGrid
+	}
+	fn, ok := lineFn(m.Function, m.Duration)
+	if !ok || fn.summand != "1" {
+		return nil, &shared.NotSupportedError{Msg: m.Function + " is not supported by metrics_15s"}
+	}
+	g := *ctx.Grid
+	rn, on := m.Duration.Nanoseconds(), m.Offset.Nanoseconds()
+	lo, hi := g.FirstNs-rn-on, g.LastNs()-on
+
+	from, to := ctx.From, ctx.To
+	defer func() { ctx.From, ctx.To = from, to }()
+	ctx.From, ctx.To = time.Unix(0, lo), time.Unix(0, hi)
+	cells, err := m.Cells.Process(ctx)
+	if err != nil {
+		return nil, err
+	}
+	edges, err := m.Edges.Process(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cellsW, edgesW := sql.NewWith(cells, "win_m"), sql.NewWith(edges, "win_x")
+	moved := sql.NewCustomCol(func(c *sql.Ctx, opts ...int) (string, error) {
+		cellsRef, err := sql.NewWithRef(cellsW).String(c, opts...)
+		if err != nil {
+			return "", err
 		}
-		return m.GetQuery(ctx, col, ctx.SamplesDistTableName), nil
+		edgesRef, err := sql.NewWithRef(edgesW).String(c, opts...)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("(SELECT fingerprint, c, cnt FROM %s UNION ALL "+
+			"SELECT fingerprint, e.1, e.2 FROM %s ARRAY JOIN [(ts - %d, k), (ts, -k)] AS e)", cellsRef, edgesRef, cellNs), nil
+	})
+	sums := func(keys ...sql.SQLObject) sql.ISelect {
+		cols := append([]sql.SQLObject{sql.NewRawObject("fingerprint")}, keys...)
+		return sql.NewSelect().With(cellsW, edgesW).
+			Select(append(cols,
+				sql.NewSimpleCol("toFloat64(sum(cnt))", "s"),
+				sql.NewSimpleCol("toInt64(sum(cnt))", "n"))...).
+			From(sql.NewCol(moved, "win_c")).
+			AndWhere(
+				sql.Ge(sql.NewRawObject("c"), sql.NewIntVal(lo)),
+				sql.Lt(sql.NewRawObject("c"), sql.NewIntVal(hi)))
 	}
-	var col sql.SQLObject
-	switch m.Function {
-	case "rate":
-		col = sql.NewRawObject(
-			fmt.Sprintf("toFloat64(countMerge(count)) / %f",
-				float64(m.Duration.Milliseconds())/1000))
-	case "count_over_time":
-		col = sql.NewRawObject("countMerge(count)")
+
+	w := window{grid: g, fn: fn, rn: rn}
+	if g.StepNs == 0 {
+		win := sql.NewWith(sums().
+			GroupBy(sql.NewRawObject("fingerprint")).
+			AndHaving(sql.Gt(sql.NewRawObject("n"), sql.NewIntVal(0))), "win_t")
+		return w.emit(win, fmt.Sprintf("toInt64(%d)", g.FirstNs),
+			fmt.Sprintf("any(%s)", fn.final("s", "n"))), nil
 	}
-	v1 := m.GetQuery(ctx, col, ctx.Metrics15sDistTableName)
-	return v1, nil
+	width := shared.Gcd(g.StepNs, rn)
+	buckets := sql.NewWith(sums(sql.NewSimpleCol(fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, width), "b")).
+		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b")
+	return w.cumulative(buckets), nil
+}
+
+// metrics15sCells reads the line count of every metrics_15s cell in
+// [From, To).
+type metrics15sCells struct{}
+
+func (*metrics15sCells) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	return sql.NewSelect().
+		Select(
+			sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
+			sql.NewSimpleCol("samples.timestamp_ns", "c"),
+			sql.NewSimpleCol("toInt64(countMerge(samples.count))", "cnt")).
+		From(sql.NewSimpleCol(ctx.Metrics15sDistTableName, "samples")).
+		AndWhere(
+			sql.Ge(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
+			sql.Lt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
+			GetTypes(ctx)).
+		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("c")), nil
+}
+
+// EdgeLinesPlanner counts the raw lines exactly on T-offset and T-offset-R
+// for every point T of the grid.
+type EdgeLinesPlanner struct {
+	Duration time.Duration
+	Offset   time.Duration
+}
+
+func (e *EdgeLinesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if ctx.Grid == nil {
+		return nil, errNoGrid
+	}
+	g := *ctx.Grid
+	rn, on := e.Duration.Nanoseconds(), e.Offset.Nanoseconds()
+	first, last := g.FirstNs-on, g.LastNs()-on
+	set := fmt.Sprintf("%d, %d", first, first-rn)
+	if g.StepNs != 0 {
+		set = fmt.Sprintf("SELECT arrayJoin(arrayConcat(range(%d, %d, %d), range(%d, %d, %[3]d)))",
+			first, last+1, g.StepNs, first-rn, last-rn+1)
+	}
+	return sql.NewSelect().
+		Select(
+			sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
+			sql.NewSimpleCol("samples.timestamp_ns", "ts"),
+			sql.NewSimpleCol("toInt64(count())", "k")).
+		From(sql.NewSimpleCol(ctx.SamplesDistTableName, "samples")).
+		AndPreWhere(
+			sql.Ge(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(first-rn)),
+			sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(last)),
+			sql.NewIn(sql.NewRawObject("samples.timestamp_ns"), sql.NewRawObject(set)),
+			GetTypes(ctx)).
+		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("ts")), nil
 }
 
 /*

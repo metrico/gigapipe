@@ -5,6 +5,8 @@ docker-compose ?= docker-compose
 # rather than duplicating the checkout.
 E2E_TESTS_REPO ?= https://github.com/metrico/gigapipe-tests.git
 E2E_TESTS_DIR ?= ./deps/gigapipe-tests
+# Branch, tag or commit of the suite that e2e-deps checks out.
+E2E_TESTS_REF ?= grid-logql-shortcut
 
 # Enable the recording-rules ruler for e2e: exported so both the gigapipe
 # server (via compose interpolation) and the test runner see the same value.
@@ -15,7 +17,7 @@ docker:
 
 e2e-deps:
 	if [ ! -d $(E2E_TESTS_DIR) ]; then git clone $(E2E_TESTS_REPO) $(E2E_TESTS_DIR); fi
-	cd $(E2E_TESTS_DIR) && git pull && git checkout main && git pull;
+	cd $(E2E_TESTS_DIR) && git fetch origin $(E2E_TESTS_REF) && git checkout --detach FETCH_HEAD
 
 e2e-build:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .

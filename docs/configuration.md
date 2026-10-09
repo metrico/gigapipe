@@ -78,7 +78,7 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 
   > **Warning:** disabling deletes the stored metric rollups permanently, and the delete cannot be undone by re-enabling. Metric history survives only where `samples_v3` still holds it, so check the raw retention first: if `samples_v3` has been given a shorter TTL than `metrics_15s` (`METRICS_15S_TTL_DAYS`, or a hand-edited TTL), the rollup is the only remaining copy of the older metric data and disabling destroys it.
 
-- **`METRICS_15S_TTL_DAYS`** - TTL in days for the `metrics_15s` rollup table (default: the database's samples TTL). This sets when rollup rows are dropped; any move-to-disk rules from the samples retention policy still apply to the table unchanged, so a longer rollup TTL keeps rows past the point where the policy has already moved them to colder storage.
+- **`METRICS_15S_TTL_DAYS`** - TTL in days for the `metrics_15s` rollup table (default: the database's samples TTL). This sets when rollup rows are dropped; any move-to-disk rules from the samples retention policy still apply to the table unchanged, so a longer rollup TTL keeps rows past the point where the policy has already moved them to colder storage. LogQL `rate` and `count_over_time` read raw lines too: those exactly on a window edge, and every line when an evaluation time, range or offset is not a multiple of 15 seconds. Keep both TTLs equal: past the raw retention a window `(T-R, T]` counts a line exactly on `T-R` in place of one exactly on `T` and a query off the 15-second lattice returns nothing, and past the rollup's retention the edge lines alone can return small counts.
 
 ## Mode
 

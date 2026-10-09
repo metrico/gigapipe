@@ -50,7 +50,6 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(400, err.Error(), w)
 		return
 	}
-	req.Start, req.End = snapQueryRangeToNativeResolution(req.Start, req.End)
 	if req.Step <= 0 {
 		PromError(400,
 			"zero or negative query resolution step widths are not accepted. Try a positive integer",
@@ -72,6 +71,12 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(400, err.Error(), w)
 		return
 	}
+	promql_transpiler.TagGrid(expr.Expr, promql_transpiler.EvalGrid{
+		StartMs:        req.Start.UnixMilli(),
+		EndMs:          req.End.UnixMilli(),
+		StepMs:         req.Step.Milliseconds(),
+		SubqueryStepMs: promql_transpiler.DefaultSubqueryIntervalMs,
+	})
 	// The optimizers push rate/increase/aggregations down into metrics_15s;
 	// skip them when the aggregation cannot cover the query window so the
 	// engine evaluates the original expression over raw samples instead. The
@@ -113,21 +118,6 @@ func (q *PromQueryRangeController) QueryRange(w http.ResponseWriter, r *http.Req
 		PromError(500, err.Error(), w)
 		return
 	}
-}
-
-// snapQueryRangeToNativeResolution aligns a query_range window to the
-// metrics_15s table's native 15s grid before it is handed to the PromQL
-// engine as the literal Start/End of the range query.
-//
-// Both bounds are floored (rounded towards -Inf), never ceiled: the engine
-// evaluates a data point at every Start+k*Step <= End, so rounding End up
-// to the next 15s boundary -- as this used to do -- fabricated one extra
-// timestamp strictly after the caller's requested end whenever end wasn't
-// already a multiple of 15. Flooring both bounds keeps Start <= End and
-// guarantees the returned window never extends past what was asked for,
-// matching real Prometheus (which never returns a point after `end`).
-func snapQueryRangeToNativeResolution(start, end time.Time) (time.Time, time.Time) {
-	return time.Unix(start.Unix()/15*15, 0), time.Unix(end.Unix()/15*15, 0)
 }
 
 func parseQueryRangePropsV2(r *http.Request) (QueryRangeProps, error) {

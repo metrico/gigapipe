@@ -121,6 +121,15 @@ func NeedsDistinctSamples(fn string) bool {
 	return changeFunctions[fn]
 }
 
+// sampleTimestampFunctions read the timestamps of individual samples, which
+// metrics_15s does not keep.
+var sampleTimestampFunctions = map[string]bool{"irate": true, "deriv": true, "idelta": true}
+
+// NeedsSampleTimestamps reports whether fn can only be served from raw samples.
+func NeedsSampleTimestamps(fn string) bool {
+	return sampleTimestampFunctions[fn]
+}
+
 // BucketResolution returns the width real samples must be grouped to before a
 // function that NeedsDistinctSamples evaluates them over a window of duration.
 //

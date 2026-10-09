@@ -176,7 +176,7 @@ func getCol(req sql.ISelect, alias string) sql.SQLObject {
 // matched it, causing the OOM in issue #702.
 func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With, windowMain *sql.With) (sql.ISelect, error) {
 	//TODO: offset?
-	_from, err := NewTimeSeriesInitPlanner(nil).Process(ctx)
+	_from, err := NewTimeSeriesInitPlanner().Process(ctx)
 	if err != nil {
 		return nil, err
 	}
