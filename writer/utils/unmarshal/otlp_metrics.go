@@ -243,13 +243,17 @@ func (d *otlpMetricsDec) decodePoints(metric *otlpmetrics.Metric, rs *resourceSc
 // rejected and counted.
 func (d *otlpMetricsDec) checkTemporality(name string, t otlpmetrics.AggregationTemporality, acceptDelta bool,
 	points int) bool {
-	switch {
-	case t == otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE:
+	switch t {
+	case otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE:
 		return true
-	case t == otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA && acceptDelta:
-		return true
+	case otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA:
+		if acceptDelta {
+			return true
+		}
+		d.stats.reject(points, fmt.Sprintf("metric %q: delta temporality is only supported for non-monotonic sums", name))
+		return false
 	}
-	d.stats.reject(points, fmt.Sprintf("metric %q: unsupported aggregation temporality %s, only cumulative is supported", name, t.String()))
+	d.stats.reject(points, fmt.Sprintf("metric %q: unsupported aggregation temporality %s", name, t.String()))
 	return false
 }
 
