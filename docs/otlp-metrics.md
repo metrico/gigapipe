@@ -41,6 +41,7 @@ Per-type mapping:
 |-----------------------|---------------|
 | Gauge                 | one series per attribute set |
 | Sum (cumulative)      | counter (`_total`) when monotonic, gauge otherwise |
+| Sum (delta, non-monotonic) | gauge (no `_total`) holding each point's raw per-interval value; query it with `sum_over_time()` |
 | Histogram (cumulative)| `_bucket` (cumulative counts, `le` labels, `+Inf`), `_sum`, `_count` |
 | ExponentialHistogram (cumulative) | converted to classic `_bucket`/`_sum`/`_count` series with exact boundaries (bucket `k`'s upper bound is `2^((k+1)·2^-scale)`, computed so power-of-two bounds are exact) |
 | Summary               | quantile-labeled series plus `_sum`/`_count` |
@@ -51,11 +52,11 @@ Per-data-point problems never fail the request: the response reports them in
 `partial_success.rejected_data_points` with a human-readable
 `error_message`, per the OTLP spec. Rejected (counted):
 
-- Sum / Histogram / ExponentialHistogram data points with **delta** or
-  unspecified aggregation temporality. gigapipe stores cumulative series
-  only; storing raw delta values would silently break `rate()` and
-  `increase()`. Use the OTel SDK default (cumulative) or the collector's
-  `deltatocumulative` processor.
+- Monotonic delta Sum, delta Histogram and delta ExponentialHistogram data
+  points, and any data point with unspecified aggregation temporality.
+  Storing raw delta values as counters or buckets would silently break
+  `rate()` and `increase()`. Use the OTel SDK default (cumulative) or the
+  collector's `deltatocumulative` processor.
 - Exponential histogram data points with negative buckets.
 - Histogram data points whose `bucket_counts` length does not match
   `explicit_bounds` + 1.

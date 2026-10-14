@@ -153,13 +153,15 @@ func TestOTLPMetricsHTTP_ProtoHappyPath(t *testing.T) {
 func TestOTLPMetricsHTTP_JSONWithPartialSuccess(t *testing.T) {
 	handler, samples := newMetricsHandler(t)
 
-	// One cumulative gauge (stored) plus one delta sum (rejected by policy).
-	// Temporality 1 = DELTA, encoded as an integer per the OTLP JSON mapping.
+	// A gauge and a non-monotonic delta sum (stored) plus a monotonic delta
+	// sum (rejected). Temporality 1 = DELTA, an integer per the OTLP JSON mapping.
 	body := `{"resourceMetrics":[{"scopeMetrics":[{"metrics":[
 		{"name":"ok.gauge","gauge":{"dataPoints":[
 			{"timeUnixNano":"1700000000000000000","asDouble":1.5}]}},
 		{"name":"bad.delta","sum":{"aggregationTemporality":1,"isMonotonic":true,"dataPoints":[
-			{"timeUnixNano":"1700000000000000000","asInt":"3"}]}}
+			{"timeUnixNano":"1700000000000000000","asInt":"3"}]}},
+		{"name":"ok.updown.delta","sum":{"aggregationTemporality":1,"isMonotonic":false,"dataPoints":[
+			{"timeUnixNano":"1700000000000000000","asInt":"-2"}]}}
 	]}]}]}`
 	req := httptest.NewRequest("POST", "/v1/metrics", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -185,8 +187,8 @@ func TestOTLPMetricsHTTP_JSONWithPartialSuccess(t *testing.T) {
 		t.Fatal("metric staging service received no requests")
 	}
 	spl := got[0].(*model.MetricSamplesData)
-	if len(spl.MValue) != 1 || spl.MValue[0] != 1.5 {
-		t.Fatalf("expected only the gauge sample, got %#v", spl.MValue)
+	if len(spl.MValue) != 2 || spl.MValue[0] != 1.5 || spl.MValue[1] != -2 {
+		t.Fatalf("expected the gauge and non-monotonic delta sum samples, got %#v", spl.MValue)
 	}
 }
 

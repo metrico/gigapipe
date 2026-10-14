@@ -208,7 +208,7 @@ func (d *otlpMetricsDec) decodePoints(metric *otlpmetrics.Metric, rs *resourceSc
 		name := buildMetricName(metric.Name, metric.Unit, false)
 		return name, "gauge", d.decodeNumberPoints(data.Gauge.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_Sum:
-		if !d.checkTemporality(metric.Name, data.Sum.AggregationTemporality, len(data.Sum.DataPoints)) {
+		if !d.checkTemporality(metric.Name, data.Sum.AggregationTemporality, !data.Sum.IsMonotonic, len(data.Sum.DataPoints)) {
 			return "", "", nil
 		}
 		metricType := "gauge"
@@ -218,13 +218,13 @@ func (d *otlpMetricsDec) decodePoints(metric *otlpmetrics.Metric, rs *resourceSc
 		name := buildMetricName(metric.Name, metric.Unit, data.Sum.IsMonotonic)
 		return name, metricType, d.decodeNumberPoints(data.Sum.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_Histogram:
-		if !d.checkTemporality(metric.Name, data.Histogram.AggregationTemporality, len(data.Histogram.DataPoints)) {
+		if !d.checkTemporality(metric.Name, data.Histogram.AggregationTemporality, false, len(data.Histogram.DataPoints)) {
 			return "", "", nil
 		}
 		name := buildMetricName(metric.Name, metric.Unit, false)
 		return name, "histogram", d.decodeHistogram(data.Histogram.DataPoints, name, metric, rs)
 	case *otlpmetrics.Metric_ExponentialHistogram:
-		if !d.checkTemporality(metric.Name, data.ExponentialHistogram.AggregationTemporality, len(data.ExponentialHistogram.DataPoints)) {
+		if !d.checkTemporality(metric.Name, data.ExponentialHistogram.AggregationTemporality, false, len(data.ExponentialHistogram.DataPoints)) {
 			return "", "", nil
 		}
 		name := buildMetricName(metric.Name, metric.Unit, false)
@@ -238,11 +238,15 @@ func (d *otlpMetricsDec) decodePoints(metric *otlpmetrics.Metric, rs *resourceSc
 	return "", "", nil
 }
 
-// checkTemporality enforces the cumulative-only storage model: data points
-// with delta or unspecified temporality are rejected and counted, never
-// stored, because PromQL rate()/increase() over raw delta values is wrong.
-func (d *otlpMetricsDec) checkTemporality(name string, t otlpmetrics.AggregationTemporality, points int) bool {
-	if t == otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE {
+// checkTemporality accepts cumulative points of every kind and delta points
+// when acceptDelta is set, which only non-monotonic Sums do. Anything else is
+// rejected and counted.
+func (d *otlpMetricsDec) checkTemporality(name string, t otlpmetrics.AggregationTemporality, acceptDelta bool,
+	points int) bool {
+	switch {
+	case t == otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE:
+		return true
+	case t == otlpmetrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA && acceptDelta:
 		return true
 	}
 	d.stats.reject(points, fmt.Sprintf("metric %q: unsupported aggregation temporality %s, only cumulative is supported", name, t.String()))

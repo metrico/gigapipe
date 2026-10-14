@@ -291,10 +291,11 @@ func TestGRPCTraces_EndToEnd(t *testing.T) {
 
 // TestGRPCMetrics_EndToEnd drives the OTLP gRPC MetricsService over an
 // in-memory bufconn connection through the production Mux stack. The request
-// mixes an ingestible cumulative monotonic sum with a delta sum that the
-// ingest policy rejects, asserting both halves of the contract at once: the
-// stored half reaches the metric staging and series services with the
-// translated name, and the rejected half is reported via partial_success.
+// mixes a cumulative monotonic sum and a non-monotonic delta sum, both stored,
+// with a monotonic delta sum that the ingest policy rejects, asserting both
+// halves of the contract at once: the stored metrics reach the metric staging
+// and series services with their translated names, and the rejected one is
+// reported via partial_success.
 func TestGRPCMetrics_EndToEnd(t *testing.T) {
 	reg := installFakeMetricsRegistry(t)
 	samples, timeSeries := reg.staging, reg.series
@@ -344,6 +345,16 @@ func TestGRPCMetrics_EndToEnd(t *testing.T) {
 						}},
 					}},
 				},
+				{
+					Name: "updown.delta",
+					Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
+						AggregationTemporality: metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
+						DataPoints: []*metricsv1.NumberDataPoint{{
+							TimeUnixNano: 1700000000_000000000,
+							Value:        &metricsv1.NumberDataPoint_AsInt{AsInt: -2},
+						}},
+					}},
+				},
 			}}},
 		}},
 	}
@@ -356,7 +367,7 @@ func TestGRPCMetrics_EndToEnd(t *testing.T) {
 	}
 
 	if resp.PartialSuccess == nil {
-		t.Fatal("expected partial_success for the delta data point")
+		t.Fatal("expected partial_success for the monotonic delta data point")
 	}
 	if resp.PartialSuccess.RejectedDataPoints != 1 {
 		t.Fatalf("expected 1 rejected data point, got %d", resp.PartialSuccess.RejectedDataPoints)
@@ -378,8 +389,8 @@ func TestGRPCMetrics_EndToEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("samples request had unexpected type %T", gotSamples[0])
 	}
-	if len(spl.MValue) != 1 || spl.MValue[0] != 5 {
-		t.Fatalf("expected exactly the cumulative sample value 5, got %#v", spl.MValue)
+	if len(spl.MValue) != 2 || spl.MValue[0] != 5 || spl.MValue[1] != -2 {
+		t.Fatalf("expected the cumulative sample 5 and the non-monotonic delta sample -2, got %#v", spl.MValue)
 	}
 
 	gotTS := timeSeries.reqs()
@@ -390,17 +401,23 @@ func TestGRPCMetrics_EndToEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("series request had unexpected type %T", gotTS[0])
 	}
-	var sawTotal bool
+	var sawTotal, sawUpDown bool
 	for _, name := range ts.MName {
-		if name == "http_requests_total" {
+		switch name {
+		case "http_requests_total":
 			sawTotal = true
+		case "updown_delta":
+			sawUpDown = true
 		}
 		if strings.Contains(name, "delta_requests") {
-			t.Fatalf("delta metric series must not be stored: %s", name)
+			t.Fatalf("monotonic delta metric series must not be stored: %s", name)
 		}
 	}
 	if !sawTotal {
 		t.Fatalf("expected a stored series named http_requests_total, got %v", ts.MName)
+	}
+	if !sawUpDown {
+		t.Fatalf("expected a stored series named updown_delta, without _total, got %v", ts.MName)
 	}
 	if len(reg.samples.reqs()) != 0 || len(reg.timeSeries.reqs()) != 0 {
 		t.Fatal("OTLP metrics reached a log insert service")

@@ -184,6 +184,82 @@ func TestOTLPMetrics_MonotonicSumBecomesCounter(t *testing.T) {
 	}
 }
 
+// TestOTLPMetrics_NonMonotonicSumIsGaugeForEitherTemporality asserts a
+// non-monotonic Sum is stored the same way whether it is cumulative or delta.
+func TestOTLPMetrics_NonMonotonicSumIsGaugeForEitherTemporality(t *testing.T) {
+	sum := func(temporality metricsv1.AggregationTemporality) *metricsv1.MetricsData {
+		return wrapMetrics(testResource(), &metricsv1.Metric{
+			Name: "queue.change", Unit: "{items}", Description: "net queue change",
+			Data: &metricsv1.Metric_Sum{Sum: &metricsv1.Sum{
+				AggregationTemporality: temporality,
+				DataPoints: []*metricsv1.NumberDataPoint{
+					{
+						StartTimeUnixNano: testTS - 1_000_000_000,
+						TimeUnixNano:      testTS,
+						Value:             &metricsv1.NumberDataPoint_AsInt{AsInt: -3},
+						Exemplars: []*metricsv1.Exemplar{{
+							TimeUnixNano: testTS,
+							Value:        &metricsv1.Exemplar_AsDouble{AsDouble: -1},
+							TraceId:      []byte("0123456789abcdef"),
+						}},
+					},
+					{
+						StartTimeUnixNano: testTS,
+						TimeUnixNano:      testTS + 1_000_000_000,
+						Value:             &metricsv1.NumberDataPoint_AsDouble{AsDouble: 5.5},
+					},
+				},
+			}},
+		})
+	}
+	cases := []struct {
+		name        string
+		temporality metricsv1.AggregationTemporality
+	}{
+		{"cumulative", metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE},
+		{"delta", metricsv1.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA},
+	}
+	cols := make([]*metricsCollector, len(cases))
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stats := &OTLPMetricsStats{}
+			col := collectMetrics(t, sum(c.temporality), stats)
+			cols[i] = col
+			got := col.find(`"__name__":"queue_change"`)
+			if len(got) != 2 || got[0].ts != testTSMs || got[0].value != -3 ||
+				got[1].ts != testTSMs+1000 || got[1].value != 5.5 {
+				t.Errorf("queue_change samples: got %+v, want -3 then 5.5", got)
+			}
+			if len(col.find("_total")) != 0 {
+				t.Errorf("non-monotonic sum must not get _total: %+v", col.samples)
+			}
+			want := metadataRow{"queue_change", "gauge", "net queue change", ""}
+			if m := col.metadata["queue_change"]; m != want {
+				t.Errorf("queue_change metadata: got %+v, want %+v", m, want)
+			}
+			if len(col.exemplars) != 1 || col.exemplars[0].value != -1 ||
+				!strings.Contains(col.fpLabels[col.exemplars[0].fp], `"__name__":"queue_change"`) {
+				t.Errorf("exemplars: got %+v, want one -1 exemplar on queue_change", col.exemplars)
+			}
+			if stats.RejectedDataPoints() != 0 {
+				t.Errorf("expected 0 rejected, got %d: %s", stats.RejectedDataPoints(), stats.ErrorMessage())
+			}
+		})
+	}
+	if cols[0] == nil || cols[1] == nil {
+		return
+	}
+	if !slices.Equal(cols[0].samples, cols[1].samples) {
+		t.Errorf("samples differ:\ncumulative %+v\ndelta      %+v", cols[0].samples, cols[1].samples)
+	}
+	if !slices.Equal(cols[0].metadataRows, cols[1].metadataRows) {
+		t.Errorf("metadata differs:\ncumulative %+v\ndelta      %+v", cols[0].metadataRows, cols[1].metadataRows)
+	}
+	if !slices.Equal(cols[0].exemplars, cols[1].exemplars) {
+		t.Errorf("exemplars differ:\ncumulative %+v\ndelta      %+v", cols[0].exemplars, cols[1].exemplars)
+	}
+}
+
 func TestOTLPMetrics_DeltaSumRejected(t *testing.T) {
 	md := wrapMetrics(testResource(), &metricsv1.Metric{
 		Name: "delta.counter",
