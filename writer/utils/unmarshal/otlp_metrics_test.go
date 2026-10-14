@@ -221,42 +221,38 @@ func TestOTLPMetrics_NonMonotonicSumIsGaugeForEitherTemporality(t *testing.T) {
 	}
 	cols := make([]*metricsCollector, len(cases))
 	for i, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			stats := &OTLPMetricsStats{}
-			col := collectMetrics(t, sum(c.temporality), stats)
-			cols[i] = col
-			got := col.find(`"__name__":"queue_change"`)
-			if len(got) != 2 || got[0].ts != testTSMs || got[0].value != -3 ||
-				got[1].ts != testTSMs+1000 || got[1].value != 5.5 {
-				t.Errorf("queue_change samples: got %+v, want -3 then 5.5", got)
-			}
-			if len(col.find("_total")) != 0 {
-				t.Errorf("non-monotonic sum must not get _total: %+v", col.samples)
-			}
-			want := metadataRow{"queue_change", "gauge", "net queue change", ""}
-			if m := col.metadata["queue_change"]; m != want {
-				t.Errorf("queue_change metadata: got %+v, want %+v", m, want)
-			}
-			if len(col.exemplars) != 1 || col.exemplars[0].value != -1 ||
-				!strings.Contains(col.fpLabels[col.exemplars[0].fp], `"__name__":"queue_change"`) {
-				t.Errorf("exemplars: got %+v, want one -1 exemplar on queue_change", col.exemplars)
-			}
-			if stats.RejectedDataPoints() != 0 {
-				t.Errorf("expected 0 rejected, got %d: %s", stats.RejectedDataPoints(), stats.ErrorMessage())
-			}
-		})
+		stats := &OTLPMetricsStats{}
+		col := collectMetrics(t, sum(c.temporality), stats)
+		cols[i] = col
+		got := col.find(`"__name__":"queue_change"`)
+		if len(got) != 2 || got[0].ts != testTSMs || got[0].value != -3 ||
+			got[1].ts != testTSMs+1000 || got[1].value != 5.5 {
+			t.Errorf("%s: queue_change samples: got %+v, want -3 then 5.5", c.name, got)
+		}
+		if len(col.find("_total")) != 0 {
+			t.Errorf("%s: non-monotonic sum must not get _total: %+v", c.name, col.samples)
+		}
+		want := metadataRow{"queue_change", "gauge", "net queue change", ""}
+		if m := col.metadata["queue_change"]; m != want {
+			t.Errorf("%s: queue_change metadata: got %+v, want %+v", c.name, m, want)
+		}
+		if len(col.exemplars) != 1 || col.exemplars[0].value != -1 ||
+			!strings.Contains(col.fpLabels[col.exemplars[0].fp], `"__name__":"queue_change"`) {
+			t.Errorf("%s: exemplars: got %+v, want one -1 exemplar on queue_change", c.name, col.exemplars)
+		}
+		if stats.RejectedDataPoints() != 0 {
+			t.Errorf("%s: expected 0 rejected, got %d: %s", c.name, stats.RejectedDataPoints(), stats.ErrorMessage())
+		}
 	}
-	if cols[0] == nil || cols[1] == nil {
-		return
+	cum, delta := cols[0], cols[1]
+	if !slices.Equal(cum.samples, delta.samples) {
+		t.Errorf("samples differ:\ncumulative %+v\ndelta      %+v", cum.samples, delta.samples)
 	}
-	if !slices.Equal(cols[0].samples, cols[1].samples) {
-		t.Errorf("samples differ:\ncumulative %+v\ndelta      %+v", cols[0].samples, cols[1].samples)
+	if !slices.Equal(cum.metadataRows, delta.metadataRows) {
+		t.Errorf("metadata differs:\ncumulative %+v\ndelta      %+v", cum.metadataRows, delta.metadataRows)
 	}
-	if !slices.Equal(cols[0].metadataRows, cols[1].metadataRows) {
-		t.Errorf("metadata differs:\ncumulative %+v\ndelta      %+v", cols[0].metadataRows, cols[1].metadataRows)
-	}
-	if !slices.Equal(cols[0].exemplars, cols[1].exemplars) {
-		t.Errorf("exemplars differ:\ncumulative %+v\ndelta      %+v", cols[0].exemplars, cols[1].exemplars)
+	if !slices.Equal(cum.exemplars, delta.exemplars) {
+		t.Errorf("exemplars differ:\ncumulative %+v\ndelta      %+v", cum.exemplars, delta.exemplars)
 	}
 }
 
