@@ -110,7 +110,7 @@ func (d *OTLPDecoder) Decode() error {
 	return nil
 }
 
-// otlpSpanDurationNs is end − start, or 0 when the span ends before it starts.
+// otlpSpanDurationNs is end - start, or 0 when the span ends before it starts.
 func otlpSpanDurationNs(span *tracev1.Span) int64 {
 	if span.EndTimeUnixNano < span.StartTimeUnixNano {
 		return 0
