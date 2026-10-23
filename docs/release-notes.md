@@ -118,23 +118,26 @@ Saved dashboards and alerts that use them will see different numbers.
   TraceQL queries are unaffected. Structural queries run with
   `enable_analyzer=1`.
 - **Schema migration.** The upgrade creates the `tempo_traces_nested_set`,
-  `tempo_traces_touched`, `tempo_traces_numbered` and
-  `tempo_traces_nested_set_batch` tables, the `tempo_traces_touched_mv`
-  materialized view on `tempo_traces`, the `tempo_traces_numbered_mv`
-  materialized view on `tempo_traces_nested_set` and, on clusters, the
-  Distributed `tempo_traces_nested_set_dist` and
-  `tempo_traces_nested_set_batch_dist`, plus a Distributed read-path table
+  `tempo_traces_touched`, `tempo_traces_numbered`,
+  `tempo_traces_nested_set_batch` and `tempo_traces_nested_set_lease`
+  tables, the `tempo_traces_touched_mv` materialized view on
+  `tempo_traces`, the `tempo_traces_numbered_mv` materialized view on
+  `tempo_traces_nested_set` and, on clusters, the Distributed
+  `tempo_traces_nested_set_dist`, `tempo_traces_nested_set_batch_dist` and
+  `tempo_traces_nested_set_lease_dist`, plus a Distributed read-path table
   over the read cluster when one is configured (see
   [Cross-Cluster Deployment](configuration.md#cross-cluster-deployment)).
   The local tables' engines follow `tempo_traces`, except
   `tempo_traces_nested_set_batch`, a plain MergeTree on every node.
   Structural queries alone need no migration, writer change or backfill.
-- **New nested-set numberer**, off by default. Enable it on exactly one
-  instance with `GIGAPIPE_NESTED_SET_NUMBERER_ENABLED`; `_IDLE` (10s),
-  `_INTERVAL` (5s) and `_MAX_SPANS` (200000, per shard on clusters) tune it.
-  It needs ClickHouse 24.9 or newer; on an older server it doesn't start and
-  every span reads `0`/`0`/`0`. There is no backfill: traces stored before
-  it ran may never be numbered. See
+- **New nested-set numberer.** It runs on every `all` or `writer`
+  instance, which elect one runner through ClickHouse; there is nothing to
+  enable. `GIGAPIPE_NESTED_SET_NUMBERER_IDLE` (10s), `_INTERVAL` (5s) and
+  `_MAX_SPANS` (200000, per shard on clusters) tune it. If the runner stops,
+  another instance takes over within 4 × `_INTERVAL`. It needs ClickHouse
+  24.9 or newer; on an older server it doesn't start and every span reads
+  `0`/`0`/`0`. There is no backfill: traces stored before it ran may never
+  be numbered. See [TraceQL](traceql.md#the-numberer) and
   [Configuration](configuration.md#traceql).
 - **New setting `GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** (1 to 32, default 20).
   Traces up to `2^R` spans deep resolve. See
@@ -158,39 +161,60 @@ Saved dashboards and alerts that use them will see different numbers.
 #### Deliberate differences from Tempo
 
 gigapipe returns what Tempo returns except for these, also listed in
-[TraceQL](traceql.md#differences-from-tempo):
+[TraceQL](traceql.md#differences-from-tempo).
 
-- Operands must start in the query range; Tempo draws operands from every
-  span of an overlapping trace.
+**Time range and trace data**
+
+- Operands must start in the query range. Tempo draws operands from every
+  span of a trace that overlaps the range.
 - Tempo's rule that returns nothing for a trace in which three or more spans
-  share a span ID is not reproduced.
-- The grouped-spanset error is static: it also fires where every trace has a
-  single group, and on spanset operators after `by()`
-  (`{A} | by(.x) | {B} > {C}`), which Tempo evaluates per group.
-- `by()` groups are ordered by key; Tempo's order is random.
-- Attribute `by()` keys are returned as strings; spans without a `status` or
-  `kind` attribute form the nil group, where Tempo reports `unset`.
-- In aggregate arguments, a span where the expression is nil (`.a + nil`) is
-  skipped; Tempo counts it.
-- `!` works inside spanset filters; Tempo returns nothing for them.
+  share a span ID is not reproduced; such traces are evaluated as stored.
+
+**Grouping**
+
+- The grouped-spanset error is raised before the query runs, so it also
+  fires on queries Tempo would run because every trace has a single group,
+  and on spanset operators after `by()` (`{A} | by(.x) | {B} > {C}`), which
+  Tempo evaluates per group.
+- Groups are ordered by key; Tempo's order is random.
+- Attribute group keys are returned as strings, since attributes are stored
+  untyped; Tempo returns typed values. `status` and `kind` read the stored
+  attribute, so spans without one form the nil group, where Tempo reports
+  `unset`.
+
+**Field expressions and filters**
+
+- `!` works inside spanset filters; Tempo returns nothing for such filters.
 - `!x` on a non-boolean is false, where Tempo can fail.
-- `x = nil` ignores scope (`span.a`, `resource.a` and `.a` all test `a`) and
-  matches only spans without `a`.
-- Int, float and duration aren't distinguished in storage: `.a = "200"` and
-  `.a = 200` both match a stored `200`.
+- `span.a = nil`, `resource.a = nil` and `.a = nil` all test `a` regardless
+  of scope, and match only spans without `a`. In Tempo the scope matters, and
+  unscoped `.a = nil` also matches spans that have `.a`.
+- Int, float and duration values aren't distinguished in storage, so
+  `.a = "200"` and `.a = 200` both match a stored `200`.
 - `int ^ int` is evaluated as written; Tempo swaps base and exponent.
 - Integer division and modulo by zero are nil, not an error.
 - `&&` and `||` treat a nil operand as false and evaluate the other side;
   Tempo usually makes the whole operation false.
-- Typing is stricter: non-boolean filters and non-numeric aggregate
-  arguments built only from attributes are rejected before the query runs.
-- Literal arithmetic in scalar filters isn't folded (`count() > 1 + 2` is
-  rejected); `count() > count()` reports Tempo's right-hand-side error text.
-- `(count() > 2) && {B}` is a parse error.
+- Typing is stricter: a filter that can't be boolean or an aggregate argument
+  that can't be numeric, built only from attributes (`{ -.a }`,
+  `{ .a * .b }`, `{ !.a = 1 }`, `{ .a + .b = "x" }`, `avg(!.a)`), is
+  rejected before the query runs. Tempo accepts these and matches nothing or
+  fails per span.
+
+**Scalar filters**
+
+- In aggregate arguments, a span where the expression is nil (`.a + nil`) is
+  skipped; Tempo counts it.
 - `sum()` over a mix of ints and floats adds every value as a float; Tempo
   drops values whose type differs from the first value's.
-- A bare word as an aggregate argument (`avg(spanN)`) reads that attribute;
-  Tempo rejects it.
+- Literal arithmetic isn't folded: `count() > 1 + 2` is rejected.
+- `count() > count()` is rejected with Tempo's right-hand-side error text.
+- `(count() > 2) && {B}` is a parse error; Tempo accepts it.
+- A bare word as an aggregate argument (`avg(spanN)`) reads the attribute of
+  that name; Tempo rejects it.
+
+**Nested-set intrinsics**
+
 - Nested-set siblings are numbered by start time, then span id; Tempo
   numbers them in its storage order, so the absolute values can differ.
 - Spans sharing a span id form one nested-set node, placed by the
@@ -201,6 +225,9 @@ gigapipe returns what Tempo returns except for these, also listed in
 - A trace reads `0`/`0`/`0` until the numberer has numbered it, about 15s
   after its last span with the defaults, and traces stored before the
   numberer ran may never be numbered.
+
+**Search results**
+
 - Each spanset lists its `spss` earliest-starting spans; Tempo lists the
   first spans in its storage order. Under clock skew, a child can be kept
   ahead of its parent.
@@ -209,8 +236,17 @@ gigapipe returns what Tempo returns except for these, also listed in
   where Tempo shows only `.b`.
 - Fields read only by a scalar filter or `by()` aren't echoed; Tempo
   returns them too.
-- `select()` attribute values are strings, and attributes named `name`,
-  `status` or `kind` share storage with the intrinsics of the same name.
+
+**`select()`**
+
+- Selected attribute values are returned as strings; Tempo returns typed
+  values.
+- An attribute named like an intrinsic shares its storage key: a span
+  attribute `name`, `status` or `kind` is reported as the span's name,
+  status or kind.
+
+**Metrics hints**
+
 - `sample` is a hash of the trace or span id; Tempo keeps one item in N with
   a counter.
 - Sampled metrics values are returned unscaled; Tempo scales them up by the

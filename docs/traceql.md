@@ -355,12 +355,19 @@ and in the filter echo it selects the intrinsic.
 ### The numberer
 
 The values are computed after ingestion by a background loop, the
-numberer, and stored in the `tempo_traces_nested_set` table. It is off by
-default; enable it with `GIGAPIPE_NESTED_SET_NUMBERER_ENABLED` (see
-[Configuration](configuration.md#traceql)).
+numberer, and stored in the `tempo_traces_nested_set` table. There is
+nothing to enable; its settings are under
+[Configuration](configuration.md#traceql).
 
-- Enable it on exactly one gigapipe instance. A second one duplicates the
-  work but can't corrupt the results.
+- Every gigapipe instance in `all` or `writer` mode takes part, and
+  ClickHouse elects one of them to run the passes through a lease in the
+  `tempo_traces_nested_set_lease` table. If the leader stops, or its passes
+  keep failing, another instance takes over within 4 ×
+  `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL` (20s by default), so values can
+  lag that much longer. `reader` instances never take part.
+- On a cluster, each instance judges the lease by the clock of the
+  ClickHouse node it connects to, so node clocks must agree to well within
+  3 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. NTP is enough.
 - It needs **ClickHouse 24.9 or newer**. On an older server it logs an error
   and doesn't start, and every span reads `0`/`0`/`0`.
 - A trace is numbered once it has received no spans for the idle period.
@@ -369,9 +376,35 @@ default; enable it with `GIGAPIPE_NESTED_SET_NUMBERER_ENABLED` (see
 - Each pass numbers at most `GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS` spans,
   oldest traces first; the rest wait for the next pass. On a cluster, each
   shard numbers its own traces and the cap applies per shard.
+- While the lease can't be read or written, numbering pauses; the instances
+  log the start and end of the outage. Traces whose only spans arrived more
+  than about a day before numbering resumes stay `0`/`0`/`0`.
 - There is no backfill. A trace that receives no spans once the
   `tempo_traces_touched` table exists is never numbered, and one whose last
-  span arrived more than a day before the numberer was enabled may not be.
+  span arrived more than a day before the numberer first ran may not be.
+
+Instances log only leadership changes: winning a term, stepping down to a
+newer one, and lease outages. To see who leads and since when (on a
+cluster, query `tempo_traces_nested_set_lease_dist`):
+
+```sql
+SELECT term,
+       if(countIf(NOT claim) > 0, argMaxIf(holder, (expires_at, holder), NOT claim),
+          argMinIf(holder, (expires_at, holder), claim)) AS leader,
+       min(expires_at) - INTERVAL 15 SECOND AS since,
+       max(expires_at) AS until,
+       until > now64(3) AS live
+FROM tempo_traces_nested_set_lease
+GROUP BY term
+ORDER BY term DESC
+LIMIT 1
+```
+
+`leader` is the hostname, PID and a random suffix of the leading process.
+`since` subtracts the lease length, 3 × the interval: `15 SECOND` holds
+only at the default, so change it to match your interval. Rows are kept
+for a day after they expire, so for a term led longer than that, `since`
+shows about a day ago.
 
 ### Unnumbered spans
 
