@@ -47,9 +47,9 @@ func openNestedSetTraces(t *testing.T) *TempoService {
 			('%032x', '%016x', '%016x', 'child', %d, 5, [('name', 'child')]),
 			('%032x', '%016x', '', 'other', %d, 1, [('name', 'other')])`,
 			1, 1, ts, 1, 2, 1, ts+1, 2, 3, ts+2),
-		fmt.Sprintf(`INSERT INTO tempo_traces_nested_set (oid, trace_id, span_id, date, left, right, parent, version)
-			VALUES ('0', unhex('%032x'), unhex('%016x'), '2026-10-01', 1, 4, -1, 1),
-			('0', unhex('%032x'), unhex('%016x'), '2026-10-01', 2, 3, 1, 1)`, 1, 1, 1, 2),
+		fmt.Sprintf(`INSERT INTO tempo_traces_nested_set (trace_id, span_id, date, left, right, parent, version)
+			VALUES (unhex('%032x'), unhex('%016x'), '2026-10-01', 1, 4, -1, 1),
+			(unhex('%032x'), unhex('%016x'), '2026-10-01', 2, 3, 1, 1)`, 1, 1, 1, 2),
 	} {
 		if err := conn.Exec(context.Background(), q); err != nil {
 			t.Fatalf("%v\n%s", err, q)

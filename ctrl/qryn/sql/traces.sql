@@ -117,7 +117,6 @@ ALTER TABLE {{.DB}}.tempo_traces_kv {{.OnCluster}}
 ## Nested-set numbering of each trace's spans; the newest version of a span wins.
 ## date is the span's start date.
 CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set {{.OnCluster}} (
-    oid String,
     trace_id FixedString(16),
     span_id FixedString(8),
     date Date,
@@ -126,19 +125,40 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set {{.OnCluster}} (
     parent Int32,
     version UInt64
 ) Engine = {{.ReplacingMergeTree}}(version)
-PARTITION BY (oid, date)
-ORDER BY (oid, trace_id, span_id) {{.CREATE_SETTINGS}};
+PARTITION BY date
+ORDER BY (trace_id, span_id) {{.CREATE_SETTINGS}};
 
 ## The latest insert time of each trace's spans.
 CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_touched {{.OnCluster}} (
-    oid String,
     trace_id FixedString(16),
     inserted_at DateTime64(3)
 ) Engine = {{.ReplacingMergeTree}}(inserted_at)
-ORDER BY (oid, trace_id)
+ORDER BY trace_id
 TTL toDateTime(inserted_at) + INTERVAL 1 DAY {{.CREATE_SETTINGS}};
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.tempo_traces_touched_mv {{.OnCluster}} TO {{.DB}}.tempo_traces_touched AS
-SELECT oid, trace_id, now64(3) AS inserted_at
+SELECT trace_id, now64(3) AS inserted_at
 FROM {{.DB}}.tempo_traces
-GROUP BY oid, trace_id;
+GROUP BY trace_id;
+
+## The newest numbering version of each recently numbered trace.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_numbered {{.OnCluster}} (
+    trace_id FixedString(16),
+    version UInt64
+) Engine = {{.ReplacingMergeTree}}(version)
+ORDER BY trace_id
+TTL toDateTime(intDiv(version, 1000)) + INTERVAL 1 DAY {{.CREATE_SETTINGS}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.tempo_traces_numbered_mv {{.OnCluster}} TO {{.DB}}.tempo_traces_numbered AS
+SELECT trace_id, max(version) AS version
+FROM {{.DB}}.tempo_traces_nested_set
+GROUP BY trace_id;
+
+## The trace ids each numbering pass numbers; local to each node.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_batch {{.OnCluster}} (
+    pass UUID,
+    trace_id FixedString(16),
+    inserted_at DateTime DEFAULT now()
+) Engine = MergeTree
+ORDER BY (pass, trace_id)
+TTL inserted_at + INTERVAL 1 HOUR {{.CREATE_SETTINGS}};

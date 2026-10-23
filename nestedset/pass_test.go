@@ -66,9 +66,9 @@ func touch(t *testing.T, conn clickhouse.Conn, ages map[int]time.Duration) {
 	exec(t, conn, "TRUNCATE TABLE tempo_traces_touched")
 	var rows []string
 	for trace, age := range ages {
-		rows = append(rows, fmt.Sprintf("('0', %s, now64(3) - toIntervalMillisecond(%d))", traceID(trace), age.Milliseconds()))
+		rows = append(rows, fmt.Sprintf("(%s, now64(3) - toIntervalMillisecond(%d))", traceID(trace), age.Milliseconds()))
 	}
-	exec(t, conn, "INSERT INTO tempo_traces_touched (oid, trace_id, inserted_at) VALUES "+strings.Join(rows, ", "))
+	exec(t, conn, "INSERT INTO tempo_traces_touched (trace_id, inserted_at) VALUES "+strings.Join(rows, ", "))
 }
 
 // stored returns the newest numbers and version of every numbered span of a trace.
@@ -76,7 +76,7 @@ func stored(t *testing.T, conn clickhouse.Conn, trace int) (map[int]numbers, uin
 	t.Helper()
 	rows, err := conn.Query(context.Background(), fmt.Sprintf(`
 		SELECT reinterpretAsUInt64(reverse(span_id)), argMax(left, version), argMax(right, version), argMax(parent, version), max(version)
-		FROM tempo_traces_nested_set WHERE oid = '0' AND trace_id = %s GROUP BY span_id`, traceID(trace)))
+		FROM tempo_traces_nested_set WHERE trace_id = %s GROUP BY span_id`, traceID(trace)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,8 +240,23 @@ func TestPassSkipsTracesTouchedWithinTheReplicaDelayPlusTwoSeconds(t *testing.T)
 	}
 	// A replica 5s behind: traces touched within the last 7s wait.
 	touch(t, conn, map[int]time.Duration{1: 6 * time.Second, 2: 8 * time.Second, 3: 2 * time.Second})
-	exec(t, conn, insertLocal(passSelect(tables{}, time.Second, 1000, "toUInt64(5)")))
+	if err := run(context.Background(), connInserter(conn), localStatements(time.Second, 1000, "toUInt64(5)")); err != nil {
+		t.Fatal(err)
+	}
 	if got := numberedTraces(t, conn, 1, 2, 3); fmt.Sprint(got) != "[2]" {
+		t.Errorf("numbered %v, want [2]", got)
+	}
+}
+
+func TestPassIgnoresATouchPastItsDayOfRetention(t *testing.T) {
+	conn := open(t)
+	insert(t, conn, chain(1, 2)...)
+	insert(t, conn, chain(2, 2)...)
+	// Trace 1's touch has expired but is not merged away yet.
+	exec(t, conn, "ALTER TABLE tempo_traces_touched REMOVE TTL")
+	touch(t, conn, map[int]time.Duration{1: 25 * time.Hour, 2: time.Minute})
+	pass(t, conn, time.Second, 1000)
+	if got := numberedTraces(t, conn, 1, 2); fmt.Sprint(got) != "[2]" {
 		t.Errorf("numbered %v, want [2]", got)
 	}
 }

@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_attrs_gin{{.READ_SUFFIX}} {{.OnC
 ) ENGINE = Distributed('{{.READ_CLUSTER}}','{{.DB}}', 'tempo_traces_attrs_gin', sipHash64(oid, trace_id)) SETTINGS skip_unavailable_shards = 1;
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set{{.READ_SUFFIX}} {{.OnCluster}} (
-    oid String,
     trace_id FixedString(16),
     span_id FixedString(8),
     date Date,
@@ -43,4 +42,4 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set{{.READ_SUFFIX}} {{.On
     right Int32,
     parent Int32,
     version UInt64
-) ENGINE = Distributed('{{.READ_CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set', sipHash64(oid, trace_id)) SETTINGS skip_unavailable_shards = 1;
+) ENGINE = Distributed('{{.READ_CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set', sipHash64('', trace_id)) SETTINGS skip_unavailable_shards = 1;

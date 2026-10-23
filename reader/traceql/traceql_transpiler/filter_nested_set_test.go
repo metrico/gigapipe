@@ -43,9 +43,9 @@ const (
 func numberTrace(t *testing.T) model.ISqlxDB {
 	t.Helper()
 	conn, db := openTraces(t)
-	execSQL(t, conn, fmt.Sprintf(`INSERT INTO tempo_traces_nested_set (oid, trace_id, span_id, date, left, right, parent, version)
-		VALUES ('0', unhex('%032x'), unhex('%016x'), '2026-10-01', 1, 4, -1, 1),
-		('0', unhex('%032x'), unhex('%016x'), '2026-10-01', 2, 3, 1, 1)`, 1, 1, 1, 2))
+	execSQL(t, conn, fmt.Sprintf(`INSERT INTO tempo_traces_nested_set (trace_id, span_id, date, left, right, parent, version)
+		VALUES (unhex('%032x'), unhex('%016x'), '2026-10-01', 1, 4, -1, 1),
+		(unhex('%032x'), unhex('%016x'), '2026-10-01', 2, 3, 1, 1)`, 1, 1, 1, 2))
 	return db
 }
 

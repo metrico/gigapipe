@@ -24,13 +24,13 @@ func showCreate(t *testing.T, conn clickhouse.Conn, table string) string {
 func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 	t.Helper()
 	ns := showCreate(t, conn, "tempo_traces_nested_set")
-	for _, want := range []string{"ReplacingMergeTree(version)", "PARTITION BY (oid, date)", "ORDER BY (oid, trace_id, span_id)"} {
+	for _, want := range []string{"ReplacingMergeTree(version)", "PARTITION BY date", "ORDER BY (trace_id, span_id)"} {
 		if !strings.Contains(ns, want) {
 			t.Errorf("tempo_traces_nested_set lacks %q:\n%s", want, ns)
 		}
 	}
 	touched := showCreate(t, conn, "tempo_traces_touched")
-	for _, want := range []string{"ReplacingMergeTree(inserted_at)", "ORDER BY (oid, trace_id)", "TTL"} {
+	for _, want := range []string{"ReplacingMergeTree(inserted_at)", "ORDER BY trace_id", "TTL"} {
 		if !strings.Contains(touched, want) {
 			t.Errorf("tempo_traces_touched lacks %q:\n%s", want, touched)
 		}
@@ -48,6 +48,23 @@ func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 	}
 	if n != 1 {
 		t.Errorf("one insert of two spans of one trace: %d touched rows, want 1", n)
+	}
+	if batch := showCreate(t, conn, "tempo_traces_nested_set_batch"); !strings.Contains(batch, "ENGINE = MergeTree") ||
+		!strings.Contains(batch, "ORDER BY (pass, trace_id)") || !strings.Contains(batch, "TTL") {
+		t.Errorf("tempo_traces_nested_set_batch is not a local MergeTree by (pass, trace_id) with a TTL:\n%s", batch)
+	}
+	if err := conn.Exec(ctx, `INSERT INTO tempo_traces_nested_set (trace_id, span_id, date, left, right, parent, version) VALUES
+		(unhex('0102030405060708090a0b0c0d0e0f10'), unhex('0102030405060708'), today(), 1, 2, -1, toUInt64(toUnixTimestamp64Milli(now64(3)))),
+		(unhex('0102030405060708090a0b0c0d0e0f10'), unhex('0102030405060709'), today(), 1, 2, -1, toUInt64(toUnixTimestamp64Milli(now64(3))) + 2)`); err != nil {
+		t.Fatal(err)
+	}
+	var newest bool
+	if err := conn.QueryRow(ctx, `SELECT (SELECT max(version) FROM tempo_traces_numbered
+		WHERE trace_id = unhex('0102030405060708090a0b0c0d0e0f10')) = (SELECT max(version) FROM tempo_traces_nested_set)`).Scan(&newest); err != nil {
+		t.Fatal(err)
+	}
+	if !newest {
+		t.Error("the newest numbering version is not the trace's newest nested-set version")
 	}
 }
 
