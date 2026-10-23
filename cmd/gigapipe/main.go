@@ -389,15 +389,18 @@ var listener net.Listener
 
 var numberer *nestedset.Numberer
 
-// startNestedSetNumberer runs the nested-set numberer when it is enabled.
-// Invalid settings of an enabled numberer fail startup; a server it can't run
-// on only logs an error.
+// startNestedSetNumberer enters an instance that boots the writer into the
+// nested-set numberer's election. Invalid settings there fail startup; a
+// server it can't run on only logs an error.
 func startNestedSetNumberer(cfg *clconfig.ClokiConfig) {
-	nsCfg, err := nestedset.ConfigFromEnv(logger.Logger.Warn)
+	if !bootsWriter(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		return
+	}
+	nsCfg, err := nestedset.ConfigFromEnv()
 	if err != nil {
 		panic(err)
 	}
-	if !nsCfg.Enabled || len(cfg.Setting.DATABASE_DATA) == 0 {
+	if len(cfg.Setting.DATABASE_DATA) == 0 {
 		return
 	}
 	db := cfg.Setting.DATABASE_DATA[0]
@@ -422,11 +425,13 @@ func stop() {
 const shutdownTimeout = 30 * time.Second
 
 // servesGRPC reports whether a node in this mode mounts the OTLP/gRPC
-// receiver. The receiver ingests through the write path (controller.Registry,
-// populated by writer.Init), so it is derived from bootSequence rather than
-// restating its mode literals: a mode that mounts the receiver without booting
-// the writer would resolve services against an empty registry.
+// receiver, which ingests through the writer.
 func servesGRPC(mode string) bool {
+	return bootsWriter(mode)
+}
+
+// bootsWriter reports whether a node in this mode boots the writer.
+func bootsWriter(mode string) bool {
 	return slices.ContainsFunc(bootSequence(mode), func(s bootStep) bool { return s.name == "writer" })
 }
 

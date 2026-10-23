@@ -12,10 +12,16 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 )
 
-// Store runs passes against ClickHouse.
+// Store runs passes against ClickHouse and keeps the numberer's lease there.
 type Store interface {
 	Version(ctx context.Context) (string, error)
 	Pass(ctx context.Context, idle time.Duration, maxSpans int) error
+	// ReadLease returns the lease rows of the highest term and the connected
+	// node's time.
+	ReadLease(ctx context.Context) ([]LeaseRow, time.Time, error)
+	// WriteLease inserts w, stamped by the connected node's clock, unless a
+	// write with the same token was stored.
+	WriteLease(ctx context.Context, w LeaseWrite) error
 }
 
 // ConnStore is a Store over a connection to a single node.
@@ -33,6 +39,18 @@ func (s ConnStore) Pass(ctx context.Context, idle time.Duration, maxSpans int) e
 	return Pass(ctx, s.Conn, idle, maxSpans)
 }
 
+// ReadLease reads the lease table.
+func (s ConnStore) ReadLease(ctx context.Context) ([]LeaseRow, time.Time, error) {
+	return s.leaseTable().read(ctx)
+}
+
+// WriteLease writes to the lease table.
+func (s ConnStore) WriteLease(ctx context.Context, w LeaseWrite) error {
+	return s.leaseTable().write(ctx, w)
+}
+
+func (s ConnStore) leaseTable() leaseTable { return leaseTable{conn: s.Conn, name: leaseTableName} }
+
 // ClusterStore is a Store over a connection to one node of a cluster whose
 // traces tables are sharded on (oid, trace_id).
 type ClusterStore struct {
@@ -48,6 +66,25 @@ func (s ClusterStore) Version(ctx context.Context) (string, error) {
 // Pass runs one pass on every shard.
 func (s ClusterStore) Pass(ctx context.Context, idle time.Duration, maxSpans int) error {
 	return ClusterPass(ctx, s.Conn, s.Cluster, s.Database, idle, maxSpans)
+}
+
+// ReadLease reads the lease through its distributed table.
+func (s ClusterStore) ReadLease(ctx context.Context) ([]LeaseRow, time.Time, error) {
+	return s.leaseTable().read(ctx)
+}
+
+// WriteLease writes to the lease through its distributed table, waiting for
+// the shard to store the row.
+func (s ClusterStore) WriteLease(ctx context.Context, w LeaseWrite) error {
+	return s.leaseTable().write(ctx, w)
+}
+
+func (s ClusterStore) leaseTable() leaseTable {
+	return leaseTable{
+		conn:     s.Conn,
+		name:     tables{db: s.Database}.prefix() + leaseTableName + "_dist",
+		settings: clickhouse.Settings{"distributed_foreground_insert": 1},
+	}
 }
 
 // minVersion is the oldest ClickHouse the pass runs on.
@@ -67,13 +104,14 @@ func SupportedVersion(version string) bool {
 	return major > minVersion[0] || major == minVersion[0] && minor >= minVersion[1]
 }
 
-// Numberer runs a pass every interval until stopped.
+// Numberer takes part in the lease every interval and runs a pass while it
+// holds it, until stopped.
 type Numberer struct {
 	cancel context.CancelFunc
 	done   sync.WaitGroup
 }
 
-// Start checks the server version and starts the passes. Below 24.9, or when
+// Start checks the server version and starts the loop. Below 24.9, or when
 // the version can't be read, it logs one error and returns nil.
 func Start(ctx context.Context, store Store, cfg Config, log logger.ILogger) *Numberer {
 	version, err := store.Version(ctx)
@@ -86,6 +124,7 @@ func Start(ctx context.Context, store Store, cfg Config, log logger.ILogger) *Nu
 			minVersion[0], minVersion[1], version))
 		return nil
 	}
+	e := &elector{store: store, me: holderID(), leaseLen: cfg.LeaseLen(), log: log, passOK: true}
 	ctx, cancel := context.WithCancel(ctx)
 	n := &Numberer{cancel: cancel}
 	n.done.Add(1)
@@ -99,12 +138,18 @@ func Start(ctx context.Context, store Store, cfg Config, log logger.ILogger) *Nu
 				return
 			case <-ticker.C:
 			}
-			if err := store.Pass(ctx, cfg.Idle, cfg.MaxSpans); err != nil && ctx.Err() == nil {
+			if !e.step(ctx) {
+				continue
+			}
+			err := store.Pass(ctx, cfg.Idle, cfg.MaxSpans)
+			e.passed(err == nil)
+			if err != nil && ctx.Err() == nil {
 				log.Error("nested-set numberer pass: ", err.Error())
 			}
 		}
 	}()
-	log.Info(fmt.Sprintf("nested-set numberer started (idle %s, interval %s, max spans %d)", cfg.Idle, cfg.Interval, cfg.MaxSpans))
+	log.Info(fmt.Sprintf("nested-set numberer started as %s (idle %s, interval %s, lease %s, max spans %d)",
+		e.me, cfg.Idle, cfg.Interval, cfg.LeaseLen(), cfg.MaxSpans))
 	return n
 }
 
@@ -112,4 +157,69 @@ func Start(ctx context.Context, store Store, cfg Config, log logger.ILogger) *Nu
 func (n *Numberer) Stop() {
 	n.cancel()
 	n.done.Wait()
+}
+
+// elector is one instance's side of the lease.
+type elector struct {
+	store    Store
+	me       string
+	leaseLen time.Duration
+	log      logger.ILogger
+	passOK   bool   // the last pass succeeded or found nothing to do
+	led      uint64 // the term this instance last led, 0 after stepping down
+	renewals uint64
+	outage   bool
+}
+
+// passed records whether the pass this instance last ran succeeded or found
+// nothing to do.
+func (e *elector) passed(ok bool) { e.passOK = ok }
+
+// step claims or renews the lease as decide says and reports whether this
+// instance leads for the iteration.
+func (e *elector) step(ctx context.Context) bool {
+	rows, now, err := e.store.ReadLease(ctx)
+	d := decide(rows, now, err, e.me, e.passOK)
+	switch d.action {
+	case claim:
+		err = e.store.WriteLease(ctx, LeaseWrite{Term: d.term, Holder: e.me, Claim: true, LeaseLen: e.leaseLen,
+			Token: claimToken(d.term)})
+		if err == nil {
+			rows, now, err = e.store.ReadLease(ctx)
+		}
+		if err == nil {
+			term, holder, live := leader(rows, now)
+			d = decision{notLeader, term}
+			if live && holder == e.me {
+				d.action = lead
+			}
+		}
+	case renew:
+		e.renewals++
+		err = e.store.WriteLease(ctx, LeaseWrite{Term: d.term, Holder: e.me, Claim: false, LeaseLen: e.leaseLen,
+			Token: fmt.Sprintf("renew-%d-%s-%d", d.term, e.me, e.renewals)})
+	case notLeader:
+		e.passOK = true
+	}
+	if err != nil {
+		if !e.outage && ctx.Err() == nil {
+			e.outage = true
+			e.log.Error("nested-set numberer lease outage, not numbering: ", err.Error())
+		}
+		return false
+	}
+	if e.outage {
+		e.outage = false
+		e.log.Info("nested-set numberer lease outage over")
+	}
+	leading := d.action == renew || d.action == lead
+	switch {
+	case leading && d.term != e.led:
+		e.led = d.term
+		e.log.Info(fmt.Sprintf("nested-set numberer: %s won term %d and runs the passes", e.me, d.term))
+	case !leading && e.led != 0 && d.term > e.led:
+		e.led = 0
+		e.log.Info(fmt.Sprintf("nested-set numberer: %s stepped down to term %d", e.me, d.term))
+	}
+	return leading
 }

@@ -50,3 +50,10 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_batch_dist {{.OnClust
     pass UUID,
     trace_id FixedString(16)
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set_batch', sipHash64('', trace_id)) {{.DIST_CREATE_SETTINGS}};
+
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_lease_dist {{.OnCluster}} (
+    term UInt64,
+    holder String,
+    claim Bool,
+    expires_at DateTime64(3)
+) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set_lease', 0) {{.DIST_CREATE_SETTINGS}};

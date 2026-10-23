@@ -30,7 +30,6 @@ services:
       PORT: "9080"
       # Ancestry resolves up to 8 spans deep.
       GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS: "3"
-      GIGAPIPE_NESTED_SET_NUMBERER_ENABLED: "true"
       GIGAPIPE_NESTED_SET_NUMBERER_IDLE: "1s"
       GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL: "1s"
     command:

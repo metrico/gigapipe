@@ -209,11 +209,14 @@ func updateScripts(db clickhouse.Conn, dbname string, clusterName string, k int6
 		"OnCluster":            " ",
 		"DefaultTtlDays":       "30",
 		"CREATE_SETTINGS":      "",
+		"MORE_CREATE_SETTINGS": "",
 		"SAMPLES_ORDER_RUL":    "timestamp_ns",
 		"DIST_CREATE_SETTINGS": "",
 	}
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)
+		// MORE_CREATE_SETTINGS follows a table's own SETTINGS list.
+		env["MORE_CREATE_SETTINGS"] = fmt.Sprintf(", storage_policy = '%s'", storagePolicy)
 	}
 	//TODO: move to the config package as it should be: os.Getenv("ADVANCED_SAMPLES_ORDERING")
 	if advancedSamplesOrdering != "" {

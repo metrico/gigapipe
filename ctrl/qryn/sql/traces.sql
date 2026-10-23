@@ -162,3 +162,14 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_batch {{.OnCluster}} 
 ) Engine = MergeTree
 ORDER BY (pass, trace_id)
 TTL inserted_at + INTERVAL 1 HOUR {{.CREATE_SETTINGS}};
+
+## The numberer's lease: in the highest term, the latest renewer leads, or before any renewal the earliest claim, while the term's latest expires_at is ahead.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_lease {{.OnCluster}} (
+    term UInt64,
+    holder String,
+    claim Bool,
+    expires_at DateTime64(3)
+) Engine = {{.MergeTree}}
+ORDER BY term
+TTL toDateTime(expires_at) + INTERVAL 1 DAY
+SETTINGS non_replicated_deduplication_window = 100{{.MORE_CREATE_SETTINGS}};

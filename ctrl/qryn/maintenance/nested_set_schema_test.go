@@ -53,6 +53,7 @@ func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 		!strings.Contains(batch, "ORDER BY (pass, trace_id)") || !strings.Contains(batch, "TTL") {
 		t.Errorf("tempo_traces_nested_set_batch is not a local MergeTree by (pass, trace_id) with a TTL:\n%s", batch)
 	}
+	assertLeaseSchema(t, conn, "ENGINE = MergeTree")
 	if err := conn.Exec(ctx, `INSERT INTO tempo_traces_nested_set (trace_id, span_id, date, left, right, parent, version) VALUES
 		(unhex('0102030405060708090a0b0c0d0e0f10'), unhex('0102030405060708'), today(), 1, 2, -1, toUInt64(toUnixTimestamp64Milli(now64(3)))),
 		(unhex('0102030405060708090a0b0c0d0e0f10'), unhex('0102030405060709'), today(), 1, 2, -1, toUInt64(toUnixTimestamp64Milli(now64(3))) + 2)`); err != nil {
@@ -65,6 +66,31 @@ func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 	}
 	if !newest {
 		t.Error("the newest numbering version is not the trace's newest nested-set version")
+	}
+}
+
+func assertLeaseSchema(t *testing.T, conn clickhouse.Conn, engine string) {
+	t.Helper()
+	lease := showCreate(t, conn, "tempo_traces_nested_set_lease")
+	for _, want := range []string{engine, "ORDER BY term", "TTL toDateTime(expires_at) + toIntervalDay(1)",
+		"non_replicated_deduplication_window = 100"} {
+		if !strings.Contains(lease, want) {
+			t.Errorf("tempo_traces_nested_set_lease lacks %q:\n%s", want, lease)
+		}
+	}
+	if strings.Contains(lease, "PARTITION BY") {
+		t.Errorf("tempo_traces_nested_set_lease is partitioned:\n%s", lease)
+	}
+}
+
+func TestNestedSetLeaseTakesTheStoragePolicy(t *testing.T) {
+	conn, db := chtest.Open(t)
+	if err := Update(conn, db, "", CLUST_MODE_SINGLE, 7, "default", "", false, logger.Logger); err != nil {
+		t.Fatal(err)
+	}
+	if lease := showCreate(t, conn, "tempo_traces_nested_set_lease"); !strings.Contains(lease,
+		"non_replicated_deduplication_window = 100, storage_policy = 'default'") {
+		t.Errorf("tempo_traces_nested_set_lease lacks the storage policy:\n%s", lease)
 	}
 }
 
