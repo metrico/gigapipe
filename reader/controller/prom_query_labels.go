@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,6 +15,7 @@ type PromQueryLabelsController struct {
 	Controller
 	QueryLabelsService *service.QueryLabelsService
 	MetadataService    *service.MetadataService
+	ExemplarsService   *service.ExemplarsService
 }
 
 type promLabelsParams struct {
@@ -173,7 +175,51 @@ func parserTimeString(strTime string, def time.Time) time.Time {
 	if err == nil {
 		return time.Unix(iTime, 0)
 	}
+	// Prometheus clients are free to send fractional unix seconds, and
+	// ParseInt rejects them -- which used to fall through to the default
+	// window rather than to the time the caller asked for.
+	if fTime, err := strconv.ParseFloat(strTime, 64); err == nil {
+		sec, frac := math.Modf(fTime)
+		return time.Unix(int64(sec), int64(frac*float64(time.Second)))
+	}
 	return def
+}
+
+// QueryExemplars answers Prometheus /api/v1/query_exemplars: the trace ids
+// recorded against metric data points, grouped into their series.
+func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *http.Request) {
+	defer tamePanic(w, r)
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	query := r.FormValue("query")
+	if query == "" {
+		PromError(400, "a query parameter is required", w)
+		return
+	}
+	start := parserTimeString(r.FormValue("start"), time.Now().Add(time.Hour*-1))
+	end := parserTimeString(r.FormValue("end"), time.Now())
+
+	if p.ExemplarsService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"status":"success","data":[]}`))
+		return
+	}
+
+	res, err := p.ExemplarsService.QueryExemplars(internalCtx, query, start, end)
+	if err != nil {
+		// A rejected selector is the caller's error, not the server's.
+		PromError(400, err.Error(), w)
+		return
+	}
+	SmartBufferServeStrings(w, res)
 }
 
 func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
