@@ -216,7 +216,6 @@ func writeResponse(res *promql.Result, w http.ResponseWriter) error {
 	if err != nil {
 		return err
 	}
-	stream.Reset()
 
 	switch res.Value.(type) {
 	case promql.Matrix:
