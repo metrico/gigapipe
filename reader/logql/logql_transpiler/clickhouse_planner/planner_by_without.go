@@ -166,7 +166,11 @@ func (b *byWithoutFilterCol) String(ctx *sql.Ctx, opts ...int) (string, error) {
 
 func (b *byWithoutFilterCol) emptyLabels(ctx *sql.Ctx, opts ...int) (string, error) {
 	if b.by {
-		return "map()", nil
+		// A bare `map()` is Map(Nothing, Nothing): the driver hands it back as
+		// map[*interface{}]*interface{}, which fails to Scan into the
+		// map[string]string the reader uses. Cast it so an aggregation that
+		// keeps no labels still yields a typed, empty label map.
+		return "CAST(map(), 'Map(String, String)')", nil
 	}
 	str, err := b.labelsCol.String(ctx, opts...)
 	return str, err

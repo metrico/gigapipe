@@ -6,11 +6,11 @@
 
 > formerly known as _qryn_
 
-<img src="https://user-images.githubusercontent.com/1423657/232089970-c4536f16-5967-4051-85a5-8ad94fcde67c.png" height=50>&nbsp; <img src="https://github.com/metrico/qryn/assets/1423657/546faddb-fbc6-4af5-9e32-4db6da10915d" height=49>
+<img src="https://user-images.githubusercontent.com/1423657/232089970-c4536f16-5967-4051-85a5-8ad94fcde67c.png" height=50>&nbsp; <img src="https://github.com/metrico/gigapipe/assets/1423657/546faddb-fbc6-4af5-9e32-4db6da10915d" height=49>
 
-[![CI+CD](https://github.com/metrico/qryn/actions/workflows/build_release.yml/badge.svg)](https://github.com/metrico/qryn/actions/workflows/build_release.yml)
+[![CI+CD](https://github.com/metrico/gigapipe/actions/workflows/build_release.yml/badge.svg)](https://github.com/metrico/gigapipe/actions/workflows/build_release.yml)
 ![CodeQL](https://github.com/lmangani/cLoki/workflows/CodeQL/badge.svg)
-![GitHub Repo stars](https://img.shields.io/github/stars/metrico/qryn)
+![GitHub Repo stars](https://img.shields.io/github/stars/metrico/gigapipe)
 
 
 :rocket: Gigapipe is a _lighweight, multi-standard, polyglot **observability** stack for **Logs, Metrics**, **Traces** and **Profiling**_<br/>
@@ -18,7 +18,7 @@
 * **Polyglot**: All-in-one, drop-in compatible with **Loki**, **Prometheus**, **Tempo**, **Pyroscope** 
 * **Familiar**: Use stable & popular **LogQL**, **PromQL**, **TempoQL** languages to _query and visualize data_
 * **Voracious**: Ingest using **OpenTelemetry, Loki, Prometheus, Tempo, Influx, Datadog, Elastic** _+ more_
-* **Versatile**: Explore data with qryn's **built-in Explorer** and CLI or native **Grafana** datasource compatibility
+* **Versatile**: Explore data with gigapipe's **built-in Explorer** and CLI or native **Grafana** datasource compatibility
 * **Secure**: Retain total control of data, using **ClickHouse**, **DuckDB** or **GigAPI** with **S3** object storage
 * **Independent**: Open source, community powered, anti lock-in alternative to vendor controlled stacks
 
@@ -161,7 +161,7 @@ This query calculates span counts for successful HTTP requests over the last hou
 
 > Any Pyroscope SDK client or Pyroscope compatible agent can be used with gigapipe out of the box for **continuous profiling**
 
-<img src="https://github.com/metrico/qryn/assets/1423657/0bd11ca9-a2b4-41ee-9ea1-6f21fa4077b2" width=700>
+<img src="https://github.com/metrico/gigapipe/assets/1423657/0bd11ca9-a2b4-41ee-9ea1-6f21fa4077b2" width=700>
 
 #### OTLP Profiles Ingestion
 

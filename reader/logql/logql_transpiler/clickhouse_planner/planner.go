@@ -47,7 +47,12 @@ type planner struct {
 	metrics15Shortcut        bool
 	offsetModifier           *time.Duration
 	noStreamSelect           bool
-	jsonParserSeen           bool // a json parser has been planned, so __error__ may be set
+	// labelsCollapsed is true when the last planned by/without projected the
+	// label set down to empty (`by ()`, explicit or implied by a
+	// grouping-less aggregation). The fingerprint is then a hash of the empty
+	// label set, which no time_series row carries.
+	labelsCollapsed bool
+	jsonParserSeen  bool // a json parser has been planned, so __error__ may be set
 
 	//SQL Planners
 	fpPlanner      shared.SQLRequestPlanner
@@ -104,7 +109,10 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 		}
 	}
 
-	if p.labelsJoinIdx == -1 && p.matrixFunctionsLabelsIDX == -1 {
+	// A collapsed label set is already resolved: its labels are `map()` and its
+	// fingerprint is a hash of that empty set, so there is nothing in
+	// time_series to join against - the join would only shed every row.
+	if p.labelsJoinIdx == -1 && p.matrixFunctionsLabelsIDX == -1 && !p.labelsCollapsed {
 		p.samplesPlanner = &LabelsJoinPlanner{
 			NoStreamSelect: p.noStreamSelect,
 			Main:           p.samplesPlanner,
@@ -387,6 +395,8 @@ func (p *planner) planByWithout(byWithout ...*logql_parser.ByOrWithout) error {
 		labels[i] = l.Name
 	}
 
+	p.labelsCollapsed = strings.ToLower(_byWithout.Fn) == "by" && len(labels) == 0
+
 	p.samplesPlanner = &ByWithoutPlanner{
 		NoStreamSelect:     p.noStreamSelect,
 		Main:               p.samplesPlanner,
@@ -412,7 +422,7 @@ func (p *planner) planAgg(agg *logql_parser.AggOperator, withLabels bool) error 
 	p.samplesPlanner = &AggOpPlanner{
 		Main:       p.samplesPlanner,
 		Func:       agg.Fn,
-		WithLabels: p.labelsJoinIdx != -1 || withLabels,
+		WithLabels: p.labelsJoinIdx != -1 || withLabels || p.labelsCollapsed,
 	}
 	return nil
 }

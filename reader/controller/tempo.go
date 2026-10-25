@@ -133,7 +133,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"resourceSpans": [{
-			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"qryn"}}]},
+			"resource":{"attributes":[{"key":"collector","value":{"stringValue":"gigapipe"}}]},
 			"instrumentationLibrarySpans": [{ "spans": [`))
 		for i, span := range spans {
 			res, err := json.Marshal(unmarshal.SpanToJSONSpan(span.Span, span.ServiceName))

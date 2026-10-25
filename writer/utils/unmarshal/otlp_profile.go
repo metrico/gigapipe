@@ -500,6 +500,12 @@ func buildOTLPTree(p pprofile.Profile, namer *otlpFrameNamer) (
 		for k := 0; k < sample.Values().Len(); k++ {
 			v += sample.Values().At(k)
 		}
+		// A sample may carry only timestamps_unix_nano, one per observation, with
+		// no values (e.g. the OpenTelemetry eBPF profiler's CPU samples). Its value
+		// is then the number of observations.
+		if sample.Values().Len() == 0 {
+			v = int64(sample.TimestampsUnixNano().Len())
+		}
 		totalSum += v
 		sampleCount++
 

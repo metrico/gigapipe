@@ -2,3 +2,6 @@
 *.idx
 /docker
 /deps
+/.claude/
+/.superpowers/
+/gigapipe

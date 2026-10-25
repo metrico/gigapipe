@@ -29,12 +29,26 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 - **`CLUSTER_NAME`** - Enables clustered mode and sets the cluster name. When set, gigapipe operates in distributed mode.
 - **`CLICKHOUSE_READ_DIST_SUFFIX`** - Suffix for read-path distributed tables (default: `_dist`). Used for cross-cluster reads in multi-cluster deployments. See [Cross-Cluster Deployment](#cross-cluster-deployment) below.
 
+## Environment variable names
+
+Gigapipe's own variables are prefixed **`GIGAPIPE_`**. New deployments should
+use that prefix.
+
+The former `QRYN_` and `CLOKI_` prefixes are still accepted so existing
+deployments keep working unchanged. At start-up each `GIGAPIPE_` variable is
+applied to its legacy equivalent, so when both are set the `GIGAPIPE_` value is
+the one that takes effect. Setting only a legacy name logs a deprecation
+warning naming the variable to move to.
+
+Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
+`BULK_*` and so on — are unprefixed and unchanged.
+
 ## Authentication
 
-- **`QRYN_LOGIN`** - Username for HTTP basic authentication
-- **`QRYN_PASSWORD`** - Password for HTTP basic authentication
-- **`CLOKI_LOGIN`** - Legacy username (alias for `QRYN_LOGIN`)
-- **`CLOKI_PASSWORD`** - Legacy password (alias for `QRYN_PASSWORD`)
+- **`GIGAPIPE_LOGIN`** - Username for HTTP basic authentication
+- **`GIGAPIPE_PASSWORD`** - Password for HTTP basic authentication
+- **`QRYN_LOGIN`**, **`QRYN_PASSWORD`** - deprecated aliases
+- **`CLOKI_LOGIN`**, **`CLOKI_PASSWORD`** - deprecated aliases
 
 ## HTTP Settings
 
@@ -46,7 +60,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`BULK_MAX_SIZE_BYTES`** - Maximum batch size in bytes before flushing to ClickHouse
 - **`BULK_MAX_AGE_MS`** - Maximum age in milliseconds before flushing batch (default: `100`)
-- **`QRYN_SYSTEM_SETTINGS_OTLP_MAX_MESSAGE_SIZE`** - Maximum decompressed size in bytes of a single OTLP export request, applied to both the OTLP/HTTP body limit and the OTLP/gRPC max receive message size (default: `67108864`, i.e. 64 MiB). Also settable in the config file as `system_settings.otlp_max_message_size`.
+- **`GIGAPIPE_SYSTEM_SETTINGS_OTLP_MAX_MESSAGE_SIZE`** - Maximum decompressed size in bytes of a single OTLP export request, applied to both the OTLP/HTTP body limit and the OTLP/gRPC max receive message size (default: `67108864`, i.e. 64 MiB). Also settable in the config file as `system_settings.otlp_max_message_size`.
 
 ## Advanced Settings
 
@@ -92,9 +106,9 @@ the results back as new series. It is single-tenant and recording-only
 (alerting rules may be stored but are never evaluated). It runs only in modes
 `all`/`""`, after the writer and reader initialize.
 
-- **`QRYN_RULER_ENABLED`** - Enable the ruler (`1`, `true`, `yes`, `on`; default: disabled). When disabled, the rule endpoints (`/api/v1/rules`, `/loki/api/v1/rules`, `/api/prom/rules`) are **not** served and return `404`.
-- **`QRYN_RULER_POLL_INTERVAL`** - How often rule groups are reloaded from storage and rescheduled, as a Go duration (e.g. `15s`, `1m`; default: `30s`).
-- **`QRYN_RULER_MAX_LOGQL_RESULT_BYTES`** - Maximum size, in bytes, of a single LogQL recording-rule result buffered before parsing; a rule exceeding it fails that evaluation (default: `10485760`, i.e. 10 MiB).
+- **`GIGAPIPE_RULER_ENABLED`** - Enable the ruler (`1`, `true`, `yes`, `on`; default: disabled). When disabled, the rule endpoints (`/api/v1/rules`, `/loki/api/v1/rules`, `/api/prom/rules`) are **not** served and return `404`.
+- **`GIGAPIPE_RULER_POLL_INTERVAL`** - How often rule groups are reloaded from storage and rescheduled, as a Go duration (e.g. `15s`, `1m`; default: `30s`).
+- **`GIGAPIPE_RULER_MAX_LOGQL_RESULT_BYTES`** - Maximum size, in bytes, of a single LogQL recording-rule result buffered before parsing; a rule exceeding it fails that evaluation (default: `10485760`, i.e. 10 MiB).
 
 ## Self-Profiling
 

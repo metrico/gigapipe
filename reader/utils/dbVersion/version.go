@@ -46,7 +46,7 @@ func (v VersionInfo) Metrics15sAvailable(fromNS int64) bool {
 const CapStaleness = "ch_staleness"
 
 // HasCapability reports a server capability, as opposed to IsVersionSupported,
-// which reports whether a qryn migration was applied before a data range. A
+// which reports whether a gigapipe migration was applied before a data range. A
 // capability is not scoped to a time range: it is a property of the running
 // server, present or absent, so it carries no timestamp comparison.
 func (v VersionInfo) HasCapability(name string) bool {

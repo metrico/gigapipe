@@ -1,5 +1,11 @@
 docker-compose ?= docker-compose
 
+# The end-to-end suite lives in its own repository. Defined here so the
+# Makefile is the single source of truth for both; CI calls `make e2e-deps`
+# rather than duplicating the checkout.
+E2E_TESTS_REPO ?= https://github.com/metrico/gigapipe-tests.git
+E2E_TESTS_DIR ?= ./deps/gigapipe-tests
+
 # Enable the recording-rules ruler for e2e: exported so both the gigapipe
 # server (via compose interpolation) and the test runner see the same value.
 export QRYN_RULER_ENABLED ?= true
@@ -8,8 +14,8 @@ docker:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
 
 e2e-deps:
-	if [ ! -d ./deps/qryn-test ]; then git clone https://github.com/metrico/qryn-test.git ./deps/qryn-test; fi
-	cd deps/qryn-test && git pull && git checkout main && git pull;
+	if [ ! -d $(E2E_TESTS_DIR) ]; then git clone $(E2E_TESTS_REPO) $(E2E_TESTS_DIR); fi
+	cd $(E2E_TESTS_DIR) && git pull && git checkout main && git pull;
 
 e2e-build:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
@@ -19,7 +25,7 @@ e2e-test:
    	docker rm -f qryn-go-test && \
    	sleep 60 && \
    	docker run \
-   	  -v `pwd`/deps/qryn-test:/deps/e2e \
+   	  -v `pwd`/$(E2E_TESTS_DIR):/deps/e2e \
    	  --network=e2e_common \
    	  --name=qryn-go-test \
    	  -e INTEGRATION_E2E=1\
