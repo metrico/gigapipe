@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-faster/jx"
 	"github.com/gorilla/websocket"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -77,44 +77,42 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 	}
 	if query == "vector(1)+vector(1)" {
 		w.Header().Set("Content-Type", "application/json")
-		json := jsoniter.ConfigFastest
-		stream := json.BorrowStream(nil)
-		defer json.ReturnStream(stream)
+		stream := &jx.Writer{}
 
-		stream.WriteObjectStart()
-		stream.WriteObjectField("status")
-		stream.WriteString("success")
-		stream.WriteMore()
+		stream.ObjStart()
+		stream.FieldStart("status")
+		stream.Str("success")
+		stream.Comma()
 
-		stream.WriteObjectField("data")
-		stream.WriteObjectStart()
+		stream.FieldStart("data")
+		stream.ObjStart()
 
-		stream.WriteObjectField("resultType")
-		stream.WriteString("vector")
-		stream.WriteMore()
+		stream.FieldStart("resultType")
+		stream.Str("vector")
+		stream.Comma()
 
-		stream.WriteObjectField("result")
-		stream.WriteArrayStart()
+		stream.FieldStart("result")
+		stream.ArrStart()
 
-		stream.WriteObjectStart()
-		stream.WriteObjectField("metric")
-		stream.WriteEmptyObject()
-		stream.WriteMore()
+		stream.ObjStart()
+		stream.FieldStart("metric")
+		stream.RawStr("{}")
+		stream.Comma()
 
-		stream.WriteObjectField("value")
-		stream.WriteArrayStart()
-		stream.WriteInt64(time.Now().Unix()) // Unix timestamp
-		stream.WriteMore()
-		stream.WriteString("2")
-		stream.WriteArrayEnd()
+		stream.FieldStart("value")
+		stream.ArrStart()
+		stream.Int64(time.Now().Unix()) // Unix timestamp
+		stream.Comma()
+		stream.Str("2")
+		stream.ArrEnd()
 
-		stream.WriteObjectEnd() // End of result object
-		stream.WriteArrayEnd()  // End of result array
+		stream.ObjEnd() // End of result object
+		stream.ArrEnd() // End of result array
 
-		stream.WriteObjectEnd() // End of data object
-		stream.WriteObjectEnd() // End of main object
+		stream.ObjEnd() // End of data object
+		stream.ObjEnd() // End of main object
 
-		w.Write(stream.Buffer())
+		w.Write(stream.Buf)
 		//w.Write([]byte(fmt.Sprintf(`{"status": "success", "data": {"resultType": "vector", "result": [{
 		// "metric": {},
 		// "value": [%d, "2"]
