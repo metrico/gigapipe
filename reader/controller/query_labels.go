@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
 	"github.com/metrico/qryn/v5/reader/service"
 )
 
@@ -19,8 +18,8 @@ type ValuesParams struct {
 	Start time.Time
 	End   time.Time
 	Raw   struct {
-		Start string `query:"start"`
-		End   string `query:"end"`
+		Start string
+		End   string
 	}
 }
 
@@ -139,18 +138,9 @@ func ParseTimeParamsV2(r *http.Request, unit time.Duration) (ValuesParams, error
 		if err != nil {
 			return res, err
 		}
-		dec := schema.NewDecoder()
-		err = dec.Decode(&res.Raw, r.Form)
-		if err != nil {
-			return res, err
-		}
 	}
-	if res.Raw.Start == "" {
-		res.Raw.Start = r.URL.Query().Get("start")
-	}
-	if res.Raw.End == "" {
-		res.Raw.End = r.URL.Query().Get("end")
-	}
+	res.Raw.Start = r.FormValue("start")
+	res.Raw.End = r.FormValue("end")
 	res.Start = time.Now().Add(time.Hour * -6)
 	if res.Raw.Start != "" {
 		start, err := strconv.ParseInt(res.Raw.Start, 10, 64)

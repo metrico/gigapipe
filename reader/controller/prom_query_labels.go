@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
 	"github.com/metrico/qryn/v5/reader/service"
 )
 
@@ -20,12 +19,6 @@ type promLabelsParams struct {
 	start time.Time
 	end   time.Time
 	match []string
-}
-
-type rawPromLabelsParams struct {
-	Start string   `form:"start"`
-	End   string   `form:"end"`
-	Match []string `form:"match[]"`
 }
 
 type promSeriesParams struct {
@@ -178,24 +171,14 @@ func parserTimeString(strTime string, def time.Time) time.Time {
 
 func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 	if r.Method == "POST" && r.Header.Get("content-type") == "application/x-www-form-urlencoded" {
-		rawParams := rawPromLabelsParams{}
-		dec := schema.NewDecoder()
-		dec.IgnoreUnknownKeys(true)
 		err := r.ParseForm()
 		if err != nil {
 			return nil, err
 		}
-		if matches, ok := r.Form["match[]"]; ok {
-			rawParams.Match = matches
-		}
-		err = dec.Decode(&rawParams, r.Form)
-		if err != nil {
-			return nil, err
-		}
 		return &promLabelsParams{
-			start: parserTimeString(rawParams.Start, time.Now().Add(time.Hour*-6)),
-			end:   parserTimeString(rawParams.End, time.Now()),
-			match: rawParams.Match,
+			start: parserTimeString(r.Form.Get("start"), time.Now().Add(time.Hour*-6)),
+			end:   parserTimeString(r.Form.Get("end"), time.Now()),
+			match: r.Form["match[]"],
 		}, nil
 	}
 	return &promLabelsParams{
