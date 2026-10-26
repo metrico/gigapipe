@@ -1,6 +1,6 @@
 module github.com/metrico/qryn/v5
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/ClickHouse/ch-go v0.74.0
