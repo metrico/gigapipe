@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/utils/unmarshal"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
@@ -30,7 +29,7 @@ func (t *TempoController) Trace(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	traceId := mux.Vars(r)["traceId"]
+	traceId := r.PathValue("traceId")
 	if traceId == "" {
 		PromError(400, "traceId is required", w)
 		return
@@ -299,7 +298,7 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 		}
 		timespan[i] = time.Unix(iT, 0)
 	}
-	tag := mux.Vars(r)["tag"]
+	tag := r.PathValue("tag")
 	if tag == "status" {
 		tag = "otel.status_code"
 	}
@@ -353,7 +352,7 @@ func (t *TempoController) Values(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	tag := mux.Vars(r)["tag"]
+	tag := r.PathValue("tag")
 	if tag == "status" {
 		tag = "otel.status_code"
 	}

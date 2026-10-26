@@ -1,13 +1,14 @@
 package router
 
 import (
-	"github.com/gorilla/mux"
+	"net/http"
+
 	controllerv1 "github.com/metrico/qryn/v5/reader/controller"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/service"
 )
 
-func RouteTempo(app *mux.Router, dataSession model.IDBRegistry) {
+func RouteTempo(app *http.ServeMux, dataSession model.IDBRegistry) {
 	tempoSvc := service.NewTempoService(model.ServiceData{
 		Session: dataSession,
 	})
@@ -15,21 +16,21 @@ func RouteTempo(app *mux.Router, dataSession model.IDBRegistry) {
 		Controller: controllerv1.Controller{},
 		Service:    tempoSvc,
 	}
-	app.HandleFunc("/tempo/api/traces/{traceId}", ctrl.Trace).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/traces/{traceId}", ctrl.Trace).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/traces/{traceId}/json", ctrl.Trace).Methods("GET", "OPTIONS")
-	app.HandleFunc("/tempo/api/echo", ctrl.Echo).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/echo", ctrl.Echo).Methods("GET", "OPTIONS")
-	app.HandleFunc("/tempo/api/search/tags", ctrl.Tags).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/search/tags", ctrl.Tags).Methods("GET", "OPTIONS")
-	app.HandleFunc("/tempo/api/search/tag/{tag}/values", ctrl.Values).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/search/tag/{tag}/values", ctrl.Values).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/v2/search/tag/{tag}/values", ctrl.ValuesV2).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/v2/search/tags", ctrl.TagsV2).Methods("GET", "OPTIONS")
-	app.HandleFunc("/tempo/api/search", ctrl.Search).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/search", ctrl.Search).Methods("GET", "OPTIONS")
-	app.HandleFunc("/tempo/api/metrics/query_range", ctrl.MetricsQueryRange).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/metrics/query_range", ctrl.MetricsQueryRange).Methods("GET", "OPTIONS")
-	app.HandleFunc("/tempo/api/metrics/query", ctrl.MetricsQueryInstant).Methods("GET", "OPTIONS")
-	app.HandleFunc("/api/metrics/query", ctrl.MetricsQueryInstant).Methods("GET", "OPTIONS")
+	app.HandleFunc("GET /tempo/api/traces/{traceId}", ctrl.Trace)
+	app.HandleFunc("GET /api/traces/{traceId}", ctrl.Trace)
+	app.HandleFunc("GET /api/traces/{traceId}/json", ctrl.Trace)
+	app.HandleFunc("GET /tempo/api/echo", ctrl.Echo)
+	app.HandleFunc("GET /api/echo", ctrl.Echo)
+	app.HandleFunc("GET /tempo/api/search/tags", ctrl.Tags)
+	app.HandleFunc("GET /api/search/tags", ctrl.Tags)
+	app.HandleFunc("GET /tempo/api/search/tag/{tag}/values", ctrl.Values)
+	app.HandleFunc("GET /api/search/tag/{tag}/values", ctrl.Values)
+	app.HandleFunc("GET /api/v2/search/tag/{tag}/values", ctrl.ValuesV2)
+	app.HandleFunc("GET /api/v2/search/tags", ctrl.TagsV2)
+	app.HandleFunc("GET /tempo/api/search", ctrl.Search)
+	app.HandleFunc("GET /api/search", ctrl.Search)
+	app.HandleFunc("GET /tempo/api/metrics/query_range", ctrl.MetricsQueryRange)
+	app.HandleFunc("GET /api/metrics/query_range", ctrl.MetricsQueryRange)
+	app.HandleFunc("GET /tempo/api/metrics/query", ctrl.MetricsQueryInstant)
+	app.HandleFunc("GET /api/metrics/query", ctrl.MetricsQueryInstant)
 }

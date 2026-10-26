@@ -1,11 +1,12 @@
 package apirouterv1
 
 import (
-	"github.com/gorilla/mux"
+	"net/http"
+
 	controllerv1 "github.com/metrico/qryn/v5/writer/controller"
 )
 
-func RouteMiscApis(router *mux.Router, cfg controllerv1.MiddlewareConfig) {
+func RouteMiscApis(router *http.ServeMux, cfg controllerv1.MiddlewareConfig) {
 
 	//// todo need to remove below commented code
 	//handler := promhttp.Handler()

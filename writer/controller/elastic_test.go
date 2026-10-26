@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/writer/model"
 )
 
@@ -16,7 +15,7 @@ import (
 // router: the defect these tests pin was the controller reading the route
 // variables from a context key nobody writes, which every parser-level test
 // would happily pass over.
-func newElasticRouter(t *testing.T) (*mux.Router, *recorderSvc) {
+func newElasticRouter(t *testing.T) (*http.ServeMux, *recorderSvc) {
 	t.Helper()
 	installConfig(t)
 	installFPCache(t, "n")
@@ -26,15 +25,15 @@ func newElasticRouter(t *testing.T) (*mux.Router, *recorderSvc) {
 	t.Cleanup(func() { Registry = old })
 
 	cfg := NewMiddlewareConfig(WithOverallContextMiddleware)
-	router := mux.NewRouter()
-	router.HandleFunc("/{target}/_doc", TargetDocV2(cfg)).Methods("POST")
-	router.HandleFunc("/{target}/_doc/{id}", TargetDocV2(cfg)).Methods("PUT")
-	router.HandleFunc("/{target}/_bulk", TargetBulkV2(cfg)).Methods("POST")
-	router.HandleFunc("/_bulk", TargetBulkV2(cfg)).Methods("POST")
+	router := http.NewServeMux()
+	router.HandleFunc("POST /{target}/_doc", TargetDocV2(cfg))
+	router.HandleFunc("PUT /{target}/_doc/{id}", TargetDocV2(cfg))
+	router.HandleFunc("POST /{target}/_bulk", TargetBulkV2(cfg))
+	router.HandleFunc("POST /_bulk", TargetBulkV2(cfg))
 	return router, ts
 }
 
-func ingest(t *testing.T, router *mux.Router, method, path, body string) {
+func ingest(t *testing.T, router *http.ServeMux, method, path, body string) {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
