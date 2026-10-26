@@ -324,25 +324,12 @@ func start() {
 		step.run(cfg, app)
 	}
 
-	// Built inside out. The gzip writer depends on the logging writer's
-	// Flush/Unwrap sitting between it and the transport.
-	var handler http.Handler = app
-	if cfg.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
-		cfg.Setting.AUTH_SETTINGS.BASIC.Password != "" {
-		handler = middleware.BasicAuthMiddleware(cfg.Setting.AUTH_SETTINGS.BASIC.Username,
-			cfg.Setting.AUTH_SETTINGS.BASIC.Password)(handler)
-	}
-	handler = middleware.AcceptEncodingMiddleware(handler)
-	if cfg.Setting.HTTP_SETTINGS.Cors.Enable {
-		handler = middleware.CorsMiddleware(cfg.Setting.HTTP_SETTINGS.Cors.Origin)(handler)
-	}
-	handler = middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}")(handler)
 	httpURL := fmt.Sprintf("%s:%d", cfg.Setting.HTTP_SETTINGS.Host, cfg.Setting.HTTP_SETTINGS.Port)
 	grpcOpts := writergrpc.Options{
 		BasicAuthUser: cfg.Setting.AUTH_SETTINGS.BASIC.Username,
 		BasicAuthPass: cfg.Setting.AUTH_SETTINGS.BASIC.Password,
 	}
-	httpStart(handler, httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
+	httpStart(middleware.WrapServer(cfg, app), httpURL, cfg.Setting.SYSTEM_SETTINGS.Mode, grpcOpts)
 
 }
 

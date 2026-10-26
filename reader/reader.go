@@ -17,6 +17,9 @@ import (
 	"github.com/metrico/qryn/v5/reader/watchdog"
 )
 
+// Init registers the reader routes on app. With a nil app the reader builds
+// its own mux, wraps it in the server middleware chain and serves it on the
+// configured host and port; out-of-tree binaries rely on that.
 func Init(cnf *clconfig.ClokiConfig, app *http.ServeMux) {
 	config.Cloki = cnf
 
@@ -39,25 +42,7 @@ func Init(cnf *clconfig.ClokiConfig, app *http.ServeMux) {
 	app = http.NewServeMux()
 	performV1APIRouting(app)
 	httpURL := fmt.Sprintf("%s:%d", config.Cloki.Setting.HTTP_SETTINGS.Host, config.Cloki.Setting.HTTP_SETTINGS.Port)
-	httpStart(applyMiddlewares(app), httpURL)
-}
-
-// applyMiddlewares wraps the standalone mux in the same chain as
-// cmd/gigapipe/main.go, outermost first: Logging, Cors, AcceptEncoding,
-// BasicAuth. The gzip writer depends on the logging writer's Flush/Unwrap
-// sitting between it and the transport.
-func applyMiddlewares(app *http.ServeMux) http.Handler {
-	var handler http.Handler = app
-	if config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
-		config.Cloki.Setting.AUTH_SETTINGS.BASIC.Password != "" {
-		handler = middleware.BasicAuthMiddleware(config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username,
-			config.Cloki.Setting.AUTH_SETTINGS.BASIC.Password)(handler)
-	}
-	handler = middleware.AcceptEncodingMiddleware(handler)
-	if config.Cloki.Setting.HTTP_SETTINGS.Cors.Enable {
-		handler = middleware.CorsMiddleware(config.Cloki.Setting.HTTP_SETTINGS.Cors.Origin)(handler)
-	}
-	return middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}")(handler)
+	httpStart(middleware.WrapServer(config.Cloki, app), httpURL)
 }
 
 func Stop() {
