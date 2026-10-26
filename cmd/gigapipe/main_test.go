@@ -23,23 +23,13 @@ func stepNames(mode string) []string {
 // orderViolations reports every init-ordering invariant start() depends on that
 // the given sequence breaks. Empty result means the order is safe.
 //
-// Two independent constraints pull in opposite directions, so both must hold at
-// once:
-//
-//   - reader BEFORE ruler: reader.Init populates the reader registry the ruler
-//     binds its rule sessions to; ordering reader after ruler yields a nil
-//     session (the regression that shipped on alpha via #864).
-//   - view LAST: view registers a wildcard "/" catch-all route that shadows any
-//     route registered after it; ordering view before ruler hides the ruler's
-//     HTTP routes (the regression that lived on master).
-//
-// The safe order writer -> reader -> ruler -> view is the only one that
-// satisfies both: reader ahead of ruler, view still dead last.
+// reader must precede ruler: reader.Init populates the reader registry the
+// ruler binds its rule sessions to; ordering reader after ruler yields a nil
+// session (the regression that shipped on alpha via #864).
 func orderViolations(names []string) []string {
 	writer := slices.Index(names, "writer")
 	reader := slices.Index(names, "reader")
 	ruler := slices.Index(names, "ruler")
-	view := slices.Index(names, "view")
 
 	// Constraints below only apply to subsystems actually present in the mode.
 	var v []string
@@ -50,10 +40,6 @@ func orderViolations(names []string) []string {
 	// reader.Init populates the reader registry the ruler binds rule sessions to.
 	if reader != -1 && ruler != -1 && reader > ruler {
 		v = append(v, "reader must init before ruler (else the ruler binds a nil session)")
-	}
-	// view's wildcard "/" route must be registered after everything else.
-	if view != -1 && view != len(names)-1 {
-		v = append(v, "view must init last (its catch-all route shadows anything after it)")
 	}
 	return v
 }
@@ -74,9 +60,9 @@ func TestBootSequenceOrder(t *testing.T) {
 	}
 }
 
-// TestBootSequenceOrderCatchesKnownRegressions guards the guard: it feeds the two
-// historical bad orderings through the same invariant check and asserts each is
-// still detected, so neither regression can silently return.
+// TestBootSequenceOrderCatchesKnownRegressions guards the guard: it feeds the
+// historical bad ordering through the same invariant check and asserts it is
+// still detected, so the regression cannot silently return.
 func TestBootSequenceOrderCatchesKnownRegressions(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -87,11 +73,6 @@ func TestBootSequenceOrderCatchesKnownRegressions(t *testing.T) {
 			name:  "reader-after-ruler (alpha #864 nil session)",
 			order: []string{"writer", "ruler", "reader", "view"},
 			want:  "reader must init before ruler",
-		},
-		{
-			name:  "view-before-ruler (master wildcard shadows routes)",
-			order: []string{"writer", "reader", "view", "ruler"},
-			want:  "view must init last",
 		},
 	}
 	for _, c := range cases {

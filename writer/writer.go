@@ -1,7 +1,8 @@
 package writer
 
 import (
-	"github.com/gorilla/mux"
+	"net/http"
+
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/writer/config"
 	controllerv1 "github.com/metrico/qryn/v5/writer/controller"
@@ -11,7 +12,7 @@ import (
 
 var qrynPlugin *plugin.QrynWriterPlugin
 
-func Init(cfg *clconfig.ClokiConfig, router *mux.Router) {
+func Init(cfg *clconfig.ClokiConfig, router *http.ServeMux) {
 	/* first check admin flags */
 	config.Cloki = cfg
 	qrynPlugin = &plugin.QrynWriterPlugin{}
