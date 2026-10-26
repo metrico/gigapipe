@@ -38,8 +38,10 @@ func lineFn(function string, r time.Duration) (windowFn, bool) {
 		return windowFn{summand: "1", final: perSecond(r)}, true
 	case "count_over_time":
 		return windowFn{summand: "1", final: plainSum}, true
-	case "bytes_rate", "bytes_over_time":
+	case "bytes_rate":
 		return windowFn{summand: "length(_string)", final: perSecond(r)}, true
+	case "bytes_over_time":
+		return windowFn{summand: "length(_string)", final: plainSum}, true
 	}
 	return windowFn{}, false
 }

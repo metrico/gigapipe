@@ -22,8 +22,7 @@ var rawSQLCases = []struct {
 }{
 	{rawCount5m, refQuery{fn: "count_over_time", r: 5 * time.Minute}},
 	{`rate(` + rawSel + ` [15m])`, refQuery{fn: "rate", r: 15 * time.Minute}},
-	// bytes_over_time is checked as bytes_rate on this path.
-	{`bytes_over_time(` + rawSel + ` [5m])`, refQuery{fn: "bytes_rate", r: 5 * time.Minute}},
+	{`bytes_over_time(` + rawSel + ` [5m])`, refQuery{fn: "bytes_over_time", r: 5 * time.Minute}},
 	{`bytes_rate(` + rawSel + ` [1h])`, refQuery{fn: "bytes_rate", r: time.Hour}},
 	{`sum by (l) (count_over_time(` + rawSel + ` [5m]))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, by: []string{"l"}, agg: "sum"}},
 	{`sum by (l) (rate(` + rawSel + ` [1h]))`, refQuery{fn: "rate", r: time.Hour, by: []string{"l"}, agg: "sum"}},
