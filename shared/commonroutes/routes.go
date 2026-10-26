@@ -1,20 +1,21 @@
 package commonroutes
 
 import (
-	"github.com/gorilla/mux"
+	"net/http"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // RegisterCommonRoutes registers the common routes to the given mux.
-func RegisterCommonRoutes(app *mux.Router) {
-	app.HandleFunc("/ready", Ready).Methods("GET")
-	app.HandleFunc("/config", Config).Methods("GET")
-	app.Handle("/metrics", promhttp.InstrumentMetricHandler(
+func RegisterCommonRoutes(app *http.ServeMux) {
+	app.HandleFunc("GET /ready", Ready)
+	app.HandleFunc("GET /config", Config)
+	app.Handle("GET /metrics", promhttp.InstrumentMetricHandler(
 		prometheus.DefaultRegisterer,
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{
 			DisableCompression: true,
 		}),
-	)).Methods("GET")
-	app.HandleFunc("/api/status/buildinfo", BuildInfo).Methods("GET")
+	))
+	app.HandleFunc("GET /api/status/buildinfo", BuildInfo)
 }
