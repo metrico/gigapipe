@@ -17,7 +17,7 @@ require (
 	github.com/google/pprof v0.0.0-20260906184651-6331bc6350fe
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/grafana/pyroscope-go v1.4.2
+	github.com/grafana/pyroscope-go v1.4.3
 	github.com/influxdata/line-protocol/v2 v2.2.1
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/kr/logfmt v0.0.0-20210122060352-19f9bcb100e6
