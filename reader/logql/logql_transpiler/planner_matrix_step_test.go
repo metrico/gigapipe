@@ -17,23 +17,25 @@ func (p *chanProcessor) Process(*shared.PlannerContext, chan []shared.LogEntry) 
 
 func (p *chanProcessor) IsMatrix() bool { return true }
 
-func TestMatrixStepDrainsUpstreamOnPanic(t *testing.T) {
-	in := make(chan []shared.LogEntry)
+// feedUnbuffered sends n single-entry batches on an unbuffered channel, like
+// the ClickHouse getter, and closes done once every batch has been taken.
+func feedUnbuffered(n int) (chan []shared.LogEntry, chan struct{}) {
+	ch := make(chan []shared.LogEntry)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 3; i++ {
-			in <- []shared.LogEntry{{TimestampNS: int64(i)}}
+		for i := 0; i < n; i++ {
+			ch <- []shared.LogEntry{{TimestampNS: int64(i)}}
 		}
-		close(in)
+		close(ch)
 	}()
+	return ch, done
+}
 
-	m := &MatrixStepPlanner{Main: &chanProcessor{in}, Duration: time.Second}
-	// A nil context makes the step loop panic on the first entry.
-	out, err := m.Process(nil, in)
-	if err != nil {
-		t.Fatal(err)
-	}
+// assertPanicRecovered checks that out carries exactly the error entry from
+// the recovered panic and that the upstream feeding the planner was drained.
+func assertPanicRecovered(t *testing.T, out chan []shared.LogEntry, done chan struct{}) {
+	t.Helper()
 	var got []shared.LogEntry
 	for batch := range out {
 		got = append(got, batch...)
@@ -46,4 +48,15 @@ func TestMatrixStepDrainsUpstreamOnPanic(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("upstream is still blocked sending: it was not drained")
 	}
+}
+
+func TestMatrixStepDrainsUpstreamOnPanic(t *testing.T) {
+	in, done := feedUnbuffered(3)
+	m := &MatrixStepPlanner{Main: &chanProcessor{in}, Duration: time.Second}
+	// A nil context makes the step loop panic on the first entry.
+	out, err := m.Process(nil, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPanicRecovered(t, out, done)
 }
