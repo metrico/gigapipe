@@ -252,10 +252,14 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 			if got := strings.Contains(sql, "win_g"); got != c.groupFirst {
 				t.Errorf("%s@%s: groups first %v, want %v", c.query, name, got, c.groupFirst)
 			}
-			// Per stream, a range query slides one window function over the
-			// stream's buckets, the empty ones filled in.
-			if want := !c.groupFirst && name != "instant"; strings.Contains(sql, "WITH FILL") != want {
+			// A range query slides one window function over each stream's or
+			// group's buckets, the empty ones filled in, rather than copying
+			// every bucket to each point whose window holds it.
+			if want := name != "instant"; strings.Contains(sql, "WITH FILL") != want {
 				t.Errorf("%s@%s: WITH FILL %v, want %v", c.query, name, !want, want)
+			}
+			if strings.Contains(sql, "array JOIN range(") {
+				t.Errorf("%s@%s: fans buckets out to points", c.query, name)
 			}
 		}
 	}

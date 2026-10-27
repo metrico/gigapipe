@@ -168,33 +168,50 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	return streamWindows(g, fn, rn, on, sums), nil
 }
 
-// streamWindows evaluates every stream's windows with one window function:
-// the cells summed per stream and bucket (w = gcd(step, R), keyed in offset
-// time, bucket b holding c + o in [b-w, b)), every stream's empty buckets
-// filled in, and the window at T the sum of the R/w buckets ending at T.
+// streamWindows evaluates every stream's windows: the cells summed per stream
+// and bucket (w = gcd(step, R), keyed in offset time, bucket b holding c + o
+// in [b-w, b)), then slideWindows.
 func streamWindows(g shared.EvalGrid, fn windowFn, rn, on int64, sums func(keys ...sql.SQLObject) sql.ISelect) sql.ISelect {
 	width := shared.Gcd(g.StepNs, rn)
 	buckets := sql.NewWith(sums(sql.NewSimpleCol(fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, width), "b")).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b")
-	// The buckets of the read range, first-R to last, for every stream.
+	return slideWindows(g, fn, rn, width, buckets, false)
+}
+
+// slideWindows evaluates the windows of the grid over buckets, one row per
+// fingerprint (a stream or a group) and bucket with its line count n: every
+// fingerprint's empty buckets of the read range, first-R to last, are filled
+// in, and the window at T is the sum of the R/w buckets ending at T. With
+// labels, each fingerprint keeps the labels of its non-empty buckets.
+func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.With, labels bool) sql.ISelect {
+	cols := []sql.SQLObject{sql.NewRawObject("fingerprint"), sql.NewRawObject("b"), sql.NewRawObject("n")}
+	if labels {
+		cols = append(cols, sql.NewRawObject("labels"))
+	}
 	filled := sql.NewWith(sql.NewSelect().With(buckets).
-		Select(sql.NewRawObject("fingerprint"), sql.NewRawObject("b"), sql.NewRawObject("n")).
+		Select(cols...).
 		From(sql.NewWithRef(buckets)).
 		OrderBy(sql.NewRawObject("fingerprint"), sql.NewRawObject(fmt.Sprintf("b WITH FILL FROM %d TO %d STEP %d",
 			g.FirstNs-rn+width, g.LastNs()+width, width))), "win_f")
-	windows := sql.NewWith(sql.NewSelect().With(filled).
-		Select(
-			sql.NewRawObject("fingerprint"),
-			sql.NewSimpleCol("b", "T"),
-			sql.NewSimpleCol(fmt.Sprintf("sum(n) OVER (PARTITION BY fingerprint ORDER BY b "+
-				"ROWS BETWEEN %d PRECEDING AND CURRENT ROW)", rn/width-1), "s")).
-		From(sql.NewWithRef(filled)), "win_s")
+	winCols := []sql.SQLObject{
+		sql.NewRawObject("fingerprint"),
+		sql.NewSimpleCol("b", "T"),
+		sql.NewSimpleCol(fmt.Sprintf("sum(n) OVER (PARTITION BY fingerprint ORDER BY b "+
+			"ROWS BETWEEN %d PRECEDING AND CURRENT ROW)", rn/width-1), "s"),
+	}
+	resCols := []sql.SQLObject{
+		sql.NewSimpleCol("T", "timestamp_ns"),
+		sql.NewRawObject("fingerprint"),
+		sql.NewSimpleCol(`''`, "string"),
+		sql.NewSimpleCol(fn.final("toFloat64(s)", "s"), "value"),
+	}
+	if labels {
+		winCols = append(winCols, sql.NewSimpleCol("anyIf(labels, n > 0) OVER (PARTITION BY fingerprint)", "labels"))
+		resCols = append(resCols, sql.NewRawObject("labels"))
+	}
+	windows := sql.NewWith(sql.NewSelect().With(filled).Select(winCols...).From(sql.NewWithRef(filled)), "win_s")
 	return sql.NewSelect().With(windows).
-		Select(
-			sql.NewSimpleCol("T", "timestamp_ns"),
-			sql.NewRawObject("fingerprint"),
-			sql.NewSimpleCol(`''`, "string"),
-			sql.NewSimpleCol(fn.final("toFloat64(s)", "s"), "value")).
+		Select(resCols...).
 		From(sql.NewWithRef(windows)).
 		AndWhere(
 			sql.Gt(sql.NewRawObject("s"), sql.NewIntVal(0)),
@@ -204,7 +221,7 @@ func streamWindows(g shared.EvalGrid, fn windowFn, rn, on int64, sums func(keys 
 }
 
 // groupedWindows sums the cells of [lo, hi) per group and window bucket, then
-// adds every bucket to the points of the grid whose window holds it.
+// slides the windows over them (one bucket, R wide, for an instant query).
 // Buckets are w = gcd(step, R) wide and keyed in offset time: bucket b holds
 // the cells with c + o in [b-w, b), and the window at T the buckets of
 // (T-R, T].
@@ -236,26 +253,19 @@ func groupedWindows(g shared.EvalGrid, fn windowFn, rn, on, lo, hi int64, cellsW
 		From(sql.NewCol(byGroup, "win_bg")).
 		GroupBy(sql.NewRawObject("gfp"), sql.NewRawObject("b")), "win_b")
 
-	value := fn.final("toFloat64(sum(n))", "sum(n)")
-	res := sql.NewSelect().With(buckets).
+	if g.StepNs != 0 {
+		return slideWindows(g, fn, rn, width, buckets, true)
+	}
+	return sql.NewSelect().With(buckets).
 		Select(
-			sql.NewSimpleCol("T", "timestamp_ns"),
+			sql.NewSimpleCol(fmt.Sprintf("toInt64(%d)", g.FirstNs), "timestamp_ns"),
 			sql.NewRawObject("fingerprint"),
 			sql.NewSimpleCol(`''`, "string"),
-			sql.NewSimpleCol(value, "value"),
+			sql.NewSimpleCol(fn.final("toFloat64(sum(n))", "sum(n)"), "value"),
 			sql.NewSimpleCol("any(labels)", "labels")).
 		From(sql.NewWithRef(buckets)).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("T")).
+		GroupBy(sql.NewRawObject("fingerprint")).
 		AndHaving(sql.Gt(sql.NewRawObject("sum(n)"), sql.NewIntVal(0)))
-	if g.StepNs == 0 {
-		return res.Join(sql.NewJoin("array", sql.NewSimpleCol(fmt.Sprintf("[toInt64(%d)]", g.FirstNs), "T"), nil))
-	}
-	// A bucket b feeds the points T of the grid with b <= T < b + R.
-	points := fmt.Sprintf("range(toInt64(intDiv(b + %d, %d) * %[2]d), toInt64(b + %d), %[2]d)", g.StepNs-1, g.StepNs, rn)
-	return res.Join(sql.NewJoin("array", sql.NewSimpleCol(points, "T"), nil)).
-		AndWhere(
-			sql.Ge(sql.NewRawObject("T"), sql.NewIntVal(g.FirstNs)),
-			sql.Le(sql.NewRawObject("T"), sql.NewIntVal(g.LastNs())))
 }
 
 // metrics15sCells reads the line count of the metrics_15s cells in
