@@ -142,6 +142,18 @@ func seedLogClickHouse(base string, lines []logLine) error {
 		}
 		seen[l.fp] = true
 	}
+	// A stream that matches {job="g"} and has no lines: no query returns it.
+	noLines := map[string]string{"job": "g", "l": "c", "pod": "9"}
+	lbls, _ := json.Marshal(noLines)
+	for _, r := range []*rows{all, shards[77%uint64(len(chShardDBs))]} {
+		for _, day := range []time.Time{gridD0.AddDate(0, 0, -1), gridD0} {
+			d := day.Format("2006-01-02")
+			fmt.Fprintf(&r.series, "('%s', 77, '%s', '', 1),", d, lbls)
+			for k, v := range noLines {
+				fmt.Fprintf(&r.gin, "('%s', '%s', '%s', 77, 1),", d, k, v)
+			}
+		}
+	}
 	insert := func(db string, r *rows) error {
 		for _, s := range []string{
 			"INSERT INTO time_series VALUES " + r.series.String(),

@@ -22,6 +22,8 @@ var shortcutCases = []struct {
 	{`sum(count_over_time({job="g"} [90s]))`, refQuery{fn: "count_over_time", r: 90 * time.Second, by: []string{}, agg: "sum"}},
 	{`sum by (l) (count_over_time({job="g"} [5m]))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, by: []string{"l"}, agg: "sum"}},
 	{`sum by (l) (rate({job="g"} [1h]))`, refQuery{fn: "rate", r: time.Hour, by: []string{"l"}, agg: "sum"}},
+	// The streams carry job, l and pod, so without (pod) groups as by (job, l).
+	{`sum without (pod) (count_over_time({job="g"} [5m]))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, by: []string{"job", "l"}, agg: "sum"}},
 	{`count_over_time({job="g"} [5m] offset 7m)`, refQuery{fn: "count_over_time", r: 5 * time.Minute, offset: 7 * time.Minute}},
 	{`sum by (l) (count_over_time({job="g"} [15m] offset 1h))`, refQuery{fn: "count_over_time", r: 15 * time.Minute, offset: time.Hour, by: []string{"l"}, agg: "sum"}},
 	{`max by (l) (count_over_time({job="g"} [5m]))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, by: []string{"l"}, agg: "max"}},
@@ -148,15 +150,12 @@ func TestShortcutLabelFilterOnBothRoutes(t *testing.T) {
 // TestShortcutWindowShapes pins the cell and edge reads, the w = gcd(step, R)
 // buckets and the cumulative difference, or one sum for an instant query.
 func TestShortcutWindowShapes(t *testing.T) {
-	const (
-		cumulative = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
-		cellNs     = int64(15 * time.Second)
-	)
+	const cumulative = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
 	r, o, step := 5*time.Minute, 7*time.Minute, 7*time.Minute
 	rng := rangeReq(gridD0.Add(2*time.Hour), gridD0.Add(6*time.Hour), step)
 	times := refGrid(rng)
 	first, last := times[0], times[len(times)-1]
-	rn, on, sn := r.Nanoseconds(), o.Nanoseconds(), step.Nanoseconds()
+	rn, on := r.Nanoseconds(), o.Nanoseconds()
 	at := gridD0.Add(4 * time.Hour).UnixNano()
 	q := `count_over_time({job="g"} [5m] offset 7m)`
 	for _, c := range []struct {
@@ -166,18 +165,13 @@ func TestShortcutWindowShapes(t *testing.T) {
 		{rng, []string{
 			fmt.Sprintf("(samples.timestamp_ns) >= (%d)", first-rn-on),
 			fmt.Sprintf("(samples.timestamp_ns) < (%d)", last-on),
-			fmt.Sprintf("samples.timestamp_ns IN (SELECT arrayJoin(arrayConcat(range(%d, %d, %d), range(%d, %d, %[3]d))))",
-				first-on, last-on+1, sn, first-on-rn, last-on-rn+1),
-			fmt.Sprintf("[(ts - %d, k), (ts, -k)]", cellNs),
 			fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, int64(time.Minute)),
 			cumulative,
-		}, []string{"State("}},
+		}, []string{"State(", "samples_v3"}},
 		{instantReq(time.Unix(0, at)), []string{
 			fmt.Sprintf("(samples.timestamp_ns) >= (%d)", at-rn-on),
 			fmt.Sprintf("(samples.timestamp_ns) < (%d)", at-on),
-			fmt.Sprintf("samples.timestamp_ns IN (%d, %d)", at-on, at-on-rn),
-			fmt.Sprintf("[(ts - %d, k), (ts, -k)]", cellNs),
-		}, []string{" OVER ", "arrayJoin(range(", "State("}},
+		}, []string{" OVER ", "arrayJoin(range(", "State(", "samples_v3"}},
 	} {
 		p := runRequest(t, q, c.req, nil)
 		if !readsMetrics15s(p) {
@@ -209,6 +203,47 @@ func TestShortcutBinaryRouting(t *testing.T) {
 			p := runRequest(t, q, req, nil)
 			if !isGrid(p.root) || len(p.sql) != 1 {
 				t.Errorf("%s@%s: root %T with %d statements, want *GridPlanner with 1", q, name, p.root, len(p.sql))
+			}
+		}
+	}
+}
+
+// reWindowBound matches a label lookup bounded by re-reading a window, which
+// computes that window a second time.
+var reWindowBound = regexp.MustCompile(`IN \(\s*SELECT fingerprint FROM (pre_without_\d+|pre_by_without_\d+|main)\)`)
+
+// TestShortcutReadsEachSourceOnce: a shortcut plan reads metrics_15s twice,
+// once for the data and once for the fingerprints that bound the label lookup,
+// never the raw samples, and never computes its window twice; a sum is summed
+// per group before the window.
+func TestShortcutReadsEachSourceOnce(t *testing.T) {
+	for _, c := range []struct {
+		query      string
+		groupFirst bool
+	}{
+		{`sum(count_over_time({job="g"} [90s]))`, true},
+		{`sum by (l) (rate({job="g"} [1h]))`, true},
+		{`sum without (pod) (count_over_time({job="g"} [5m]))`, true},
+		{`sum by (l) (count_over_time({job="g"} [15m] offset 1h))`, true},
+		{`topk(2, sum by (l) (rate({job="g"} [5m])))`, true},
+	} {
+		for _, name := range []string{"aligned/60s", "instant"} {
+			p := runRequest(t, c.query, gridRequests[name], nil)
+			if !readsMetrics15s(p) {
+				t.Fatalf("%s@%s: not served by the shortcut", c.query, name)
+			}
+			sql := p.sql[0]
+			if n := len(reMetrics15s.FindAllString(sql, -1)); n != 2 {
+				t.Errorf("%s@%s: %d metrics_15s reads, want 2", c.query, name, n)
+			}
+			if strings.Contains(sql, "samples_v3") {
+				t.Errorf("%s@%s: reads raw samples", c.query, name)
+			}
+			if reWindowBound.MatchString(sql) {
+				t.Errorf("%s@%s: label lookup re-reads the window", c.query, name)
+			}
+			if got := strings.Contains(sql, "win_g"); got != c.groupFirst {
+				t.Errorf("%s@%s: groups first %v, want %v", c.query, name, got, c.groupFirst)
 			}
 		}
 	}

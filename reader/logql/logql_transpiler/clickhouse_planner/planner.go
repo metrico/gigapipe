@@ -76,6 +76,10 @@ type planner struct {
 	// label set, which no time_series row carries.
 	labelsCollapsed bool
 	jsonParserSeen  bool // a json parser has been planned, so __error__ may be set
+	// windowFingerprints reads the streams with data in the shortcut's window.
+	windowFingerprints shared.SQLRequestPlanner
+	// shortcutGroup sums the shortcut's streams per group before the window.
+	shortcutGroup *ShortcutGroup
 
 	//SQL Planners
 	fpPlanner      shared.SQLRequestPlanner
@@ -170,6 +174,9 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 		}
 		return p.planComparison(script.Comparison)
 	case *logql_parser.AggOperator:
+		if script.Fn == "sum" && script.LRAOrUnwrap.Comparison == nil {
+			return p.planShortcutSum(script)
+		}
 		err := dfs(&script.LRAOrUnwrap)
 		if err != nil {
 			return err
@@ -197,16 +204,43 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 				FingerprintSelectWithCache: &p.fpCache,
 			}
 		}
+		p.windowFingerprints = filtered(&Metrics15sFingerprints{Duration: duration, Offset: p.offset()})
 		p.samplesPlanner = &Metrics15ShortcutPlanner{
-			Function: script.Fn,
-			Duration: duration,
-			Offset:   p.offset(),
-			Cells:    filtered(NewMetrics15sCells(script.Fn, duration)),
-			Edges:    filtered(&EdgeLinesPlanner{Duration: duration, Offset: p.offset()}),
+			Function:     script.Fn,
+			Duration:     duration,
+			Offset:       p.offset(),
+			Cells:        filtered(NewMetrics15sCells(script.Fn, duration, p.offset())),
+			Fingerprints: p.windowFingerprints,
+			Group:        p.shortcutGroup,
 		}
 		return p.planComparison(script.Comparison)
 	}
 	return nil
+}
+
+// planShortcutSum plans a sum over the shortcut with the streams summed per
+// by/without group before the window. The rows then carry their group's
+// fingerprint and labels, as ByWithoutPlanner would give them, so no label
+// join follows.
+func (p *planner) planShortcutSum(agg *logql_parser.AggOperator) error {
+	group := &ShortcutGroup{By: true, FpCache: &p.fpCache}
+	for _, b := range []*logql_parser.ByOrWithout{agg.ByOrWithoutPrefix, agg.ByOrWithoutSuffix} {
+		if b == nil {
+			continue
+		}
+		group.By = strings.ToLower(b.Fn) == "by"
+		group.Labels = make([]string, len(b.Labels))
+		for i, l := range b.Labels {
+			group.Labels[i] = l.Name
+		}
+	}
+	p.shortcutGroup = group
+	if err := p.planMetrics15Shortcut(&agg.LRAOrUnwrap); err != nil {
+		return err
+	}
+	p.matrixFunctionsLabelsIDX = 0
+	p.samplesPlanner = &AggOpPlanner{Main: p.samplesPlanner, Func: "sum", WithLabels: true}
+	return p.planComparison(agg.Comparison)
 }
 
 func (p *planner) offset() time.Duration {
