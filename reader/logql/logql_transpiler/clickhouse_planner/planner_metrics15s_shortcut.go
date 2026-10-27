@@ -2,6 +2,7 @@ package clickhouse_planner
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -13,6 +14,27 @@ import (
 // cellNs is the width of a metrics_15s cell; cell c holds the lines in
 // [c, c+15s).
 const cellNs = int64(15 * time.Second)
+
+// startLines says where the shortcut takes the lines exactly on a cell start
+// from: the cells' start_count from cutoff on, the raw edge read before it.
+type startLines struct {
+	cutoff int64
+}
+
+// noStartLines reads no cell's start_count.
+var noStartLines = startLines{cutoff: math.MaxInt64}
+
+// fromCells reports whether any cell's start_count is read.
+func (s startLines) fromCells() bool { return s != noStartLines }
+
+// startLinesUpTo reads the start_count of the cells up to hi from the cutoff
+// in the version info on.
+func startLinesUpTo(ctx *shared.PlannerContext, hi int64) startLines {
+	if from := ctx.VersionInfo.Metrics15sStartCountFrom(); from <= hi {
+		return startLines{cutoff: from}
+	}
+	return noStartLines
+}
 
 // ShortcutRoute serves a query from metrics_15s when metrics15sServes the
 // request, and from its raw SQL plan otherwise.
@@ -55,7 +77,8 @@ type Metrics15ShortcutPlanner struct {
 	// cnt (line count).
 	Cells shared.SQLRequestPlanner
 	// CellsByBucket: Cells already sums each stream's cells per window bucket
-	// (metrics15sCells does), so its rows need no regrouping per stream.
+	// and carries their start lines (metrics15sCells does), so its rows need
+	// no regrouping per stream.
 	CellsByBucket bool
 	// Edges reads the lines on the window edges: fingerprint, ts and k (line
 	// count).
@@ -131,6 +154,11 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	rn, on := m.Duration.Nanoseconds(), m.Offset.Nanoseconds()
 	lo, hi := g.FirstNs-rn-on, g.LastNs()-on
 
+	starts := noStartLines
+	if m.CellsByBucket {
+		starts = startLinesUpTo(ctx, hi)
+	}
+
 	from, to := ctx.From, ctx.To
 	defer func() { ctx.From, ctx.To = from, to }()
 	ctx.From, ctx.To = time.Unix(0, lo), time.Unix(0, hi)
@@ -138,28 +166,60 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	if err != nil {
 		return nil, err
 	}
-	edges, err := m.Edges.Process(ctx)
-	if err != nil {
-		return nil, err
+	// Every edge is at or after lo; the cells carry those from the cutoff on.
+	withEdges := lo < starts.cutoff
+	var movedW *sql.With
+	if withEdges {
+		edges, err := m.Edges.Process(ctx)
+		if err != nil {
+			return nil, err
+		}
+		movedW = sql.NewWith(movedEdges(sql.NewWith(edges, "win_e")), "win_em")
 	}
 	cellsW := sql.NewWith(cells, "win_m")
-	movedW := sql.NewWith(movedEdges(sql.NewWith(edges, "win_e")), "win_em")
 	inRange := func(sel sql.ISelect) sql.ISelect {
 		return sel.AndWhere(
 			sql.Ge(sql.NewRawObject("c"), sql.NewIntVal(lo)),
 			sql.Lt(sql.NewRawObject("c"), sql.NewIntVal(hi)))
 	}
-	// The cells of [lo, hi) and the moved edge lines, one row each.
-	cellsAndEdgesW := sql.NewWith(&UnionAll{
-		ISelect: inRange(sql.NewSelect().With(cellsW, movedW).
-			Select(sql.NewRawObject("fingerprint"),
-				sql.NewSimpleCol("toInt64(c)", "c"),
-				sql.NewSimpleCol("toInt64(cnt)", "cnt")).
-			From(sql.NewWithRef(cellsW))),
-		Anothers: []sql.ISelect{inRange(sql.NewSelect().
-			Select(sql.NewRawObject("fingerprint"), sql.NewRawObject("c"), sql.NewRawObject("cnt")).
-			From(sql.NewWithRef(movedW)))},
-	}, "win_c")
+	// Cell hi is read too for its start lines, which count in the cell before.
+	cellsInRange := inRange
+	if starts.fromCells() {
+		cellsInRange = func(sel sql.ISelect) sql.ISelect {
+			return sel.AndWhere(
+				sql.Ge(sql.NewRawObject("c"), sql.NewIntVal(lo)),
+				sql.Le(sql.NewRawObject("c"), sql.NewIntVal(hi)))
+		}
+	}
+	// A range grid's rows carry the start lines per bucket; an instant query
+	// folds them into its one window: lo's fall out of it and hi's into it.
+	bucketStarts := starts
+	cnt := "toInt64(cnt)"
+	if g.StepNs == 0 {
+		bucketStarts = noStartLines
+		if starts.fromCells() {
+			cnt = fmt.Sprintf("toInt64(if(c < %d, cnt, 0) + if(c > %d, starts, 0))", hi, lo)
+		}
+	}
+	// The cells and the moved edge lines, one row each.
+	cellCols := []sql.SQLObject{sql.NewRawObject("fingerprint"),
+		sql.NewSimpleCol("toInt64(c)", "c"),
+		sql.NewSimpleCol(cnt, "cnt")}
+	edgeCols := []sql.SQLObject{sql.NewRawObject("fingerprint"), sql.NewRawObject("c"), sql.NewRawObject("cnt")}
+	if bucketStarts.fromCells() {
+		cellCols = append(cellCols, sql.NewSimpleCol("toInt64(starts)", "starts"))
+		edgeCols = append(edgeCols, sql.NewSimpleCol("toInt64(0)", "starts"))
+	}
+	cellRows := cellsInRange(sql.NewSelect().With(cellsW).Select(cellCols...).From(sql.NewWithRef(cellsW)))
+	cellsAndEdgesW := sql.NewWith(cellRows, "win_c")
+	if withEdges {
+		cellsAndEdgesW = sql.NewWith(&UnionAll{
+			ISelect: cellRows.AddWith(movedW),
+			Anothers: []sql.ISelect{inRange(sql.NewSelect().
+				Select(edgeCols...).
+				From(sql.NewWithRef(movedW)))},
+		}, "win_c")
+	}
 	if m.Group != nil {
 		fps, err := m.Fingerprints.Process(ctx)
 		if err != nil {
@@ -169,7 +229,7 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 		if err != nil {
 			return nil, err
 		}
-		return groupedWindows(g, fn, rn, on, cellsAndEdgesW, sql.NewWith(group, "win_g")), nil
+		return groupedWindows(g, fn, rn, on, cellsAndEdgesW, sql.NewWith(group, "win_g"), bucketStarts), nil
 	}
 
 	sums := func(keys ...sql.SQLObject) sql.ISelect {
@@ -192,30 +252,42 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	key := sql.NewSimpleCol(bucketKey("c", on, width), "b")
 	if !m.CellsByBucket {
 		return slideWindows(g, fn, rn, width, sql.NewWith(sums(key).
-			GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b"), false), nil
+			GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b"), false, noStartLines), nil
 	}
-	// The cells hold one row per stream and bucket already; the edges, summed
-	// per stream and bucket, are joined onto them.
-	cellBuckets := sql.NewWith(inRange(sql.NewSelect().With(cellsW).
-		Select(sql.NewRawObject("fingerprint"), key, sql.NewSimpleCol("cnt", "n")).
-		From(sql.NewWithRef(cellsW))), "win_bc")
+	// The cells hold one row per stream and bucket already; the edges, if
+	// any, summed per stream and bucket, are joined onto them.
+	bcCols := []sql.SQLObject{sql.NewRawObject("fingerprint"), key, sql.NewSimpleCol("cnt", "n")}
+	if starts.fromCells() {
+		bcCols = append(bcCols, sql.NewRawObject("starts"))
+	}
+	cellBucketRows := cellsInRange(sql.NewSelect().With(cellsW).
+		Select(bcCols...).
+		From(sql.NewWithRef(cellsW)))
+	if !withEdges {
+		return slideWindows(g, fn, rn, width, sql.NewWith(cellBucketRows, "win_b"), false, starts), nil
+	}
+	cellBuckets := sql.NewWith(cellBucketRows, "win_bc")
 	edgeBuckets := sql.NewWith(inRange(sql.NewSelect().With(movedW).
 		Select(sql.NewRawObject("fingerprint"), key, sql.NewSimpleCol("toInt64(sum(cnt))", "n")).
 		From(sql.NewWithRef(movedW))).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_be")
 	// With join_use_nulls=0 a bucket missing on one side reads b = 0 and n = 0
 	// there; no bucket ends at 0.
+	joinCols := []sql.SQLObject{
+		sql.NewSimpleCol("if(win_bc.b = 0, win_be.fingerprint, win_bc.fingerprint)", "fingerprint"),
+		sql.NewSimpleCol("if(win_bc.b = 0, win_be.b, win_bc.b)", "b"),
+		sql.NewSimpleCol("win_bc.n + win_be.n", "n")}
+	if starts.fromCells() {
+		joinCols = append(joinCols, sql.NewSimpleCol("win_bc.starts", "starts"))
+	}
 	joined := sql.NewSelect().With(cellBuckets, edgeBuckets).
-		Select(
-			sql.NewSimpleCol("if(win_bc.b = 0, win_be.fingerprint, win_bc.fingerprint)", "fingerprint"),
-			sql.NewSimpleCol("if(win_bc.b = 0, win_be.b, win_bc.b)", "b"),
-			sql.NewSimpleCol("win_bc.n + win_be.n", "n")).
+		Select(joinCols...).
 		From(sql.NewCol(sql.NewWithRef(cellBuckets), "win_bc")).
 		Join(sql.NewJoin("FULL", sql.NewCol(sql.NewWithRef(edgeBuckets), "win_be"), sql.And(
 			sql.Eq(sql.NewRawObject("win_bc.fingerprint"), sql.NewRawObject("win_be.fingerprint")),
 			sql.Eq(sql.NewRawObject("win_bc.b"), sql.NewRawObject("win_be.b"))))).
 		SetSetting("join_use_nulls", "0")
-	return slideWindows(g, fn, rn, width, sql.NewWith(joined, "win_b"), false), nil
+	return slideWindows(g, fn, rn, width, sql.NewWith(joined, "win_b"), false, starts), nil
 }
 
 // bucketKey is the end of the w-wide bucket, in offset time, holding cell c.
@@ -237,8 +309,17 @@ func movedEdges(edgesW *sql.With) sql.ISelect {
 // fingerprint's empty buckets of the read range, first-R to last, are filled
 // in, and the window at T is the sum of the R/w buckets ending at T. With
 // labels, each fingerprint keeps the labels of its non-empty buckets.
-func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.With, labels bool) sql.ISelect {
+//
+// Start lines from the cells come per bucket as starts, which count in the
+// bucket before: the window at T takes those of (T-R+w, T+w].
+func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.With, labels bool,
+	starts startLines) sql.ISelect {
 	cols := []sql.SQLObject{sql.NewRawObject("fingerprint"), sql.NewRawObject("b"), sql.NewRawObject("n")}
+	fillTo := g.LastNs() + width
+	if starts.fromCells() {
+		cols = append(cols, sql.NewRawObject("starts"))
+		fillTo += width
+	}
 	if labels {
 		cols = append(cols, sql.NewRawObject("labels"))
 	}
@@ -246,16 +327,29 @@ func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.
 		Select(cols...).
 		From(sql.NewWithRef(buckets)).
 		OrderBy(sql.NewRawObject("fingerprint"), sql.NewRawObject(fmt.Sprintf("b WITH FILL FROM %d TO %d STEP %d",
-			g.FirstNs-rn+width, g.LastNs()+width, width))).
+			g.FirstNs-rn+width, fillTo, width))).
 		// Fill each fingerprint's buckets on its own. With this off, which a
 		// server profile may do, WITH FILL fills one sequence across all of
 		// them and the windows below sum the wrong rows.
 		SetSetting("use_with_fill_by_sorting_prefix", "1"), "win_f")
+	sum := fmt.Sprintf("sum(n) OVER (PARTITION BY fingerprint ORDER BY b "+
+		"ROWS BETWEEN %d PRECEDING AND CURRENT ROW)", rn/width-1)
+	nonEmpty := "n > 0"
+	if starts.fromCells() {
+		frameStart := "1 FOLLOWING"
+		if k := rn / width; k == 2 {
+			frameStart = "CURRENT ROW"
+		} else if k > 2 {
+			frameStart = fmt.Sprintf("%d PRECEDING", k-2)
+		}
+		sum += fmt.Sprintf(" + sum(starts) OVER (PARTITION BY fingerprint ORDER BY b ROWS BETWEEN %s AND 1 FOLLOWING)",
+			frameStart)
+		nonEmpty = "n > 0 OR starts > 0"
+	}
 	winCols := []sql.SQLObject{
 		sql.NewRawObject("fingerprint"),
 		sql.NewSimpleCol("b", "T"),
-		sql.NewSimpleCol(fmt.Sprintf("sum(n) OVER (PARTITION BY fingerprint ORDER BY b "+
-			"ROWS BETWEEN %d PRECEDING AND CURRENT ROW)", rn/width-1), "s"),
+		sql.NewSimpleCol(sum, "s"),
 	}
 	resCols := []sql.SQLObject{
 		sql.NewSimpleCol("T", "timestamp_ns"),
@@ -264,7 +358,7 @@ func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.
 		sql.NewSimpleCol(fn.final("toFloat64(s)", "s"), "value"),
 	}
 	if labels {
-		winCols = append(winCols, sql.NewSimpleCol("anyIf(labels, n > 0) OVER (PARTITION BY fingerprint)", "labels"))
+		winCols = append(winCols, sql.NewSimpleCol("anyIf(labels, "+nonEmpty+") OVER (PARTITION BY fingerprint)", "labels"))
 		resCols = append(resCols, sql.NewRawObject("labels"))
 	}
 	windows := sql.NewWith(sql.NewSelect().With(filled).Select(winCols...).From(sql.NewWithRef(filled)), "win_s")
@@ -283,31 +377,40 @@ func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.
 // instant query). Buckets are w = gcd(step, R) wide and keyed in offset time:
 // bucket b holds the rows with c + o in [b-w, b), and the window at T the
 // buckets of (T-R, T].
-func groupedWindows(g shared.EvalGrid, fn windowFn, rn, on int64, rowsW, groupW *sql.With) sql.ISelect {
+//
+// With start lines from the cells, rowsW also carries starts.
+func groupedWindows(g shared.EvalGrid, fn windowFn, rn, on int64, rowsW, groupW *sql.With,
+	starts startLines) sql.ISelect {
 	width := rn
 	if g.StepNs != 0 {
 		width = shared.Gcd(g.StepNs, rn)
 	}
+	bgCols := []sql.SQLObject{
+		sql.NewSimpleCol("win_gm.new_fingerprint", "gfp"),
+		sql.NewSimpleCol("win_gm.labels", "glabels"),
+		sql.NewSimpleCol(bucketKey("win_mc.c", on, width), "b"),
+		sql.NewSimpleCol("win_mc.cnt", "cnt")}
+	bCols := []sql.SQLObject{
+		sql.NewSimpleCol("gfp", "fingerprint"),
+		sql.NewSimpleCol("b", "b"),
+		sql.NewSimpleCol("toInt64(sum(cnt))", "n"),
+		sql.NewSimpleCol("any(glabels)", "labels")}
+	if starts.fromCells() {
+		bgCols = append(bgCols, sql.NewSimpleCol("win_mc.starts", "bstarts"))
+		bCols = append(bCols, sql.NewSimpleCol("toInt64(sum(bstarts))", "starts"))
+	}
 	byGroup := sql.NewWith(sql.NewSelect().With(rowsW, groupW).
-		Select(
-			sql.NewSimpleCol("win_gm.new_fingerprint", "gfp"),
-			sql.NewSimpleCol("win_gm.labels", "glabels"),
-			sql.NewSimpleCol(bucketKey("win_mc.c", on, width), "b"),
-			sql.NewSimpleCol("win_mc.cnt", "cnt")).
+		Select(bgCols...).
 		From(sql.NewCol(sql.NewWithRef(rowsW), "win_mc")).
 		Join(sql.NewJoin("INNER", sql.NewCol(sql.NewWithRef(groupW), "win_gm"),
 			sql.Eq(sql.NewRawObject("win_mc.fingerprint"), sql.NewRawObject("win_gm.fingerprint")))), "win_bg")
 	buckets := sql.NewWith(sql.NewSelect().With(byGroup).
-		Select(
-			sql.NewSimpleCol("gfp", "fingerprint"),
-			sql.NewSimpleCol("b", "b"),
-			sql.NewSimpleCol("toInt64(sum(cnt))", "n"),
-			sql.NewSimpleCol("any(glabels)", "labels")).
+		Select(bCols...).
 		From(sql.NewWithRef(byGroup)).
 		GroupBy(sql.NewRawObject("gfp"), sql.NewRawObject("b")), "win_b")
 
 	if g.StepNs != 0 {
-		return slideWindows(g, fn, rn, width, buckets, true)
+		return slideWindows(g, fn, rn, width, buckets, true, starts)
 	}
 	return sql.NewSelect().With(buckets).
 		Select(
@@ -325,26 +428,42 @@ func groupedWindows(g shared.EvalGrid, fn windowFn, rn, on int64, rowsW, groupW 
 // [From, To). On a range grid it sums the cells of each window bucket into
 // one row keyed on the bucket's first cell, which the shortcut buckets as it
 // would the cell; From and To are bucket edges, so the bounds hold too.
+//
+// From the start_count cutoff on, a row also carries starts, the start lines
+// of its first cell, out of cnt; cell To is then read too, for its starts.
 type metrics15sCells struct {
 	duration time.Duration
 	offset   time.Duration
 }
 
 func (m *metrics15sCells) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	key := "samples.timestamp_ns"
+	key, firstCell := "samples.timestamp_ns", ""
 	if ctx.Grid != nil && ctx.Grid.StepNs != 0 {
 		width, on := shared.Gcd(ctx.Grid.StepNs, m.duration.Nanoseconds()), m.offset.Nanoseconds()
 		key = fmt.Sprintf("intDiv(samples.timestamp_ns + %d, %d) * %[2]d - %[1]d", on, width)
+		firstCell = fmt.Sprintf(" AND (samples.timestamp_ns + %d) %% %d = 0", on, width)
 	}
+	to := ctx.To.UnixNano()
+	cnt := "toInt64(countMerge(samples.count))"
+	upTo := sql.Lt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(to))
+	var startsCols []sql.SQLObject
+	if starts := startLinesUpTo(ctx, to); starts.fromCells() {
+		startsExpr := fmt.Sprintf("toInt64(sumIf(samples.start_count, samples.timestamp_ns >= %d%s))",
+			starts.cutoff, firstCell)
+		cnt += " - " + startsExpr
+		startsCols = append(startsCols, sql.NewSimpleCol(startsExpr, "starts"))
+		upTo = sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(to))
+	}
+	cols := append([]sql.SQLObject{
+		sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
+		sql.NewSimpleCol(key, "c"),
+		sql.NewSimpleCol(cnt, "cnt")}, startsCols...)
 	return sql.NewSelect().
-		Select(
-			sql.NewSimpleCol("samples.fingerprint", "fingerprint"),
-			sql.NewSimpleCol(key, "c"),
-			sql.NewSimpleCol("toInt64(countMerge(samples.count))", "cnt")).
+		Select(cols...).
 		From(sql.NewSimpleCol(ctx.Metrics15sDistTableName, "samples")).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
-			sql.Lt(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
+			upTo,
 			GetTypes(ctx)).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("c")), nil
 }
@@ -375,6 +494,9 @@ func (f *Metrics15sFingerprints) Process(ctx *shared.PlannerContext) (sql.ISelec
 type EdgeLinesPlanner struct {
 	Duration time.Duration
 	Offset   time.Duration
+	// StartsFromCells: the cells carry the start lines from the start_count
+	// cutoff on, so only the edges before it are read.
+	StartsFromCells bool
 }
 
 func (e *EdgeLinesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -384,10 +506,18 @@ func (e *EdgeLinesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 	g := *ctx.Grid
 	rn, on := e.Duration.Nanoseconds(), e.Offset.Nanoseconds()
 	first, last := g.FirstNs-on, g.LastNs()-on
+	// end bounds the edges read, exclusive.
+	end := last + 1
+	if e.StartsFromCells {
+		end = min(end, startLinesUpTo(ctx, last).cutoff)
+	}
 	set := fmt.Sprintf("%d, %d", first, first-rn)
-	if g.StepNs != 0 {
+	switch {
+	case g.StepNs != 0:
 		set = fmt.Sprintf("SELECT arrayJoin(arrayConcat(range(%d, %d, %d), range(%d, %d, %[3]d)))",
-			first, last+1, g.StepNs, first-rn, last-rn+1)
+			first, max(first, end), g.StepNs, first-rn, max(first-rn, min(end, last-rn+1)))
+	case first >= end:
+		set = fmt.Sprintf("%d", first-rn)
 	}
 	return sql.NewSelect().
 		Select(
@@ -397,7 +527,7 @@ func (e *EdgeLinesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 		From(sql.NewSimpleCol(ctx.SamplesDistTableName, "samples")).
 		AndPreWhere(
 			sql.Ge(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(first-rn)),
-			sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(last)),
+			sql.Le(sql.NewRawObject("samples.timestamp_ns"), sql.NewIntVal(end-1)),
 			sql.NewIn(sql.NewRawObject("samples.timestamp_ns"), sql.NewRawObject(set)),
 			GetTypes(ctx)).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("ts")), nil

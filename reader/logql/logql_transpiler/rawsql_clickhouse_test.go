@@ -18,6 +18,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 )
 
 // The tests in this file run the planned SQL on a ClickHouse server given by
@@ -96,16 +98,24 @@ func seedLogClickHouse(base string, lines []logLine) error {
 		`metrics_15s (fingerprint UInt64, timestamp_ns Int64, last AggregateFunction(argMax, Float64, Int64),
 			max SimpleAggregateFunction(max, Float64), min SimpleAggregateFunction(min, Float64),
 			count AggregateFunction(count), sum SimpleAggregateFunction(sum, Float64),
-			bytes SimpleAggregateFunction(sum, Float64), type UInt8)
+			bytes SimpleAggregateFunction(sum, Float64), type UInt8,
+			start_count SimpleAggregateFunction(sum, UInt64))
 			ENGINE = AggregatingMergeTree ORDER BY (fingerprint, timestamp_ns, type)`,
+		`settings (fingerprint UInt64, type String, name String, value String, inserted_at DateTime64(9, 'UTC'))
+			ENGINE = ReplacingMergeTree(inserted_at) ORDER BY fingerprint`,
 	}
 	// metrics15sMV is the view that fills metrics_15s in a deployment.
 	const metrics15sMV = `CREATE MATERIALIZED VIEW metrics_15s_mv TO metrics_15s AS SELECT fingerprint,
 		intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
 		argMaxState(value, samples.timestamp_ns) as last, maxSimpleState(value) as max,
 		minSimpleState(value) as min, countState() as count, sumSimpleState(value) as sum,
-		sumSimpleState(length(string)) as bytes, type
+		sumSimpleState(length(string)) as bytes,
+		sumSimpleState(toUInt64(samples.timestamp_ns % 15000000000 = 0)) as start_count, type
 		FROM samples_v3 as samples GROUP BY fingerprint, timestamp_ns, type`
+	// startCountMarker records that the MV fills start_count in every cell, as
+	// on a fresh install.
+	startCountMarker := fmt.Sprintf(`INSERT INTO settings VALUES (1, 'update', '%s', '0', now64(9))`,
+		dbversion.MarkerMetrics15sStartCount)
 	dbs := append([]string{chLogDB}, chShardDBs[:]...)
 	for _, db := range dbs {
 		for _, s := range []string{"DROP DATABASE IF EXISTS " + db, "CREATE DATABASE " + db} {
@@ -118,8 +128,10 @@ func seedLogClickHouse(base string, lines []logLine) error {
 				return err
 			}
 		}
-		if err := chExec(base, db, metrics15sMV); err != nil {
-			return err
+		for _, s := range []string{metrics15sMV, startCountMarker} {
+			if err := chExec(base, db, s); err != nil {
+				return err
+			}
 		}
 	}
 	type rows struct{ series, gin, samples strings.Builder }
@@ -181,7 +193,7 @@ func seedLogClickHouse(base string, lines []logLine) error {
 	if !cluster {
 		return nil
 	}
-	for _, t := range []string{"samples_v3", "time_series", "time_series_gin", "metrics_15s"} {
+	for _, t := range []string{"samples_v3", "time_series", "time_series_gin", "metrics_15s", "settings"} {
 		q := fmt.Sprintf("CREATE TABLE %s_dist AS %[1]s ENGINE = Distributed(%s, '', %[1]s)", t, chCluster)
 		if err := chExec(base, chLogDB, q); err != nil {
 			return err

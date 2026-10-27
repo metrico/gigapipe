@@ -45,7 +45,14 @@ var pinnedRequests = map[string]request{
 	"range/300s/nom15s":   {start: pinD0.Add(6 * time.Hour), end: pinD0.Add(18 * time.Hour), step: 5 * time.Minute, noMetrics15s: true},
 	"instant+7m/nom15s":   {start: pinD0.Add(12*time.Hour + 7*time.Minute), end: pinD0.Add(12*time.Hour + 7*time.Minute), step: time.Second, instant: true, noMetrics15s: true},
 	"range/60s+60/nom15s": {start: pinD0.Add(6*time.Hour + time.Minute), end: pinD0.Add(18*time.Hour + time.Minute), step: time.Minute, noMetrics15s: true},
+	"range/60s/sc=0":      {start: pinD0.Add(6 * time.Hour), end: pinD0.Add(18 * time.Hour), step: time.Minute, startCount: &pinEpoch},
+	"range/300s/sc=12h":   {start: pinD0.Add(6 * time.Hour), end: pinD0.Add(18 * time.Hour), step: 5 * time.Minute, startCount: &pinMid},
+	"instant/sc=12h":      {start: pinD0.Add(12 * time.Hour), end: pinD0.Add(12 * time.Hour), step: time.Second, instant: true, startCount: &pinMid},
 }
+
+// pinEpoch and pinMid are start_count cutoffs: a fresh install's, and one
+// inside the pinned ranges.
+var pinEpoch, pinMid = time.Unix(0, 0), pinD0.Add(12 * time.Hour)
 
 const pinFile = "testdata/sql_plans.json"
 

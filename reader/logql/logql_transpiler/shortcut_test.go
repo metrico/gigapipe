@@ -279,3 +279,124 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 		}
 	}
 }
+
+// TestShortcutStartCountCutoff: a shortcut operand whose read range reaches
+// the start_count cutoff takes the start lines from the cells there, reads
+// the raw edges only before the cutoff, and none when no edge lies before
+// it; one whose range lies before the cutoff keeps the plan it has without.
+func TestShortcutStartCountCutoff(t *testing.T) {
+	type operand struct{ r, offset time.Duration }
+	const raw = "FROM samples_v3 as samples"
+	for _, c := range []struct {
+		query    string
+		operands []operand
+	}{
+		{`count_over_time({job="g"} [5m])`, []operand{{5 * time.Minute, 0}}},
+		{`rate({job="g"} [45s])`, []operand{{45 * time.Second, 0}}},
+		{`sum by (l) (rate({job="g"} [1h]))`, []operand{{time.Hour, 0}}},
+		{`max by (l) (count_over_time({job="g"} [5m]))`, []operand{{5 * time.Minute, 0}}},
+		{`count_over_time({job="g"} [5m] offset 7m)`, []operand{{5 * time.Minute, 7 * time.Minute}}},
+		{`sum by (l) (count_over_time({job="g"} [15m] offset 1h))`, []operand{{15 * time.Minute, time.Hour}}},
+		{`count_over_time({job="g"} [5m]) / count_over_time({job="g"} [5m] offset 7s)`, []operand{{5 * time.Minute, 0}}},
+		{`sum(rate({job="g"} [5m])) * 2`, []operand{{5 * time.Minute, 0}}},
+		{`count_over_time({job="g"} [5m]) - count_over_time({job="g", l="a"} [5m] offset 5m)`,
+			[]operand{{5 * time.Minute, 0}, {5 * time.Minute, 5 * time.Minute}}},
+	} {
+		for _, name := range []string{"aligned/60s", "unaligned/300s", "instant", "instant+7m"} {
+			req := gridRequests[name]
+			base := runRequest(t, c.query, req, nil).sql[0]
+			times := refGrid(req)
+			for _, cut := range []time.Duration{-24 * time.Hour, 3 * time.Hour,
+				3*time.Hour + 22*time.Minute + 45*time.Second, 4 * time.Hour, 24 * time.Hour} {
+				at := gridD0.Add(cut)
+				req.startCount = &at
+				sql := runRequest(t, c.query, req, nil).sql[0]
+				id := fmt.Sprintf("%s@%s/cutoff=%v", c.query, name, cut)
+				starting, edgeless := 0, 0
+				for _, o := range c.operands {
+					lo := times[0] - o.r.Nanoseconds() - o.offset.Nanoseconds()
+					hi := times[len(times)-1] - o.offset.Nanoseconds()
+					if at.UnixNano() <= hi {
+						starting++
+					}
+					if at.UnixNano() <= lo {
+						edgeless++
+					}
+				}
+				if starting == 0 {
+					if sql != base {
+						t.Errorf("%s: plan differs from the one without a cutoff", id)
+					}
+					continue
+				}
+				starts := fmt.Sprintf("sumIf(samples.start_count, samples.timestamp_ns >= %d", at.UnixNano())
+				if n := strings.Count(sql, starts); n != 2*starting {
+					t.Errorf("%s: %d start_count reads, want %d", id, n, 2*starting)
+				}
+				if n, want := strings.Count(sql, raw), strings.Count(base, raw)-edgeless; n != want {
+					t.Errorf("%s: %d raw reads, want %d", id, n, want)
+				}
+				bounded := strings.Contains(sql, fmt.Sprintf("(samples.timestamp_ns) <= (%d)", at.UnixNano()-1))
+				if want := starting > edgeless; bounded != want {
+					t.Errorf("%s: edge read bounded by the cutoff %v, want %v", id, bounded, want)
+				}
+				if want := !req.instant; strings.Contains(sql, "+ sum(starts) OVER") != want {
+					t.Errorf("%s: start lines in the window frame %v, want %v", id, !want, want)
+				}
+			}
+		}
+	}
+	// A fresh install's cutoff, 0, covers every cell.
+	epoch := time.Unix(0, 0)
+	req := gridRequests["aligned/60s"]
+	req.startCount = &epoch
+	if sql := runRequest(t, `count_over_time({job="g"} [5m])`, req, nil).sql[0]; strings.Contains(sql, raw) ||
+		!strings.Contains(sql, "sumIf(samples.start_count, samples.timestamp_ns >= 0") {
+		t.Errorf("cutoff 0: %s", sql)
+	}
+}
+
+// TestShortcutStartCountEdges pins the edge set and the cell read around a
+// cutoff: the edges before it are read raw, those from it on are the cells'
+// start lines, and cell hi is read for its own.
+func TestShortcutStartCountEdges(t *testing.T) {
+	r, step := 5*time.Minute, time.Minute
+	rn, sn := r.Nanoseconds(), step.Nanoseconds()
+	rng := gridRequests["aligned/60s"]
+	times := refGrid(rng)
+	first, last := times[0], times[len(times)-1]
+	q := `count_over_time({job="g"} [5m])`
+	for _, c := range []struct {
+		req request
+		cut int64
+		has []string
+	}{
+		{rng, gridD0.Add(4 * time.Hour).UnixNano(), []string{
+			fmt.Sprintf("samples.timestamp_ns IN (SELECT arrayJoin(arrayConcat(range(%d, %d, %d), range(%d, %d, %[3]d))))",
+				first, gridD0.Add(4*time.Hour).UnixNano(), sn, first-rn, gridD0.Add(4*time.Hour).UnixNano()),
+			fmt.Sprintf("(samples.timestamp_ns) <= (%d)", last),
+			fmt.Sprintf("WITH FILL FROM %d TO %d STEP %d", first-rn+sn, last+2*sn, sn),
+			"sum(starts) OVER (PARTITION BY fingerprint ORDER BY b ROWS BETWEEN 3 PRECEDING AND 1 FOLLOWING)",
+		}},
+		// The cutoff lies between the first T-R and the first T.
+		{rng, first - 2*sn, []string{
+			fmt.Sprintf("samples.timestamp_ns IN (SELECT arrayJoin(arrayConcat(range(%d, %d, %d), range(%d, %d, %[3]d))))",
+				first, first, sn, first-rn, first-2*sn),
+		}},
+		// The instant's T lies on the cutoff: only T-R is read raw.
+		{instantReq(gridD0.Add(4 * time.Hour)), gridD0.Add(4 * time.Hour).UnixNano(), []string{
+			fmt.Sprintf("samples.timestamp_ns IN (%d)", gridD0.Add(4*time.Hour).UnixNano()-rn),
+			fmt.Sprintf("toInt64(if(c < %d, cnt, 0) + if(c > %d, starts, 0))", gridD0.Add(4*time.Hour).UnixNano(),
+				gridD0.Add(4*time.Hour).UnixNano()-rn),
+		}},
+	} {
+		cut := time.Unix(0, c.cut)
+		c.req.startCount = &cut
+		sql := runRequest(t, q, c.req, nil).sql[0]
+		for _, h := range c.has {
+			if !strings.Contains(sql, h) {
+				t.Errorf("cutoff %d: no %q in %s", c.cut, h, sql)
+			}
+		}
+	}
+}

@@ -37,6 +37,9 @@ type request struct {
 	noMetrics15s bool
 	// cluster reads through the *_dist tables, as a sharded deployment does.
 	cluster bool
+	// startCount, when set, is the metrics_15s start_count cutoff the
+	// version info carries.
+	startCount *time.Time
 }
 
 func rangeReq(start, end time.Time, step time.Duration) request {
@@ -120,6 +123,9 @@ func serveRequest(t *testing.T, query string, req request, db recordingDB) plann
 	}
 	if req.noMetrics15s {
 		pctx.VersionInfo = dbversion.VersionInfo{}
+	} else if req.startCount != nil {
+		pctx.VersionInfo = dbversion.VersionInfo{dbversion.CapMetrics15s: 0,
+			dbversion.MarkerMetrics15sStartCount: req.startCount.Unix()}
 	}
 	ch, err := chain[0].Process(pctx, nil)
 	if err != nil {
