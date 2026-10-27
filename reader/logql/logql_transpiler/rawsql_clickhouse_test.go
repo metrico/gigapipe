@@ -22,9 +22,9 @@ import (
 
 // The tests in this file run the planned SQL on a ClickHouse server given by
 // GRID_TEST_CLICKHOUSE (an HTTP URL with credentials), in databases they
-// recreate, and are skipped without it. Cluster runs need a cluster
-// grid_two_shards whose shards use the databases chShardDBs; they run in
-// chLogDB, whose *_dist tables read the shards.
+// recreate, and are skipped without it. Cluster runs need the cluster in
+// testdata/grid_two_shards.xml; they run in chLogDB, whose *_dist tables read
+// the shards.
 const (
 	chLogDB   = "logql_grid_test"
 	chCluster = "grid_two_shards"
@@ -174,6 +174,13 @@ func seedLogClickHouse(base string, lines []logLine) error {
 			return err
 		}
 	}
+	cluster, err := chHasCluster(base)
+	if err != nil {
+		return err
+	}
+	if !cluster {
+		return nil
+	}
 	for _, t := range []string{"samples_v3", "time_series", "time_series_gin", "metrics_15s"} {
 		q := fmt.Sprintf("CREATE TABLE %s_dist AS %[1]s ENGINE = Distributed(%s, '', %[1]s)", t, chCluster)
 		if err := chExec(base, chLogDB, q); err != nil {
@@ -183,16 +190,29 @@ func seedLogClickHouse(base string, lines []logLine) error {
 	return nil
 }
 
+// chHasCluster reports whether the server defines chCluster with
+// len(chShardDBs) shards.
+func chHasCluster(base string) (bool, error) {
+	body, err := chPost(base, "", fmt.Sprintf("SELECT count() FROM system.clusters WHERE cluster = '%s'", chCluster))
+	if err != nil {
+		return false, err
+	}
+	defer body.Close()
+	b, err := io.ReadAll(body)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(b)) == fmt.Sprint(len(chShardDBs)), nil
+}
+
 // chModes returns the request modes to run: single node, and the cluster
 // when the server defines chCluster.
 func chModes(t *testing.T, base string) []bool {
-	body, err := chPost(base, "", fmt.Sprintf("SELECT count() FROM system.clusters WHERE cluster = '%s'", chCluster))
+	cluster, err := chHasCluster(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer body.Close()
-	b, _ := io.ReadAll(body)
-	if strings.TrimSpace(string(b)) != fmt.Sprint(len(chShardDBs)) {
+	if !cluster {
 		t.Logf("no cluster %s: single node only", chCluster)
 		return []bool{false}
 	}
