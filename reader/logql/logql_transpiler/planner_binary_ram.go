@@ -41,7 +41,7 @@ func (b *BinaryExprProcessor) Process(ctx *shared.PlannerContext, _ chan []share
 	if b.IsScalar {
 		go func() {
 			defer close(out)
-			defer func() { shared.TamePanic(out) }()
+			defer shared.TamePanic(out)
 			emitScalar(leftMap, b.Op, b.RightScalar, out)
 		}()
 		return out, nil
@@ -58,7 +58,7 @@ func (b *BinaryExprProcessor) Process(ctx *shared.PlannerContext, _ chan []share
 
 	go func() {
 		defer close(out)
-		defer func() { shared.TamePanic(out) }()
+		defer shared.TamePanic(out)
 		emitBinary(leftMap, rightMap, b.Op, out)
 	}()
 	return out, nil

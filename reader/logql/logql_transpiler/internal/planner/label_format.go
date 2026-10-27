@@ -24,6 +24,9 @@ func (a *LabelFormatPlanner) Process(ctx *shared.PlannerContext,
 			}
 
 			labelFns = append(labelFns, func(m map[string]string) map[string]string {
+				if m == nil {
+					m = map[string]string{}
+				}
 				m[label] = str
 				return m
 			})

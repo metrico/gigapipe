@@ -23,7 +23,7 @@ func (m *MatrixStepPlanner) Process(ctx *shared.PlannerContext,
 	out := make(chan []shared.LogEntry)
 	go func() {
 		defer close(out)
-		defer func() { shared.TamePanic(out) }()
+		defer shared.TamePanic(out)
 		var (
 			fp       uint64
 			nextTsNs int64

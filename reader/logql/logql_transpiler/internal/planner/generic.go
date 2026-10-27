@@ -33,7 +33,7 @@ func (g *GenericPlanner) WrapProcess(ctx *shared.PlannerContext,
 			}()
 		}
 		defer close(out)
-		defer func() { shared.TamePanic(out) }()
+		defer shared.TamePanic(out)
 		for entries := range _in {
 			skipMask := make([]uint64, (len(entries)+63)/64)
 			for i := range entries {
