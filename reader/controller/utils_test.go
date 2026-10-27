@@ -65,6 +65,60 @@ func TestEpochToTimeSharedWithTempo(t *testing.T) {
 	}
 }
 
+// ParseTimeParamsV2 must resolve the same wall-clock time regardless of
+// whether the caller sends seconds, milliseconds, microseconds, nanoseconds
+// or RFC3339. This catches any handler that is wired to a raw ParseInt
+// instead of ParseTimeSecOrRFC.
+func TestParseTimeParamsV2Magnitudes(t *testing.T) {
+	// All of these represent 2026-07-30 12:48:12 UTC.
+	inputs := []struct {
+		name  string
+		start string
+		end   string
+	}{
+		{"seconds", "1785416892", "1785416893"},
+		{"milliseconds", "1785416892000", "1785416893000"},
+		{"microseconds", "1785416892000000", "1785416893000000"},
+		{"nanoseconds", "1785416892000000000", "1785416893000000000"},
+		{"RFC3339", "2026-07-30T13:08:12Z", "2026-07-30T13:08:13Z"},
+	}
+	wantStart := time.Unix(1785416892, 0).UTC()
+	wantEnd := time.Unix(1785416893, 0).UTC()
+
+	for _, tc := range inputs {
+		r := httptest.NewRequest("GET", "/?start="+tc.start+"&end="+tc.end, nil)
+		params, err := ParseTimeParamsV2(r)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !params.Start.Equal(wantStart) {
+			t.Errorf("%s: Start = %v, want %v", tc.name, params.Start.UTC(), wantStart.UTC())
+		}
+		if !params.End.Equal(wantEnd) {
+			t.Errorf("%s: End = %v, want %v", tc.name, params.End.UTC(), wantEnd.UTC())
+		}
+	}
+}
+
+// When start/end are omitted, ParseTimeParamsV2 must default to now-6h / now
+// (not error out).
+func TestParseTimeParamsV2Defaults(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	params, err := ParseTimeParamsV2(r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	now := time.Now()
+	// Start should be roughly now-6h (within 5 seconds tolerance).
+	if diff := now.Add(-6 * time.Hour).Sub(params.Start); diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("Start = %v, want ~%v", params.Start, now.Add(-6*time.Hour))
+	}
+	// End should be roughly now.
+	if diff := now.Sub(params.End); diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("End = %v, want ~%v", params.End, now)
+	}
+}
+
 // A panic before anything is written must surface as a plain 500.
 func TestTamePanic_BeforeWrite(t *testing.T) {
 	h := middleware.AcceptEncodingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
