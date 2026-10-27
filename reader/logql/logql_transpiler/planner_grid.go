@@ -35,6 +35,8 @@ func (g *GridPlanner) Process(ctx *shared.PlannerContext,
 	out := make(chan []shared.LogEntry)
 	go func() {
 		defer close(out)
+		defer shared.Drain(_in)
+		defer shared.TamePanic(out)
 		for entries := range _in {
 			kept := entries[:0]
 			for _, e := range entries {

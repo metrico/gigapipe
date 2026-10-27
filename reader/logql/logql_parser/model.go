@@ -437,9 +437,12 @@ func (l Comparison) String() string {
 	return l.Fn + " " + l.Val
 }
 
+// ByOrWithout is the grouping clause of an aggregation. The label list may be
+// empty: `by ()` keeps no labels (the same projection as an aggregation with
+// no clause at all) and `without ()` removes none, keeping every series apart.
 type ByOrWithout struct {
 	Fn     string      `@("by"|"without") `
-	Labels []LabelName `"(" @@ ("," @@)* ")" `
+	Labels []LabelName `"(" (@@ ("," @@)*)? ")" `
 }
 
 func (l ByOrWithout) String() string {
