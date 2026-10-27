@@ -420,7 +420,12 @@ func TestTopKOnClickHouse(t *testing.T) {
 			db := newChDB(base)
 			got := gotSeries(serveRequest(t, `topk(1, sum by (l) (`+q+`))`, req, db))
 			db.Close()
-			all := reference(lines, ref, refGrid(req))
+			// The line-filtered query is raw SQL; the other is the shortcut's.
+			r := ref
+			if q != rawCount5m {
+				r = shortcutRef(ref, req)
+			}
+			all := reference(lines, r, refGrid(req))
 			want := map[string]map[int64]float64{}
 			for _, ts := range refGrid(req) {
 				best, bestV, tie := "", math.Inf(-1), false
