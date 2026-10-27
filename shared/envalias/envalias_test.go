@@ -101,3 +101,18 @@ func TestNoWarningWhenAlreadyMigrated(t *testing.T) {
 		}
 	}
 }
+
+// TestRetentionTierDaysAreMapped covers the retention tier settings, which are
+// read under their unprefixed names.
+func TestRetentionTierDaysAreMapped(t *testing.T) {
+	for _, name := range []string{"METRICS_RAW_DAYS", "METRICS_5M_DAYS", "METRICS_1H_DAYS"} {
+		t.Setenv(name, "")
+		t.Setenv(Prefix+name, "60")
+	}
+	Apply()
+	for _, name := range []string{"METRICS_RAW_DAYS", "METRICS_5M_DAYS", "METRICS_1H_DAYS"} {
+		if got := os.Getenv(name); got != "60" {
+			t.Errorf("%s = %q, want %q", name, got, "60")
+		}
+	}
+}

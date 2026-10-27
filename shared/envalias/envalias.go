@@ -31,12 +31,16 @@ const Prefix = "GIGAPIPE_"
 // GIGAPIPE_X -> QRYN_X rule. The credentials appear under both legacy prefixes
 // because cmd reads QRYN_LOGIN first and then lets CLOKI_LOGIN override it, so
 // feeding only one of them would let a stale legacy value win. The writer's
-// log-file overrides have no underscore after the prefix at all.
+// log-file overrides have no underscore after the prefix at all. The retention
+// tier settings are read unprefixed.
 var irregular = map[string][]string{
-	"GIGAPIPE_LOGIN":      {"QRYN_LOGIN", "CLOKI_LOGIN"},
-	"GIGAPIPE_PASSWORD":   {"QRYN_PASSWORD", "CLOKI_PASSWORD"},
-	"GIGAPIPE_APPLOGPATH": {"CLOKIAPPLOGPATH"},
-	"GIGAPIPE_APPLOGNAME": {"CLOKIAPPLOGNAME"},
+	"GIGAPIPE_LOGIN":            {"QRYN_LOGIN", "CLOKI_LOGIN"},
+	"GIGAPIPE_PASSWORD":         {"QRYN_PASSWORD", "CLOKI_PASSWORD"},
+	"GIGAPIPE_APPLOGPATH":       {"CLOKIAPPLOGPATH"},
+	"GIGAPIPE_APPLOGNAME":       {"CLOKIAPPLOGNAME"},
+	"GIGAPIPE_METRICS_RAW_DAYS": {"METRICS_RAW_DAYS"},
+	"GIGAPIPE_METRICS_5M_DAYS":  {"METRICS_5M_DAYS"},
+	"GIGAPIPE_METRICS_1H_DAYS":  {"METRICS_1H_DAYS"},
 }
 
 // deprecated lists the legacy names worth warning about individually when they

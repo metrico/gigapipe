@@ -218,9 +218,8 @@ func nameMatcher(v string) []*labels.Matcher {
 	return []*labels.Matcher{{Type: labels.MatchEqual, Name: "__name__", Value: v}}
 }
 
-// transpiledQuerier parses and transpiles a real PromQL query the same way the
-// request path does, and returns a CLokiQuerier holding the resulting expr - so
-// isSQLFilled runs against the actual optimizer output, not a hand-built map.
+// transpiledQuerier parses a real PromQL query and runs TranspileExpressionV2 on
+// it, so isSQLFilled runs against the actual optimizer output, not a hand-built map.
 func transpiledQuerier(t *testing.T, query string) *promql_parser.Expr {
 	t.Helper()
 	expr, err := promql_parser.Parse(query)

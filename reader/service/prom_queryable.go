@@ -129,49 +129,13 @@ type CLokiQuerier struct {
 	versionInfo dbversion.VersionInfo
 }
 
-var supportedFunctions = map[string]bool{
-	// Over time
-	"avg_over_time":      true,
-	"min_over_time":      true,
-	"max_over_time":      true,
-	"sum_over_time":      true,
-	"count_over_time":    true,
-	"quantile_over_time": false,
-	"stddev_over_time":   false,
-	"stdvar_over_time":   false,
-	"last_over_time":     true,
-	"present_over_time":  true,
-	"absent_over_time":   true,
-	//instant
-	"":    true,
-	"abs": true, "absent": true, "ceil": true, "exp": true, "floor": true,
-	"ln": true, "log2": true, "log10": true, "round": true, "scalar": true,
-	"sgn": true, "sort": true, "sqrt": true, "timestamp": true, "atan": true,
-	"cos": true, "cosh": true, "sin": true, "sinh": true, "tan": true,
-	"tanh": true, "deg": true, "rad": true,
-	//agg
-	"sum":   true,
-	"min":   true,
-	"max":   true,
-	"group": true,
-	"avg":   true,
-}
-
 func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 	matchers []*labels.Matcher, versionInfo dbversion.VersionInfo) (*promql_transpiler.TranspileResponse, error) {
-	isSupported, ok := supportedFunctions[hints.Func]
-
 	c.adjustHintsForRate(hints)
 
 	if !config.Cloki.Setting.ClokiReader.Compat_4_0_19 {
 		hints.Start = hints.Start / 15000 * 15000
 	}
-
-	useRawData := !versionInfo.Metrics15sAvailable((hints.Start-hints.Range)*1000000) ||
-		hints.Start%15000 != 0 ||
-		hints.Step < 15000 ||
-		(hints.Range > 0 && hints.Range < 15000) ||
-		!(isSupported || !ok)
 
 	start := hints.Start - hints.Range
 
@@ -201,10 +165,7 @@ func (c *CLokiQuerier) transpileLabelMatchers(hints *storage.SelectHints,
 		}
 	}
 
-	if useRawData {
-		return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
-	}
-	return promql_transpiler.TranspileLabelMatchersDownsample(hints, &ctx, matchers...)
+	return promql_transpiler.TranspileLabelMatchers(hints, &ctx, matchers...)
 }
 
 // prolongFunctions are the functions whose series the raw iterator carries
@@ -216,20 +177,13 @@ var prolongFunctions = []string{"deriv", "rate", "delta"}
 
 // adjustHintsForRate settles the step the rest of the request runs on.
 //
-// Two separate jobs. A query with no step of its own (an instant query), or a
-// range function the engine reports no range for (its argument is a subquery
-// rather than a matrix selector), has nothing to size a bucket against; 15s is
-// the metrics_15s grid, the finest step that table can answer at.
+// An instant query, or a change function the engine reports no range for (its
+// argument is a subquery rather than a matrix selector), takes half its range
+// as the step, and at least 15s.
 //
-// Otherwise the only adjustment is the one the planners need: a function that
-// measures a change across samples cannot answer from a single bucket, so its
-// step is capped to what planner.BucketResolution says that takes. Capping here
-// rather than only inside the planner is what keeps it visible to useRawData
-// below -- a step the cap drops under the 15s grid is one metrics_15s cannot
-// serve at all, and routes to raw samples instead of to a bucket finer than the
-// table's own resolution. The planners apply the same function to the same
-// numbers and so reach the same width; it is idempotent, so calling it at both
-// layers is not a conflict.
+// Otherwise a function that measures a change across samples has its step
+// capped to planner.BucketResolution; every other function keeps the query's
+// own step.
 func (c *CLokiQuerier) adjustHintsForRate(hints *storage.SelectHints) {
 	if hints.Step != 0 && !planner.NeedsDistinctSamples(hints.Func) {
 		return

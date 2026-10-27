@@ -231,3 +231,36 @@ ALTER TABLE {{.DB}}.patterns {{.OnCluster}}
     MODIFY COLUMN samples_count UInt32 CODEC(ZSTD(1)),
     MODIFY COLUMN pattern_id UInt64 CODEC(ZSTD(1)),
     MODIFY COLUMN iteration_id UInt64 CODEC(ZSTD(1));
+
+## metrics_15s is the log rollup: its view takes only log rows. Each statement can be rerun.
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.metrics_15s_mv {{.OnCluster}} TO metrics_15s
+AS SELECT
+    fingerprint,
+    intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
+    argMaxState(value, samples.timestamp_ns) as last,
+    maxSimpleState(value) as max,
+    minSimpleState(value) as min,
+    countState() as count,
+    sumSimpleState(value) as sum,
+    sumSimpleState(length(string)) as bytes,
+    type
+FROM samples_v3 as samples
+WHERE samples.type != 2
+GROUP BY fingerprint, timestamp_ns, type;
+
+ALTER TABLE {{.DB}}.metrics_15s_mv {{.OnCluster}} MODIFY QUERY
+SELECT
+    fingerprint,
+    intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
+    argMaxState(value, samples.timestamp_ns) as last,
+    maxSimpleState(value) as max,
+    minSimpleState(value) as min,
+    countState() as count,
+    sumSimpleState(value) as sum,
+    sumSimpleState(length(string)) as bytes,
+    type
+FROM samples_v3 as samples
+WHERE samples.type != 2
+GROUP BY fingerprint, timestamp_ns, type;
+
+DROP TABLE IF EXISTS {{.DB}}.metrics_15s_mv_bak {{.OnCluster}};
