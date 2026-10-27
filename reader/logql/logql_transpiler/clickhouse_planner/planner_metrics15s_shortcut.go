@@ -197,7 +197,11 @@ func slideWindows(g shared.EvalGrid, fn windowFn, rn, width int64, buckets *sql.
 		Select(cols...).
 		From(sql.NewWithRef(buckets)).
 		OrderBy(sql.NewRawObject("fingerprint"), sql.NewRawObject(fmt.Sprintf("b WITH FILL FROM %d TO %d STEP %d",
-			g.FirstNs-rn+width, g.LastNs()+width, width))), "win_f")
+			g.FirstNs-rn+width, g.LastNs()+width, width))).
+		// Fill each fingerprint's buckets on its own. With this off, which a
+		// server profile may do, WITH FILL fills one sequence across all of
+		// them and the windows below sum the wrong rows.
+		SetSetting("use_with_fill_by_sorting_prefix", "1"), "win_f")
 	winCols := []sql.SQLObject{
 		sql.NewRawObject("fingerprint"),
 		sql.NewSimpleCol("b", "T"),

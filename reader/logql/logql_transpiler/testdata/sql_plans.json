@@ -13,11 +13,11 @@
  },
  "count_over_time({job=\"a\"} [1h]) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "2d9d3f065e139892a62bbb974b8b3c5a78a730de95512819c9941139dbffe59e"
+  "sql_sha256": "38bcea650df99717f4384c66ecbe88883f46a7c9c0e5cbd78e770f50c1ef30e8"
  },
  "count_over_time({job=\"a\"} [1h]) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "809cbacfff9398606f65d7d19c4779fcb92a539d31606a7f3e572919c41099a0"
+  "sql_sha256": "610c5b4d9bb8ad34082963fa1db22d5e1539a13a1e0ea88da707ca200a8566f8"
  },
  "count_over_time({job=\"a\"} [1h]) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -25,11 +25,11 @@
  },
  "count_over_time({job=\"a\"} [1h]) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "16c9722e8d6ad2d10a23e681855651b8527846410791f3134e32a35e7d0b2762"
+  "sql_sha256": "24208532d9b8332f67c7db76d848f653945f5fc953c782ffcbbbfc57beedf2ef"
  },
  "count_over_time({job=\"a\"} [1h]) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "93845fa6b6987e98cb991af2f0889286981d18890fcc15097c635eeff37b2706"
+  "sql_sha256": "b3c0d95709695127e0132b5b3724d50fa60d42aa288e4d38b00955e8ba430005"
  },
  "count_over_time({job=\"a\"} [1h]) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -37,11 +37,11 @@
  },
  "count_over_time({job=\"a\"} [1h]) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "336ccb30096de750046e10f26993ab9781c0b7d08320db26686e68405b9a225e"
+  "sql_sha256": "3abdff2a92af3ef4c1f274c194d5e7d3a4e4453f0a9852b18c4b9290b4a035cd"
  },
  "count_over_time({job=\"a\"} [1h]) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "7d53f8f4b03c473233b575bd002c7d08c23548c51927a13bb3e3f41276fa8119"
+  "sql_sha256": "9df2a94eff9aecc99daec6571825ec68509e8b1d810bae8eb00da1dffb513f95"
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -57,11 +57,11 @@
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "4a546125adb00cd190e92767dd3592ff2b9468de8329a43d068de2fcc8cb3971"
+  "sql_sha256": "1724076b3379d39c55a064ba8dcf2a89a0324fb0ffc643dc6af802fffcafa12b"
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "572a1a88e57f6832912e8a7de352684397c9f81ec440f789cd8dff030ede6edb"
+  "sql_sha256": "1bb444bd889c7970e2d040878b3e9a4131b19d3f1bd67b500ca910857c84a8a2"
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -69,11 +69,11 @@
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "b8ca962d0b9a21e9f07c00c169f2f14f1ac85da9a36d9a1051fbde9c5a365631"
+  "sql_sha256": "49b0bfc7d4c1c2b7b5f664e679116d53d258b8d9910d188cb1829bdd0a1aaf23"
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "eaddf831f89a7fb00a543e2e24b339ab5b1b59b2e5b2dad0228a5f60ae817da6"
+  "sql_sha256": "8d75441363ce3bf5813eb1281327cc468f1e4282e40886ef7121c637736dee6c"
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -81,11 +81,11 @@
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "9051ef010e9d698a5206aceaebf4ffd7c257c6703bf25f21ea396cb246d763b7"
+  "sql_sha256": "2d70a21904bc9b3035b9f0a8036e979e644adc8d52f5e1dd8df1eab4c91f97b1"
  },
  "count_over_time({job=\"a\"} [5m] offset 7m) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "f0b2d6c410c1bcce83699234f48a0a3b7898e0d9400ab41c13ba378f0f568ad3"
+  "sql_sha256": "0d34251e6098a9c9c0b3b98b069ecbf1fd779c4257d1b8423e436386eb0f4020"
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -101,11 +101,11 @@
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "42518e4aeebb59b968e7b4901dc26c446cbdce9d843306e25c0f0fe394cd09e7"
+  "sql_sha256": "9679480e9664bfcd1ebec2d3c6f7cdcfde3227be4d921bdadd4151f9206342e5"
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "2dc23b643d5c8211defe605a95f94df82fc5253d6b00d5306b78da2cf140168c"
+  "sql_sha256": "e2485707937fecf3efc92f63f97efdb026cc097cd81ed3928c2ea33fb9780a63"
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -113,11 +113,11 @@
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "353d632a2f9f60fe9f649d5d33530c6d6d6ed0a89b3d4990f5faad8350445e75"
+  "sql_sha256": "d7b5e793a4706d025c640e63c2fa644a483b6ab5d0b4198cd3e9ed11b7df29c4"
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "052def11f779aa9eb955400baae2167e0d9572e1257b75dfada6f99a20dffd44"
+  "sql_sha256": "c1b41982f09ed1fb88b08ea60a34ef7c5b2cdc838c0606d82bc5ec9bfeb8d4a2"
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -125,11 +125,11 @@
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "1f6a55fffda385a7f3856a16bed7d2c524958fb04133cf59d97207969a163f28"
+  "sql_sha256": "430afa9a0a304184c4cd5649e35976ba7c0bffb38d8f7cf8444fe7a348b5cdda"
  },
  "count_over_time({job=\"a\"} [5m]) \u003e 3 @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "2ab6bbd83af3018b331bdc776a0e23d6a849091ca21ca1d9317e6291ed99c556"
+  "sql_sha256": "f64d261e6d44631b8c5888cd0b6354923b0c8bdb939f4fe70c42d97d7f393c47"
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -145,11 +145,11 @@
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "b27e3d164d9fcab15fcacafe08fe7e2100e5fb7bc66457ccd1ef4500adca6e0b"
+  "sql_sha256": "993e8d024b476090bc0ba1ae03ad1fee89166383ce491310c9f23ab4c7fa91ad"
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "a9ac7e450a817878373fd1a0a34ba1ab871818ce8f630777c70d107cb65846eb"
+  "sql_sha256": "24efd38b5acaff3c62e5c86098607fb13c10938420897272fe4343a1924f68a2"
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -157,11 +157,11 @@
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "26e5d6f06a1f91ab70f6788665df10baf8be64c170a3cd9923c8a66a2809ebe1"
+  "sql_sha256": "b2fdf2b1becb772e59818301dea7c2d193f6d249e44584487e350f517097f6f7"
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "6e8f1b0653cad37b74ff4e7f4f1b5db09711e0f0184e2eaf746fab40c8958a4b"
+  "sql_sha256": "7a5126fa3ce5733d10fd26e6467a83322985a649d193c6e8393c37ccfbb50476"
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -169,11 +169,11 @@
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "f95e1ee6029b0ef1fde6f8a71d1bb4a95eb9c88b3eadaf94c2ec827d20d80eab"
+  "sql_sha256": "3027a344bc327dc2d7e206e3f2edf63444c872c30b3bd70bab1d9990c2d6d8b3"
  },
  "count_over_time({job=\"a\"} |= \"\" [15m]) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "60c4d276b4e93741bdb0a46aa0931dfbb50605e2cea9536c214c8de310aaf05e"
+  "sql_sha256": "c5a770e526f7a1ece93ff4d46416828f9d0273f93f43baceb68a9fbd953687d0"
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -189,11 +189,11 @@
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "b3a789dff5f19ac5dcfdd3717a6211d0a67b3f1eabe34808426390274917e6c1"
+  "sql_sha256": "e5172698bdf73a6e6fda8e8b8b30196c21191684e969f14ea613366ee39b5018"
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "e8ec0fb6f2bd47b9de6f1a3eee1475b58c0ece2003d446d78df4b4ccb0571a70"
+  "sql_sha256": "19a079d7b03fbca2a6e6658adcf32b1bbe4b5fe4a93bc4a46a5be1eb8c63c568"
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -201,11 +201,11 @@
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "db06961c65ebb5ef2b2a38f57e5a2eb9b0098ee22a4d56f89530f4e7212037f1"
+  "sql_sha256": "bc4a251495be89fec976dd4fd36fdf43f955bfac0e5576a4bfad58f507caf229"
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "6e3b2a54b024ff6dfbb3ff8d72ada4c05b0408abe3804e3be884926f59ee935e"
+  "sql_sha256": "a89beaef16606da45f4e81f927c52470237e40b8c32421151e413c085d21aa5a"
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -213,11 +213,11 @@
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "f9244cb6c32565069cbb5b02d1a195569bad20e6c60759b02355980571c43e4a"
+  "sql_sha256": "1880e6b09292f23fdcab37e4b3766ffde3ac1e4e9fcb7c5f0d24e43ecd57e73c"
  },
  "rate({job=\"a\"} [5m]) / rate({job=\"b\"} [5m]) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "688337651d1cc003a34ffea7019aec107ba84c26cf11fd17797c300d8d84f33d"
+  "sql_sha256": "ddaaa35571ecc35e9c38481cb27f3a53d0fd24d49975a25c754e6ea2e4a387d5"
  },
  "rate({job=\"a\"} [5m]) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -233,11 +233,11 @@
  },
  "rate({job=\"a\"} [5m]) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "e0f14f77bf0bb6731473b5c56ef7b23f5c8793f4a0935d23bc427c6b3bf8d1df"
+  "sql_sha256": "dfa927abfe3970e267c8d68297ef0826829ee7381e8f634ce59852410e7966cd"
  },
  "rate({job=\"a\"} [5m]) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "d4d1c23d0695e824b02520c614ea02c640d1fd354c63c1a06644c88aeb641213"
+  "sql_sha256": "3d0c0623cf8f06752078bcc8d0d924ad5596769c20a790d4f752a1d8bd080993"
  },
  "rate({job=\"a\"} [5m]) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -245,11 +245,11 @@
  },
  "rate({job=\"a\"} [5m]) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "a6aadd96905d9baa66b7ef28ee86b42f2535ba1ed99c1845f4ca58bd44329633"
+  "sql_sha256": "82bb4a83f036df08607f0ba3888ef1e9afe05f1ebfbd84951b6bbb120a828266"
  },
  "rate({job=\"a\"} [5m]) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "d95217401cb60b8929cce5a4707b0a9ee0fab3bb00b22aa97afb6a3e2d09f943"
+  "sql_sha256": "6e41f7fe265ebbe595bfb5d653a2f9172e9fd152b4e159366e3d3a12d115a201"
  },
  "rate({job=\"a\"} [5m]) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -257,11 +257,11 @@
  },
  "rate({job=\"a\"} [5m]) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "355301610c518947d7726fffc063f8ea75dd7bfb02dbbfc0673dec54c510ffdb"
+  "sql_sha256": "93eede73a2df053f2fc310c53655bd01e4087a6b25d66f9c90ed1ccc6f04ea81"
  },
  "rate({job=\"a\"} [5m]) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "1934907796771f4679621a1407797f5d60cddbe524e082cf980a0f6f065ebab9"
+  "sql_sha256": "f3eec7c81f4808adad8a0124e63a96c8ded1de1ff38cb03b843d4c4579a31d43"
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -277,11 +277,11 @@
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "a7ba862bdf0adf369fbebe09d0b5b3675205e98f42e87f8e81f2ab59544fc931"
+  "sql_sha256": "d12b08229288bcf104fcaa1566461f1de730da96db33eacf512d7568c93dad67"
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "4cdadd0ec6d2660a8183d2f790be6fc93cefe05677ee98775d9a927f1e349a12"
+  "sql_sha256": "6b169055429ec075ec8b956ecc35bf9214d40f07cebc9e75469f00881d41eb2d"
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -289,11 +289,11 @@
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "aa3c1d6912f4f788f2a734e2a8a7db75b18d58ca30629a4494bce362e2006c79"
+  "sql_sha256": "2895fffbfcb080f0cdbd5a568f65d9198b639c67d43f5eb074c02f97bb5c60ca"
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "54e8db7906d580fb9543b3f0564e98c459dd748e9fbea7869bc287b3e8a06c62"
+  "sql_sha256": "41fcae7df771362fb777c03184792998eff21f954774a79d76d1cdf0647e8c44"
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -301,11 +301,11 @@
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "0f44beaabf4897e4deea14cebd52b9d6962bb9703d3201cf19259c9d66124c5d"
+  "sql_sha256": "93128d47569709519b237682f755992bdc4f35c7b47135555f9cfc1b073a13e3"
  },
  "sum by (l) (count_over_time({job=\"a\"} [5m])) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "834c15f21921b964fd635dac497ef0941c257f8ecfff69ccb81dce031db0436a"
+  "sql_sha256": "71ece32788eb805e12fa7e930b47e39d64aa9a0b781a8cd719e23f4ba1a4fea2"
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -321,11 +321,11 @@
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "9c1e04bc9772003cca7e3d40b301ae4f8b6860e34533b89cd1c954925c0e9b36"
+  "sql_sha256": "e3ce5ffa6f0f22da3b5ef9d0483063c19a0d4cc64cdba85c313fe653dfc03029"
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "9d4e2b87eee2fc581b2de7ede84eac1fc09de7832a95e0af60250da595dd30ed"
+  "sql_sha256": "01030b1e4c8544a6c40c98ee8035e2f3b678d723ba8a54ab60dc2a78816cc742"
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -333,11 +333,11 @@
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "ba363580596ac5467bf89a9d9cccffe269f728e49259e5907db8a397b50e0d87"
+  "sql_sha256": "6cf2e9c4e44812541dd8a95df8bab10f7dc0ae76651f24f1ef945615161c21ed"
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "faa1543a64177fdab27fe76020ff1b994cc8e9d493b19dfbee205d6242c99ea9"
+  "sql_sha256": "2be2fdc2c3927c92a13c33ba563f2828a5e39d8ae6c8ec88f6323e106fed5b14"
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -345,11 +345,11 @@
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "2c73ab0b18eaede310029e0d0cc12e3761f1e70a62730f7976a3494afd73dd26"
+  "sql_sha256": "a4c9df4d8780da9c801a990f9828c06920035a840d16e1d889426a9070a327fc"
  },
  "sum by (l) (rate({job=\"a\"} [15m])) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "476798fc2f87e494bd9e7a4942ac190fbe4bf1074ed672861065b16e6d3d946f"
+  "sql_sha256": "1ec0390e0ee0f2133bdf66753fe6e55480ddc106ba282d51b55f4276f7d87354"
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ instant": {
   "root": "*logql_transpiler.GridPlanner",
@@ -365,11 +365,11 @@
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/300s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "e3c06551e30bae0080bf905d333fd03b42c24b97d03a91fef523b270eb6e6c9c"
+  "sql_sha256": "2fe78ef37c9ea9378cf30f2b06b90e2e25d92120236af43e688f839f84d929ae"
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/300s+60": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "3ecbf73234fc0f7925cfa7f750dd740cfa9bc8ff1674c91855df56bd9f8b6800"
+  "sql_sha256": "2802e9221697563940750d875fb3b57e1b641605c8c37cb086a68a0928362a0d"
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/300s/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -377,11 +377,11 @@
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/3600s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "f28b4243265da2d112652f07b811273fe380b2eef5d50b8a012c407b587a40d2"
+  "sql_sha256": "0d26df2aab3962f2a5cf739fa077f5c3ad4933c89bfbbdfc747a51e944cc410d"
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/60s": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "a2e8fa4b75328f02b7e888162ce8a2313afea5e60fca3298919ebdc16e26bddd"
+  "sql_sha256": "d451492b34a4884554702eeedd6b318b581bf8aac44831624adf3934363e2f80"
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/60s+60/nom15s": {
   "root": "*logql_transpiler.GridPlanner",
@@ -389,11 +389,11 @@
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/7200s+4020": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "f17105cc129204e60ddc0c5819dc1031acbfa66c18001ec04cedc79f3d1a0c95"
+  "sql_sha256": "b8f16555dc12f87ca703e1676a8d8f6958a3da5b4c848a43229c7a13abd05d84"
  },
  "topk(2, sum by (l) (rate({job=\"a\"} [5m]))) @ range/900s+720": {
   "root": "*logql_transpiler.GridPlanner",
-  "sql_sha256": "46e70793be3ae735ae6807b7a98de0203aa9074d5429eef21234f596eb5b3892"
+  "sql_sha256": "77d0f025bf6a21a492a0c21a71f8da75506125905762bc42c96c884ddfa67ed6"
  },
  "{job=\"a\"} |= \"x\" @ instant": {
   "root": "*shared.ClickhouseGetterPlanner",

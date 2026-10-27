@@ -261,6 +261,11 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 			if strings.Contains(sql, "array JOIN range(") {
 				t.Errorf("%s@%s: fans buckets out to points", c.query, name)
 			}
+			// WITH FILL fills each stream's buckets only when the server fills by
+			// sort prefix; a profile can turn that off, so the plan pins it.
+			if want := name != "instant"; strings.Contains(sql, "use_with_fill_by_sorting_prefix=1") != want {
+				t.Errorf("%s@%s: fill by sort prefix pinned %v, want %v", c.query, name, !want, want)
+			}
 			// The cell read already sums each stream's cells per bucket; the
 			// per-stream windows read those rows as they are.
 			if !c.groupFirst && strings.Contains(sql, "GROUP BY fingerprint, b") {
