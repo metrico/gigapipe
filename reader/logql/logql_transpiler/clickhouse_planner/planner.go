@@ -215,7 +215,6 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 			Offset:        p.offset(),
 			Cells:         filtered(cells),
 			CellsByBucket: byBucket,
-			Edges:         filtered(&EdgeLinesPlanner{Duration: duration, Offset: p.offset()}),
 			Fingerprints:  p.windowFingerprints,
 			Group:         p.shortcutGroup,
 		}

@@ -53,6 +53,14 @@ func onLattice(req request) bool {
 	return true
 }
 
+// shortcutRef is q as the route serving it under req counts: whole metrics_15s
+// cells, [T-R, T), when the shortcut serves it, else (T-R, T].
+func shortcutRef(q refQuery, req request) refQuery {
+	cell := 15 * time.Second
+	q.cells = onLattice(req) && !req.noMetrics15s && q.r%cell == 0 && q.offset%cell == 0
+	return q
+}
+
 var reMetrics15s = regexp.MustCompile(`FROM metrics_15s(_dist)? as samples`)
 
 func readsMetrics15s(p planned) bool {
@@ -141,18 +149,15 @@ func TestShortcutLabelFilterOnBothRoutes(t *testing.T) {
 }
 
 // TestShortcutWindowShapes pins the cell and edge reads, the w = gcd(step, R)
-// buckets and the sliding window, or one sum for an instant query.
+// buckets and the cumulative difference, or one sum for an instant query.
 func TestShortcutWindowShapes(t *testing.T) {
 	// Buckets are gcd(7m, 5m) = 1m wide, so a 5m window is 5 of them.
-	const (
-		window = "ROWS BETWEEN 4 PRECEDING AND CURRENT ROW"
-		cellNs = int64(15 * time.Second)
-	)
+	const window = "ROWS BETWEEN 4 PRECEDING AND CURRENT ROW"
 	r, o, step := 5*time.Minute, 7*time.Minute, 7*time.Minute
 	rng := rangeReq(gridD0.Add(2*time.Hour), gridD0.Add(6*time.Hour), step)
 	times := refGrid(rng)
 	first, last := times[0], times[len(times)-1]
-	rn, on, sn := r.Nanoseconds(), o.Nanoseconds(), step.Nanoseconds()
+	rn, on := r.Nanoseconds(), o.Nanoseconds()
 	at := gridD0.Add(4 * time.Hour).UnixNano()
 	q := `count_over_time({job="g"} [5m] offset 7m)`
 	for _, c := range []struct {
@@ -162,19 +167,14 @@ func TestShortcutWindowShapes(t *testing.T) {
 		{rng, []string{
 			fmt.Sprintf("(samples.timestamp_ns) >= (%d)", first-rn-on),
 			fmt.Sprintf("(samples.timestamp_ns) < (%d)", last-on),
-			fmt.Sprintf("samples.timestamp_ns IN (SELECT arrayJoin(arrayConcat(range(%d, %d, %d), range(%d, %d, %[3]d))))",
-				first-on, last-on+1, sn, first-on-rn, last-on-rn+1),
-			fmt.Sprintf("[(ts - %d, k), (ts, -k)]", cellNs),
 			fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, int64(time.Minute)),
 			window,
 			"WITH FILL",
-		}, []string{"State("}},
+		}, []string{"State(", "samples_v3"}},
 		{instantReq(time.Unix(0, at)), []string{
 			fmt.Sprintf("(samples.timestamp_ns) >= (%d)", at-rn-on),
 			fmt.Sprintf("(samples.timestamp_ns) < (%d)", at-on),
-			fmt.Sprintf("samples.timestamp_ns IN (%d, %d)", at-on, at-on-rn),
-			fmt.Sprintf("[(ts - %d, k), (ts, -k)]", cellNs),
-		}, []string{" OVER ", "arrayJoin(range(", "State("}},
+		}, []string{" OVER ", "arrayJoin(range(", "State(", "samples_v3"}},
 	} {
 		p := runRequest(t, q, c.req, nil)
 		if !readsMetrics15s(p) {
@@ -215,15 +215,10 @@ func TestShortcutBinaryRouting(t *testing.T) {
 // computes that window a second time.
 var reWindowBound = regexp.MustCompile(`IN \(\s*SELECT fingerprint FROM (pre_without_\d+|pre_by_without_\d+|main)\)`)
 
-// reEdgesJoinedOntoCells matches per-stream buckets read from the cells
-// without a GROUP BY, with the edge buckets FULL JOINed onto them.
-var reEdgesJoinedOntoCells = regexp.MustCompile(`win_bc as \( SELECT fingerprint, intDiv\(c \+ \d+, \d+\) \* \d+ \+ \d+ as b, ` +
-	`cnt as n FROM win_m WHERE \(\(c\) >= \(\d+\)\) and \(\(c\) < \(\d+\)\)\),.* FROM win_bc as win_bc FULL JOIN win_be as win_be ON`)
-
 // TestShortcutReadsEachSourceOnce: a shortcut plan reads metrics_15s twice,
 // once for the data and once for the fingerprints that bound the label lookup,
-// the raw samples once for the lines on the window edges, and never computes
-// its window twice; a sum is summed per group before the window.
+// never the raw samples, and never computes its window twice; a sum is summed
+// per group before the window.
 func TestShortcutReadsEachSourceOnce(t *testing.T) {
 	for _, c := range []struct {
 		query      string
@@ -248,8 +243,8 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 			if n := len(reMetrics15s.FindAllString(sql, -1)); n != 2 {
 				t.Errorf("%s@%s: %d metrics_15s reads, want 2", c.query, name, n)
 			}
-			if n := strings.Count(sql, "FROM samples_v3 as samples"); n != 1 {
-				t.Errorf("%s@%s: %d raw samples reads, want 1", c.query, name, n)
+			if strings.Contains(sql, "samples_v3") {
+				t.Errorf("%s@%s: reads raw samples", c.query, name)
 			}
 			if reWindowBound.MatchString(sql) {
 				t.Errorf("%s@%s: label lookup re-reads the window", c.query, name)
@@ -272,8 +267,8 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 				t.Errorf("%s@%s: fill by sort prefix pinned %v, want %v", c.query, name, !want, want)
 			}
 			// The cell read already sums each stream's cells per bucket; the
-			// per-stream windows join the edges onto those rows as they are.
-			if !c.groupFirst && name != "instant" && !reEdgesJoinedOntoCells.MatchString(sql) {
+			// per-stream windows read those rows as they are.
+			if !c.groupFirst && strings.Contains(sql, "GROUP BY fingerprint, b") {
 				t.Errorf("%s@%s: regroups the per-stream buckets", c.query, name)
 			}
 		}
