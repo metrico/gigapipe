@@ -17,9 +17,13 @@ var gridD0 = time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 
 // gridLines holds three jittered streams of uneven density; l=a/pod=1 also
 // has a line on every 5m boundary, and l=b/pod=2 has lines only on 15s
-// boundaries, on an irregular subset of them.
+// boundaries, on an irregular subset of them. l=b/pod=3 and l=d/pod=1 have one
+// line each, on the instant point and on the last point of the aligned ranges.
 func gridLines() []logLine {
 	lines := jitteredLines()
+	lines = append(lines,
+		logLine{fp: 5, labels: map[string]string{"job": "g", "l": "b", "pod": "3"}, ts: gridD0.Add(4 * time.Hour).UnixNano(), line: "size=5"},
+		logLine{fp: 6, labels: map[string]string{"job": "g", "l": "d", "pod": "1"}, ts: gridD0.Add(6 * time.Hour).UnixNano(), line: "size=6"})
 	edges := map[string]string{"job": "g", "l": "b", "pod": "2"}
 	for s := 0; s < 8*60*4; s++ {
 		if (s*s*3+s*5)%7%3 != 0 {
@@ -66,9 +70,6 @@ type refQuery struct {
 	agg    string   // vector aggregation by (by) around the range aggregation
 	q      float64
 	gt     *float64
-	// cells counts the lines in [T-R, T), as the metrics_15s shortcut does,
-	// instead of (T-R, T].
-	cells bool
 }
 
 // refGrid returns the evaluation times of req: epoch k*step from the floored
@@ -144,7 +145,7 @@ func reference(lines []logLine, q refQuery, times []int64) map[string]map[int64]
 		}
 		groups := map[string]*acc{}
 		for _, l := range lines {
-			if q.cells && (l.ts < lo || l.ts >= hi) || !q.cells && (l.ts <= lo || l.ts > hi) {
+			if l.ts <= lo || l.ts > hi {
 				continue
 			}
 			lb := project(l.labels, q.by)
