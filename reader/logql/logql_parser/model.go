@@ -331,12 +331,35 @@ func (l *LabelFormatOp) String() string {
 	return bld.String()
 }
 
+type UnwrapConv struct {
+	Fn    string    `@("duration"|"duration_seconds"|"bytes")`
+	Label LabelName `"(" @@ ")"`
+}
+
 type Unwrap struct {
-	Fn    string    `@("unwrap"|"unwrap_value")`
-	Label LabelName ` @@?`
+	Fn    string      `@("unwrap"|"unwrap_value")`
+	Conv  *UnwrapConv `@@?`
+	Label LabelName   `@@?`
+}
+
+func (u *Unwrap) LabelName() string {
+	if u.Conv != nil {
+		return u.Conv.Label.Name
+	}
+	return u.Label.Name
+}
+
+func (u *Unwrap) ConvFunc() string {
+	if u.Conv != nil {
+		return u.Conv.Fn
+	}
+	return ""
 }
 
 func (u *Unwrap) String() string {
+	if u.Conv != nil {
+		return fmt.Sprintf("| %s %s(%s)", u.Fn, u.Conv.Fn, u.Conv.Label.String())
+	}
 	return fmt.Sprintf("| %s %s", u.Fn, u.Label.String())
 }
 
