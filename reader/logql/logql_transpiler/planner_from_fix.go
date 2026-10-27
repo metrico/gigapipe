@@ -56,6 +56,8 @@ func (m *FixPeriodPlanner) Process(ctx *shared.PlannerContext,
 
 	go func() {
 		defer close(res)
+		defer shared.Drain(_in)
+		defer shared.TamePanic(res)
 		for entries := range _in {
 			for _, entry := range entries {
 				if entry.Fingerprint != fingerprint {
