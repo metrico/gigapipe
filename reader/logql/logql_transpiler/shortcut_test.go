@@ -50,6 +50,14 @@ func onLattice(req request) bool {
 	return true
 }
 
+// shortcutRef is q as the route serving it under req counts: whole metrics_15s
+// cells, [T-R, T), when the shortcut serves it, else (T-R, T].
+func shortcutRef(q refQuery, req request) refQuery {
+	cell := 15 * time.Second
+	q.cells = onLattice(req) && !req.noMetrics15s && q.r%cell == 0 && q.offset%cell == 0
+	return q
+}
+
 var reMetrics15s = regexp.MustCompile(`FROM metrics_15s(_dist)? as samples`)
 
 func readsMetrics15s(p planned) bool {

@@ -66,6 +66,9 @@ type refQuery struct {
 	agg    string   // vector aggregation by (by) around the range aggregation
 	q      float64
 	gt     *float64
+	// cells counts the lines in [T-R, T), as the metrics_15s shortcut does,
+	// instead of (T-R, T].
+	cells bool
 }
 
 // refGrid returns the evaluation times of req: epoch k*step from the floored
@@ -141,7 +144,7 @@ func reference(lines []logLine, q refQuery, times []int64) map[string]map[int64]
 		}
 		groups := map[string]*acc{}
 		for _, l := range lines {
-			if l.ts <= lo || l.ts > hi {
+			if q.cells && (l.ts < lo || l.ts >= hi) || !q.cells && (l.ts <= lo || l.ts > hi) {
 				continue
 			}
 			lb := project(l.labels, q.by)
