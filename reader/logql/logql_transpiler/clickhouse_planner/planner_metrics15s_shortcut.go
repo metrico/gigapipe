@@ -165,10 +165,42 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 		return w.emit(win, fmt.Sprintf("toInt64(%d)", g.FirstNs),
 			fmt.Sprintf("any(%s)", fn.final("s", "n"))), nil
 	}
+	return streamWindows(g, fn, rn, on, sums), nil
+}
+
+// streamWindows evaluates every stream's windows with one window function:
+// the cells summed per stream and bucket (w = gcd(step, R), keyed in offset
+// time, bucket b holding c + o in [b-w, b)), every stream's empty buckets
+// filled in, and the window at T the sum of the R/w buckets ending at T.
+func streamWindows(g shared.EvalGrid, fn windowFn, rn, on int64, sums func(keys ...sql.SQLObject) sql.ISelect) sql.ISelect {
 	width := shared.Gcd(g.StepNs, rn)
 	buckets := sql.NewWith(sums(sql.NewSimpleCol(fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, width), "b")).
 		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b")
-	return w.cumulative(buckets), nil
+	// The buckets of the read range, first-R to last, for every stream.
+	filled := sql.NewWith(sql.NewSelect().With(buckets).
+		Select(sql.NewRawObject("fingerprint"), sql.NewRawObject("b"), sql.NewRawObject("n")).
+		From(sql.NewWithRef(buckets)).
+		OrderBy(sql.NewRawObject("fingerprint"), sql.NewRawObject(fmt.Sprintf("b WITH FILL FROM %d TO %d STEP %d",
+			g.FirstNs-rn+width, g.LastNs()+width, width))), "win_f")
+	windows := sql.NewWith(sql.NewSelect().With(filled).
+		Select(
+			sql.NewRawObject("fingerprint"),
+			sql.NewSimpleCol("b", "T"),
+			sql.NewSimpleCol(fmt.Sprintf("sum(n) OVER (PARTITION BY fingerprint ORDER BY b "+
+				"ROWS BETWEEN %d PRECEDING AND CURRENT ROW)", rn/width-1), "s")).
+		From(sql.NewWithRef(filled)), "win_s")
+	return sql.NewSelect().With(windows).
+		Select(
+			sql.NewSimpleCol("T", "timestamp_ns"),
+			sql.NewRawObject("fingerprint"),
+			sql.NewSimpleCol(`''`, "string"),
+			sql.NewSimpleCol(fn.final("toFloat64(s)", "s"), "value")).
+		From(sql.NewWithRef(windows)).
+		AndWhere(
+			sql.Gt(sql.NewRawObject("s"), sql.NewIntVal(0)),
+			sql.Ge(sql.NewRawObject("T"), sql.NewIntVal(g.FirstNs)),
+			sql.Le(sql.NewRawObject("T"), sql.NewIntVal(g.LastNs())),
+			sql.Eq(sql.NewRawObject(fmt.Sprintf("(T - %d) %% %d", g.FirstNs, g.StepNs)), sql.NewIntVal(0)))
 }
 
 // groupedWindows sums the cells of [lo, hi) per group and window bucket, then

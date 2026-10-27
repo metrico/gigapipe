@@ -135,6 +135,8 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 			Fingerprints:   p.fpPlanner,
 			TimeSeries:     NewTimeSeriesInitPlanner(),
 			FpCache:        &p.fpCache,
+
+			WindowFingerprints: p.windowFingerprints,
 		}
 	}
 
@@ -470,6 +472,7 @@ func (p *planner) planByWithout(byWithout ...*logql_parser.ByOrWithout) error {
 		UseTimeSeriesTable: p.labelsJoinIdx == -1,
 		LabelsCache:        &p.labelsCache,
 		FPCache:            &p.fpCache,
+		WindowFingerprints: p.windowFingerprints,
 	}
 	return nil
 }

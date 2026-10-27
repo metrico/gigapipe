@@ -27,6 +27,7 @@ var shortcutCases = []struct {
 	{`count_over_time({job="g"} [5m] offset 7m)`, refQuery{fn: "count_over_time", r: 5 * time.Minute, offset: 7 * time.Minute}},
 	{`sum by (l) (count_over_time({job="g"} [15m] offset 1h))`, refQuery{fn: "count_over_time", r: 15 * time.Minute, offset: time.Hour, by: []string{"l"}, agg: "sum"}},
 	{`max by (l) (count_over_time({job="g"} [5m]))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, by: []string{"l"}, agg: "max"}},
+	{`max by (l) (count_over_time({job="g"} [5m] offset 1h))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, offset: time.Hour, by: []string{"l"}, agg: "max"}},
 	{`min by (l) (rate({job="g"} [15m]))`, refQuery{fn: "rate", r: 15 * time.Minute, by: []string{"l"}, agg: "min"}},
 	{`count by (l) (count_over_time({job="g"} [5m] offset 7m))`, refQuery{fn: "count_over_time", r: 5 * time.Minute, offset: 7 * time.Minute, by: []string{"l"}, agg: "count"}},
 	{`count by (l) (count_over_time({job="g"} [30s]))`, refQuery{fn: "count_over_time", r: 30 * time.Second, by: []string{"l"}, agg: "count"}},
@@ -150,7 +151,8 @@ func TestShortcutLabelFilterOnBothRoutes(t *testing.T) {
 // TestShortcutWindowShapes pins the cell and edge reads, the w = gcd(step, R)
 // buckets and the cumulative difference, or one sum for an instant query.
 func TestShortcutWindowShapes(t *testing.T) {
-	const cumulative = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+	// Buckets are gcd(7m, 5m) = 1m wide, so a 5m window is 5 of them.
+	const window = "ROWS BETWEEN 4 PRECEDING AND CURRENT ROW"
 	r, o, step := 5*time.Minute, 7*time.Minute, 7*time.Minute
 	rng := rangeReq(gridD0.Add(2*time.Hour), gridD0.Add(6*time.Hour), step)
 	times := refGrid(rng)
@@ -166,7 +168,8 @@ func TestShortcutWindowShapes(t *testing.T) {
 			fmt.Sprintf("(samples.timestamp_ns) >= (%d)", first-rn-on),
 			fmt.Sprintf("(samples.timestamp_ns) < (%d)", last-on),
 			fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, int64(time.Minute)),
-			cumulative,
+			window,
+			"WITH FILL",
 		}, []string{"State(", "samples_v3"}},
 		{instantReq(time.Unix(0, at)), []string{
 			fmt.Sprintf("(samples.timestamp_ns) >= (%d)", at-rn-on),
@@ -226,6 +229,10 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 		{`sum without (pod) (count_over_time({job="g"} [5m]))`, true},
 		{`sum by (l) (count_over_time({job="g"} [15m] offset 1h))`, true},
 		{`topk(2, sum by (l) (rate({job="g"} [5m])))`, true},
+		{`max by (l) (count_over_time({job="g"} [5m]))`, false},
+		{`count by (l) (count_over_time({job="g"} [5m] offset 7m))`, false},
+		{`count_over_time({job="g"} [5m])`, false},
+		{`sum by (l) (count_over_time({job="g"} [5m]) > 6)`, false},
 	} {
 		for _, name := range []string{"aligned/60s", "instant"} {
 			p := runRequest(t, c.query, gridRequests[name], nil)
@@ -244,6 +251,11 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 			}
 			if got := strings.Contains(sql, "win_g"); got != c.groupFirst {
 				t.Errorf("%s@%s: groups first %v, want %v", c.query, name, got, c.groupFirst)
+			}
+			// Per stream, a range query slides one window function over the
+			// stream's buckets, the empty ones filled in.
+			if want := !c.groupFirst && name != "instant"; strings.Contains(sql, "WITH FILL") != want {
+				t.Errorf("%s@%s: WITH FILL %v, want %v", c.query, name, !want, want)
 			}
 		}
 	}
