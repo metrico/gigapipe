@@ -55,6 +55,9 @@ type Metrics15ShortcutPlanner struct {
 	// Cells reads the cells of [From, To): fingerprint, c (cell start) and
 	// cnt (line count).
 	Cells shared.SQLRequestPlanner
+	// CellsByBucket: Cells already sums each stream's cells per window bucket
+	// (metrics15sCells does), so its rows need no regrouping per stream.
+	CellsByBucket bool
 	// Fingerprints reads the streams with cells in [From, To). It bounds the
 	// label lookup to them (#702) without reading the window again.
 	Fingerprints shared.SQLRequestPlanner
@@ -165,17 +168,19 @@ func (m *Metrics15ShortcutPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 		return w.emit(win, fmt.Sprintf("toInt64(%d)", g.FirstNs),
 			fmt.Sprintf("any(%s)", fn.final("s", "n"))), nil
 	}
-	return streamWindows(g, fn, rn, on, sums), nil
-}
-
-// streamWindows evaluates every stream's windows: the cells summed per stream
-// and bucket (w = gcd(step, R), keyed in offset time, bucket b holding c + o
-// in [b-w, b)), then slideWindows.
-func streamWindows(g shared.EvalGrid, fn windowFn, rn, on int64, sums func(keys ...sql.SQLObject) sql.ISelect) sql.ISelect {
 	width := shared.Gcd(g.StepNs, rn)
-	buckets := sql.NewWith(sums(sql.NewSimpleCol(fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, width), "b")).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b")
-	return slideWindows(g, fn, rn, width, buckets, false)
+	key := sql.NewSimpleCol(fmt.Sprintf("intDiv(c + %d, %d) * %[2]d + %[2]d", on, width), "b")
+	if m.CellsByBucket {
+		// One row per stream and bucket already: key it, read it as it is.
+		return slideWindows(g, fn, rn, width, sql.NewWith(sql.NewSelect().With(cellsW).
+			Select(sql.NewRawObject("fingerprint"), key, sql.NewSimpleCol("cnt", "n")).
+			From(sql.NewWithRef(cellsW)).
+			AndWhere(
+				sql.Ge(sql.NewRawObject("c"), sql.NewIntVal(lo)),
+				sql.Lt(sql.NewRawObject("c"), sql.NewIntVal(hi))), "win_b"), false), nil
+	}
+	return slideWindows(g, fn, rn, width, sql.NewWith(sums(key).
+		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("b")), "win_b"), false), nil
 }
 
 // slideWindows evaluates the windows of the grid over buckets, one row per

@@ -261,6 +261,11 @@ func TestShortcutReadsEachSourceOnce(t *testing.T) {
 			if strings.Contains(sql, "array JOIN range(") {
 				t.Errorf("%s@%s: fans buckets out to points", c.query, name)
 			}
+			// The cell read already sums each stream's cells per bucket; the
+			// per-stream windows read those rows as they are.
+			if !c.groupFirst && strings.Contains(sql, "GROUP BY fingerprint, b") {
+				t.Errorf("%s@%s: regroups the per-stream buckets", c.query, name)
+			}
 		}
 	}
 }

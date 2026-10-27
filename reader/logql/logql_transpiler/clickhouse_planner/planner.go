@@ -207,13 +207,16 @@ func (p *planner) planMetrics15Shortcut(script any) error {
 			}
 		}
 		p.windowFingerprints = filtered(&Metrics15sFingerprints{Duration: duration, Offset: p.offset()})
+		cells := NewMetrics15sCells(script.Fn, duration, p.offset())
+		_, byBucket := cells.(*metrics15sCells)
 		p.samplesPlanner = &Metrics15ShortcutPlanner{
-			Function:     script.Fn,
-			Duration:     duration,
-			Offset:       p.offset(),
-			Cells:        filtered(NewMetrics15sCells(script.Fn, duration, p.offset())),
-			Fingerprints: p.windowFingerprints,
-			Group:        p.shortcutGroup,
+			Function:      script.Fn,
+			Duration:      duration,
+			Offset:        p.offset(),
+			Cells:         filtered(cells),
+			CellsByBucket: byBucket,
+			Fingerprints:  p.windowFingerprints,
+			Group:         p.shortcutGroup,
 		}
 		return p.planComparison(script.Comparison)
 	}
