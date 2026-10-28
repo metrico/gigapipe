@@ -31,7 +31,7 @@ func TestShortcutEvaluatesOnTheGridOnClickHouse(t *testing.T) {
 					if want := onLattice(req) && !req.noMetrics15s; readsMetrics15s(p) != want {
 						t.Errorf("shortcut %v, want %v", !want, want)
 					}
-					want := reference(lines, shortcutRef(c.ref, req), refGrid(req))
+					want := reference(lines, c.ref, refGrid(req))
 					if d := diffSeries(gotSeries(p), want); len(d) > 0 {
 						if len(d) > 6 {
 							d = append(d[:6], fmt.Sprintf("... %d more", len(d)-6))
@@ -63,13 +63,10 @@ func TestShortcutBinariesOnClickHouse(t *testing.T) {
 		query       string
 		left, right refQuery
 		rightLines  []logLine
-		// rightRaw: the right operand has a line filter, so only the raw
-		// route serves it.
-		rightRaw bool
 	}{
-		{`count_over_time({job="g"} [5m]) - count_over_time({job="g", l="a"} [5m] offset 5m)`, count, shifted, linesA, false},
-		{`count_over_time({job="g"} [5m]) - count_over_time(` + rawSel + ` [5m] offset 5m)`, count, shifted, lines, true},
-		{`count_over_time({job="g"} [5m] offset 7s) - count_over_time({job="g"} [5m])`, off7s, count, lines, false},
+		{`count_over_time({job="g"} [5m]) - count_over_time({job="g", l="a"} [5m] offset 5m)`, count, shifted, linesA},
+		{`count_over_time({job="g"} [5m]) - count_over_time(` + rawSel + ` [5m] offset 5m)`, count, shifted, lines},
+		{`count_over_time({job="g"} [5m] offset 7s) - count_over_time({job="g"} [5m])`, off7s, count, lines},
 	} {
 		for _, cluster := range chModes(t, base) {
 			for name, req := range gridRequests {
@@ -79,11 +76,7 @@ func TestShortcutBinariesOnClickHouse(t *testing.T) {
 					defer db.Close()
 					p := serveRequest(t, c.query, req, db)
 					times := refGrid(req)
-					right := c.right
-					if !c.rightRaw {
-						right = shortcutRef(right, req)
-					}
-					want := joinSeries(reference(lines, shortcutRef(c.left, req), times), reference(c.rightLines, right, times),
+					want := joinSeries(reference(lines, c.left, times), reference(c.rightLines, c.right, times),
 						func(x, y float64) float64 { return x - y })
 					if d := diffSeries(gotSeries(p), want); len(d) > 0 {
 						t.Errorf("%v", d[:min(len(d), 6)])
