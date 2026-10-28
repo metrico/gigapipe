@@ -37,6 +37,9 @@ type LabelsJoinPlanner struct {
 	TimeSeries     shared.SQLRequestPlanner
 	FpCache        **sql.With
 	LabelsCache    **sql.With
+	// WindowFingerprints, when set, bounds the label lookup instead of Main,
+	// whose window would otherwise be computed a second time for it.
+	WindowFingerprints shared.SQLRequestPlanner
 }
 
 func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -71,7 +74,15 @@ func (l *LabelsJoinPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 	// Bound label resolution to fingerprints that actually appear in the
 	// time-windowed `main` subquery, avoiding a huge map build for
 	// high-cardinality selectors. See issue #702.
-	boundTimeSeriesToWindow(ctx, tsReq, withMain)
+	if l.WindowFingerprints != nil {
+		fps, err := l.WindowFingerprints.Process(ctx)
+		if err != nil {
+			return nil, err
+		}
+		boundTimeSeriesToFingerprints(ctx, tsReq, fps)
+	} else {
+		boundTimeSeriesToWindow(ctx, tsReq, withMain)
+	}
 
 	withTS := sql.NewWith(tsReq, "_time_series")
 	if l.LabelsCache != nil {

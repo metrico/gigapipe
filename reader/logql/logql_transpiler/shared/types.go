@@ -70,6 +70,10 @@ type PlannerContext struct {
 	CancelCtx context.CancelFunc
 
 	Step time.Duration
+	// Instant marks an instant query, evaluated at To.
+	Instant bool
+	// Grid is the evaluation grid of a range aggregation on the Go path.
+	Grid *EvalGrid
 
 	DeleteID string
 

@@ -97,6 +97,10 @@ func ParseTimeSecOrRFC(raw string, def time.Time) (time.Time, error) {
 		return def, err
 	}
 	sec, frac := math.Modf(t)
+	if int64(sec) < epochMilliMin {
+		// Fractional seconds resolve to the millisecond.
+		frac = math.Round(frac*1000) / 1000
+	}
 	return epochToTime(int64(sec), frac), nil
 }
 

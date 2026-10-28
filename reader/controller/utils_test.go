@@ -20,6 +20,7 @@ func TestParseTimeSecOrRFCMagnitudes(t *testing.T) {
 	}{
 		{"1785416892", time.Unix(1785416892, 0)},                                // seconds
 		{"1785416892.5", time.Unix(1785416892, 500000000)},                      // fractional seconds
+		{"1700001234.567", time.Unix(1700001234, 567000000)},                    // fractional seconds, to the ms
 		{"1785416892000", time.Unix(1785416892, 0)},                             // milliseconds
 		{"1785416892123", time.Unix(1785416892, 123000000)},                     // milliseconds, sub-second
 		{"1785416892000000", time.Unix(1785416892, 0)},                          // microseconds

@@ -3,6 +3,7 @@ package logql_transpiler
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	log_parser "github.com/metrico/qryn/v5/reader/logql/logql_parser"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
@@ -174,8 +175,25 @@ func Plan(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) 
 		}
 	}
 
-	proc, err = MatrixPostProcessors(script, proc)
+	if proc.IsMatrix() {
+		proc, err = gridPostProcessors(script, proc)
+	}
 	return shared.RequestProcessorChain{proc}, err
+}
+
+// gridPostProcessors evaluates a range aggregation on the request's
+// evaluation grid.
+func gridPostProcessors(script *log_parser.LogQLScript,
+	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
+	duration, err := shared.GetDuration(script)
+	if err != nil {
+		return nil, err
+	}
+	offset, err := shared.GetOffset(script)
+	if err != nil {
+		return nil, err
+	}
+	return &GridPlanner{Main: proc, Duration: duration, Offset: offset}, nil
 }
 
 func PlanLabels(scripts []*log_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
@@ -185,23 +203,6 @@ func PlanLabels(scripts []*log_parser.LogQLScript) (shared.SQLRequestPlanner, er
 		}
 	}
 	return clickhouse_planner.PlanLabels(scripts)
-}
-
-func MatrixPostProcessors(script *log_parser.LogQLScript,
-	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
-	if !proc.IsMatrix() {
-		return proc, nil
-	}
-	duration, err := shared.GetDuration(script)
-	if err != nil {
-		return nil, err
-	}
-	proc = &ZeroEaterPlanner{planner.GenericPlanner{Main: proc}}
-	proc = &FixPeriodPlanner{
-		Main:     proc,
-		Duration: duration,
-	}
-	return proc, nil
 }
 
 func PlanFingerprints(script *log_parser.LogQLScript) (shared.SQLRequestPlanner, error) {
@@ -271,22 +272,62 @@ func cancelJsonAndLogFmt(script *log_parser.LogQLScript) {
 	}
 }
 
-// planBinaryExpr plans a binary arithmetic expression as a single SQL query
-// using UNION ALL + conditional GROUP BY aggregation in ClickHouse.
+// planBinaryExpr plans a binary of SQL operands as one SQL query on the grid.
 func planBinaryExpr(script *log_parser.LogQLScript) (shared.RequestProcessorChain, error) {
 	sqlPlanner, err := planScriptToSQL(script)
 	if err != nil {
 		return nil, err
 	}
-	var proc shared.RequestProcessor = &shared.ClickhouseGetterPlanner{
+	proc, err := binaryGridPlanner(binaryLeaves(script), &shared.ClickhouseGetterPlanner{
 		ClickhouseRequestPlanner: sqlPlanner,
 		Matrix:                   true,
-	}
-	proc, err = MatrixPostProcessors(script, proc)
+	})
 	if err != nil {
 		return nil, err
 	}
 	return shared.RequestProcessorChain{proc}, nil
+}
+
+// binaryLeaves returns the non-scalar operands of a binary expression,
+// nested binaries flattened.
+func binaryLeaves(script *log_parser.LogQLScript) []*log_parser.LogQLScript {
+	script = unwrapParens(script)
+	if !script.IsBinary() {
+		return []*log_parser.LogQLScript{script}
+	}
+	var res []*log_parser.LogQLScript
+	for _, atom := range allBinaryAtoms(script) {
+		switch {
+		case atom.Scalar != "":
+		case atom.Paren != nil:
+			res = append(res, binaryLeaves(atom.Paren)...)
+		default:
+			res = append(res, &log_parser.LogQLScript{Head: atom})
+		}
+	}
+	return res
+}
+
+// binaryGridPlanner puts proc on the grid with a read range that covers the
+// range and offset of every leaf.
+func binaryGridPlanner(leaves []*log_parser.LogQLScript,
+	proc shared.RequestProcessor) (shared.RequestProcessor, error) {
+	var reach, offset time.Duration
+	for i, leaf := range leaves {
+		r, err := shared.GetDuration(leaf)
+		if err != nil {
+			return nil, err
+		}
+		o, err := shared.GetOffset(leaf)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 || o < offset {
+			offset = o
+		}
+		reach = max(reach, r+o)
+	}
+	return &GridPlanner{Main: proc, Duration: reach - offset, Offset: offset}, nil
 }
 
 // planScriptToSQL converts any LogQLScript (binary or not) into a SQLRequestPlanner.
@@ -374,10 +415,10 @@ func breakScript(breakpoint int, script *log_parser.LogQLScript,
 				},
 			},
 		}
-		_script.StrSel = log_parser.StrSelector{}
+		_script.StrSel = log_parser.StrSelector{StrSelCmds: _script.StrSel.StrSelCmds}
 		return chScript, script, nil
 	case *log_parser.QuantileOverTime:
-		return nil, nil, &shared.NotSupportedError{Msg: "QuantileOverTime is not supported for this query"}
+		return dfs(&_script.StrSel)
 	}
 	return nil, nil, nil
 }

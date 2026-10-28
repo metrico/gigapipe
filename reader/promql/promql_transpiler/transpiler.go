@@ -12,26 +12,38 @@ import (
 type TranspileResponse struct {
 	MapResult func(samples []model.Sample) []model.Sample
 	Query     sql.ISelect
+	Route     Route
+	// OnGrid is set when the rows are only the selector's evaluation points.
+	OnGrid bool
 }
 
-func TranspileLabelMatchers(hints *storage.SelectHints,
-	ctx *logql_transpiler_shared.PlannerContext, matchers ...*labels.Matcher) (*TranspileResponse, error) {
+// TranspileLabelMatchers plans a raw read. grid, when set, is the selector's
+// evaluation grid.
+func TranspileLabelMatchers(hints *storage.SelectHints, ctx *logql_transpiler_shared.PlannerContext,
+	grid *planner.Grid, matchers ...*labels.Matcher) (*TranspileResponse, error) {
 	var p logql_transpiler_shared.SQLRequestPlanner = &planner.ValuesPlanner{Fp: streamSelect(matchers...)}
-	p = &planner.HintsPlanner{Main: p, Hints: hints}
+	p = &planner.HintsPlanner{Main: p, Hints: hints, Grid: grid}
 	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
-	return &TranspileResponse{nil, query}, err
+	return &TranspileResponse{Query: query, Route: RouteRaw}, err
 }
 
-func TranspileLabelMatchersDownsample(hints *storage.SelectHints,
-	ctx *logql_transpiler_shared.PlannerContext, matchers ...*labels.Matcher) (*TranspileResponse, error) {
-	var p logql_transpiler_shared.SQLRequestPlanner = &planner.DownsampleValuesPlanner{
-		Fp: streamSelect(matchers...),
+// TranspileLabelMatchersDownsample plans a metrics_15s read. grid, when set,
+// is the selector's evaluation grid.
+func TranspileLabelMatchersDownsample(hints *storage.SelectHints, ctx *logql_transpiler_shared.PlannerContext,
+	grid *planner.Grid, matchers ...*labels.Matcher) (*TranspileResponse, error) {
+	var p logql_transpiler_shared.SQLRequestPlanner
+	if grid != nil {
+		p = &planner.DownsampleGridPlanner{Fp: streamSelect(matchers...), Hints: hints, Grid: *grid}
+	} else {
+		p = &planner.DownsampleHintsPlanner{
+			Main:  &planner.DownsampleValuesPlanner{ValuesPlanner: planner.ValuesPlanner{Fp: streamSelect(matchers...)}},
+			Hints: hints,
+		}
 	}
-	p = &planner.DownsampleHintsPlanner{Main: p, Hints: hints}
 	p = &planner.LabelsPlanner{Main: p}
 	query, err := p.Process(ctx)
-	return &TranspileResponse{nil, query}, err
+	return &TranspileResponse{Query: query, Route: RouteMetrics15s}, err
 }
 
 func streamSelect(matchers ...*labels.Matcher) logql_transpiler_shared.SQLRequestPlanner {

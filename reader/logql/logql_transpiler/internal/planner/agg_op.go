@@ -26,8 +26,8 @@ func (a *AggOpPlanner) Process(ctx *shared.PlannerContext, in chan []shared.LogE
 }
 
 func (a *AggOpPlanner) addValue(ctx *shared.PlannerContext, entry *shared.LogEntry, stream *aggOpStream) {
-	idx := (entry.TimestampNS - ctx.From.UnixNano()) / a.Duration.Nanoseconds()
-	if idx < 0 || idx*2 > int64(len(stream.values)) {
+	idx, ok := ctx.Grid.Slot(entry.TimestampNS)
+	if !ok {
 		return
 	}
 	switch a.Func {

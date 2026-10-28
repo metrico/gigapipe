@@ -49,6 +49,11 @@ func planSQL(t *testing.T, query string, from, to time.Time, step time.Duration)
 	ctx.TimeSeriesDistTableName = "time_series"
 	ctx.TimeSeriesGinDistTableName = "time_series_gin"
 	ctx.Metrics15sDistTableName = "metrics_15s"
+	grid, err := shared.NewEvalGrid(ctx)
+	if err != nil {
+		t.Fatalf("grid %q: %v", query, err)
+	}
+	ctx.Grid = &grid
 	obj, err := plan.Process(ctx)
 	if err != nil {
 		t.Fatalf("process %q: %v", query, err)
@@ -72,7 +77,7 @@ func TestBytesOverTimeNotDividedByRange(t *testing.T) {
 		t.Errorf("bytes_over_time value expression missing byte sum:\n%s", sqlQuery)
 	}
 	// The value must NOT be divided by the range length.
-	if strings.Contains(sqlQuery, "toFloat64(sum(length(_string))) / ") {
+	if strings.Contains(sqlQuery, "/ 3600") {
 		t.Errorf("bytes_over_time divided by range length (bytes_rate semantics):\n%s", sqlQuery)
 	}
 }
@@ -84,7 +89,7 @@ func TestBytesRateStillDividedByRange(t *testing.T) {
 	q := `sum(bytes_rate({service_name="dayz_logz",instance="deerisle"}[1h]))`
 	sqlQuery := planSQL(t, q, from, to, 15*time.Minute)
 
-	if !strings.Contains(sqlQuery, "toFloat64(sum(length(_string))) / 3600") {
+	if !strings.Contains(sqlQuery, "toFloat64(sum(length(_string)))") || !strings.Contains(sqlQuery, "/ 3600") {
 		t.Errorf("bytes_rate must divide by the range length in seconds:\n%s", sqlQuery)
 	}
 }

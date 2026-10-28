@@ -64,10 +64,13 @@ func prevValues(ctx *shared.PlannerContext, fpPlanner shared.SQLRequestPlanner,
 // measured is the difference between two particular samples, not a reduction
 // over all of them. The frame is probed for its first and last real sample; the
 // change between them, divided by the time between them, is the slope reported.
+//
+// With a Grid it reads samples on the grid and returns its evaluation points.
 type CounterPlanner struct {
 	FpPlanner shared.SQLRequestPlanner
 	Duration  time.Duration
 	Fn        string
+	Grid      *Grid
 }
 
 func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -87,6 +90,9 @@ func (c *CounterPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 		isCounter, isRate = false, false
 	default:
 		return nil, fmt.Errorf("unsupported counter function: %s", c.Fn)
+	}
+	if c.Grid != nil {
+		return c.processGrid(ctx, isCounter, isRate)
 	}
 
 	withPrev, err := prevValues(ctx, c.FpPlanner, c.Duration)
@@ -228,12 +234,68 @@ func (c *CounterPlanner) reach(isCounter bool) []sql.SQLObject {
 	return res
 }
 
+// processGrid evaluates every (T-range, T] of the grid from its first and
+// last sample, sample count and resets, extrapolated by extrapolatedChange.
+func (c *CounterPlanner) processGrid(ctx *shared.PlannerContext, isCounter, isRate bool) (sql.ISelect, error) {
+	reset := func(prev, cur string) string { return "0" }
+	if isCounter {
+		reset = func(prev, cur string) string { return fmt.Sprintf("if(%s < %s, %s, 0)", cur, prev, prev) }
+	}
+	w := gridWindow{Grid: *c.Grid, Range: c.Duration}
+	withWnd, err := gridSequenceWindows(ctx, c.FpPlanner, w, reset, "cnt")
+	if err != nil {
+		return nil, err
+	}
+	sel := []sql.SQLObject{
+		sql.NewSimpleCol("fingerprint", "fingerprint"),
+		sql.NewSimpleCol("timestamp_ms", "timestamp_ms"),
+		sql.NewSimpleCol("f_cnt", "f_cnt"),
+		sql.NewSimpleCol("f_first_ts", "f_first_ts"),
+		sql.NewSimpleCol("f_last_ts", "f_last_ts"),
+	}
+	for _, col := range extrapolatedChange(c.Duration, isCounter, isRate) {
+		sel = append(sel, sql.NewSimpleCol(col[0], col[1]))
+	}
+	withSlope := sql.NewWith(sql.NewSelect().With(withWnd).Select(sel...).From(sql.NewWithRef(withWnd)), "cnt_slope")
+	return gridResult(withSlope, *c.Grid, "c_val",
+		sql.Ge(sql.NewRawObject("f_cnt"), sql.NewIntVal(2)),
+		sql.Gt(sql.NewRawObject("f_last_ts"), sql.NewRawObject("f_first_ts"))), nil
+}
+
+// extrapolatedChange builds c_val, the window's change carried to each edge
+// within 1.1 average sample intervals of it, else half an interval; a counter
+// is carried no further back than its zero.
+func extrapolatedChange(d time.Duration, isCounter, isRate bool) [][2]string {
+	start := "c_start_ex"
+	if isCounter {
+		start = "if(c_change > 0 AND f_first_v >= 0, least(c_start_ex, c_span * f_first_v / c_change), c_start_ex)"
+	}
+	val := "c_change * ((c_span + c_start + c_end) / c_span)"
+	if isRate {
+		val = fmt.Sprintf("%s / %f", val, d.Seconds())
+	}
+	return [][2]string{
+		{"f_last_v - f_first_v + f_d", "c_change"},
+		{"(f_last_ts - f_first_ts) / 1000", "c_span"},
+		{"c_span / (f_cnt - 1)", "c_avg"},
+		{fmt.Sprintf("(f_first_ts - (timestamp_ms - %d)) / 1000", d.Milliseconds()), "c_start_edge"},
+		{"if(c_start_edge >= c_avg * 1.1, c_avg / 2, c_start_edge)", "c_start_ex"},
+		{start, "c_start"},
+		{"(timestamp_ms - f_last_ts) / 1000", "c_end_edge"},
+		{"if(c_end_edge >= c_avg * 1.1, c_avg / 2, c_end_edge)", "c_end"},
+		{val, "c_val"},
+	}
+}
+
 // CounterFlagsPlanner accelerates the range functions that count transitions
 // between consecutive samples: resets and changes.
+//
+// With a Grid it counts per sample on the grid and returns its evaluation points.
 type CounterFlagsPlanner struct {
 	FpPlanner shared.SQLRequestPlanner
 	Duration  time.Duration
 	Fn        string
+	Grid      *Grid
 }
 
 func (c *CounterFlagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -247,6 +309,9 @@ func (c *CounterFlagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		flag = "(prev_cnt > 0) * (prev != val) * (source = 1)"
 	default:
 		return nil, fmt.Errorf("unsupported transition function: %s", c.Fn)
+	}
+	if c.Grid != nil {
+		return c.processGrid(ctx)
 	}
 
 	withPrev, err := prevValues(ctx, c.FpPlanner, c.Duration)
@@ -287,4 +352,19 @@ func (c *CounterFlagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		sql.NewSimpleCol("toFloat64(flags - first_flag)", "val")).
 		From(sql.NewWithRef(withWnd)).
 		AndWhere(sql.Gt(sql.NewRawObject("close_cnt"), sql.NewIntVal(0))), nil
+}
+
+// processGrid counts the transitions of every (T-range, T] of the grid.
+func (c *CounterFlagsPlanner) processGrid(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	op := "!="
+	if c.Fn == "resets" {
+		op = "<"
+	}
+	flag := func(prev, cur string) string { return fmt.Sprintf("toFloat64(%s %s %s)", cur, op, prev) }
+	withWnd, err := gridSequenceWindows(ctx, c.FpPlanner, gridWindow{Grid: *c.Grid, Range: c.Duration}, flag,
+		"cnt_flags")
+	if err != nil {
+		return nil, err
+	}
+	return gridResult(withWnd, *c.Grid, "toFloat64(f_d)", sql.Gt(sql.NewRawObject("f_cnt"), sql.NewIntVal(0))), nil
 }

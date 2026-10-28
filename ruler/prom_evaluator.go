@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
@@ -37,6 +38,7 @@ func (e *PromEvaluator) Evaluate(ctx context.Context, expr string, t time.Time) 
 		return nil, fmt.Errorf("failed to parse PromQL expression: %w", err)
 	}
 
+	promql_transpiler.TagGrid(parsed.Expr, promql_transpiler.EvalGrid{StartMs: t.UnixMilli(), EndMs: t.UnixMilli()})
 	queryable := e.storage.SetOidAndDB(ctx, parsed)
 	promQuery, err := e.queryEngine.NewInstantQuery(ctx, queryable, nil, parsed.Expr.String(), t)
 	if err != nil {

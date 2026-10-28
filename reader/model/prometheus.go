@@ -198,6 +198,23 @@ func (p *prolongSeriesIt) Err() error {
 // source of truth for the marker across the reader.
 var StaleMarkerValue = math.Float64frombits(value.StaleNaN)
 
+// StaleAfterGaps adds a stale marker one step after every sample whose next
+// sample is more than a step later, up to endMs.
+func StaleAfterGaps(samples []Sample, stepMs, endMs int64) []Sample {
+	if stepMs <= 0 {
+		return samples
+	}
+	out := make([]Sample, 0, len(samples))
+	for i, s := range samples {
+		out = append(out, s)
+		next := s.TimestampMs + stepMs
+		if next <= endMs && (i == len(samples)-1 || samples[i+1].TimestampMs > next) {
+			out = append(out, Sample{TimestampMs: next, Value: StaleMarkerValue})
+		}
+	}
+	return out
+}
+
 // LookbackDeltaMs mirrors the Prometheus engine's default lookback delta (5m,
 // the value NewPromEngine relies on). A sample stays valid for at most this
 // long, so a gap larger than this is where a series is considered to have

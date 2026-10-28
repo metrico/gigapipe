@@ -14,6 +14,8 @@ import (
 // It is the producer a cross-series aggregation (sum, avg, ...) must sit on so
 // that every series alive at a step contributes there, rather than only the ones
 // that happen to have a raw sample landing on that exact step.
-func NewInstantVectorPlanner(fp shared.SQLRequestPlanner) shared.SQLRequestPlanner {
-	return &OverTimePlanner{FpPlanner: fp, Duration: staleness, Fn: "last_over_time"}
+//
+// grid, when set, is the selector's evaluation grid.
+func NewInstantVectorPlanner(fp shared.SQLRequestPlanner, grid *Grid) shared.SQLRequestPlanner {
+	return &OverTimePlanner{FpPlanner: fp, Duration: staleness, Fn: "last_over_time", Grid: grid}
 }

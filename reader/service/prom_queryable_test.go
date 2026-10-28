@@ -330,7 +330,7 @@ func TestApplyStaleMarkers_NonSubstituteInstantFn(t *testing.T) {
 	}
 
 	series := staleTestSeries()
-	out := c.applyStaleMarkers(series, sqlFilled, step, queryEnd)
+	out := c.applyStaleMarkers(series, sqlFilled, false, step, queryEnd)
 
 	if n := countStaleMarkers(out); n != 0 {
 		t.Fatalf("non-substitute instant fn (abs/topk) must not be stale-marked, found %d markers", n)
@@ -353,7 +353,7 @@ func TestApplyStaleMarkers_SubstituteBacked(t *testing.T) {
 		t.Fatal("precondition: substitute-backed query must be SQL-filled")
 	}
 
-	out := c.applyStaleMarkers(staleTestSeries(), sqlFilled, step, queryEnd)
+	out := c.applyStaleMarkers(staleTestSeries(), sqlFilled, false, step, queryEnd)
 
 	if n := countStaleMarkers(out); n != 2 {
 		t.Fatalf("expected one trailing marker per series (2 total), got %d", n)
@@ -369,5 +369,25 @@ func TestApplyStaleMarkers_SubstituteBacked(t *testing.T) {
 			}
 		}
 		lastIsStaleMarker(t, s.Samples, 130000+step)
+	}
+}
+
+// A grid-tagged substitute is marked stale one step after every row whose next
+// row is more than a step away, up to the query end.
+func TestApplyStaleMarkers_TaggedSubstituteGaps(t *testing.T) {
+	const step, queryEnd = int64(60000), int64(600000)
+	series := []*model.SeriesV2{{Fp: 1, Samples: []model.Sample{
+		{TimestampMs: 60000, Value: 1}, {TimestampMs: 120000, Value: 2},
+		{TimestampMs: 300000, Value: 3}, {TimestampMs: 600000, Value: 4},
+	}}}
+	out := (&CLokiQuerier{}).applyStaleMarkers(series, true, true, step, queryEnd)
+	var stale []int64
+	for _, s := range out[0].Samples {
+		if value.IsStaleNaN(s.Value) {
+			stale = append(stale, s.TimestampMs)
+		}
+	}
+	if len(out[0].Samples) != 6 || len(stale) != 2 || stale[0] != 180000 || stale[1] != 360000 {
+		t.Fatalf("stale markers at %v in %+v, want at 180000 and 360000", stale, out[0].Samples)
 	}
 }

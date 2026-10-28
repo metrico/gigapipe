@@ -34,6 +34,10 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 	if readSuffix == "" {
 		readSuffix = "_dist"
 	}
+	err = RecoverMetrics15sMV(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "", logger)
+	if err != nil {
+		return err
+	}
 	err = UpdateWithReadCluster(conn, dbObject.Name, dbObject.ClusterName, readCluster, readSuffix, mode,
 		dbObject.TTLDays, dbObject.StoragePolicy, dbObject.SamplesOrdering, dbObject.SkipUnavailableShards, logger)
 	if err != nil {
@@ -45,6 +49,11 @@ func upgradeDB(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) error 
 		if err != nil {
 			return fmt.Errorf("METRICS_15S_ENABLED: invalid value %q", v)
 		}
+	}
+	// Before SyncMetrics15s swaps the MV, so an MV that lost start_count is seen.
+	err = RecordMetrics15sStartCount(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "", logger)
+	if err != nil {
+		return err
 	}
 	return SyncMetrics15s(conn, dbObject.Name, dbObject.ClusterName, dbObject.ClusterName != "",
 		m15Enabled, logger)
