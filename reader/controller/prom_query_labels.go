@@ -52,7 +52,7 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := ParseLogSeriesParamsV2(r, time.Second)
+	params, err := ParseLogSeriesParamsV2(r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return

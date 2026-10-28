@@ -2,7 +2,6 @@ package controller
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/service"
@@ -29,7 +28,7 @@ func (q *QueryLabelsController) Labels(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := ParseTimeParamsV2(r, time.Nanosecond)
+	params, err := ParseTimeParamsV2(r)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
@@ -50,7 +49,7 @@ func (q *QueryLabelsController) Values(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := ParseLogSeriesParamsV2(r, time.Nanosecond)
+	params, err := ParseLogSeriesParamsV2(r)
 	if err != nil {
 		PromError(500, err.Error(), w)
 		return
@@ -85,7 +84,7 @@ func (q *QueryLabelsController) Series(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := ParseLogSeriesParamsV2(r, time.Nanosecond)
+	params, err := ParseLogSeriesParamsV2(r)
 	if len(params.Match) == 0 {
 		PromError(400, "match param is required", w)
 		return
@@ -103,10 +102,10 @@ func (q *QueryLabelsController) Series(w http.ResponseWriter, r *http.Request) {
 	SmartBufferServeStrings(w, res)
 }
 
-func ParseLogSeriesParamsV2(r *http.Request, unit time.Duration) (SeriesParams, error) {
+func ParseLogSeriesParamsV2(r *http.Request) (SeriesParams, error) {
 	res := SeriesParams{}
 	var err error
-	res.ValuesParams, err = ParseTimeParamsV2(r, unit)
+	res.ValuesParams, err = ParseTimeParamsV2(r)
 	if err != nil {
 		return res, err
 	}
@@ -129,7 +128,7 @@ func ParseLogSeriesParamsV2(r *http.Request, unit time.Duration) (SeriesParams, 
 	return res, nil
 }
 
-func ParseTimeParamsV2(r *http.Request, unit time.Duration) (ValuesParams, error) {
+func ParseTimeParamsV2(r *http.Request) (ValuesParams, error) {
 	// TODO: Rewrite ParseTimeParams using http.Request instead of fiber.Ctx
 	res := ValuesParams{}
 	if r.Method == "POST" && r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
@@ -142,19 +141,19 @@ func ParseTimeParamsV2(r *http.Request, unit time.Duration) (ValuesParams, error
 	res.Raw.End = r.FormValue("end")
 	res.Start = time.Now().Add(time.Hour * -6)
 	if res.Raw.Start != "" {
-		start, err := strconv.ParseInt(res.Raw.Start, 10, 64)
+		t, err := ParseTimeSecOrRFC(res.Raw.Start, res.Start)
 		if err != nil {
 			return res, err
 		}
-		res.Start = time.Unix(0, 0).Add(time.Duration(start) * unit)
+		res.Start = t
 	}
 	res.End = time.Now()
 	if res.Raw.End != "" {
-		end, err := strconv.ParseInt(res.Raw.End, 10, 64)
+		t, err := ParseTimeSecOrRFC(res.Raw.End, res.End)
 		if err != nil {
 			return res, err
 		}
-		res.End = time.Unix(0, 0).Add(time.Duration(end) * unit)
+		res.End = t
 	}
 	return res, nil
 }

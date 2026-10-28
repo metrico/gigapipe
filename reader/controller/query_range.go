@@ -38,13 +38,28 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	start, err := getRequiredFloat(r, "start", "", nil)
-	end, err := getRequiredFloat(r, "end", "", err)
-	step, err := getRequiredDuration(r, "step", "1", err)
+	startRaw := r.URL.Query().Get("start")
+	if startRaw == "" {
+		PromError(400, "start parameter is required", w)
+		return
+	}
+	startTime, err := ParseTimeSecOrRFC(startRaw, time.Time{})
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	endRaw := r.URL.Query().Get("end")
+	if endRaw == "" {
+		PromError(400, "end parameter is required", w)
+		return
+	}
+	endTime, err := ParseTimeSecOrRFC(endRaw, time.Time{})
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	step, err := getRequiredDuration(r, "step", "1", nil)
 	direction := r.URL.Query().Get("direction")
-	//if direction == "" {
-	//	direction = "backward"
-	//}
 	_limit := r.URL.Query().Get("limit")
 	limit := queryDefaultLimit
 	if _limit != "" {
@@ -54,7 +69,7 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		PromError(400, err.Error(), w)
 		return
 	}
-	ch, err := q.QueryRangeService.QueryRange(internalCtx, query, int64(start), int64(end), int64(step*1000),
+	ch, err := q.QueryRangeService.QueryRange(internalCtx, query, startTime.UnixNano(), endTime.UnixNano(), int64(step*1000),
 		limit, direction == "forward")
 	if err != nil {
 		PromError(500, err.Error(), w)
@@ -119,16 +134,20 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 		//}]}}`, time.Now().Unix())))
 		return
 	}
-	iTime, err := getRequiredI64(r, "time", "0", nil)
-	if err != nil {
-		PromError(500, err.Error(), w)
-		return
-	}
-	if iTime == 0 {
+	var iTime int64
+	timeRaw := r.URL.Query().Get("time")
+	if timeRaw == "" || timeRaw == "0" {
 		iTime = time.Now().UnixNano()
+	} else {
+		queryTime, err := ParseTimeSecOrRFC(timeRaw, time.Now())
+		if err != nil {
+			PromError(400, err.Error(), w)
+			return
+		}
+		iTime = queryTime.UnixNano()
 	}
 
-	step, err := getRequiredDuration(r, "step", "1", err)
+	step, err := getRequiredDuration(r, "step", "1", nil)
 	_limit := r.URL.Query().Get("limit")
 	limit := queryDefaultLimit
 	if _limit != "" {
@@ -179,8 +198,8 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 
 	var startNs int64
 	if _s := r.URL.Query().Get("start"); _s != "" {
-		if parsed, parseErr := strconv.ParseInt(_s, 10, 64); parseErr == nil && parsed > 0 {
-			startNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(_s, time.Time{}); parseErr == nil && t.UnixNano() > 0 {
+			startNs = t.UnixNano()
 		}
 	}
 
@@ -257,13 +276,13 @@ func (q *QueryRangeController) IndexStats(w http.ResponseWriter, r *http.Request
 
 	var fromNs, toNs int64
 	if startStr != "" {
-		if parsed, parseErr := strconv.ParseInt(startStr, 10, 64); parseErr == nil {
-			fromNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(startStr, time.Time{}); parseErr == nil {
+			fromNs = t.UnixNano()
 		}
 	}
 	if endStr != "" {
-		if parsed, parseErr := strconv.ParseInt(endStr, 10, 64); parseErr == nil {
-			toNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(endStr, time.Time{}); parseErr == nil {
+			toNs = t.UnixNano()
 		}
 	}
 	if toNs == 0 {

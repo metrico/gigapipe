@@ -38,7 +38,7 @@ func TestFormParamsIgnoreUnknownKeys(t *testing.T) {
 		t.Fatalf("range: %+v, %v", rng, err)
 	}
 
-	series, err := ParseLogSeriesParamsV2(postForm("/loki/api/v1/series", form), 1_000_000_000)
+	series, err := ParseLogSeriesParamsV2(postForm("/loki/api/v1/series", form))
 	if err != nil || len(series.Match) != 1 || series.Start.Unix() != 1700000000 {
 		t.Fatalf("loki series: %+v, %v", series, err)
 	}
