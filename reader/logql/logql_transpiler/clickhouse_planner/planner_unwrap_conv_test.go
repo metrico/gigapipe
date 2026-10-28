@@ -8,20 +8,22 @@ import (
 func TestUnwrapConvSQL(t *testing.T) {
 	tests := []struct {
 		convFunc    string
-		wantContain string
+		wantContain []string
 	}{
 		// No conversion: plain toFloat64OrNull
-		{"", "toFloat64OrNull"},
-		// Duration: uses extractAllGroupsHorizontal + arraySum
-		{"duration", "arraySum"},
-		{"duration_seconds", "extractAllGroupsHorizontal"},
-		// Bytes: uses extract + LIKE checks
-		{"bytes", "LIKE '%kb%'"},
+		{"", []string{"toFloat64OrNull"}},
+		// Duration: arraySum, NULL wrapping, sign handling, µs support
+		{"duration", []string{"arraySum", "NULL", "startsWith", "µs"}},
+		{"duration_seconds", []string{"extractAllGroupsHorizontal", "NULL"}},
+		// Bytes: exact unit matching, NULL for unknown, comma stripping
+		{"bytes", []string{"NULL", "replaceAll", "'kb'", "'eib'", "'k'"}},
 	}
 	for _, tc := range tests {
 		got := unwrapConvSQL("labels['latency']", tc.convFunc)
-		if !strings.Contains(got, tc.wantContain) {
-			t.Errorf("unwrapConvSQL(_, %q) = %q, want substring %q", tc.convFunc, got, tc.wantContain)
+		for _, want := range tc.wantContain {
+			if !strings.Contains(got, want) {
+				t.Errorf("unwrapConvSQL(_, %q): missing %q in:\n%s", tc.convFunc, want, got)
+			}
 		}
 	}
 }
@@ -32,5 +34,17 @@ func TestUnwrapConvSQLDefault(t *testing.T) {
 	want := "toFloat64OrNull(labels['x'])"
 	if got != want {
 		t.Errorf("unwrapConvSQL default = %q, want %q", got, want)
+	}
+}
+
+// Duration and bytes SQL must contain NULL so the WHERE IS NOT NULL filter
+// can drop entries that don't parse. This is critical: without it, garbage
+// values silently become 0, skewing avg/min/count aggregations.
+func TestUnwrapConvSQLReturnsNULL(t *testing.T) {
+	for _, conv := range []string{"duration", "duration_seconds", "bytes"} {
+		got := unwrapConvSQL("labels['x']", conv)
+		if !strings.Contains(got, "NULL") {
+			t.Errorf("unwrapConvSQL(_, %q) must return NULL for bad input, got:\n%s", conv, got)
+		}
 	}
 }

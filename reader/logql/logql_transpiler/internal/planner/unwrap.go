@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -57,46 +58,59 @@ func unwrapConvert(val string, convFunc string) (float64, error) {
 		}
 		return d.Seconds(), nil
 	case "bytes":
-		return parseBytes(val), nil
+		return parseBytes(val)
 	default:
 		return strconv.ParseFloat(val, 64)
 	}
 }
 
-func parseBytes(s string) float64 {
+func parseBytes(s string) (float64, error) {
+	s = strings.ReplaceAll(s, ",", "")
 	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty bytes value")
+	}
 	// Find where the numeric part ends.
 	i := 0
 	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
 		i++
 	}
+	if i == 0 {
+		return 0, fmt.Errorf("no numeric value in %q", s)
+	}
 	num, err := strconv.ParseFloat(s[:i], 64)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	unit := strings.TrimSpace(strings.ToLower(s[i:]))
 	switch unit {
-	case "kib":
-		return num * 1024
-	case "mib":
-		return num * 1048576
-	case "gib":
-		return num * 1073741824
-	case "tib":
-		return num * 1099511627776
-	case "pib":
-		return num * 1125899906842624
-	case "kb":
-		return num * 1000
-	case "mb":
-		return num * 1000000
-	case "gb":
-		return num * 1000000000
-	case "tb":
-		return num * 1000000000000
-	case "pb":
-		return num * 1000000000000000
+	case "", "b":
+		return num, nil
+	case "kib", "ki":
+		return num * 1024, nil
+	case "mib", "mi":
+		return num * 1048576, nil
+	case "gib", "gi":
+		return num * 1073741824, nil
+	case "tib", "ti":
+		return num * 1099511627776, nil
+	case "pib", "pi":
+		return num * 1125899906842624, nil
+	case "eib", "ei":
+		return num * 1152921504606846976, nil
+	case "kb", "k":
+		return num * 1000, nil
+	case "mb", "m":
+		return num * 1000000, nil
+	case "gb", "g":
+		return num * 1000000000, nil
+	case "tb", "t":
+		return num * 1000000000000, nil
+	case "pb", "p":
+		return num * 1000000000000000, nil
+	case "eb", "e":
+		return num * 1000000000000000000, nil
 	default:
-		return num
+		return 0, fmt.Errorf("unknown bytes unit %q", unit)
 	}
 }

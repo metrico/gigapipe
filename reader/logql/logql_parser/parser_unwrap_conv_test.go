@@ -69,3 +69,16 @@ func TestParserUnwrapBareKeywordLabels(t *testing.T) {
 		}
 	}
 }
+
+// Trailing tokens after a conversion function must be rejected.
+// "unwrap duration(latency) foo" is not valid LogQL.
+func TestParserUnwrapConvRejectsTrailing(t *testing.T) {
+	for _, query := range []string{
+		`sum_over_time({app="x"} | json | unwrap duration(latency) foo [5m])`,
+		`sum_over_time({app="x"} | json | unwrap bytes(size) extra [5m])`,
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("Parse(%q): expected error for trailing token", query)
+		}
+	}
+}

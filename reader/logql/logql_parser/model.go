@@ -338,8 +338,8 @@ type UnwrapConv struct {
 
 type Unwrap struct {
 	Fn    string      `@("unwrap"|"unwrap_value")`
-	Conv  *UnwrapConv `@@?`
-	Label LabelName   `@@?`
+	Conv  *UnwrapConv `( @@`
+	Label LabelName   `  | @@ )?`
 }
 
 func (u *Unwrap) LabelName() string {
