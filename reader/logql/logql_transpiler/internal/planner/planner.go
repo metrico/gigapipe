@@ -48,7 +48,8 @@ func Plan(script *logql_parser.LogQLScript,
 		if ppl.Unwrap != nil {
 			in = &UnwrapPlanner{
 				GenericPlanner: GenericPlanner{in},
-				Label:          ppl.Unwrap.Label.Name,
+				Label:          ppl.Unwrap.LabelName(),
+				ConvFunc:       ppl.Unwrap.ConvFunc(),
 			}
 			continue
 		}
