@@ -367,7 +367,9 @@ nothing to enable; its settings are under
   lag that much longer. `reader` instances never take part.
 - On a cluster, each instance judges the lease by the clock of the
   ClickHouse node it connects to, so node clocks must agree to well within
-  3 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. NTP is enough.
+  3 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. NTP is enough. On a
+  replicated cluster, all nodes must also agree within 2s and well within
+  the idle period.
 - It needs **ClickHouse 24.9 or newer**. On an older server it logs an error
   and doesn't start, and every span reads `0`/`0`/`0`.
 - A trace is numbered once it has received no spans for the idle period.
@@ -376,6 +378,36 @@ nothing to enable; its settings are under
 - Each pass numbers at most `GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS` spans,
   oldest traces first; the rest wait for the next pass. On a cluster, each
   shard numbers its own traces and the cap applies per shard.
+- Each pass reads only the traces touched since the previous one. The
+  leader keeps a cursor, the newest touch the last pass covered (on a
+  cluster, the least across shards), in the lease table, so a new leader
+  continues from it. Without one, a pass reads the last day.
+- A pass waits for synchronous inserts into its database's `tempo_traces`
+  (directly or through `tempo_traces_dist`) that are still running on any
+  reachable node of the cluster, and for spans a lagging replica has yet to
+  fetch. While a replica has replication log entries left to pull, its shard
+  numbers only traces idle for 2s longer than the idle period; while it has
+  entries left to apply, only traces touched more than its delay (plus 2s
+  once it is a second or more) ago. The cursor also stays at or before the
+  oldest running insert's start as one of the leader instance's kept reads
+  saw it, a read taken at least 2s before those entries were created.
+  An instance keeps, across its terms, its newest read and, for each k
+  from 0 to 11, the oldest kept read at most 2^k reads older. So a lag of
+  up to about 1,000 reads (passes that read the running inserts; at least
+  85 minutes at the default interval) holds that shard's numbering at most
+  about three times the lag plus a pass behind. When no kept read
+  qualifies (a longer lag, or an instance that has just started), that
+  shard numbers nothing and the cursor holds, pass after pass. A replica that
+  can't catch up (a broken part, fetches stopped), or whose tables have yet
+  to receive their first insert, holds its shard and the cursor until it
+  does. So the cursor doesn't pass the start of an insert whose spans a
+  replica has yet to apply. A pass doesn't see an insert on a node
+  that doesn't connect within 1s or complete its handshake within 2s. A node
+  that then takes over 3s to answer fails the pass, and numbering resumes
+  once it answers. A long insert, such as a backfill, holds back every
+  shard's traces touched after it started until it ends. Async inserts are
+  assumed to commit within the idle period. A trace whose spans commit later
+  than that may not be numbered until it receives another span.
 - While the lease can't be read or written, numbering pauses; the instances
   log the start and end of the outage. Traces whose only spans arrived more
   than about a day before numbering resumes stay `0`/`0`/`0`.

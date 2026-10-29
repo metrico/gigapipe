@@ -129,6 +129,9 @@ Saved dashboards and alerts that use them will see different numbers.
   [Cross-Cluster Deployment](configuration.md#cross-cluster-deployment)).
   The local tables' engines follow `tempo_traces`, except
   `tempo_traces_nested_set_batch`, a plain MergeTree on every node.
+  `tempo_traces_touched` is ordered by `(toStartOfMinute(inserted_at),
+  trace_id)` and `tempo_traces_numbered` by `(intDiv(version, 60000),
+  trace_id)`.
   Structural queries alone need no migration, writer change or backfill.
 - **New nested-set numberer.** It runs on every `all` or `writer`
   instance, which elect one runner through ClickHouse; there is nothing to
