@@ -12,11 +12,15 @@ import (
 	"github.com/metrico/qryn/v5/shared/chtest"
 )
 
-// assertOneWinner runs one election step of n instances at once on an empty
-// lease and checks that exactly one leads and one claim is stored.
+// assertOneWinner runs one election step of n instances at once on an expired
+// term-1 lease and checks that exactly one leads and one term-2 claim is stored.
 func assertOneWinner(t *testing.T, store Store, conn clickhouse.Conn, table string) {
 	t.Helper()
 	const n = 8
+	seed := LeaseWrite{Term: 1, Holder: "expired", Claim: true, LeaseLen: -time.Second, Token: claimToken(1)}
+	if err := store.WriteLease(context.Background(), seed); err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	won := make([]bool, n)
 	start := make(chan struct{})
@@ -37,15 +41,18 @@ func assertOneWinner(t *testing.T, store Store, conn clickhouse.Conn, table stri
 			winners++
 		}
 	}
-	if claims := countClaims(t, conn, table); winners != 1 || claims != 1 {
+	if claims := countClaims(t, conn, table, 2); winners != 1 || claims != 1 {
 		t.Errorf("%d winners and %d stored claims among %d claimants, want 1 and 1", winners, claims, n)
 	}
 	term, winner := currentLeader(t, store)
+	if term != 2 {
+		t.Fatalf("term %d leads, want 2", term)
+	}
 	late := LeaseWrite{Term: term, Holder: "late", Claim: true, LeaseLen: time.Minute, Token: claimToken(term)}
 	if err := store.WriteLease(context.Background(), late); err != nil {
 		t.Fatal(err)
 	}
-	if claims := countClaims(t, conn, table); claims != 1 {
+	if claims := countClaims(t, conn, table, term); claims != 1 {
 		t.Errorf("a second claim of term %d was stored: %d claims", term, claims)
 	}
 	late.Token += "-out-of-window"
@@ -67,10 +74,11 @@ func currentLeader(t *testing.T, store Store) (uint64, string) {
 	return term, holder
 }
 
-func countClaims(t *testing.T, conn clickhouse.Conn, table string) uint64 {
+func countClaims(t *testing.T, conn clickhouse.Conn, table string, term uint64) uint64 {
 	t.Helper()
 	var claims uint64
-	if err := conn.QueryRow(context.Background(), "SELECT count() FROM "+table+" WHERE claim").Scan(&claims); err != nil {
+	q := "SELECT count() FROM " + table + " WHERE claim AND term = ?"
+	if err := conn.QueryRow(context.Background(), q, term).Scan(&claims); err != nil {
 		t.Fatal(err)
 	}
 	return claims
