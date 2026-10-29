@@ -25,4 +25,4 @@ $COMPOSE up -d --build
 
 echo "--- running integration tests against $GIGAPIPE_URL ---"
 cd ../..
-go test -tags integration -count=1 -v ./test/integration/...
+make test-integration
