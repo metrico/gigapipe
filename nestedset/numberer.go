@@ -15,7 +15,9 @@ import (
 // Store runs passes against ClickHouse and keeps the numberer's lease there.
 type Store interface {
 	Version(ctx context.Context) (string, error)
-	Pass(ctx context.Context, idle time.Duration, maxSpans int) error
+	// Pass runs one pass from cursor after the earlier passes' reads and
+	// returns the cursor for the next and its read, zero when it took none.
+	Pass(ctx context.Context, idle time.Duration, maxSpans int, cursor time.Time, reads Reads) (time.Time, RunningRead, error)
 	// ReadLease returns the lease rows of the highest term and the connected
 	// node's time.
 	ReadLease(ctx context.Context) ([]LeaseRow, time.Time, error)
@@ -35,8 +37,8 @@ func (s ConnStore) Version(ctx context.Context) (string, error) {
 }
 
 // Pass runs one pass.
-func (s ConnStore) Pass(ctx context.Context, idle time.Duration, maxSpans int) error {
-	return Pass(ctx, s.Conn, idle, maxSpans)
+func (s ConnStore) Pass(ctx context.Context, idle time.Duration, maxSpans int, cursor time.Time, reads Reads) (time.Time, RunningRead, error) {
+	return Pass(ctx, s.Conn, idle, maxSpans, cursor, reads)
 }
 
 // ReadLease reads the lease table.
@@ -51,8 +53,8 @@ func (s ConnStore) WriteLease(ctx context.Context, w LeaseWrite) error {
 
 func (s ConnStore) leaseTable() leaseTable { return leaseTable{conn: s.Conn, name: leaseTableName} }
 
-// ClusterStore is a Store over a connection to one node of a cluster whose
-// traces tables are sharded on (oid, trace_id).
+// ClusterStore is a Store over a connection to one node of a cluster. Each
+// pass numbers every shard's traces on that shard.
 type ClusterStore struct {
 	Conn              clickhouse.Conn
 	Cluster, Database string
@@ -64,8 +66,8 @@ func (s ClusterStore) Version(ctx context.Context) (string, error) {
 }
 
 // Pass runs one pass on every shard.
-func (s ClusterStore) Pass(ctx context.Context, idle time.Duration, maxSpans int) error {
-	return ClusterPass(ctx, s.Conn, s.Cluster, s.Database, idle, maxSpans)
+func (s ClusterStore) Pass(ctx context.Context, idle time.Duration, maxSpans int, cursor time.Time, reads Reads) (time.Time, RunningRead, error) {
+	return ClusterPass(ctx, s.Conn, s.Cluster, s.Database, idle, maxSpans, cursor, reads)
 }
 
 // ReadLease reads the lease through its distributed table.
@@ -141,9 +143,7 @@ func Start(ctx context.Context, store Store, cfg Config, log logger.ILogger) *Nu
 			if !e.step(ctx) {
 				continue
 			}
-			err := store.Pass(ctx, cfg.Idle, cfg.MaxSpans)
-			e.passed(err == nil)
-			if err != nil && ctx.Err() == nil {
+			if err := e.pass(ctx, cfg); err != nil && ctx.Err() == nil {
 				log.Error("nested-set numberer pass: ", err.Error())
 			}
 		}
@@ -165,15 +165,24 @@ type elector struct {
 	me       string
 	leaseLen time.Duration
 	log      logger.ILogger
-	passOK   bool   // the last pass succeeded or found nothing to do
-	led      uint64 // the term this instance last led, 0 after stepping down
+	passOK   bool      // the last pass succeeded or found nothing to do
+	cursor   time.Time // where the next pass scans from (SQL clamps it to now - 1 day)
+	reads    Reads     // the running reads of this instance's passes, in every term
+	led      uint64    // the term this instance last led, 0 after stepping down
 	renewals uint64
 	outage   bool
 }
 
-// passed records whether the pass this instance last ran succeeded or found
-// nothing to do.
-func (e *elector) passed(ok bool) { e.passOK = ok }
+// pass runs one pass from the cursor and advances the cursor when it succeeds.
+func (e *elector) pass(ctx context.Context, cfg Config) error {
+	next, read, err := e.store.Pass(ctx, cfg.Idle, cfg.MaxSpans, e.cursor, e.reads)
+	e.reads = e.reads.add(read)
+	e.passOK = err == nil
+	if err == nil {
+		e.cursor = next
+	}
+	return err
+}
 
 // step claims or renews the lease as decide says and reports whether this
 // instance leads for the iteration.
@@ -183,7 +192,7 @@ func (e *elector) step(ctx context.Context) bool {
 	switch d.action {
 	case claim:
 		err = e.store.WriteLease(ctx, LeaseWrite{Term: d.term, Holder: e.me, Claim: true, LeaseLen: e.leaseLen,
-			Token: claimToken(d.term)})
+			Cursor: inheritedCursor(rows), Token: claimToken(d.term)})
 		if err == nil {
 			rows, now, err = e.store.ReadLease(ctx)
 		}
@@ -192,12 +201,13 @@ func (e *elector) step(ctx context.Context) bool {
 			d = decision{notLeader, term}
 			if live && holder == e.me {
 				d.action = lead
+				e.cursor = inheritedCursor(rows)
 			}
 		}
 	case renew:
 		e.renewals++
 		err = e.store.WriteLease(ctx, LeaseWrite{Term: d.term, Holder: e.me, Claim: false, LeaseLen: e.leaseLen,
-			Token: fmt.Sprintf("renew-%d-%s-%d", d.term, e.me, e.renewals)})
+			Cursor: e.cursor, Token: fmt.Sprintf("renew-%d-%s-%d", d.term, e.me, e.renewals)})
 	case notLeader:
 		e.passOK = true
 	}

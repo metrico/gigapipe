@@ -12,12 +12,25 @@ import (
 )
 
 // LeaseRow is a row of the lease table: a claim of a term, or its holder's
-// renewal.
+// renewal. On a read, Cursor is the cursor of the latest row by term and
+// expires_at that has one.
 type LeaseRow struct {
 	Term      uint64
 	Holder    string
 	Claim     bool
 	ExpiresAt time.Time
+	Cursor    time.Time
+}
+
+// inheritedCursor is the cursor rows read from the lease carry; zero when
+// none has one.
+func inheritedCursor(rows []LeaseRow) time.Time {
+	for _, r := range rows {
+		if cursorSet(r.Cursor) {
+			return r.Cursor
+		}
+	}
+	return time.Time{}
 }
 
 type action int
@@ -108,9 +121,11 @@ type leaseTable struct {
 }
 
 // read returns the rows of the highest term, collapsed per holder and kind
-// to the earliest claim and the latest renewal, and the server time.
+// to the earliest claim and the latest renewal, each with the inherited
+// cursor, and the server time.
 func (l leaseTable) read(ctx context.Context) ([]LeaseRow, time.Time, error) {
-	rows, err := l.conn.Query(ctx, "SELECT term, holder, claim, if(claim, min(expires_at), max(expires_at)), now64(3)\n"+
+	rows, err := l.conn.Query(ctx, "SELECT term, holder, claim, if(claim, min(expires_at), max(expires_at)), now64(3),\n"+
+		"(SELECT argMax(cursor, (term, expires_at)) FROM "+l.name+" WHERE cursor > 0)\n"+
 		"FROM "+l.name+" GROUP BY term, holder, claim ORDER BY term DESC LIMIT 1 WITH TIES")
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("reading %s: %w", l.name, err)
@@ -120,7 +135,7 @@ func (l leaseTable) read(ctx context.Context) ([]LeaseRow, time.Time, error) {
 	var now time.Time
 	for rows.Next() {
 		var r LeaseRow
-		if err := rows.Scan(&r.Term, &r.Holder, &r.Claim, &r.ExpiresAt, &now); err != nil {
+		if err := rows.Scan(&r.Term, &r.Holder, &r.Claim, &r.ExpiresAt, &now, &r.Cursor); err != nil {
 			return nil, time.Time{}, fmt.Errorf("reading %s: %w", l.name, err)
 		}
 		out = append(out, r)
@@ -140,12 +155,14 @@ func (l leaseTable) read(ctx context.Context) ([]LeaseRow, time.Time, error) {
 func claimToken(term uint64) string { return fmt.Sprintf("term-%d", term) }
 
 // LeaseWrite is a claim of a term, or its holder's renewal, that expires
-// LeaseLen after the connected node's time at insert.
+// LeaseLen after the connected node's time at insert and carries the cursor
+// of the holder's next pass.
 type LeaseWrite struct {
 	Term     uint64
 	Holder   string
 	Claim    bool
 	LeaseLen time.Duration
+	Cursor   time.Time
 	Token    string
 }
 
@@ -155,8 +172,8 @@ func (l leaseTable) write(ctx context.Context, w LeaseWrite) error {
 	for k, v := range l.settings {
 		settings[k] = v
 	}
-	q := fmt.Sprintf("INSERT INTO %s (term, holder, claim, expires_at)\nSELECT %d, %s, %t, now64(3) + toIntervalMillisecond(%d)",
-		l.name, w.Term, quote(w.Holder), w.Claim, w.LeaseLen.Milliseconds())
+	q := fmt.Sprintf("INSERT INTO %s (term, holder, claim, expires_at, cursor)\nSELECT %d, %s, %t, now64(3) + toIntervalMillisecond(%d), %s",
+		l.name, w.Term, quote(w.Holder), w.Claim, w.LeaseLen.Milliseconds(), timeExpr(w.Cursor))
 	if err := l.conn.Exec(clickhouse.Context(ctx, clickhouse.WithSettings(settings)), q); err != nil {
 		return fmt.Errorf("writing %s: %w", l.name, err)
 	}

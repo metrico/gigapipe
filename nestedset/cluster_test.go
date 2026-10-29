@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v5/ctrl/logger"
@@ -65,7 +66,7 @@ func TestClusterPassNumbersEachShardsTracesOnThatShard(t *testing.T) {
 	}
 	exec(t, conn, "SYSTEM FLUSH DISTRIBUTED tempo_traces_dist")
 	ctx := clickhouse.Context(context.Background(), clickhouse.WithSettings(clickhouse.Settings{"log_comment": db}))
-	if err := (ClusterStore{Conn: conn, Cluster: cluster, Database: db}).Pass(ctx, 0, 1000); err != nil {
+	if _, _, err := (ClusterStore{Conn: conn, Cluster: cluster, Database: db}).Pass(ctx, 0, 1000, time.Time{}, Reads{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,7 +132,7 @@ func TestClusterPassNumbersTracesOnlyAnotherShardHas(t *testing.T) {
 	for trace := 1; trace <= 5; trace++ {
 		insertInto(t, conn, remote, chain(trace, 3)...)
 	}
-	if err := (ClusterStore{Conn: conn, Cluster: cluster, Database: db}).Pass(context.Background(), 0, 1000); err != nil {
+	if _, _, err := (ClusterStore{Conn: conn, Cluster: cluster, Database: db}).Pass(context.Background(), 0, 1000, time.Time{}, Reads{}); err != nil {
 		t.Fatal(err)
 	}
 

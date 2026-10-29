@@ -1,5 +1,6 @@
 -- Statement 2 of a pass: the numbering of the batch, in tempo_traces_nested_set column order.
--- Tokens: {DB} table prefix, {PASS} pass id.
+-- Tokens: {DB} table prefix, {PASS} pass id, {ZERO} the frontier row's trace id, {NO_FRONTIER} the error message
+-- when the node lacks the pass's frontier row.
 WITH RECURSIVE
 -- One node per span id: the earliest copy places it.
 edges AS (
@@ -7,7 +8,7 @@ edges AS (
            argMin(toFixedString(substring(parent_id, 1, 8), 8), timestamp_ns) AS parent,
            min(timestamp_ns) AS ts
     FROM {DB}tempo_traces
-    WHERE trace_id IN (SELECT trace_id FROM {DB}tempo_traces_nested_set_batch WHERE pass = {PASS})
+    WHERE trace_id IN (SELECT trace_id FROM {DB}tempo_traces_nested_set_batch WHERE pass = {PASS} AND trace_id != {ZERO})
     GROUP BY trace_id, span_id
 ),
 links AS (
@@ -87,3 +88,6 @@ SELECT l.trace_id AS trace_id, l.span_id AS span_id,
        toUInt64(toUnixTimestamp64Milli(now64(3))) AS version
 FROM links AS l
 LEFT JOIN numbered AS n ON n.trace_id = l.trace_id AND n.span_id = l.span_id
+-- One row that fails on a node without the pass's frontier row.
+CROSS JOIN (SELECT throwIf(count() = 0, {NO_FRONTIER}) AS guard FROM {DB}tempo_traces_nested_set_batch
+            WHERE pass = {PASS} AND trace_id = {ZERO}) AS g

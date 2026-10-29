@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_attrs_gin_dist {{.OnCluster}} (
     duration Int64
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_attrs_gin', sipHash64(oid, trace_id)) {{.DIST_CREATE_SETTINGS}};
 
+## Same placement as tempo_traces_dist for rows with an empty oid; the numbering pass writes shard-locally.
 CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_dist {{.OnCluster}} (
     trace_id FixedString(16),
     span_id FixedString(8),
@@ -46,14 +47,17 @@ CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_dist {{.OnCluster}} (
     version UInt64
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set', sipHash64('', trace_id)) {{.DIST_CREATE_SETTINGS}};
 
+## Same placement as tempo_traces_dist for rows with an empty oid; the numbering pass writes shard-locally.
 CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_batch_dist {{.OnCluster}} (
     pass UUID,
-    trace_id FixedString(16)
+    trace_id FixedString(16),
+    touched DateTime64(3) DEFAULT 0
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set_batch', sipHash64('', trace_id)) {{.DIST_CREATE_SETTINGS}};
 
 CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_lease_dist {{.OnCluster}} (
     term UInt64,
     holder String,
     claim Bool,
-    expires_at DateTime64(3)
+    expires_at DateTime64(3),
+    cursor DateTime64(3) DEFAULT 0
 ) ENGINE = Distributed('{{.CLUSTER}}','{{.DB}}', 'tempo_traces_nested_set_lease', 0) {{.DIST_CREATE_SETTINGS}};

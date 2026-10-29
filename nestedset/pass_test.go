@@ -97,7 +97,7 @@ func stored(t *testing.T, conn clickhouse.Conn, trace int) (map[int]numbers, uin
 
 func pass(t *testing.T, conn clickhouse.Conn, idle time.Duration, maxSpans int) {
 	t.Helper()
-	if err := Pass(context.Background(), conn, idle, maxSpans); err != nil {
+	if _, _, err := Pass(context.Background(), conn, idle, maxSpans, time.Time{}, Reads{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -240,7 +240,7 @@ func TestPassSkipsTracesTouchedWithinTheReplicaDelayPlusTwoSeconds(t *testing.T)
 	}
 	// A replica 5s behind: traces touched within the last 7s wait.
 	touch(t, conn, map[int]time.Duration{1: 6 * time.Second, 2: 8 * time.Second, 3: 2 * time.Second})
-	if err := run(context.Background(), connInserter(conn), localStatements(time.Second, 1000, "toUInt64(5)")); err != nil {
+	if _, _, err := run(context.Background(), connInserter(conn), connReader(conn), localStatements(time.Second, 1000, replica{delay: "toUInt64(5)", since: "NULL"}), time.Time{}, Reads{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := numberedTraces(t, conn, 1, 2, 3); fmt.Sprint(got) != "[2]" {

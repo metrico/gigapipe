@@ -30,9 +30,15 @@ func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 		}
 	}
 	touched := showCreate(t, conn, "tempo_traces_touched")
-	for _, want := range []string{"ReplacingMergeTree(inserted_at)", "ORDER BY trace_id", "TTL"} {
+	for _, want := range []string{"ReplacingMergeTree(inserted_at)", "ORDER BY (toStartOfMinute(inserted_at), trace_id)", "TTL"} {
 		if !strings.Contains(touched, want) {
 			t.Errorf("tempo_traces_touched lacks %q:\n%s", want, touched)
+		}
+	}
+	numbered := showCreate(t, conn, "tempo_traces_numbered")
+	for _, want := range []string{"ReplacingMergeTree(version)", "ORDER BY (intDiv(version, 60000), trace_id)", "TTL"} {
+		if !strings.Contains(numbered, want) {
+			t.Errorf("tempo_traces_numbered lacks %q:\n%s", want, numbered)
 		}
 	}
 	ctx := context.Background()
@@ -50,8 +56,9 @@ func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 		t.Errorf("one insert of two spans of one trace: %d touched rows, want 1", n)
 	}
 	if batch := showCreate(t, conn, "tempo_traces_nested_set_batch"); !strings.Contains(batch, "ENGINE = MergeTree") ||
-		!strings.Contains(batch, "ORDER BY (pass, trace_id)") || !strings.Contains(batch, "TTL") {
-		t.Errorf("tempo_traces_nested_set_batch is not a local MergeTree by (pass, trace_id) with a TTL:\n%s", batch)
+		!strings.Contains(batch, "ORDER BY (pass, trace_id)") || !strings.Contains(batch, "TTL") ||
+		!strings.Contains(batch, "`touched` DateTime64(3)") {
+		t.Errorf("tempo_traces_nested_set_batch is not a local MergeTree by (pass, trace_id) with touched and a TTL:\n%s", batch)
 	}
 	assertLeaseSchema(t, conn, "ENGINE = MergeTree")
 	if err := conn.Exec(ctx, `INSERT INTO tempo_traces_nested_set (trace_id, span_id, date, left, right, parent, version) VALUES
@@ -72,7 +79,7 @@ func assertNestedSetSchema(t *testing.T, conn clickhouse.Conn) {
 func assertLeaseSchema(t *testing.T, conn clickhouse.Conn, engine string) {
 	t.Helper()
 	lease := showCreate(t, conn, "tempo_traces_nested_set_lease")
-	for _, want := range []string{engine, "ORDER BY term", "TTL toDateTime(expires_at) + toIntervalDay(1)",
+	for _, want := range []string{engine, "`cursor` DateTime64(3)", "ORDER BY term", "TTL toDateTime(expires_at) + toIntervalDay(1)",
 		"non_replicated_deduplication_window = 100"} {
 		if !strings.Contains(lease, want) {
 			t.Errorf("tempo_traces_nested_set_lease lacks %q:\n%s", want, lease)

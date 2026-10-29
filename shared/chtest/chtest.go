@@ -19,6 +19,10 @@ const AddrEnv = "GIGAPIPE_TEST_CLICKHOUSE"
 // and no replicas. Tests that need it skip when it is unset.
 const ClusterEnv = "GIGAPIPE_TEST_CLICKHOUSE_CLUSTER"
 
+// ReplicatedClusterEnv names a cluster of the AddrEnv server whose shards
+// have two replicas each, with Keeper. Tests that need it skip when it is unset.
+const ReplicatedClusterEnv = "GIGAPIPE_TEST_CLICKHOUSE_REPLICATED_CLUSTER"
+
 // Open creates an empty database and returns a connection that uses it by
 // default. The database is dropped when the test ends.
 func Open(t *testing.T) (clickhouse.Conn, string) {
@@ -30,9 +34,20 @@ func Open(t *testing.T) (clickhouse.Conn, string) {
 // ClusterEnv cluster, whose name it also returns.
 func OpenCluster(t *testing.T) (clickhouse.Conn, string, string) {
 	t.Helper()
-	cluster := os.Getenv(ClusterEnv)
+	return openCluster(t, ClusterEnv)
+}
+
+// OpenReplicatedCluster is OpenCluster over the ReplicatedClusterEnv cluster.
+func OpenReplicatedCluster(t *testing.T) (clickhouse.Conn, string, string) {
+	t.Helper()
+	return openCluster(t, ReplicatedClusterEnv)
+}
+
+func openCluster(t *testing.T, env string) (clickhouse.Conn, string, string) {
+	t.Helper()
+	cluster := os.Getenv(env)
 	if cluster == "" {
-		t.Skipf("%s is not set", ClusterEnv)
+		t.Skipf("%s is not set", env)
 	}
 	conn, db := open(t, cluster)
 	return conn, db, cluster
