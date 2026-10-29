@@ -27,7 +27,7 @@ require (
 	github.com/prometheus/prometheus v0.315.1
 	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
-	go.opentelemetry.io/collector/pdata v1.69.0
+	go.opentelemetry.io/collector/pdata v1.70.0
 	go.opentelemetry.io/collector/pdata/pprofile v0.163.0
 	go.opentelemetry.io/proto/otlp v1.11.1
 	golang.org/x/sync v0.24.0
@@ -96,7 +96,7 @@ require (
 	github.com/subosito/gotenv v1.4.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/collector/featuregate v1.69.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.70.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
