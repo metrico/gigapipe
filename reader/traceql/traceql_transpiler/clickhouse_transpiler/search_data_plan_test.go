@@ -1,6 +1,7 @@
 package clickhouse_transpiler
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ var dataQueries = append(append([]string{}, searchQueries...),
 func TestSearchDataReadsOnlySearchResult(t *testing.T) {
 	for _, query := range dataQueries {
 		for _, cluster := range []bool{false, true} {
-			t.Run(query, func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/cluster=%t", query, cluster), func(t *testing.T) {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = cluster
 				res := renderPlan(t, planSearch(t, query).Data, ctx)
@@ -37,7 +38,7 @@ func TestSearchDataReadsOnlySearchResult(t *testing.T) {
 }
 
 func TestSearchDataUsesPlainInOnClusters(t *testing.T) {
-	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|trace_span_ids)\)`)
+	plainInRe := regexp.MustCompile(`[^L] IN \((trace_ids|trace_span_ids)\)`)
 	for _, query := range dataQueries {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
@@ -46,7 +47,7 @@ func TestSearchDataUsesPlainInOnClusters(t *testing.T) {
 			if strings.Contains(res, "GLOBAL IN") {
 				t.Errorf("GLOBAL IN in the data statement:\n%s", res)
 			}
-			if !plainIn.MatchString(res) {
+			if !plainInRe.MatchString(res) {
 				t.Errorf("no plain IN over the search result:\n%s", res)
 			}
 			if !strings.Contains(res, "tempo_traces_dist") {
