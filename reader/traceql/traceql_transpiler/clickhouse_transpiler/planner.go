@@ -7,7 +7,8 @@ import (
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
-func Plan(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+// Plan plans a search for query in two statements.
+func Plan(query *traceql_ir.Query) (*SearchPlan, error) {
 	return (&planner{query: query}).plan()
 }
 
@@ -89,7 +90,7 @@ type planner struct {
 	prefix int
 }
 
-func (p *planner) plan() (shared.SQLRequestPlanner, error) {
+func (p *planner) plan() (*SearchPlan, error) {
 	selected, err := spanValueKeys(p.query)
 	if err != nil {
 		return nil, err
@@ -98,15 +99,11 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 	if err != nil {
 		return nil, err
 	}
-	res = &SearchSpansetPlanner{Main: res}
-
-	res = &IndexLimitPlanner{res}
-
-	res = NewTracesDataPlanner(res, selected)
-
-	res = &IndexLimitPlanner{res}
-
-	return p.structuralGate(res), nil
+	search := &searchRowsPlanner{Main: &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}}
+	return &SearchPlan{
+		Search: p.structuralGate(search),
+		Data:   &IndexLimitPlanner{NewTracesDataPlanner(searchResultPlanner{}, selected)},
+	}, nil
 }
 
 func (p *planner) planEval() (shared.SQLRequestPlanner, error) {

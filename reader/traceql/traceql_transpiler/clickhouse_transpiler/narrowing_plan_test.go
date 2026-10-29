@@ -24,7 +24,7 @@ func narrowedReads(res string) map[string]int {
 func narrowingPlans(t *testing.T, query string) map[string]shared.SQLRequestPlanner {
 	t.Helper()
 	plans := autocompletePlans(t, query)
-	plans["search"] = planSearch(t, query)
+	plans["search"] = planSearch(t, query).Search
 	plans["metrics"] = planMetrics(t, query)
 	return plans
 }
@@ -90,7 +90,7 @@ func TestNarrowedStagesCarryThePreviousStageAttributes(t *testing.T) {
 		{`({.b = 2} | avg(.c) > 1)`, `_\d+stage0_expr\.attrs as attrs, _\d+stage0_expr\.grp as grp FROM _\d+stage0_expr\)`},
 	} {
 		t.Run(c.query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			if !regexp.MustCompile(c.attrs).MatchString(res) {
 				t.Errorf("attrs are not %s:\n%s", c.attrs, res)
 			}
@@ -104,7 +104,7 @@ func TestNarrowedAncestryLoadsSurvivingTraces(t *testing.T) {
 	for _, cluster := range []bool{false, true} {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
-		res := renderPlan(t, planSearch(t, query), ctx)
+		res := renderSearch(t, planSearch(t, query), ctx)
 		edges := regexp.MustCompile(`(_\d+transitive_edges) as \(.*?GROUP BY`).FindString(res)
 		operands := regexp.MustCompile(`IN \(\s*SELECT trace_id FROM (_\d+transitive_(?:lhs|rhs))\)`).FindAllStringSubmatch(edges, -1)
 		if len(operands) != 2 {

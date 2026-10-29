@@ -120,7 +120,7 @@ func TestSampleOnlyAppliesToMetricsFractions(t *testing.T) {
 	}
 	query := `{.a = 1} >> {} with(sample=0.25, exemplars=2)`
 	plans := autocompletePlans(t, query)
-	plans["search"] = planSearch(t, query)
+	plans["search"] = planSearch(t, query).Search
 	for kind, plan := range plans {
 		if res := renderPlan(t, plan, testPlannerContext(3)); sampleCond.MatchString(res) {
 			t.Errorf("%s samples:\n%s", kind, res)

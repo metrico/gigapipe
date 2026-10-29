@@ -14,19 +14,17 @@ import (
 const emptySelected = "CAST([], 'Array(Array(String))')"
 
 // TracesDataPlanner reads the listed spans and trace summaries of Main's
-// (trace_id, span_id[], spansets) rows, as SearchSpansetPlanner returns them.
-// Each spanset comes out as an element of six arrays: its span ids, matched,
-// and its attributes' names, types, values and texts. Each listed span also
-// comes with the keys and values of the Selected attributes it has, sorted by
-// key. A selected nested-set field is always there, 0 for an unnumbered span.
+// (trace_id, span_id[]) rows, each span with its Selected values sorted by key.
 type TracesDataPlanner struct {
 	Main     shared.SQLRequestPlanner
 	Selected []string
 }
 
+// NewTracesDataPlanner reads the traces of main, which yields the ids table's
+// (trace_id, span_id[]) rows; a registered traces-data plugin gets that main.
 func NewTracesDataPlanner(main shared.SQLRequestPlanner, selected []string) shared.SQLRequestPlanner {
 	p := plugins.GetTracesDataPlugin()
-	if p != nil {
+	if p != nil && *p != nil {
 		return (*p)(main)
 	}
 	return &TracesDataPlanner{Main: main, Selected: selected}
@@ -44,7 +42,7 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		join = "global any left"
 	}
 
-	withMain := sql.NewWith(main, "index_grouped")
+	withMain := sql.NewWith(main, "result_ids")
 	withTraceIds := sql.NewWith(traceIdsOf(withMain), "trace_ids")
 	withTraceIdsRef := sql.NewWithRef(withTraceIds)
 	withTraceIdsSpanIds := sql.NewWith(
@@ -63,7 +61,7 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 				sql.NewSimpleCol("argMin(traces.service_name, traces.timestamp_ns)", "_root_service_name"),
 				sql.NewSimpleCol("argMin(traces.name, traces.timestamp_ns)", "_root_trace_name")).
 			From(sql.NewSimpleCol(table, "traces")).
-			AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"), withTraceIdsRef)).
+			AndWhere(plainIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef)).
 			GroupBy(sql.NewRawObject("traces.trace_id")),
 		"traces_info")
 	attrKeys, nestedSet := splitSelected(t.Selected)
@@ -93,12 +91,6 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("min(_duration_ms)", "duration_ms"),
 			sql.NewSimpleCol("min(_root_service_name)", "root_service_name"),
 			sql.NewSimpleCol("min(_root_trace_name)", "root_trace_name"),
-			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> lower(hex(x)), s.2), any(index_grouped.spansets))", "spanset_span_ids"),
-			sql.NewSimpleCol("arrayMap(s -> s.3, any(index_grouped.spansets))", "matched"),
-			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.1, s.4), any(index_grouped.spansets))", "attr_names"),
-			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.2, s.4), any(index_grouped.spansets))", "attr_types"),
-			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.3, s.4), any(index_grouped.spansets))", "attr_values"),
-			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.4, s.4), any(index_grouped.spansets))", "attr_texts"),
 			sql.NewSimpleCol(keysCol, "span_attr_keys"),
 			sql.NewSimpleCol(valsCol, "span_attr_vals"),
 		).
@@ -106,15 +98,10 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		Join(sql.NewJoin(
 			join,
 			sql.NewWithRef(withTracesInfo),
-			sql.Eq(sql.NewRawObject("traces.trace_id"), sql.NewRawObject(withTracesInfo.GetAlias()+".trace_id"))),
-			sql.NewJoin(
-				join,
-				sql.NewWithRef(withMain),
-				sql.Eq(sql.NewRawObject("traces.trace_id"), sql.NewRawObject(withMain.GetAlias()+".trace_id"))),
-		).
+			sql.Eq(sql.NewRawObject("traces.trace_id"), sql.NewRawObject(withTracesInfo.GetAlias()+".trace_id")))).
 		AndWhere(
-			inSubquery(ctx, sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
-			inSubquery(ctx, sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
+			plainIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
+			plainIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
 		GroupBy(sql.NewRawObject("traces.trace_id")).
 		OrderBy(sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC))
 	if withSelected != nil {
@@ -140,10 +127,11 @@ func selectedNestedSet(ctx *shared.PlannerContext, fields []string, traceIds, sp
 	for i, f := range fields {
 		cols[i] = nestedSetCols[f]
 	}
-	return nestedSetValues(ctx, cols, traceIds, spanIds, "selected_nested_set")
+	return nestedSetValues(ctx, cols, plainIn, traceIds, spanIds, "selected_nested_set")
 }
 
-// nestedSetKV is a listed span's (key, value) pairs of the nested-set fields.
+// nestedSetKV is a listed span's (key, value) pairs of the nested-set fields,
+// 0 for an unnumbered span.
 func nestedSetKV(fields []string) string {
 	kv := make([]string, len(fields))
 	for i, f := range fields {
@@ -174,8 +162,8 @@ func selectedAttrs(ctx *shared.PlannerContext, attrKeys []string, traceIds, span
 			sql.Le(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
 			tsFrom,
 			tsTo,
-			inSubquery(ctx, sql.NewRawObject("traces_idx.trace_id"), traceIds),
-			inSubquery(ctx, sql.NewRawObject("(traces_idx.trace_id, traces_idx.span_id)"), spanIds),
+			plainIn(sql.NewRawObject("traces_idx.trace_id"), traceIds),
+			plainIn(sql.NewRawObject("(traces_idx.trace_id, traces_idx.span_id)"), spanIds),
 			sql.NewIn(sql.NewRawObject("key"), keys...)).
 		GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"), sql.NewRawObject("key"))
 	withValues = sql.NewWith(values, "selected_values")

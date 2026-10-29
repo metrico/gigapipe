@@ -29,7 +29,7 @@ func TestGroupingStagesPlanOneCTEEach(t *testing.T) {
 			if got := describePlan(t, expr); got != c.plan {
 				t.Errorf("metrics plan = %s, want %s", got, c.plan)
 			}
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			if n := len(stageCTEs(res)); n != strings.Count(c.plan, "|")+1 && !strings.HasPrefix(c.plan, "and(") {
 				t.Errorf("%d stage CTEs for %s:\n%s", n, c.plan, res)
 			}
@@ -40,7 +40,7 @@ func TestGroupingStagesPlanOneCTEEach(t *testing.T) {
 // by() appends its key to every span's group key and, named by the stage, to
 // the spanset attributes; coalesce() clears both.
 func TestGroupByAppendsTheKeyAndCoalesceClearsIt(t *testing.T) {
-	res := renderPlan(t, planSearch(t, `{.a = 1} | by(.b) | coalesce()`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{.a = 1} | by(.b) | coalesce()`), testPlannerContext(3))
 	for _, want := range []string{
 		`arrayPushBack(grp, key) as grp`,
 		`arrayPushBack(attrs, tuple('by(.b)', tupleElement(key, 4), tupleElement(key, 2), tupleElement(key, 3))) as attrs`,
@@ -58,7 +58,7 @@ func TestGroupByAppendsTheKeyAndCoalesceClearsIt(t *testing.T) {
 // Scalar filters aggregate per spanset: per trace and group key.
 func TestScalarFiltersAggregatePerGroup(t *testing.T) {
 	for _, query := range []string{`{.a = 1} | by(.b) | count() > 1`, `{.a = 1} | by(.b) | avg(.c) > 1`} {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if !regexp.MustCompile(`OVER \(PARTITION BY (_\d+stage1\.)?trace_id, (_\d+stage1\.)?grp\)`).MatchString(res) {
 			t.Errorf("%s: aggregate is not per group:\n%s", query, res)
 		}
@@ -80,7 +80,7 @@ func TestGroupByKeyReadsThePreviousStageSpans(t *testing.T) {
 		{`{.a = 1} | by(duration)`, `FROM tempo_traces as traces`},
 	} {
 		t.Run(c.query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			pivot := regexp.MustCompile(`_\d+stage1_pivot as \(.*?GROUP BY`).FindString(res)
 			if !strings.Contains(pivot, c.keys) {
 				t.Errorf("pivot does not read %s:\n%s", c.keys, pivot)
@@ -95,11 +95,11 @@ func TestGroupByKeyReadsThePreviousStageSpans(t *testing.T) {
 // Search lists one spanset per trace and group key, a trace's spansets by
 // key, and limits traces.
 func TestSearchListsSpansetsPerGroup(t *testing.T) {
-	res := renderPlan(t, planSearch(t, `{.a = 1} | by(.b)`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{.a = 1} | by(.b)`), testPlannerContext(3))
 	for _, want := range []string{
 		`FROM result_spans GROUP BY trace_id, grp`,
 		`arraySort(x -> x.1, groupArray((grp, span_ids, matched, attrs))) as spansets FROM result_spansets GROUP BY trace_id`,
-		`arrayMap(s -> s.3, any(index_grouped.spansets)) as matched`,
+		`arrayMap(s -> s.3, spansets) as matched`,
 	} {
 		if !strings.Contains(res, want) {
 			t.Errorf("%q missing:\n%s", want, res)

@@ -18,8 +18,8 @@ func Plan(query *traceql_ir.Query) (shared.TraceRequestProcessor, error) {
 		return nil, err
 	}
 
-	return &TraceQLComplexityEvaluator[model.TraceInfo]{
-		initSqlPlanner:            sqlPlanner,
+	return &TraceQLComplexityEvaluator[model.TraceInfo, *clickhouse_transpiler.SearchPlan]{
+		main:                      sqlPlanner,
 		simpleRequestProcessor:    &SimpleRequestProcessor{},
 		complexRequestProcessor:   &ComplexRequestProcessor{},
 		evaluateComplexityPlanner: complexityPlanner,
@@ -56,8 +56,8 @@ func planAutocomplete(query *traceql_ir.Query, main shared.SQLRequestPlanner) (
 	if err != nil {
 		return nil, err
 	}
-	return &TraceQLComplexityEvaluator[string]{
-		initSqlPlanner:            main,
+	return &TraceQLComplexityEvaluator[string, shared.SQLRequestPlanner]{
+		main:                      main,
 		simpleRequestProcessor:    &autocompleteRequestProcessor{},
 		complexRequestProcessor:   &complexAutocompleteRequestProcessor{},
 		evaluateComplexityPlanner: complexityPlanner,

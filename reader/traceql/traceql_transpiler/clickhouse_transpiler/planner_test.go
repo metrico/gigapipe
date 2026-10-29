@@ -21,7 +21,7 @@ func TestPlanner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := plan.Process(&shared.PlannerContext{
+	req, err := plan.Search.Process(&shared.PlannerContext{
 		IsCluster:            false,
 		From:                 time.Now().Add(time.Hour * -44),
 		To:                   time.Now(),
@@ -57,7 +57,7 @@ func TestTracesDataDurationMsSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := plan.Process(&shared.PlannerContext{
+	req, err := plan.Data.Process(&shared.PlannerContext{
 		IsCluster:            false,
 		From:                 time.Now().Add(time.Hour * -1),
 		To:                   time.Now(),
@@ -96,7 +96,7 @@ func TestComplexPlanner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := plan.Process(&shared.PlannerContext{
+	req, err := plan.Search.Process(&shared.PlannerContext{
 		IsCluster:            false,
 		From:                 time.Now().Add(time.Hour * -44),
 		To:                   time.Now(),

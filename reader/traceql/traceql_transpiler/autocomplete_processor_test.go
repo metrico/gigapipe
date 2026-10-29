@@ -63,7 +63,7 @@ func TestAutocompleteWithSelectorEstimatesComplexity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s %s: %v", kind, query, err)
 			}
-			e, ok := res.(*TraceQLComplexityEvaluator[string])
+			e, ok := res.(*TraceQLComplexityEvaluator[string, shared.SQLRequestPlanner])
 			if !ok {
 				t.Fatalf("%s %s is %T", kind, query, res)
 			}

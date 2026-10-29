@@ -82,12 +82,12 @@ func TestSearchPlansSpansetOperatorTree(t *testing.T) {
 
 func TestSearchSpansetOperatorsAreTraceLevel(t *testing.T) {
 	for _, query := range []string{`{.a = 1} && {.b = 2}`, `{.a = 1} || {.b = 2}`} {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if strings.Contains(res, "INTERSECT") {
 			t.Errorf("%s intersects spans:\n%s", query, res)
 		}
 	}
-	res := renderPlan(t, planSearch(t, `{.a = 1} && {.b = 2}`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{.a = 1} && {.b = 2}`), testPlannerContext(3))
 	if !strings.Contains(res, "OVER (PARTITION BY trace_id)") {
 		t.Errorf("&& is not evaluated per trace:\n%s", res)
 	}
@@ -96,7 +96,7 @@ func TestSearchSpansetOperatorsAreTraceLevel(t *testing.T) {
 // Every operand keeps its own conditions however deep it is nested.
 func TestSearchPlansEveryOperand(t *testing.T) {
 	const query = `({.a = "w"} && {.b = "x"}) || ({.c = "y"} && ({.d = "z"} || {.e = "v"}))`
-	res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 	for _, v := range []string{"w", "x", "y", "z", "v"} {
 		if !strings.Contains(res, fmt.Sprintf("'%s'", v)) {
 			t.Errorf("operand %q missing:\n%s", v, res)

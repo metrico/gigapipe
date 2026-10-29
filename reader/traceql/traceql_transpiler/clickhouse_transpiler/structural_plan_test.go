@@ -49,7 +49,7 @@ func TestSearchPlansStructuralOperators(t *testing.T) {
 // structuralWiths returns the CTEs of a rendered-ready search plan by alias.
 func structuralWiths(t *testing.T, query string, ctx *shared.PlannerContext) map[string]*sql.With {
 	t.Helper()
-	req, err := planSearch(t, query).Process(ctx)
+	req, err := planSearch(t, query).Search.Process(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestEnableAnalyzerOnlyOnStructuralQueries(t *testing.T) {
 	setting := regexp.MustCompile(`enable_analyzer`)
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+			res := renderPlan(t, planSearch(t, query).Search, testPlannerContext(3))
 			want := 0
 			for _, q := range structuralQueries {
 				if q == query {
@@ -259,13 +259,16 @@ func TestStructuralQueriesNeedClickHouse249(t *testing.T) {
 	ctx := testPlannerContext(3)
 	ctx.VersionInfo = map[string]int64{}
 	for _, query := range structuralQueries {
-		if _, err := planSearch(t, query).Process(ctx); err != errStructuralVersion {
+		if _, err := planSearch(t, query).Search.Process(ctx); err != errStructuralVersion {
 			t.Errorf("%s: error = %v, want %v", query, err, errStructuralVersion)
 		}
 	}
 	for _, query := range plainSearchQueries {
-		if _, err := planSearch(t, query).Process(ctx); err != nil {
-			t.Errorf("%s: %v", query, err)
+		plan := planSearch(t, query)
+		for _, statement := range []shared.SQLRequestPlanner{plan.Search, plan.Data} {
+			if _, err := statement.Process(ctx); err != nil {
+				t.Errorf("%s: %v", query, err)
+			}
 		}
 	}
 }
@@ -274,7 +277,7 @@ func TestStructuralQueriesNeedClickHouse249(t *testing.T) {
 func TestEmptyOperandReadsEverySpanInRange(t *testing.T) {
 	for _, query := range []string{`{} > {.a = 1}`, `{.a = 1} && {}`} {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 			if strings.Contains(res, "attrless_trace_ids") {
 				t.Errorf("operand {} uses the trace pre-pick:\n%s", res)
 			}

@@ -34,6 +34,17 @@ func inSubquery(ctx *shared.PlannerContext, left sql.SQLObject, right sql.SQLObj
 	return sql.NewIn(left, right)
 }
 
+// inFunc is `left IN (right)` in some form.
+type inFunc func(left, right sql.SQLObject) sql.SQLCondition
+
+// searchIn is inSubquery for ctx.
+func searchIn(ctx *shared.PlannerContext) inFunc {
+	return func(left, right sql.SQLObject) sql.SQLCondition { return inSubquery(ctx, left, right) }
+}
+
+// plainIn is `left IN (right)`, where right reads no Distributed table.
+func plainIn(left, right sql.SQLObject) sql.SQLCondition { return sql.NewIn(left, right) }
+
 type globalIn struct {
 	left  sql.SQLObject
 	right sql.SQLObject

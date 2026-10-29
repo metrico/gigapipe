@@ -51,7 +51,7 @@ func TestAllSpansIgnoresSelect(t *testing.T) {
 // index, joined on (trace_id, span_id); intrinsics read from the span row,
 // duration and the trace-level root intrinsics, read nothing.
 func TestSearchReadsTheSelectedValuesOfTheListedSpans(t *testing.T) {
-	res := renderPlan(t, planSearch(t,
+	res := renderSearch(t, planSearch(t,
 		`{.a = 1} | select(.x, span.y, resource.y, name, span:name, status, kind, statusMessage, duration, rootName, rootServiceName) | select(.z)`),
 		testPlannerContext(3))
 	for _, want := range []string{
@@ -71,7 +71,7 @@ func TestSearchReadsTheSelectedValuesOfTheListedSpans(t *testing.T) {
 // Search without select() or filtered fields reads no values.
 func TestSearchWithoutKeysReadsNoValues(t *testing.T) {
 	for _, query := range []string{`{}`, `count() > 1`, `by(.b * 2) | by(duration)`, `{duration > 1s} | avg(.b) > 1`, `{rootName = "r"} !~ {}`} {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if strings.Contains(res, "selected_attrs") || strings.Contains(res, "selected_nested_set") {
 			t.Errorf("%s reads selected values:\n%s", query, res)
 		}
@@ -101,7 +101,7 @@ func TestSearchEchoesFilteredFields(t *testing.T) {
 
 // A root filter echoes nestedSetParent from the side table.
 func TestSearchEchoesRootFilter(t *testing.T) {
-	res := renderPlan(t, planSearch(t, `{nestedSetParent < 0 && .a = 1}`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{nestedSetParent < 0 && .a = 1}`), testPlannerContext(3))
 	for _, want := range []string{
 		`(key IN ('a'))`,
 		`arraySort(arrayConcat(selected_attrs.kv, [('nestedSetParent', toString(ifNull(selected_nested_set.parent_, 0)))]))`,
@@ -115,10 +115,10 @@ func TestSearchEchoesRootFilter(t *testing.T) {
 func TestSelectedValuesReadDistributedTablesOnClusters(t *testing.T) {
 	ctx := testPlannerContext(3)
 	ctx.IsCluster = true
-	res := renderPlan(t, planSearch(t, `{.a = 1} | select(.x)`), ctx)
+	res := renderSearch(t, planSearch(t, `{.a = 1} | select(.x)`), ctx)
 	for _, want := range []string{
 		`FROM tempo_traces_attrs_gin_dist as traces_idx`,
-		`(traces_idx.trace_id, traces_idx.span_id) GLOBAL IN (trace_span_ids)`,
+		`(traces_idx.trace_id, traces_idx.span_id) IN (trace_span_ids)`,
 		`global any left JOIN selected_attrs`,
 	} {
 		if !strings.Contains(res, want) {
@@ -153,7 +153,7 @@ func TestSpanValueKeysSkipListedIntrinsics(t *testing.T) {
 // Search reads the selected nested-set values of every listed span from the
 // side table, 0 for a span without a row, next to the selected attributes.
 func TestSearchReadsSelectedNestedSetValues(t *testing.T) {
-	res := renderPlan(t, planSearch(t, `{.a = 1} | select(nestedSetRight, .x, nestedSetLeft)`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{.a = 1} | select(nestedSetRight, .x, nestedSetLeft)`), testPlannerContext(3))
 	for _, want := range []string{
 		`key IN ('x','a')`,
 		`argMax(ns.left, ns.version) as left_`,
@@ -172,7 +172,7 @@ func TestSearchReadsSelectedNestedSetValues(t *testing.T) {
 
 // Without selected attributes, only the side table is read.
 func TestSearchReadsOnlySelectedNestedSetValues(t *testing.T) {
-	res := renderPlan(t, planSearch(t, `{} | select(nestedSetParent) | count() > 0`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{} | select(nestedSetParent) | count() > 0`), testPlannerContext(3))
 	if strings.Contains(res, "selected_attrs") {
 		t.Errorf("reads attributes:\n%s", res)
 	}
@@ -186,9 +186,9 @@ func TestSearchReadsOnlySelectedNestedSetValues(t *testing.T) {
 func TestSelectedNestedSetValuesReadDistributedTablesOnClusters(t *testing.T) {
 	ctx := testPlannerContext(3)
 	ctx.IsCluster = true
-	res := renderPlan(t, planSearch(t, `{} | select(nestedSetLeft)`), ctx)
+	res := renderSearch(t, planSearch(t, `{} | select(nestedSetLeft)`), ctx)
 	for _, want := range []string{
-		`FROM tempo_traces_nested_set_dist as ns WHERE (ns.trace_id GLOBAL IN (trace_ids))`,
+		`FROM tempo_traces_nested_set_dist as ns WHERE (ns.trace_id IN (trace_ids))`,
 		`global any left JOIN selected_nested_set`,
 	} {
 		if !strings.Contains(res, want) {

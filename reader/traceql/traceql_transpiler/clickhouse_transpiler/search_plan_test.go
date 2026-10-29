@@ -88,7 +88,13 @@ func renderPlan(t *testing.T, planner shared.SQLRequestPlanner, ctx *shared.Plan
 	return res
 }
 
-func planSearch(t *testing.T, query string) shared.SQLRequestPlanner {
+// renderSearch renders plan's Search and Data statements, in that order.
+func renderSearch(t *testing.T, plan *SearchPlan, ctx *shared.PlannerContext) string {
+	t.Helper()
+	return renderPlan(t, plan.Search, ctx) + ";\n" + renderPlan(t, plan.Data, ctx)
+}
+
+func planSearch(t *testing.T, query string) *SearchPlan {
 	t.Helper()
 	q, err := traceql_ir.Parse(query)
 	if err != nil {
@@ -105,7 +111,7 @@ func TestSearchOperandSetsAreUncapped(t *testing.T) {
 	capped := regexp.MustCompile(`group(Uniq)?Array\(\d+\)`)
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(7))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(7))
 			if m := capped.FindString(res); m != "" {
 				t.Errorf("operand set capped by %s:\n%s", m, res)
 			}
@@ -113,9 +119,11 @@ func TestSearchOperandSetsAreUncapped(t *testing.T) {
 	}
 }
 
-// searchStages unwraps the planners above the evaluated expression.
-func searchStages(t *testing.T, plan shared.SQLRequestPlanner) (stages []string, expr shared.SQLRequestPlanner) {
+// searchStages unwraps the planners of the Search statement above the
+// evaluated expression.
+func searchStages(t *testing.T, search *SearchPlan) (stages []string, expr shared.SQLRequestPlanner) {
 	t.Helper()
+	plan := search.Search
 	for {
 		switch p := plan.(type) {
 		case *StructuralQueryPlanner:
@@ -124,8 +132,8 @@ func searchStages(t *testing.T, plan shared.SQLRequestPlanner) (stages []string,
 		case *IndexLimitPlanner:
 			stages = append(stages, "limit")
 			plan = p.Main
-		case *TracesDataPlanner:
-			stages = append(stages, "traces")
+		case *searchRowsPlanner:
+			stages = append(stages, "rows")
 			plan = p.Main
 		case *SearchSpansetPlanner:
 			stages = append(stages, "spanset")
@@ -140,7 +148,7 @@ func TestSearchCapsAndLimitsAfterEvaluation(t *testing.T) {
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
 			stages, expr := searchStages(t, planSearch(t, query))
-			want := []string{"limit", "traces", "limit", "spanset"}
+			want := []string{"rows", "limit", "spanset"}
 			if slices.Contains(structuralQueries, query) {
 				want = append([]string{"structural"}, want...)
 			}
@@ -148,7 +156,7 @@ func TestSearchCapsAndLimitsAfterEvaluation(t *testing.T) {
 				t.Errorf("stages = %v, want %v", stages, want)
 			}
 			switch expr.(type) {
-			case *IndexLimitPlanner, *TracesDataPlanner, *SearchSpansetPlanner:
+			case *IndexLimitPlanner, *searchRowsPlanner, *SearchSpansetPlanner:
 				t.Errorf("expression planner is %T", expr)
 			}
 		})
@@ -161,7 +169,7 @@ func TestSearchSpanCapComesFromSpss(t *testing.T) {
 		want string
 	}{{7, ", 1, 7)"}, {0, ", 1, 3)"}} {
 		for _, query := range searchQueries {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(c.spss))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(c.spss))
 			if n := strings.Count(res, "arraySlice("); n != 1 {
 				t.Errorf("%s: %d span caps, want 1:\n%s", query, n, res)
 			}
@@ -175,7 +183,7 @@ func TestSearchSpanCapComesFromSpss(t *testing.T) {
 func TestSearchSpanCapKeepsEarliestStarts(t *testing.T) {
 	const earliestCap = "arraySlice(arraySort(groupUniqArray((result_spans.timestamp_ns, result_spans.span_id))), 1, 3)"
 	for _, query := range searchQueries {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if !strings.Contains(res, earliestCap) {
 			t.Errorf("%s: span cap is not earliest start, ties by span id:\n%s", query, res)
 		}
@@ -189,7 +197,7 @@ func TestSearchRootFilterBeforeSpanCap(t *testing.T) {
 	if !strings.Contains(res, rootColumn) {
 		t.Errorf("root filter missing from the spanset stage:\n%s", res)
 	}
-	res = renderPlan(t, planSearch(t, query), testPlannerContext(3))
+	res = renderSearch(t, planSearch(t, query), testPlannerContext(3))
 	if n := strings.Count(res, "traces.parent_id"); n != 1 {
 		t.Errorf("root filter applied %d times, want once:\n%s", n, res)
 	}
@@ -225,11 +233,13 @@ func TestSearchSpanStartIsLeftOpenRightClosed(t *testing.T) {
 	}
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			check(t, renderPlan(t, planSearch(t, query), testPlannerContext(3)))
+			check(t, renderSearch(t, planSearch(t, query), testPlannerContext(3)))
 		})
 	}
 }
 
+// The Search statement reads Distributed tables on a cluster; the Data
+// statement's reads are checked by TestSearchDataUsesPlainInOnClusters.
 func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin)?\b[^_]`)
 	localJoin := regexp.MustCompile(`[^l] any left JOIN`)
@@ -238,7 +248,7 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.IsCluster = true
-			res := renderPlan(t, planSearch(t, query), ctx)
+			res := renderPlan(t, planSearch(t, query).Search, ctx)
 			if m := local.FindString(res); m != "" {
 				t.Errorf("reads a local table (%q):\n%s", m, res)
 			}

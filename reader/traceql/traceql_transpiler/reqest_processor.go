@@ -1,10 +1,14 @@
 package traceql_transpiler
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/ext"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -13,25 +17,14 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// TraceQLRequestProcessor runs a search plan: Search, then Data over Search's
+// ids sent as the external table clickhouse_transpiler.SearchResultTable.
 type TraceQLRequestProcessor struct {
-	sqlPlanner shared.SQLRequestPlanner
+	plan *clickhouse_transpiler.SearchPlan
 }
 
 func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []model.TraceInfo, error) {
-	sqlReq, err := t.sqlPlanner.Process(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	strReq, err := sqlReq.String(&sql_select.Ctx{
-		Params: map[string]sql_select.SQLObject{},
-		Result: map[string]sql_select.SQLObject{},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	traces, err := t.read(ctx, strReq)
+	traces, err := t.read(ctx)
 	if err != nil {
 		return nil, clickhouse_transpiler.UnresolvedAncestryError(ctx, err)
 	}
@@ -45,10 +38,96 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 	return res, nil
 }
 
-// read runs the search query and reads every trace, so that an error raised
-// while ClickHouse streams the result fails the request.
-func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string) ([]model.TraceInfo, error) {
+// render plans planner as SQL.
+func render(ctx *shared.PlannerContext, planner shared.SQLRequestPlanner) (string, error) {
+	req, err := planner.Process(ctx)
+	if err != nil {
+		return "", err
+	}
+	return req.String(&sql_select.Ctx{
+		Params: map[string]sql_select.SQLObject{},
+		Result: map[string]sql_select.SQLObject{},
+	})
+}
+
+func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext) ([]model.TraceInfo, error) {
+	searchReq, err := render(ctx, t.plan.Search)
+	if err != nil {
+		return nil, err
+	}
+	spansets, table, err := readSearch(ctx, searchReq)
+	if err != nil || len(spansets) == 0 {
+		return nil, err
+	}
+	dataReq, err := render(ctx, t.plan.Data)
+	if err != nil {
+		return nil, err
+	}
+	return readData(ctx, dataReq, table, spansets)
+}
+
+// readSearch runs the Search statement. It returns each listed trace's
+// spansets by hex trace id, and the ids as the external table
+// clickhouse_transpiler.SearchResultTable.
+func readSearch(ctx *shared.PlannerContext, strReq string) (map[string][]searchSpanset, *ext.Table, error) {
+	cols := make([]func(*ext.Table) error, len(clickhouse_transpiler.SearchResultColumns))
+	for i, c := range clickhouse_transpiler.SearchResultColumns {
+		cols[i] = ext.Column(c.Name, column.Type(c.Type))
+	}
+	table, err := ext.NewTable(clickhouse_transpiler.SearchResultTable, cols...)
+	if err != nil {
+		return nil, nil, err
+	}
 	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, strReq)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	res := map[string][]searchSpanset{}
+	for rows.Next() {
+		var (
+			traceId        string
+			spanIds        []string
+			spansetSpanIds [][]string
+			matched        []int64
+			attrNames      [][]string
+			attrTypes      [][]string
+			attrValues     [][]float64
+			attrTexts      [][]string
+		)
+		if err := rows.Scan(&traceId, &spanIds, &spansetSpanIds, &matched,
+			&attrNames, &attrTypes, &attrValues, &attrTexts); err != nil {
+			return nil, nil, err
+		}
+		if err := table.Append(traceId, spanIds); err != nil {
+			return nil, nil, err
+		}
+		sets := make([]searchSpanset, len(spansetSpanIds))
+		for i, ids := range spansetSpanIds {
+			sets[i] = searchSpanset{
+				spanIds:    ids,
+				matched:    int(matched[i]),
+				attributes: spanSetAttrs(attrNames[i], attrTypes[i], attrValues[i], attrTexts[i]),
+			}
+		}
+		res[hex.EncodeToString([]byte(traceId))] = sets
+	}
+	return res, table, rows.Err()
+}
+
+// searchSpanset is a spanset of a Search row: its listed span ids in hex.
+type searchSpanset struct {
+	spanIds    []string
+	matched    int
+	attributes []model.SpanSetAttr
+}
+
+// readData runs the Data statement with table attached and reads every
+// trace, with its spansets, so that an error raised while ClickHouse streams
+// the result fails the request.
+func readData(ctx *shared.PlannerContext, strReq string, table *ext.Table,
+	spansets map[string][]searchSpanset) ([]model.TraceInfo, error) {
+	rows, err := ctx.CHDb.QueryCtx(clickhouse.Context(ctx.Ctx, clickhouse.WithExternalTable(table)), strReq)
 	if err != nil {
 		return nil, err
 	}
@@ -65,18 +144,11 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string)
 			traceDurationMs   int64
 			rootServiceName   string
 			rootTraceName     string
-			spansetSpanIds    [][]string
-			matched           []int64
-			attrNames         [][]string
-			attrTypes         [][]string
-			attrValues        [][]float64
-			attrTexts         [][]string
 			spanAttrKeys      [][]string
 			spanAttrVals      [][]string
 		)
 		err = rows.Scan(&traceId, &spanIds, &durationsNs, &timestampsNs,
 			&startTimeUnixNano, &traceDurationMs, &rootServiceName, &rootTraceName,
-			&spansetSpanIds, &matched, &attrNames, &attrTypes, &attrValues, &attrTexts,
 			&spanAttrKeys, &spanAttrVals)
 		if err != nil {
 			logger.Error("ERROR[TRP#1]: ", err)
@@ -90,21 +162,22 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string)
 			}
 			spans[spanId] = span
 		}
+		sets := spansets[traceId]
 		trace := model.TraceInfo{
 			TraceID:           traceId,
 			RootServiceName:   rootServiceName,
 			RootTraceName:     rootTraceName,
 			StartTimeUnixNano: fmt.Sprintf("%d", startTimeUnixNano),
 			DurationMs:        traceDurationMs,
-			SpanSets:          make([]model.SpanSet, len(spansetSpanIds)),
+			SpanSets:          make([]model.SpanSet, len(sets)),
 		}
-		for i, ids := range spansetSpanIds {
+		for i, s := range sets {
 			set := model.SpanSet{
-				Spans:      make([]model.SpanInfo, 0, len(ids)),
-				Matched:    int(matched[i]),
-				Attributes: spanSetAttrs(attrNames[i], attrTypes[i], attrValues[i], attrTexts[i]),
+				Spans:      make([]model.SpanInfo, 0, len(s.spanIds)),
+				Matched:    s.matched,
+				Attributes: s.attributes,
 			}
-			for _, id := range ids {
+			for _, id := range s.spanIds {
 				if span, ok := spans[id]; ok {
 					set.Spans = append(set.Spans, span)
 				}
