@@ -1,0 +1,53 @@
+name: Parser fuzz
+
+# Exploratory only: started by hand from the Actions tab, never a merge gate.
+# A crasher fails the run and is uploaded as an artifact; commit it under the
+# target's testdata/fuzz/FuzzParse directory so it replays as a plain test.
+on:
+  workflow_dispatch:
+    inputs:
+      head:
+        description: Query head to fuzz
+        type: choice
+        options:
+        - promql
+        - logql
+        - traceql
+      duration:
+        description: How long to fuzz, as a Go duration (e.g. 60s, 10m)
+        type: string
+        default: 60s
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    - name: Fuzz
+      env:
+        FUZZ_HEAD: ${{ inputs.head }}
+        FUZZ_DURATION: ${{ inputs.duration }}
+      run: |
+        # -fuzztime takes a duration such as 60s or 10m, or an iteration count such as 1000x.
+        if ! [[ "$FUZZ_DURATION" =~ ^[0-9]+(ns|us|ms|s|m|h|x)$ ]]; then
+          echo "invalid duration: $FUZZ_DURATION" >&2
+          exit 1
+        fi
+        make fuzz HEAD="$FUZZ_HEAD" DURATION="$FUZZ_DURATION"
+
+    - name: Upload crashers
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-crashers-${{ inputs.head }}
+        path: reader/${{ inputs.head }}/${{ inputs.head }}_parser/testdata/fuzz/
+        if-no-files-found: ignore

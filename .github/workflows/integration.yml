@@ -31,26 +31,13 @@ jobs:
           go-version-file: go.mod
 
       - name: Build gigapipe
-        run: go build -o gigapipe cmd/gigapipe/main.go
+        run: make build
 
       - name: Start gigapipe
-        run: |
-          CLICKHOUSE_SERVER=localhost CLICKHOUSE_PORT=9000 PORT=3100 BULK_MAX_AGE_MS=100 \
-            ./gigapipe > gigapipe.log 2>&1 &
-          echo $! > gigapipe.pid
-
-      - name: Wait for gigapipe
-        run: |
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:3100/api/v1/status/buildinfo >/dev/null; then
-              echo "gigapipe ready"; exit 0
-            fi
-            sleep 1
-          done
-          echo "gigapipe never became ready; logs:"; cat gigapipe.log; exit 1
+        run: make integration-start
 
       - name: Run integration tests
-        run: GIGAPIPE_URL=http://localhost:3100 go test -tags integration -count=1 -v ./test/integration/...
+        run: make test-integration
 
       - name: gigapipe logs on failure
         if: failure()
