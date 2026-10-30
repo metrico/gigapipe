@@ -191,7 +191,7 @@ func TestFieldExpressionErrors(t *testing.T) {
 			q := mustParseQuery(t, c.query)
 			search, err := Plan(q)
 			if err == nil {
-				_, err = search.Search.Process(testPlannerContext(3))
+				_, err = search.Ids[0].Statement.Process(testPlannerContext(3))
 			}
 			if err == nil || err.Error() != c.err {
 				t.Errorf("search error = %v, want %s", err, c.err)
@@ -205,7 +205,7 @@ func TestFieldExpressionErrors(t *testing.T) {
 			}
 			plan, err := PlanTagsV2(q)
 			if err == nil {
-				_, err = plan.Process(testPlannerContext(3))
+				_, err = plan.Ids[0].Statement.Process(testPlannerContext(3))
 			}
 			if err == nil || err.Error() != c.err {
 				t.Errorf("tags error = %v, want %s", err, c.err)

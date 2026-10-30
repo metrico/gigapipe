@@ -60,7 +60,7 @@ func TestSearchDataUsesPlainInOnClusters(t *testing.T) {
 func TestSearchStatementDoesNotReadSearchResult(t *testing.T) {
 	for _, query := range dataQueries {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query).Search, testPlannerContext(3))
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3))
 			if strings.Contains(res, SearchResultTable) {
 				t.Errorf("search statement reads %s:\n%s", SearchResultTable, res)
 			}

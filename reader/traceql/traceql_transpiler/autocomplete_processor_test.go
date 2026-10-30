@@ -32,8 +32,8 @@ func TestAutocompleteWithoutSelectorReadsEveryKeyAndValue(t *testing.T) {
 		if !ok {
 			t.Fatalf("tags v2 of %q is %T", query, tags)
 		}
-		if _, ok := p.main.(*clickhouse_transpiler.AllTagsRequestPlanner); !ok {
-			t.Errorf("tags v2 of %q reads %T", query, p.main)
+		if _, ok := p.plan.Data.(*clickhouse_transpiler.AllTagsRequestPlanner); !ok || len(p.plan.Ids) != 0 {
+			t.Errorf("tags v2 of %q reads %#v", query, p.plan)
 		}
 
 		values, err := PlanValuesV2(parse(t, query), "k")
@@ -44,13 +44,14 @@ func TestAutocompleteWithoutSelectorReadsEveryKeyAndValue(t *testing.T) {
 		if !ok {
 			t.Fatalf("values v2 of %q is %T", query, values)
 		}
-		if v, ok := p.main.(*clickhouse_transpiler.AllValuesRequestPlanner); !ok || v.Key != "k" {
-			t.Errorf("values v2 of %q reads %#v, want every value of k", query, p.main)
+		if v, ok := p.plan.Data.(*clickhouse_transpiler.AllValuesRequestPlanner); !ok || v.Key != "k" || len(p.plan.Ids) != 0 {
+			t.Errorf("values v2 of %q reads %#v, want every value of k", query, p.plan)
 		}
 	}
 }
 
-// Filtered queries read their result spans, by complexity portions when costly.
+// Filtered queries read their result spans in two statements, by complexity
+// portions when costly.
 func TestAutocompleteWithSelectorEstimatesComplexity(t *testing.T) {
 	for _, query := range []string{`{.a = 1}`, `{.a = 1} || {.b = 2}`, `{} >> {.b = 2}`} {
 		for kind, plan := range map[string]func(*traceql_ir.Query) (shared.GenericTraceRequestProcessor[string], error){
@@ -63,9 +64,12 @@ func TestAutocompleteWithSelectorEstimatesComplexity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s %s: %v", kind, query, err)
 			}
-			e, ok := res.(*TraceQLComplexityEvaluator[string, shared.SQLRequestPlanner])
+			e, ok := res.(*TraceQLComplexityEvaluator[string, *clickhouse_transpiler.SearchPlan])
 			if !ok {
 				t.Fatalf("%s %s is %T", kind, query, res)
+			}
+			if len(e.main.Ids) == 0 || e.main.Data == nil {
+				t.Errorf("%s %s: plan %#v, want a search and a data statement", kind, query, e.main)
 			}
 			if _, ok := e.complexRequestProcessor.(*complexAutocompleteRequestProcessor); !ok {
 				t.Errorf("%s %s: complex processor is %T", kind, query, e.complexRequestProcessor)

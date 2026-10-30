@@ -91,7 +91,7 @@ func renderPlan(t *testing.T, planner shared.SQLRequestPlanner, ctx *shared.Plan
 // renderSearch renders plan's Search and Data statements, in that order.
 func renderSearch(t *testing.T, plan *SearchPlan, ctx *shared.PlannerContext) string {
 	t.Helper()
-	return renderPlan(t, plan.Search, ctx) + ";\n" + renderPlan(t, plan.Data, ctx)
+	return renderPlan(t, plan.Ids[0].Statement, ctx) + ";\n" + renderPlan(t, plan.Data, ctx)
 }
 
 func planSearch(t *testing.T, query string) *SearchPlan {
@@ -123,7 +123,7 @@ func TestSearchOperandSetsAreUncapped(t *testing.T) {
 // evaluated expression.
 func searchStages(t *testing.T, search *SearchPlan) (stages []string, expr shared.SQLRequestPlanner) {
 	t.Helper()
-	plan := search.Search
+	plan := search.Ids[0].Statement
 	for {
 		switch p := plan.(type) {
 		case *StructuralQueryPlanner:
@@ -248,7 +248,7 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.IsCluster = true
-			res := renderPlan(t, planSearch(t, query).Search, ctx)
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
 			if m := local.FindString(res); m != "" {
 				t.Errorf("reads a local table (%q):\n%s", m, res)
 			}

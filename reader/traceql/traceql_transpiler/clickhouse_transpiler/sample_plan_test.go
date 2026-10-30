@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
@@ -127,8 +128,10 @@ func TestSampleOnlyAppliesToMetricsFractions(t *testing.T) {
 		}
 	}
 	query := `{.a = 1} >> {} with(sample=0.25, exemplars=2)`
-	plans := autocompletePlans(t, query)
-	plans["search"] = planSearch(t, query).Search
+	plans := map[string]shared.SQLRequestPlanner{"search": planSearch(t, query).Ids[0].Statement}
+	for kind, plan := range autocompletePlans(t, query) {
+		plans[kind+" search"], plans[kind+" data"] = plan.Ids[0].Statement, plan.Data
+	}
 	for kind, plan := range plans {
 		if res := renderPlan(t, plan, testPlannerContext(3)); sampleCond.MatchString(res) {
 			t.Errorf("%s samples:\n%s", kind, res)

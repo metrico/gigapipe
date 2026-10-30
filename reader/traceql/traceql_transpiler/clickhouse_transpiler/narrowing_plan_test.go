@@ -23,8 +23,11 @@ func narrowedReads(res string) map[string]int {
 // narrowingPlans plans query for search, metrics and autocomplete.
 func narrowingPlans(t *testing.T, query string) map[string]shared.SQLRequestPlanner {
 	t.Helper()
-	plans := autocompletePlans(t, query)
-	plans["search"] = planSearch(t, query).Search
+	plans := map[string]shared.SQLRequestPlanner{}
+	for kind, plan := range autocompletePlans(t, query) {
+		plans[kind] = plan.Ids[0].Statement
+	}
+	plans["search"] = planSearch(t, query).Ids[0].Statement
 	plans["metrics"] = planMetrics(t, query).Ids[0].Statement
 	return plans
 }

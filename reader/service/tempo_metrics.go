@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/ext"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/tempo"
@@ -53,11 +51,11 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	seriesMap := make(map[string]*model.MetricsTimeSeries)
 	hasByLabels := len(metricsFn.By) > 0
 
-	ids, err := readMetricsIds(planCtx, planner)
+	ids, err := clickhouse_transpiler.ReadIds(planCtx, planner.Ids, nil)
 	if err != nil {
 		return nil, err
 	}
-	err = queryMetricsOver(planCtx, planner.Metrics, ids, func(rows *stdsql.Rows) error {
+	err = clickhouse_transpiler.QueryOver(planCtx, planner.Metrics, ids, func(rows *stdsql.Rows) error {
 		byCount := len(resolvedByLabels)
 		var ts int64
 		var value float64
@@ -177,7 +175,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		return query, err
 	})
 	if err == nil && wantsExemplars(tq) {
-		_ = queryMetricsOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
+		_ = clickhouse_transpiler.QueryOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
 			var ts int64
 			var traceID string
 			var durNs int64
@@ -306,7 +304,7 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 	}
 
 	var result []model.MetricsInstantSeries
-	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
+	err = clickhouse_transpiler.Query(planCtx, planner.Ids, nil, planner.Metrics, clickhouse_transpiler.RunOnEmptyIds, func(rows *stdsql.Rows) error {
 		byCount := len(resolvedByLabels)
 		var value float64
 		byVals := make([]string, byCount)
@@ -414,52 +412,6 @@ func attrsTable(planCtx *shared.PlannerContext) string {
 	return planCtx.TracesAttrsTable
 }
 
-// queryMetrics runs plan's ids statements, then its metrics statement over
-// their ids, passing each row to scan.
-func queryMetrics(planCtx *shared.PlannerContext, plan *clickhouse_transpiler.MetricsPlan, scan func(*stdsql.Rows) error) error {
-	ids, err := readMetricsIds(planCtx, plan)
-	if err != nil {
-		return err
-	}
-	return queryMetricsOver(planCtx, plan.Metrics, ids, scan)
-}
-
-// readMetricsIds runs plan's ids statements once, for every metrics
-// statement of the request over their ids.
-func readMetricsIds(planCtx *shared.PlannerContext, plan *clickhouse_transpiler.MetricsPlan) ([]*ext.Table, error) {
-	tables, err := clickhouse_transpiler.ReadIds(planCtx, plan.Ids)
-	if err != nil {
-		return nil, clickhouse_transpiler.UnresolvedAncestryError(planCtx, err)
-	}
-	return tables, nil
-}
-
-// queryMetricsOver runs the metrics statement metrics with ids attached as
-// external tables, passing each row to scan.
-func queryMetricsOver(planCtx *shared.PlannerContext, metrics shared.SQLRequestPlanner, ids []*ext.Table,
-	scan func(*stdsql.Rows) error) error {
-	query, err := metrics.Process(planCtx)
-	if err != nil {
-		return err
-	}
-	str, err := query.String(sql.DefaultCtx())
-	if err != nil {
-		return err
-	}
-	ctx := clickhouse.Context(planCtx.Ctx, clickhouse.WithExternalTable(ids...))
-	rows, err := planCtx.CHDb.QueryCtx(ctx, str)
-	if err != nil {
-		return clickhouse_transpiler.UnresolvedAncestryError(planCtx, err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		if err := scan(rows); err != nil {
-			return err
-		}
-	}
-	return clickhouse_transpiler.UnresolvedAncestryError(planCtx, rows.Err())
-}
-
 // executeHistogramRange handles histogram_over_time() queries.
 func executeHistogramRange(
 	tq *traceql_ir.Query,
@@ -477,11 +429,11 @@ func executeHistogramRange(
 	// Group by bucket_ns (power-of-2 upper bound) into separate series
 	seriesMap := make(map[uint64]*model.MetricsTimeSeries)
 
-	ids, err := readMetricsIds(planCtx, planner)
+	ids, err := clickhouse_transpiler.ReadIds(planCtx, planner.Ids, nil)
 	if err != nil {
 		return nil, err
 	}
-	err = queryMetricsOver(planCtx, planner.Metrics, ids, func(rows *stdsql.Rows) error {
+	err = clickhouse_transpiler.QueryOver(planCtx, planner.Metrics, ids, func(rows *stdsql.Rows) error {
 		var ts int64
 		var bucketNs uint64
 		var count uint64
@@ -554,7 +506,7 @@ func executeHistogramRange(
 		return tempo.BuildHistogramExemplarsQuery(over(mreq, spans))
 	})
 	if err == nil && wantsExemplars(tq) {
-		_ = queryMetricsOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
+		_ = clickhouse_transpiler.QueryOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
 			var ts int64
 			var bucketNs uint64
 			var traceID string
@@ -731,7 +683,7 @@ func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func
 	if err != nil {
 		return err
 	}
-	return queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
+	return clickhouse_transpiler.Query(planCtx, planner.Ids, nil, planner.Metrics, clickhouse_transpiler.RunOnEmptyIds, func(rows *stdsql.Rows) error {
 		var row tempo.CompareResultRow
 		if err := rows.Scan(&row.Key, &row.Val, &row.SelectionCount, &row.BaselineCount); err != nil {
 			return err

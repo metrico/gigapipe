@@ -5,31 +5,18 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-// SearchResultTable is the external table that carries Search's ids to Data.
+// SearchResultTable is the ids table of a search or metrics query's result spans.
 const SearchResultTable = "_search_result"
 
-// SearchResultColumn is a column of SearchResultTable.
-type SearchResultColumn struct {
-	Name string
-	Type string
-}
-
-// SearchResultColumns are SearchResultTable's columns: the first two columns
-// of a Search row.
-var SearchResultColumns = []SearchResultColumn{
-	{Name: "trace_id", Type: "FixedString(16)"},
-	{Name: "span_id", Type: "Array(FixedString(8))"},
-}
-
-// SearchPlan is a search in two statements: Search lists traces with their
-// spansets, and Data reads the traces of the ids in SearchResultTable.
+// SearchPlan is a read in two statements: Ids list ids, and Data reads the
+// traces or attributes of those ids. Without Ids, Data reads alone.
 type SearchPlan struct {
-	Search shared.SQLRequestPlanner
-	Data   shared.SQLRequestPlanner
+	Ids  []IdsStatement
+	Data shared.SQLRequestPlanner
 }
 
-// searchRowsPlanner returns Main's (trace_id, span_id[], spansets) rows as
-// Search rows.
+// searchRowsPlanner returns Main's rows as a search's ids rows: the ids, then
+// each trace's spansets.
 type searchRowsPlanner struct {
 	Main shared.SQLRequestPlanner
 }

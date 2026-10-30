@@ -84,9 +84,9 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 			Stages: []pipelineStage{&spansetStage{Expr: expr}},
 			Prefix: p.getPrefix(),
 		}
-		res.Ids = append(res.Ids, IdsStatement{Table: SelectionResultTable,
+		res.Ids = append(res.Ids, IdsStatement{Table: selectionResultTable,
 			Statement: &spanIdsPlanner{Result: filter, Sample: sample}})
-		cmp.Selection = &metricsSpansPlanner{Ids: SelectionResultTable, Prefix: p.getPrefix()}
+		cmp.Selection = &metricsSpansPlanner{Ids: selectionResultTable, Prefix: p.getPrefix()}
 	}
 	res.Metrics = cmp
 	return res, nil
@@ -178,21 +178,6 @@ func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		Select(append(cols, ns.cols...)...).
 		From(sql.NewWithRef(withSpans)).
 		Join(ns.join), nil
-}
-
-// resultSpanIds evaluates result, a pipeline, and returns its span rows and
-// their (trace_id, span_id) pairs.
-func resultSpanIds(ctx *shared.PlannerContext, result shared.SQLRequestPlanner, prefix string) (
-	withResult *sql.With, withIds *sql.With, err error) {
-	main, err := result.Process(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	withResult = sql.NewWith(main, prefix+"result_spans")
-	ids := sql.NewSelect().
-		Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).
-		From(sql.NewWithRef(withResult))
-	return withResult, sql.NewWith(ids, prefix+"result_span_ids"), nil
 }
 
 // metricsPlanner builds a metrics query over the metrics spans.

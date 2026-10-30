@@ -9,70 +9,31 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-// SelectionResultTable is the external table that carries compare()'s
-// selection ids, with SearchResultColumns.
-const SelectionResultTable = "_selection_result"
+// idsColumns are the columns of an ids table: the first two columns of an
+// ids statement's rows.
+var idsColumns = []struct{ Name, Type string }{
+	{Name: "trace_id", Type: "FixedString(16)"},
+	{Name: "span_id", Type: "Array(FixedString(8))"},
+}
+
+// selectionResultTable is the external table that carries compare()'s
+// selection ids, with idsColumns.
+const selectionResultTable = "_selection_result"
 
 // IdsStatement lists (trace_id, span_id[]) rows, sent to the statement that
-// follows it as the external table Table with SearchResultColumns.
+// follows it as the external table Table with idsColumns.
 type IdsStatement struct {
 	Table     string
 	Statement shared.SQLRequestPlanner
 }
 
-// NewIdsTable is an empty external table named name with SearchResultColumns.
-func NewIdsTable(name string) (*ext.Table, error) {
-	cols := make([]func(*ext.Table) error, len(SearchResultColumns))
-	for i, c := range SearchResultColumns {
+// newIdsTable is an empty external table named name with idsColumns.
+func newIdsTable(name string) (*ext.Table, error) {
+	cols := make([]func(*ext.Table) error, len(idsColumns))
+	for i, c := range idsColumns {
 		cols[i] = ext.Column(c.Name, column.Type(c.Type))
 	}
 	return ext.NewTable(name, cols...)
-}
-
-// ReadIds runs each ids statement and returns its rows as its external table.
-func ReadIds(ctx *shared.PlannerContext, statements []IdsStatement) ([]*ext.Table, error) {
-	res := make([]*ext.Table, len(statements))
-	for i, s := range statements {
-		table, err := readIds(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		res[i] = table
-	}
-	return res, nil
-}
-
-func readIds(ctx *shared.PlannerContext, s IdsStatement) (*ext.Table, error) {
-	table, err := NewIdsTable(s.Table)
-	if err != nil {
-		return nil, err
-	}
-	req, err := s.Statement.Process(ctx)
-	if err != nil {
-		return nil, err
-	}
-	str, err := req.String(sql.DefaultCtx())
-	if err != nil {
-		return nil, err
-	}
-	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, str)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			traceId string
-			spanIds []string
-		)
-		if err := rows.Scan(&traceId, &spanIds); err != nil {
-			return nil, err
-		}
-		if err := table.Append(traceId, spanIds); err != nil {
-			return nil, err
-		}
-	}
-	return table, rows.Err()
 }
 
 // spanIdsPlanner lists the span ids of Result, an evaluated pipeline, by
@@ -116,10 +77,10 @@ func (i idsTablePlanner) Process(*shared.PlannerContext) (sql.ISelect, error) {
 	return readIdsTable(i.Table), nil
 }
 
-// readIdsTable selects SearchResultColumns from the ids table table.
+// readIdsTable selects idsColumns from the ids table table.
 func readIdsTable(table string) sql.ISelect {
-	cols := make([]sql.SQLObject, len(SearchResultColumns))
-	for i, c := range SearchResultColumns {
+	cols := make([]sql.SQLObject, len(idsColumns))
+	for i, c := range idsColumns {
 		cols[i] = sql.NewRawObject(c.Name)
 	}
 	return sql.NewSelect().Select(cols...).From(sql.NewRawObject(table))

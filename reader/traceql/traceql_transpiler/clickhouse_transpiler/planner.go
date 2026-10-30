@@ -17,36 +17,40 @@ func PlanEval(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
 }
 
 // PlanTagsV2 plans the attribute keys of the spans a search for query
-// returns, or of every span in range when AllSpans(query).
-func PlanTagsV2(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+// returns, or, without Ids, of every span in range when AllSpans(query).
+func PlanTagsV2(query *traceql_ir.Query) (*SearchPlan, error) {
 	if AllSpans(query) {
-		return &AllTagsRequestPlanner{}, nil
+		return &SearchPlan{Data: &AllTagsRequestPlanner{}}, nil
 	}
-	return planAutocomplete(query, func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner {
-		return &SelectTagsPlanner{Result: result, Prefix: prefix}
+	return planAutocomplete(query, func(prefix string) shared.SQLRequestPlanner {
+		return &SelectTagsPlanner{Prefix: prefix}
 	})
 }
 
 // PlanValuesV2 plans the values of attribute key of the spans a search for
-// query returns, or of every span in range when AllSpans(query).
-func PlanValuesV2(query *traceql_ir.Query, key string) (shared.SQLRequestPlanner, error) {
+// query returns, or, without Ids, of every span in range when
+// AllSpans(query).
+func PlanValuesV2(query *traceql_ir.Query, key string) (*SearchPlan, error) {
 	if AllSpans(query) {
-		return &AllValuesRequestPlanner{Key: key}, nil
+		return &SearchPlan{Data: &AllValuesRequestPlanner{Key: key}}, nil
 	}
-	return planAutocomplete(query, func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner {
-		return &SelectValuesPlanner{Result: result, Prefix: prefix, Key: key}
+	return planAutocomplete(query, func(prefix string) shared.SQLRequestPlanner {
+		return &SelectValuesPlanner{Prefix: prefix, Key: key}
 	})
 }
 
-// planAutocomplete plans the result spans of query and reads them with attrs.
-func planAutocomplete(query *traceql_ir.Query,
-	attrs func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner) (shared.SQLRequestPlanner, error) {
+// planAutocomplete plans Ids, the result span ids of query by trace, and
+// Data, attrs over them in SearchResultTable.
+func planAutocomplete(query *traceql_ir.Query, attrs func(prefix string) shared.SQLRequestPlanner) (*SearchPlan, error) {
 	p := &planner{query: query}
-	result, err := p.planResult(false)
+	result, err := p.planQuery()
 	if err != nil {
 		return nil, err
 	}
-	return p.structuralGate(attrs(result, p.getPrefix())), nil
+	return &SearchPlan{
+		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(&spanIdsPlanner{Result: result})}},
+		Data: attrs(p.getPrefix()),
+	}, nil
 }
 
 // AllSpans reports whether query selects every span: no query, or a lone
@@ -101,8 +105,8 @@ func (p *planner) plan() (*SearchPlan, error) {
 	}
 	search := &searchRowsPlanner{Main: &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}}
 	return &SearchPlan{
-		Search: p.structuralGate(search),
-		Data:   &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},
+		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(search)}},
+		Data: &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},
 	}, nil
 }
 

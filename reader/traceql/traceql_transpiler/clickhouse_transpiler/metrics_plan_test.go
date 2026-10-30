@@ -299,8 +299,8 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Ids) != 2 || plan.Ids[0].Table != SearchResultTable || plan.Ids[1].Table != SelectionResultTable {
-		t.Fatalf("compare ids statements %+v, want %s and %s", plan.Ids, SearchResultTable, SelectionResultTable)
+	if len(plan.Ids) != 2 || plan.Ids[0].Table != SearchResultTable || plan.Ids[1].Table != selectionResultTable {
+		t.Fatalf("compare ids statements %+v, want %s and %s", plan.Ids, SearchResultTable, selectionResultTable)
 	}
 	structural, expr := idsResult(t, plan.Ids[0].Statement)
 	if got := describePlan(t, expr); !structural || got != ">>({.a},{.b})" {
@@ -341,8 +341,8 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 		!strings.Contains(selection, "(traces.timestamp_ns) <= (86410000000000)") {
 		t.Errorf("selection spans are not over the query range:\n%s", selection)
 	}
-	if got := idsTableOf(t, withs, selection); got != SelectionResultTable {
-		t.Errorf("selection spans read %s, want %s", got, SelectionResultTable)
+	if got := idsTableOf(t, withs, selection); got != selectionResultTable {
+		t.Errorf("selection spans read %s, want %s", got, selectionResultTable)
 	}
 	for _, cluster := range []bool{false, true} {
 		ctx.IsCluster = cluster
@@ -365,7 +365,7 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 	if len(plan.Ids) != 1 {
 		t.Errorf("compare({}) plans %d ids statements, want 1", len(plan.Ids))
 	}
-	if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); strings.Contains(res, SelectionResultTable) {
+	if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); strings.Contains(res, selectionResultTable) {
 		t.Errorf("compare({}) reads a selection:\n%s", res)
 	}
 }
