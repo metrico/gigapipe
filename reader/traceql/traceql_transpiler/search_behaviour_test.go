@@ -48,9 +48,7 @@ type searchStore struct {
 	db      model.ISqlxDB
 	name    string
 	cluster string
-	// split seeds a cluster by span id, so each trace's spans sit on two shards.
-	split  bool
-	golden map[string][]string
+	golden  map[string][]string
 }
 
 var goldenMu sync.Mutex
@@ -109,8 +107,7 @@ type span struct {
 }
 
 // seed inserts spans, attribute "k" = "1" for each k in attrs. On a cluster
-// the spans go through Distributed tables: sharded by trace, or by span id
-// parity when s.split is set.
+// the spans go through Distributed tables, sharded by trace.
 func (s *searchStore) seed(t *testing.T, spans []span) {
 	t.Helper()
 	var rows []string
@@ -132,15 +129,6 @@ func (s *searchStore) seed(t *testing.T, spans []span) {
 		return
 	}
 	traces, attrs := "tempo_traces_dist", "tempo_traces_attrs_gin_dist"
-	if s.split {
-		traces, attrs = "seed_traces_split", "seed_attrs_split"
-		for table, local := range map[string]string{traces: "tempo_traces", attrs: "tempo_traces_attrs_gin"} {
-			execSQL(t, s.conn, fmt.Sprintf(
-				"CREATE TABLE IF NOT EXISTS %s AS %s_dist ENGINE = Distributed('%s', '%s', '%s', "+
-					"reinterpretAsUInt8(substring(span_id, 8, 1)))",
-				table, local, s.cluster, s.name, local))
-		}
-	}
 	execSQL(t, s.conn, "CREATE TABLE IF NOT EXISTS seed_input AS traces_input ENGINE = Memory")
 	execSQL(t, s.conn, "TRUNCATE TABLE seed_input")
 	execSQL(t, s.conn, "INSERT INTO seed_input "+cols+" VALUES "+strings.Join(rows, ", "))
@@ -445,21 +433,21 @@ var portionedSearches = []string{
 }
 
 // seedStructural seeds structuralTraces; on a cluster each trace's spans sit
-// on two shards.
+// on one shard, and the traces span every shard.
 func (s *searchStore) seedStructural(t *testing.T) {
 	t.Helper()
-	s.split = s.cluster != ""
 	s.seed(t, structuralTraces())
 	if s.cluster == "" {
 		return
 	}
-	var shards uint64
-	if err := s.conn.QueryRow(context.Background(), `SELECT min(c) FROM
-		(SELECT trace_id, uniqExact(_shard_num) c FROM tempo_traces_dist GROUP BY trace_id)`).Scan(&shards); err != nil {
+	var perTrace, shards uint64
+	if err := s.conn.QueryRow(context.Background(), `SELECT max(c), uniqExact(shard) FROM
+		(SELECT trace_id, uniqExact(_shard_num) c, any(_shard_num) shard FROM tempo_traces_dist GROUP BY trace_id)`).
+		Scan(&perTrace, &shards); err != nil {
 		t.Fatal(err)
 	}
-	if shards < 2 {
-		t.Fatalf("a trace's spans on %d shards, want 2", shards)
+	if perTrace != 1 || shards < 2 {
+		t.Fatalf("traces on %d shards with up to %d shards per trace, want 2 and 1", shards, perTrace)
 	}
 }
 
@@ -547,7 +535,7 @@ func testSearchRoundLimit(t *testing.T, cluster bool) {
 // Search returns the traces, spansets and selected values of the golden
 // results, on well formed, dangling, rootless, deep and duplicated traces,
 // under a limit that cuts the result and in complexity portions. On a
-// cluster each trace's spans sit on two shards.
+// cluster each trace's spans sit on one shard.
 func TestSearchStructuralOperators(t *testing.T) { testSearchStructuralOperators(t, false) }
 
 func TestSearchStructuralOperatorsOnCluster(t *testing.T) { testSearchStructuralOperators(t, true) }

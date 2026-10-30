@@ -246,8 +246,8 @@ func testAutocompleteOverHTTP(t *testing.T, cluster bool) {
 	s.assertSuggestions(t, "portions-2", portionedAutocompletes[:2], searchRun{portions: 2}, false)
 }
 
-// Tag keys and values match the golden results, single node and with traces
-// split across shards.
+// Tag keys and values match the golden results, single node and on a two-shard
+// cluster.
 func TestAutocomplete(t *testing.T) { testAutocomplete(t, false) }
 
 func TestAutocompleteOnCluster(t *testing.T) { testAutocomplete(t, true) }

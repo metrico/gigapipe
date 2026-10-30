@@ -28,6 +28,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`CLUSTER_NAME`** - Enables clustered mode and sets the cluster name. When set, gigapipe operates in distributed mode.
 - **`CLICKHOUSE_READ_DIST_SUFFIX`** - Suffix for read-path distributed tables (default: `_dist`). Used for cross-cluster reads in multi-cluster deployments. See [Cross-Cluster Deployment](#cross-cluster-deployment) below.
+- **`CLICKHOUSE_READ_CLUSTER`** - Cluster the read-path distributed tables span. It applies only when it differs from `CLUSTER_NAME` and `CLICKHOUSE_READ_DIST_SUFFIX` is set to a suffix other than `_dist`. Set it on readers too: TraceQL structural searches then run on each shard of this cluster, else of `CLUSTER_NAME`.
 
 ## Environment variable names
 
@@ -155,6 +156,7 @@ MODE=reader
 CLUSTER_NAME=local_cluster
 CLICKHOUSE_SERVER=clickhouse-local.example.com
 CLICKHOUSE_READ_DIST_SUFFIX=_dist_cross_cluster
+CLICKHOUSE_READ_CLUSTER=cross_cluster_name
 ```
 
 In this setup:

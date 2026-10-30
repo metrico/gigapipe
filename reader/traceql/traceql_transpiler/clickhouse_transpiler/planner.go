@@ -103,7 +103,14 @@ func (p *planner) plan() (*SearchPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	search := &searchRowsPlanner{Main: &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}}
+	var spansets shared.SQLRequestPlanner = &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}
+	if p.query.HasStructural() {
+		spansets = &shardLocalPlanner{
+			Shard:  &IndexLimitPlanner{&SearchSpansetPlanner{Main: res, Newest: true}},
+			Single: spansets,
+		}
+	}
+	search := &searchRowsPlanner{Main: spansets}
 	return &SearchPlan{
 		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(search)}},
 		Data: &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},

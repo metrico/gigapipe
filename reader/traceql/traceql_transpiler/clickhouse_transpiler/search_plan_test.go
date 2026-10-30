@@ -11,6 +11,7 @@ import (
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
+	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 var plainSearchQueries = []string{
@@ -60,7 +61,9 @@ var structuralQueries = append(append([]string{}, oneHopQueries...), transitiveQ
 var searchQueries = append(append([]string{}, plainSearchQueries...), structuralQueries...)
 
 func testPlannerContext(spss int64) *shared.PlannerContext {
+	distconfig.Init()
 	return &shared.PlannerContext{
+		ClusterName:              "test_cluster",
 		From:                     time.Unix(86390, 0).UTC(),
 		To:                       time.Unix(86410, 0).UTC(),
 		Limit:                    5,
@@ -135,6 +138,9 @@ func searchStages(t *testing.T, search *SearchPlan) (stages []string, expr share
 		case *searchRowsPlanner:
 			stages = append(stages, "rows")
 			plan = p.Main
+		case *shardLocalPlanner:
+			stages = append(stages, "shard-local")
+			plan = p.Single
 		case *SearchSpansetPlanner:
 			stages = append(stages, "spanset")
 			return stages, p.Main
@@ -150,13 +156,13 @@ func TestSearchCapsAndLimitsAfterEvaluation(t *testing.T) {
 			stages, expr := searchStages(t, planSearch(t, query))
 			want := []string{"rows", "limit", "spanset"}
 			if slices.Contains(structuralQueries, query) {
-				want = append([]string{"structural"}, want...)
+				want = []string{"structural", "rows", "shard-local", "limit", "spanset"}
 			}
 			if strings.Join(stages, ",") != strings.Join(want, ",") {
 				t.Errorf("stages = %v, want %v", stages, want)
 			}
 			switch expr.(type) {
-			case *IndexLimitPlanner, *searchRowsPlanner, *SearchSpansetPlanner:
+			case *IndexLimitPlanner, *searchRowsPlanner, *SearchSpansetPlanner, *shardLocalPlanner:
 				t.Errorf("expression planner is %T", expr)
 			}
 		})
@@ -238,13 +244,14 @@ func TestSearchSpanStartIsLeftOpenRightClosed(t *testing.T) {
 	}
 }
 
-// The Search statement reads Distributed tables on a cluster; the Data
-// statement's reads are checked by TestSearchDataUsesPlainInOnClusters.
+// The Search statement of a non-structural search reads Distributed tables on
+// a cluster; the Data statement's reads are checked by
+// TestSearchDataUsesPlainInOnClusters.
 func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin)?\b[^_]`)
 	localJoin := regexp.MustCompile(`[^l] any left JOIN`)
 	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|trace_span_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
-	for _, query := range searchQueries {
+	for _, query := range plainSearchQueries {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.IsCluster = true
@@ -259,5 +266,73 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 				t.Errorf("distributed join is not GLOBAL:\n%s", res)
 			}
 		})
+	}
+}
+
+// shardView splits a cluster's structural Search statement into the
+// statement run on each shard and the coordinator's merge around it.
+var shardView = regexp.MustCompile(`(?s)^(.*)FROM cluster\('test_cluster', view\((.*)\)\)( ORDER BY trace_newest .*)$`)
+
+var newestMerge = regexp.MustCompile(`ORDER BY trace_newest desc\s*,\s*trace_id desc\s+LIMIT 5[ )]`)
+
+func TestStructuralSearchRunsWholeOnEachShard(t *testing.T) {
+	for _, query := range structuralQueries {
+		t.Run(query, func(t *testing.T) {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
+			m := shardView.FindStringSubmatch(res)
+			if m == nil {
+				t.Fatalf("statement is not run on each shard:\n%s", res)
+			}
+			shard, merge := m[2], m[1]+m[3]
+			for _, bad := range []string{"GLOBAL", "_dist", "cluster("} {
+				if strings.Contains(shard, bad) {
+					t.Errorf("shard statement holds %q:\n%s", bad, shard)
+				}
+			}
+			if !strings.Contains(shard, "max(newest) as trace_newest") || !strings.HasSuffix(shard, "LIMIT 5") {
+				t.Errorf("shard statement does not return its newest 5 traces:\n%s", shard)
+			}
+			if !newestMerge.MatchString(merge) {
+				t.Errorf("coordinator does not keep the newest 5 traces:\n%s", merge)
+			}
+		})
+	}
+}
+
+func TestShardStatementSendsEveryShardItsBodyAtOnce(t *testing.T) {
+	setting := regexp.MustCompile(`LIMIT 5 SETTINGS prefer_localhost_replica=0\)`)
+	for _, query := range structuralQueries {
+		ctx := testPlannerContext(3)
+		ctx.IsCluster = true
+		m := shardView.FindStringSubmatch(renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx))
+		if m == nil || !setting.MatchString(m[3]) {
+			t.Errorf("%s: shard statement runs the local shard in-process:\n%v", query, m)
+		}
+	}
+}
+
+func TestStructuralSearchOnSingleNodeHasNoShardStatement(t *testing.T) {
+	for _, query := range structuralQueries {
+		res := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3))
+		if strings.Contains(res, "cluster(") || strings.Contains(res, "trace_newest") {
+			t.Errorf("%s: single-node statement is planned per shard:\n%s", query, res)
+		}
+	}
+}
+
+func TestShardStatementSkipsUnavailableShardsLikeTheReadTables(t *testing.T) {
+	setting := regexp.MustCompile(`SETTINGS .*skip_unavailable_shards=1$`)
+	for _, skip := range []bool{false, true} {
+		for _, query := range structuralQueries {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			ctx.SkipUnavailableShards = skip
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
+			if setting.MatchString(res) != skip || strings.Count(res, "skip_unavailable_shards") > 1 {
+				t.Errorf("skip=%v %s: statement settings do not skip unavailable shards like the read tables:\n%s", skip, query, res)
+			}
+		}
 	}
 }

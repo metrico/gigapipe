@@ -25,7 +25,13 @@ other TraceQL queries keep working on older servers.
 Structural queries need no schema migration, writer change or backfill: the
 span tree is resolved at query time from the `parent_id` of the stored spans.
 Clustered (Distributed) deployments return the same results as single-node
-ones.
+ones, provided **a trace's spans and attribute rows live on one shard**.
+Writers inserting through the `_dist` tables place them so: the sharding key is
+`sipHash64(oid, trace_id)`, and a trace has one `oid`. A structural search
+runs on each shard over that shard's spans, and the reader keeps the newest
+traces of the shards' results. A structural search misses the relations
+between spans of a trace split across shards, and can list that trace once
+per shard. The nested-set numberer has the same requirement.
 
 The nested-set intrinsics read values that a background numberer stores,
 which also needs ClickHouse 24.9 or newer; see
@@ -378,7 +384,8 @@ nothing to enable; its settings are under
   late span renumbers its whole trace.
 - Each pass numbers at most `GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS` spans,
   oldest traces first; the rest wait for the next pass. On a cluster, each
-  shard numbers its own traces and the cap applies per shard.
+  shard numbers its own traces and the cap applies per shard, so a trace's
+  spans must live on one shard (see [Requirements](#requirements)).
 - Each pass reads only the traces touched since the previous one. The
   leader keeps a cursor, the newest touch the last pass covered (on a
   cluster, the least across shards), in the lease table, so a new leader

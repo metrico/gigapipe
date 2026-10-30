@@ -79,7 +79,8 @@ var oneHopOps = map[traceql_ir.SpansetOperator]oneHop{
 }
 
 // StructuralQueryPlanner runs Main, a plan with structural operators, on
-// servers that support them, with the analyzer they need.
+// servers that support them, with the analyzer they need. On a cluster it
+// skips unavailable shards when the read tables do.
 type StructuralQueryPlanner struct {
 	Main shared.SQLRequestPlanner
 }
@@ -92,7 +93,11 @@ func (s *StructuralQueryPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 	if err != nil {
 		return nil, err
 	}
-	return main.SetSetting("enable_analyzer", "1"), nil
+	main = main.SetSetting("enable_analyzer", "1")
+	if ctx.IsCluster && ctx.SkipUnavailableShards {
+		main = main.SetSetting("skip_unavailable_shards", "1")
+	}
+	return main, nil
 }
 
 // OneHopPlanner relates the span rows of LHS and RHS by parent or sibling.

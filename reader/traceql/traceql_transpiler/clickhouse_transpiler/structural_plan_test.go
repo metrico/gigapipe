@@ -221,24 +221,29 @@ func TestStructuralTreeComesFromTheTracesTableWithoutTimeBound(t *testing.T) {
 	for _, cluster := range []bool{false, true} {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
-		table := "FROM tempo_traces as traces"
-		in := " IN ("
-		if cluster {
-			table = "FROM tempo_traces_dist as traces"
-			in = " GLOBAL IN ("
-		}
 		for _, query := range []string{`{.a = 1} > {.b = 2}`, `{.a = 1} << {.b = 2}`} {
-			nodes := withSuffix(structuralWiths(t, query, ctx), "_nodes")
-			if len(nodes) != 1 {
-				t.Fatalf("cluster=%v %s: %d nodes CTEs, want 1", cluster, query, len(nodes))
+			statements := map[string]shared.SQLRequestPlanner{
+				"search":  planSearch(t, query).Ids[0].Statement,
+				"metrics": planMetrics(t, query).Ids[0].Statement,
 			}
-			res := renderWith(t, nodes[0])
-			read := tracesRead.FindString(res)
-			if !strings.Contains(read, table) || strings.Count(read, "traces.trace_id"+in) != 1 {
-				t.Errorf("cluster=%v %s: nodes are not read from the traces table by trace id:\n%s", cluster, query, res)
-			}
-			if strings.Contains(read, "timestamp_ns") || strings.Contains(read, "date") {
-				t.Errorf("cluster=%v %s: nodes are bounded in time:\n%s", cluster, query, read)
+			for name, statement := range statements {
+				// On a cluster the search statement runs on each shard over local tables.
+				table, in := "FROM tempo_traces as traces", " IN ("
+				if cluster && name == "metrics" {
+					table, in = "FROM tempo_traces_dist as traces", " GLOBAL IN ("
+				}
+				res := renderPlan(t, statement, ctx)
+				reads := tracesRead.FindAllString(res, -1)
+				if len(reads) != 1 {
+					t.Fatalf("cluster=%v %s %s: %d traces reads, want 1:\n%s", cluster, name, query, len(reads), res)
+				}
+				read := reads[0]
+				if !strings.Contains(read, table) || strings.Count(read, "traces.trace_id"+in) != 1 {
+					t.Errorf("cluster=%v %s %s: nodes are not read from the traces table by trace id:\n%s", cluster, name, query, read)
+				}
+				if strings.Contains(read, "timestamp_ns") || strings.Contains(read, "date") {
+					t.Errorf("cluster=%v %s %s: nodes are bounded in time:\n%s", cluster, name, query, read)
+				}
 			}
 		}
 	}
