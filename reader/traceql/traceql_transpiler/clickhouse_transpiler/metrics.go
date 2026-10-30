@@ -18,10 +18,14 @@ import (
 // the MetricsNestedSetColumn of each nested-set field the function reads.
 type MetricsBuild func(spans *sql.With) (sql.ISelect, error)
 
-// CompareBuild builds compare() from two CTEs shaped like MetricsBuild's:
-// baseline, the result spans over the baseline window, and selection, the
-// spans of the selection filter over the query range, or nil for `{}`.
-type CompareBuild func(baseline, selection *sql.With) (sql.ISelect, error)
+// CompareBuild builds compare() over CTEs shaped like MetricsBuild's.
+type CompareBuild struct {
+	// Counts counts attribute values of baseline spans, split by selection (nil
+	// for `{}`), over traceIds and attrs; on a cluster it runs on each shard.
+	Counts func(baseline, selection, traceIds *sql.With, attrs string) (sql.ISelect, error)
+	// Result sums the counts and keeps the topN values per attribute.
+	Result func(counts *sql.With) (sql.ISelect, error)
+}
 
 // MetricsPlan is a metrics query in steps: each Ids statement lists span ids,
 // and Metrics reads the spans of those ids from the Ids external tables.
@@ -195,7 +199,8 @@ func (m *metricsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 }
 
 // comparePlanner builds compare() over the baseline spans, taken over the
-// baseline window, and the selection spans, nil for `{}`.
+// baseline window, and the selection spans, nil for `{}`. On a cluster each
+// shard counts its own traces and the coordinator only merges the counts.
 type comparePlanner struct {
 	Baseline                 *metricsSpansPlanner
 	Selection                *metricsSpansPlanner
@@ -204,6 +209,30 @@ type comparePlanner struct {
 }
 
 func (c *comparePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if !ctx.IsCluster {
+		counts, err := c.counts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return c.Build.Result(sql.NewWith(counts, "compare_counts"))
+	}
+	shard, err := c.counts(localContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	counts, err := onEachShard(ctx, shard, "attr_key", "attr_val", "sel_n", "base_n")
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.Build.Result(sql.NewWith(counts, "compare_counts"))
+	if err != nil {
+		return nil, err
+	}
+	return clusterSettings(ctx, res), nil
+}
+
+// counts is Build.Counts over ctx's tables.
+func (c *comparePlanner) counts(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	baseline, err := (&windowPlanner{Main: c.Baseline, From: c.BaselineFrom, To: c.BaselineTo}).Process(ctx)
 	if err != nil {
 		return nil, err
@@ -216,5 +245,7 @@ func (c *comparePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 		}
 		selection = sql.NewWith(spans, "selection_spans")
 	}
-	return c.Build(sql.NewWith(baseline, "baseline_spans"), selection)
+	rows, traceIds, _ := idsOf(c.Baseline.Ids, c.Baseline.Prefix)
+	traceIds.GetQuery().AddWith(rows)
+	return c.Build.Counts(sql.NewWith(baseline, "baseline_spans"), selection, traceIds, attrsTable(ctx))
 }

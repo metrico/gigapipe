@@ -74,8 +74,9 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	return populateTableNames(ctx, db, distconfig.ReadCluster(), distconfig.Suffix())
 }
 
-// populateTableNames sets ctx's table names; ClusterName and SkipUnavailableShards
-// follow readCluster when it differs from the home cluster and suffix is not "_dist".
+// populateTableNames sets ctx's table names and DistSuffix; ClusterName and
+// SkipUnavailableShards follow readCluster when it differs from the home
+// cluster and suffix is not "_dist".
 func populateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap,
 	readCluster, suffix string) *shared.PlannerContext {
 	ctx.SamplesTableName = GetTableName("samples_v3")
@@ -108,6 +109,7 @@ func populateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap,
 
 	if db.Config.ClusterName != "" {
 		ctx.ClusterName = db.Config.ClusterName
+		ctx.DistSuffix = suffix
 		ctx.SkipUnavailableShards = db.Config.SkipUnavailableShards
 		if readCluster != "" && readCluster != db.Config.ClusterName && suffix != "_dist" {
 			ctx.ClusterName = readCluster

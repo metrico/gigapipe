@@ -94,32 +94,61 @@ func TestByLabelsComeInColumnOrder(t *testing.T) {
 	}
 }
 
-func TestCompareReadsBaselineAndSelection(t *testing.T) {
+func TestCompareCountsReadBaselineAndSelection(t *testing.T) {
 	baseline := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("b")), "baseline_spans")
 	selection := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("s")), "selection_spans")
-	req := &CompareRequest{Baseline: baseline, Selection: selection, FromNS: 100e9, ToNS: 200e9,
+	traces := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("ids")), "_1trace_ids")
+	req := &CompareRequest{Baseline: baseline, Selection: selection, BaselineTraceIds: traces, FromNS: 100e9, ToNS: 200e9,
 		BaselineFromNS: 50e9, BaselineToNS: 150e9, AttrsTable: "attrs", TopN: 3}
-	res := render(t, mustCompare(t, req))
+	res := render(t, mustCompareCounts(t, req))
 	for _, want := range []string{
-		"WITH baseline_spans as (", "selection_spans as (",
+		"WITH baseline_spans as (", "selection_spans as (", "_1trace_ids as (",
 		"all_spans as ( SELECT trace_id, span_id FROM baseline_spans)",
 		"selection as ( SELECT trace_id, span_id FROM selection_spans)",
-		"(date) >= (toDate('1970-01-01'))", "(date) <= (toDate('1970-01-01'))", "(rn) <= (3)",
+		"FROM attrs FINAL WHERE",
+		"(date) >= (toDate('1970-01-01'))", "(date) <= (toDate('1970-01-01'))",
+		"trace_id IN (_1trace_ids)",
+		"countIf((trace_id, span_id) IN (selection)) as sel_n",
+		"countIf((trace_id, span_id) NOT IN (selection)) as base_n",
+		"WHERE ((trace_id, span_id) IN (all_spans)) GROUP BY attr_key, attr_val",
 	} {
 		if !strings.Contains(res, want) {
 			t.Errorf("missing %q:\n%s", want, res)
 		}
 	}
+	for _, banned := range []string{"JOIN", "HAVING", "row_number"} {
+		if strings.Contains(res, banned) {
+			t.Errorf("counts hold %q:\n%s", banned, res)
+		}
+	}
 	req.Selection = nil
-	res = render(t, mustCompare(t, req))
+	res = render(t, mustCompareCounts(t, req))
 	if !strings.Contains(res, "selection as ( SELECT trace_id, span_id FROM all_spans)") {
 		t.Errorf("compare without a selection does not select every baseline span:\n%s", res)
 	}
 }
 
-func mustCompare(t *testing.T, req *CompareRequest) sql.ISelect {
+func TestCompareResultSumsCountsAndKeepsTopN(t *testing.T) {
+	counts := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("*")).From(sql.NewRawObject("c")), "compare_counts")
+	res := render(t, BuildCompareResult(counts, 3))
+	for _, want := range []string{
+		"WITH compare_counts as ( SELECT * FROM c),counted as (",
+		"sum(sel_n) as selection_count", "sum(base_n) as baseline_count",
+		"FROM compare_counts GROUP BY attr_key, attr_val HAVING",
+		"(rn) <= (3)",
+	} {
+		if !strings.Contains(res, want) {
+			t.Errorf("missing %q:\n%s", want, res)
+		}
+	}
+	if res := render(t, BuildCompareResult(counts, 0)); !strings.Contains(res, "(rn) <= (10)") {
+		t.Errorf("compare without a count does not keep 10 values:\n%s", res)
+	}
+}
+
+func mustCompareCounts(t *testing.T, req *CompareRequest) sql.ISelect {
 	t.Helper()
-	q, err := BuildCompareQuery(req)
+	q, err := BuildCompareCounts(req)
 	if err != nil {
 		t.Fatal(err)
 	}

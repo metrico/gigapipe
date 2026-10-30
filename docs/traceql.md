@@ -27,11 +27,13 @@ span tree is resolved at query time from the `parent_id` of the stored spans.
 Clustered (Distributed) deployments return the same results as single-node
 ones, provided **a trace's spans and attribute rows live on one shard**.
 Writers inserting through the `_dist` tables place them so: the sharding key is
-`sipHash64(oid, trace_id)`, and a trace has one `oid`. A structural search
-runs on each shard over that shard's spans, and the reader keeps the newest
-traces of the shards' results. A structural search misses the relations
-between spans of a trace split across shards, and can list that trace once
-per shard. The nested-set numberer has the same requirement.
+`sipHash64(oid, trace_id)`, and a trace has one `oid`. A structural query
+(search, metrics, `compare()`, tag autocomplete) resolves relations on each
+shard over that shard's spans; a split trace loses the relations between its
+shards' spans. Search keeps the newest traces of the shards' results and can
+list a split trace once per shard. `compare()`, structural or not, counts
+attribute values on each shard over that shard's traces, and the reader sums
+the shards' counts. The nested-set numberer has the same requirement.
 For the ClickHouse memory setting and per-node sizing of 24h structural
 queries, see [ClickHouse memory](configuration.md#clickhouse-memory).
 

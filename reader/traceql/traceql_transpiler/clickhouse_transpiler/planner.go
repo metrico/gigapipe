@@ -106,12 +106,7 @@ func (p *planner) plan() (*SearchPlan, error) {
 	}
 	var spansets shared.SQLRequestPlanner = &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}
 	if p.query.HasStructural() {
-		spansets = &shardLocalPlanner{
-			Shard:  &IndexLimitPlanner{&SearchSpansetPlanner{Main: res, Newest: true}},
-			Single: spansets,
-			Cols:   []string{"trace_id", "span_id", "spansets"},
-			Newest: true,
-		}
+		spansets = newestShardLocal(res)
 	}
 	search := &searchRowsPlanner{Main: spansets}
 	return &SearchPlan{
@@ -275,7 +270,7 @@ func (p *planner) structuralGate(res shared.SQLRequestPlanner) shared.SQLRequest
 // shard of a cluster.
 func (p *planner) structuralIds(ids shared.SQLRequestPlanner) shared.SQLRequestPlanner {
 	if p.query.HasStructural() {
-		ids = &shardLocalPlanner{Shard: ids, Single: ids, Cols: []string{"trace_id", "span_ids"}}
+		ids = shardLocal(ids, "trace_id", "span_ids")
 	}
 	return p.structuralGate(ids)
 }

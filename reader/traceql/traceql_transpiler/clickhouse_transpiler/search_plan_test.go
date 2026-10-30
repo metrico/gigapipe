@@ -11,7 +11,6 @@ import (
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
-	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 var plainSearchQueries = []string{
@@ -64,9 +63,9 @@ var structuralQueries = append(append([]string{}, oneHopQueries...), transitiveQ
 var searchQueries = append(append([]string{}, plainSearchQueries...), structuralQueries...)
 
 func testPlannerContext(spss int64) *shared.PlannerContext {
-	distconfig.Init()
 	return &shared.PlannerContext{
 		ClusterName:              "test_cluster",
+		DistSuffix:               "_dist",
 		From:                     time.Unix(86390, 0).UTC(),
 		To:                       time.Unix(86410, 0).UTC(),
 		Limit:                    5,
@@ -272,9 +271,14 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 	}
 }
 
-// shardView splits a cluster's structural Search statement into the
-// statement run on each shard and the coordinator's merge around it.
-var shardView = regexp.MustCompile(`(?s)^(.*)FROM cluster\('test_cluster', view\((.*)\)\)( ORDER BY trace_newest .*)$`)
+// shardViewThen splits a cluster statement into the coordinator's part
+// before the shard view, the statement run on each shard, and rest, the part after.
+func shardViewThen(rest string) *regexp.Regexp {
+	return regexp.MustCompile(`(?s)^(.*)FROM cluster\('test_cluster', view\((.*)\)\)` + rest + `$`)
+}
+
+// shardView splits a cluster's structural Search statement.
+var shardView = shardViewThen(`( ORDER BY trace_newest .*)`)
 
 var newestMerge = regexp.MustCompile(`ORDER BY trace_newest desc\s*,\s*trace_id desc\s+LIMIT 5[ )]`)
 
@@ -316,11 +320,17 @@ func TestShardStatementSendsEveryShardItsBodyAtOnce(t *testing.T) {
 	}
 }
 
-func TestStructuralSearchOnSingleNodeHasNoShardStatement(t *testing.T) {
+func TestStructuralStatementsOnSingleNodeHaveNoShardStatement(t *testing.T) {
 	for _, query := range structuralQueries {
-		res := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3))
-		if strings.Contains(res, "cluster(") || strings.Contains(res, "trace_newest") {
-			t.Errorf("%s: single-node statement is planned per shard:\n%s", query, res)
+		statements := idsStatements(t, query)
+		statements["search"] = planSearch(t, query).Ids[0].Statement
+		for name, statement := range statements {
+			res := renderPlan(t, statement, testPlannerContext(3))
+			for _, bad := range []string{"cluster(", "trace_newest", "prefer_localhost_replica"} {
+				if strings.Contains(res, bad) {
+					t.Errorf("%s %s: single-node statement holds %q:\n%s", name, query, bad, res)
+				}
+			}
 		}
 	}
 }

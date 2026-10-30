@@ -97,7 +97,7 @@ func TestCompareSamplesBaselineAndSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	from := time.Unix(86390, 0)
-	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, from, from.Add(time.Minute), compareSpans)
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, from, from.Add(time.Minute), compareAttrRows)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -283,18 +283,29 @@ func TestMetricsStatementReadsOnlySearchResult(t *testing.T) {
 	}
 }
 
-// compareSpans is a compare build that counts baseline and selection spans.
-func compareSpans(baseline, selection *sql.With) (sql.ISelect, error) {
-	res := sql.NewSelect().
-		With(baseline).
-		Select(sql.NewSimpleCol("count()", "value")).
-		From(sql.NewWithRef(baseline))
-	if selection != nil {
-		res.AddWith(selection).AndWhere(sql.NewIn(sql.NewRawObject("(trace_id, span_id)"),
-			sql.NewSelect().Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).
-				From(sql.NewWithRef(selection))))
-	}
-	return res, nil
+// compareAttrRows counts attribute rows of the selection spans among the baseline spans.
+var compareAttrRows = CompareBuild{
+	Counts: func(baseline, selection, traceIds *sql.With, attrs string) (sql.ISelect, error) {
+		spans := func(w *sql.With) sql.ISelect {
+			return sql.NewSelect().Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).From(sql.NewWithRef(w))
+		}
+		res := sql.NewSelect().
+			With(baseline, traceIds).
+			Select(sql.NewSimpleCol("count()", "value")).
+			From(sql.NewRawObject(attrs)).
+			AndWhere(sql.NewIn(sql.NewRawObject("trace_id"), sql.NewWithRef(traceIds)),
+				sql.NewIn(sql.NewRawObject("(trace_id, span_id)"), spans(baseline)))
+		if selection != nil {
+			res.AddWith(selection).AndWhere(sql.NewIn(sql.NewRawObject("(trace_id, span_id)"), spans(selection)))
+		}
+		return res, nil
+	},
+	Result: func(counts *sql.With) (sql.ISelect, error) {
+		return sql.NewSelect().
+			With(counts).
+			Select(sql.NewSimpleCol("sum(value)", "value")).
+			From(sql.NewWithRef(counts)), nil
+	},
 }
 
 func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
@@ -303,7 +314,7 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 		t.Fatal(err)
 	}
 	baselineFrom, baselineTo := time.Unix(86000, 0), time.Unix(86500, 0)
-	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, baselineFrom, baselineTo, compareSpans)
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, baselineFrom, baselineTo, compareAttrRows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +377,7 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err = PlanCompare(q, q.Metrics.Compare.Filter, baselineFrom, baselineTo, compareSpans)
+	plan, err = PlanCompare(q, q.Metrics.Compare.Filter, baselineFrom, baselineTo, compareAttrRows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,11 +459,93 @@ func TestCompareHasNoMetricsOver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(0, 0), time.Unix(1, 0), compareSpans)
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(0, 0), time.Unix(1, 0), compareAttrRows)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := plan.Over(countSpans); err == nil {
 		t.Error("compare plan has a metrics statement over its ids")
+	}
+}
+
+// compareAttrsRead is the attributes read of the baseline traces.
+var compareAttrsRead = regexp.MustCompile(`FROM tempo_traces_attrs_gin WHERE \(trace_id IN \(_\d+trace_ids\)\)`)
+
+// compareShardView splits a cluster's compare statement into the counts run on
+// each shard and the coordinator's statement around them.
+var compareShardView = regexp.MustCompile(`(?s)^(.*)FROM cluster\('test_cluster', view\((.*)\)\)(.*)$`)
+
+// On a cluster, compare() counts attribute values on each shard over local
+// tables, reading the attributes of the baseline traces only; the coordinator
+// sums the counts. Single node counts over its tables directly.
+func TestCompareCountsRunOnEachShard(t *testing.T) {
+	for _, query := range []string{`{.a = 1} | compare({.c = 3})`, `({.a = 1} >> {.b = 2}) | compare({})`} {
+		q, err := traceql_ir.Parse(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareAttrRows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, skip := range []bool{false, true} {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			ctx.SkipUnavailableShards = skip
+			res := renderPlan(t, plan.Metrics, ctx)
+			m := compareShardView.FindStringSubmatch(res)
+			if m == nil {
+				t.Errorf("%s: counts are not run on each shard:\n%s", query, res)
+				continue
+			}
+			shard := m[2]
+			for _, bad := range []string{"GLOBAL", "_dist", "cluster("} {
+				if strings.Contains(shard, bad) {
+					t.Errorf("%s: shard statement holds %q:\n%s", query, bad, shard)
+				}
+			}
+			if !compareAttrsRead.MatchString(shard) {
+				t.Errorf("%s: shard statement does not read the baseline traces' attributes:\n%s", query, shard)
+			}
+			if strings.Contains(m[1], "tempo_traces") || strings.Contains(m[3], "tempo_traces") {
+				t.Errorf("%s: coordinator reads tables:\n%s", query, res)
+			}
+			if !strings.HasPrefix(m[3], " SETTINGS prefer_localhost_replica=0)") {
+				t.Errorf("%s: shard statement runs the local shard in-process:\n%s", query, res)
+			}
+			if strings.HasSuffix(res, " SETTINGS skip_unavailable_shards=1") != skip {
+				t.Errorf("%s: want suffix \" SETTINGS skip_unavailable_shards=1\" present = %v:\n%s", query, skip, res)
+			}
+		}
+		ctx := testPlannerContext(3)
+		res := renderPlan(t, plan.Metrics, ctx)
+		if strings.Contains(res, "cluster(") || strings.Contains(res, "SETTINGS") {
+			t.Errorf("%s: single node counts on a cluster:\n%s", query, res)
+		}
+		if !compareAttrsRead.MatchString(res) {
+			t.Errorf("%s: single node does not read the baseline traces' attributes:\n%s", query, res)
+		}
+	}
+}
+
+// The baseline trace ids passed to Counts read the ids table on their own.
+func TestCompareTraceIdsDefineTheirRows(t *testing.T) {
+	q, err := traceql_ir.Parse(`{.a = 1} | compare({.c = 3})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := CompareBuild{
+		Counts: func(_, _, traceIds *sql.With, _ string) (sql.ISelect, error) {
+			return sql.NewSelect().With(traceIds).Select(sql.NewRawObject("trace_id")).From(sql.NewWithRef(traceIds)), nil
+		},
+		Result: compareAttrRows.Result,
+	}
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := renderPlan(t, plan.Metrics, testPlannerContext(3))
+	if !regexp.MustCompile(`_\d+result_ids as \(`).MatchString(res) {
+		t.Errorf("trace ids read undefined rows:\n%s", res)
 	}
 }

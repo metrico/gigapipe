@@ -667,6 +667,20 @@ func executeCompareInstant(
 	return &model.MetricsQueryInstantResponse{Series: series}, nil
 }
 
+// compareBuild builds compare() with the tempo builders for creq.
+func compareBuild(creq tempo.CompareRequest) clickhouse_transpiler.CompareBuild {
+	return clickhouse_transpiler.CompareBuild{
+		Counts: func(baseline, selection, traceIds *sql.With, attrs string) (sql.ISelect, error) {
+			req := creq
+			req.Baseline, req.Selection, req.BaselineTraceIds, req.AttrsTable = baseline, selection, traceIds, attrs
+			return tempo.BuildCompareCounts(&req)
+		},
+		Result: func(counts *sql.With) (sql.ISelect, error) {
+			return tempo.BuildCompareResult(counts, creq.TopN), nil
+		},
+	}
+}
+
 // queryCompare runs the compare() query of tq, passing each row to add.
 func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func(tempo.CompareResultRow)) error {
 	creq := compareRequest(tq.Metrics, planCtx)
@@ -675,11 +689,7 @@ func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func
 		selection = tq.Metrics.Compare.Filter
 	}
 	planner, err := clickhouse_transpiler.PlanCompare(tq, selection,
-		time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS),
-		func(baseline, selection *sql.With) (sql.ISelect, error) {
-			creq.Baseline, creq.Selection = baseline, selection
-			return tempo.BuildCompareQuery(&creq)
-		})
+		time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS), compareBuild(creq))
 	if err != nil {
 		return err
 	}
@@ -701,7 +711,6 @@ func compareRequest(fn *traceql_ir.MetricsFn, planCtx *shared.PlannerContext) te
 		ToNS:           planCtx.To.UnixNano(),
 		BaselineFromNS: planCtx.From.UnixNano(),
 		BaselineToNS:   planCtx.To.UnixNano(),
-		AttrsTable:     attrsTable(planCtx),
 	}
 	if c := fn.Compare; c != nil {
 		res.TopN = c.Count

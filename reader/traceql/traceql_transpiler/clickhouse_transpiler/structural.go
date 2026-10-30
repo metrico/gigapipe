@@ -111,11 +111,7 @@ func (s *StructuralQueryPlanner) Process(ctx *shared.PlannerContext) (sql.ISelec
 	if err != nil {
 		return nil, err
 	}
-	main = main.SetSetting("enable_analyzer", "1")
-	if ctx.IsCluster && ctx.SkipUnavailableShards {
-		main = main.SetSetting("skip_unavailable_shards", "1")
-	}
-	return main, nil
+	return clusterSettings(ctx, main.SetSetting("enable_analyzer", "1")), nil
 }
 
 // OneHopPlanner relates the span rows of LHS and RHS by parent or sibling.

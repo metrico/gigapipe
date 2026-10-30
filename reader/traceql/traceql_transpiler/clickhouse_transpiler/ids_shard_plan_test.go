@@ -18,7 +18,7 @@ func idsStatements(t *testing.T, query string) map[string]shared.SQLRequestPlann
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmp, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareSpans)
+	cmp, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareAttrRows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,9 +42,8 @@ func idsStatements(t *testing.T, query string) map[string]shared.SQLRequestPlann
 	}
 }
 
-// idsShardView splits a cluster's ids statement into the statement run on
-// each shard and the coordinator's select around it.
-var idsShardView = regexp.MustCompile(`(?s)^(.*)FROM cluster\('test_cluster', view\((.*)\)\)(.*)$`)
+// idsShardView splits a cluster's ids statement.
+var idsShardView = shardViewThen(`(.*)`)
 
 func TestStructuralIdsStatementsRunWholeOnEachShard(t *testing.T) {
 	coordinator := regexp.MustCompile(`^\s*SELECT trace_id,\s*span_ids\s*$`)
@@ -79,17 +78,6 @@ func TestNonStructuralIdsStatementsReadDistributedTables(t *testing.T) {
 			res := renderPlan(t, statement, ctx)
 			if strings.Contains(res, "cluster(") || !strings.Contains(res, "_dist") {
 				t.Errorf("%s %s: ids statement is not distributed:\n%s", name, query, res)
-			}
-		}
-	}
-}
-
-func TestStructuralIdsStatementsOnSingleNodeHaveNoShardStatement(t *testing.T) {
-	for _, query := range structuralQueries {
-		for name, statement := range idsStatements(t, query) {
-			res := renderPlan(t, statement, testPlannerContext(3))
-			if strings.Contains(res, "cluster(") || strings.Contains(res, "prefer_localhost_replica") {
-				t.Errorf("%s %s: single-node statement is planned per shard:\n%s", name, query, res)
 			}
 		}
 	}

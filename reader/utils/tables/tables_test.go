@@ -32,3 +32,13 @@ func TestClusterIsTheOneTheReadTablesSpan(t *testing.T) {
 		}
 	}
 }
+
+func TestDistSuffixEndsTheDistributedTableNames(t *testing.T) {
+	for _, suffix := range []string{"_dist", "_dist_reads"} {
+		db := &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{Name: "db", ClusterName: "home"}}
+		ctx := populateTableNames(&shared.PlannerContext{}, db, "", suffix)
+		if ctx.DistSuffix != suffix || ctx.TracesDistTable != "`db`.tempo_traces"+suffix {
+			t.Errorf("suffix %q: DistSuffix = %q, TracesDistTable = %q", suffix, ctx.DistSuffix, ctx.TracesDistTable)
+		}
+	}
+}
