@@ -1,0 +1,52 @@
+# Two-shard ClickHouse cluster (test_cluster_two_shards) for the cluster
+# variant of the schema migration lane. It uses the same ClickHouse
+# configuration as the e2e stack in scripts/test/e2e: the nodes must keep the
+# host names that configuration refers to. Ports are published so the tests
+# can reach both nodes from the host.
+#
+# CLICKHOUSE_SKIP_USER_SETUP keeps the image from limiting the passwordless
+# default user to connections from inside the container, so the users.xml
+# above applies as written.
+services:
+  clickhouse1:
+    image: clickhouse/clickhouse-server:25.3
+    hostname: e2e.clickhouse
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    volumes:
+      - ../../../scripts/test/e2e/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ../../../scripts/test/e2e/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+    networks:
+      default:
+        aliases:
+          - e2e.clickhouse
+          - clickhouse_1
+    ports:
+      - "9000:9000"
+      - "8123:8123"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  clickhouse2:
+    image: clickhouse/clickhouse-server:25.3
+    hostname: e2e.clickhouse2
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    volumes:
+      - ../../../scripts/test/e2e/clickhouse/config2.xml:/etc/clickhouse-server/config.xml
+      - ../../../scripts/test/e2e/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+    networks:
+      default:
+        aliases:
+          - e2e.clickhouse2
+          - clickhouse_2
+    ports:
+      - "8124:8123"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
