@@ -23,6 +23,9 @@ trap cleanup EXIT
 echo "--- building + starting stack ---"
 $COMPOSE up -d --build
 
+echo "--- building the gigapipe binary the tests start themselves ---"
+(cd ../.. && make build)
+
 echo "--- running integration tests against $GIGAPIPE_URL ---"
 # Subshell: cleanup must still run from this directory, where docker-compose.yml is.
 (cd ../.. && make test-integration)

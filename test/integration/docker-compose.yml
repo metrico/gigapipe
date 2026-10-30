@@ -9,9 +9,12 @@ services:
     environment:
       # Newer images limit the passwordless default user to the container.
       CLICKHOUSE_SKIP_USER_SETUP: "1"
-    # Published for the CI lane, which runs gigapipe on the host.
+    # Published for the CI lane, which runs gigapipe on the host, and for the
+    # tests that start their own gigapipe (migrations, ruler boot order) and
+    # read ClickHouse over HTTP.
     ports:
       - "127.0.0.1:9000:9000"
+      - "127.0.0.1:8123:8123"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 2s
