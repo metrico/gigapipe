@@ -42,6 +42,24 @@ func (r spanResult) cond(rhsMatched, lhsMatched string) string {
 	return fmt.Sprintf("side = 2 AND %s", rhsMatched)
 }
 
+// operandSide is an operand of a structural operator, by its side number.
+type operandSide int
+
+const (
+	sideNone operandSide = 0
+	// sideLHS and sideRHS are the values of the side column of their rows.
+	sideLHS operandSide = 1
+	sideRHS operandSide = 2
+)
+
+// widen widens cond, on a row with a side column, to every row of side k.
+func (k operandSide) widen(cond string) string {
+	if k == sideNone {
+		return cond
+	}
+	return fmt.Sprintf("(%s) OR side = %d", cond, k)
+}
+
 // hopKey is the id a span is related by.
 type hopKey int
 
@@ -107,6 +125,13 @@ type OneHopPlanner struct {
 	LHS    shared.SQLRequestPlanner
 	RHS    shared.SQLRequestPlanner
 	Prefix string
+	// Keep is an operand all of whose rows the planner also returns.
+	Keep operandSide
+}
+
+func (o *OneHopPlanner) keep(k operandSide) shared.SQLRequestPlanner {
+	o.Keep = k
+	return o
 }
 
 func (o *OneHopPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -146,7 +171,7 @@ func (o *OneHopPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		Distinct(true).
 		Select(spanRowCols()...).
 		From(sql.NewWithRef(counted)).
-		AndWhere(rawCond(cond)), nil
+		AndWhere(rawCond(o.Keep.widen(cond))), nil
 }
 
 // transitive relates a RHS span to a LHS span among its ancestors
@@ -185,6 +210,13 @@ type TransitivePlanner struct {
 	LHS    shared.SQLRequestPlanner
 	RHS    shared.SQLRequestPlanner
 	Prefix string
+	// Keep is an operand all of whose rows the planner also returns.
+	Keep operandSide
+}
+
+func (t *TransitivePlanner) keep(k operandSide) shared.SQLRequestPlanner {
+	t.Keep = k
+	return t
 }
 
 func (t *TransitivePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -229,7 +261,7 @@ func (t *TransitivePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		Distinct(true).
 		Select(spanRowCols()...).
 		From(sql.NewWithRef(matched)).
-		AndWhere(rawCond(rel.result.cond("rhs_match = 1", "lhs_match = 1"))), nil
+		AndWhere(rawCond(t.Keep.widen(rel.result.cond("rhs_match = 1", "lhs_match = 1")))), nil
 }
 
 // operandSides is <alias>_sides: the span rows of lhs (side 1) and rhs (side 2).

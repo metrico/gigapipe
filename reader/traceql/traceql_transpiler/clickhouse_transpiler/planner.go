@@ -2,6 +2,7 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -140,11 +141,15 @@ func (p *planner) planSpansetExpr(expr traceql_ir.SpansetExpr) (shared.SQLReques
 	return planSpansetTree(p, expr,
 		func(op *simpleExpressionPlanner) (shared.SQLRequestPlanner, error) { return op.planner() },
 		p.planPipeline,
-		func(op traceql_ir.SpansetOperator, lhs, rhs shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+		func(expr *traceql_ir.SpansetOp, lhs, rhs shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+			op := expr.Op
 			switch op {
 			case traceql_ir.OpAnd:
 				return &TraceAndPlanner{LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
 			case traceql_ir.OpOr:
+				if structural, keep := repeatedOperand(expr, lhs, rhs); structural != nil {
+					return structural.keep(keep)
+				}
 				return &TraceOrPlanner{LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
 			}
 			if op.IsOneHop() {
@@ -169,7 +174,7 @@ func (p *planner) pipelineEvals(pipeline *traceql_ir.Pipeline) ([]shared.SQLRequ
 					return []shared.SQLRequestPlanner{res}, err
 				},
 				p.pipelineEvals,
-				func(_ traceql_ir.SpansetOperator, lhs, rhs []shared.SQLRequestPlanner) []shared.SQLRequestPlanner {
+				func(_ *traceql_ir.SpansetOp, lhs, rhs []shared.SQLRequestPlanner) []shared.SQLRequestPlanner {
 					return append(lhs, rhs...)
 				})
 			if err != nil {
@@ -187,7 +192,7 @@ func (p *planner) pipelineEvals(pipeline *traceql_ir.Pipeline) ([]shared.SQLRequ
 func planSpansetTree[T any](p *planner, expr traceql_ir.SpansetExpr,
 	leaf func(*simpleExpressionPlanner) (T, error),
 	pipeline func(*traceql_ir.Pipeline) (T, error),
-	join func(traceql_ir.SpansetOperator, T, T) T) (T, error) {
+	join func(*traceql_ir.SpansetOp, T, T) T) (T, error) {
 	switch expr := expr.(type) {
 	case *traceql_ir.Group:
 		return planSpansetTree(p, expr.Expr, leaf, pipeline, join)
@@ -203,9 +208,51 @@ func planSpansetTree[T any](p *planner, expr traceql_ir.SpansetExpr,
 		if err != nil {
 			return zero, err
 		}
-		return join(expr.Op, lhs, rhs), nil
+		return join(expr, lhs, rhs), nil
 	}
 	return leaf(p.operand(expr.(*traceql_ir.Selector)))
+}
+
+// keepingPlanner is a structural operator planner that can also return every
+// row of one operand.
+type keepingPlanner interface {
+	shared.SQLRequestPlanner
+	keep(operandSide) shared.SQLRequestPlanner
+}
+
+// repeatedOperand returns the planned structural side of `or`, an `X || Y`
+// whose other side repeats an operand of it, and that operand; else nil.
+func repeatedOperand(or *traceql_ir.SpansetOp, lhs, rhs shared.SQLRequestPlanner) (keepingPlanner, operandSide) {
+	for _, c := range []struct {
+		structural traceql_ir.SpansetExpr
+		other      traceql_ir.SpansetExpr
+		planned    shared.SQLRequestPlanner
+	}{{or.LHS, or.RHS, lhs}, {or.RHS, or.LHS, rhs}} {
+		op, ok := ungroup(c.structural).(*traceql_ir.SpansetOp)
+		planned, isKeeping := c.planned.(keepingPlanner)
+		if !ok || !op.Op.IsStructural() || !isKeeping {
+			continue
+		}
+		other := ungroup(c.other)
+		switch {
+		case reflect.DeepEqual(ungroup(op.LHS), other):
+			return planned, sideLHS
+		case reflect.DeepEqual(ungroup(op.RHS), other):
+			return planned, sideRHS
+		}
+	}
+	return nil, sideNone
+}
+
+// ungroup strips the parentheses around expr.
+func ungroup(expr traceql_ir.SpansetExpr) traceql_ir.SpansetExpr {
+	for {
+		g, ok := expr.(*traceql_ir.Group)
+		if !ok {
+			return expr
+		}
+		expr = g.Expr
+	}
 }
 
 // operand plans one selector of a spanset expression.

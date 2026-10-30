@@ -485,6 +485,57 @@ func testSearchOverHTTP(t *testing.T, cluster bool) {
 	s.assertResults(t, "portions-2", portionedSearches[:2], searchRun{portions: 2}, false)
 }
 
+// repeatedOperandSearches pair a search whose `||` repeats an operand of its
+// structural side with a spelling of it, `X && X` for X, that plans both sides.
+func repeatedOperandSearches() [][2]string {
+	const a, b = `{.a = "1"}`, `{.b = "1"}`
+	both := func(x string) string { return "(" + x + " && " + x + ")" }
+	var res [][2]string
+	for _, op := range structuralOps {
+		rel := fmt.Sprintf("(%s %s %s)", a, op, b)
+		res = append(res,
+			[2]string{rel + " || " + a, rel + " || " + both(a)},
+			[2]string{a + " || " + rel, both(a) + " || " + rel},
+			[2]string{rel + " || " + b, rel + " || " + both(b)},
+			[2]string{b + " || " + rel, both(b) + " || " + rel})
+	}
+	const root = `{nestedSetParent < 0 && .a = "1"}`
+	return append(res, [2]string{
+		fmt.Sprintf(`(%s &>> %s) || (%s) | select(name, nestedSetParent)`, root, b, root),
+		fmt.Sprintf(`(%s &>> %s) || %s | select(name, nestedSetParent)`, root, b, both(root)),
+	})
+}
+
+func testSearchRepeatedOperand(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.seedStructural(t)
+	assertSame := func(pairs [][2]string, run searchRun, wantError bool) {
+		t.Helper()
+		if run.limit == 0 {
+			run.limit = searchLimit
+		}
+		for _, c := range pairs {
+			got, want := s.result(t, c[0], run), s.result(t, c[1], run)
+			isErr := len(want) == 1 && strings.HasPrefix(want[0], "error: ")
+			if len(want) == 0 || isErr != wantError {
+				t.Errorf("%s %+v: %.300q", c[1], run, want)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("%s %+v:\ngot:  %q\nwant: %q", c[0], run, got, want)
+			}
+		}
+	}
+	pairs := repeatedOperandSearches()
+	assertSame(pairs, searchRun{}, false)
+	// 5 rounds fail on the 40-deep chain.
+	assertSame([][2]string{
+		{`({.a = "1"} >> {.b = "1"}) || {.a = "1"}`, `({.a = "1"} >> {.b = "1"}) || ({.a = "1"} && {.a = "1"})`},
+		{`{.a = "1"} || ({.b = "1"} &<< {.a = "1"})`, `({.a = "1"} && {.a = "1"}) || ({.b = "1"} &<< {.a = "1"})`},
+	}, searchRun{rounds: 5}, true)
+	assertSame(pairs, searchRun{limit: 2}, false)
+	assertSame(pairs, searchRun{portions: 2}, false)
+}
+
 func testSearchCycles(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, false)
 	defer s.writeGolden(t)
@@ -544,6 +595,12 @@ func TestSearchStructuralOperatorsOnCluster(t *testing.T) { testSearchStructural
 func TestSearchStructuralOperatorsOverHTTP(t *testing.T) { testSearchOverHTTP(t, false) }
 
 func TestSearchStructuralOperatorsOverHTTPOnCluster(t *testing.T) { testSearchOverHTTP(t, true) }
+
+// A search whose `||` repeats an operand of its structural side returns what
+// it returns with both sides planned.
+func TestSearchRepeatedOperand(t *testing.T) { testSearchRepeatedOperand(t, false) }
+
+func TestSearchRepeatedOperandOnCluster(t *testing.T) { testSearchRepeatedOperand(t, true) }
 
 // A cycle fails a transitive operator; a one-hop operator fails on it only
 // in a trace with a root and a missing parent.

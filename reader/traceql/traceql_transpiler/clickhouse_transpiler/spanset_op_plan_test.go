@@ -19,9 +19,9 @@ func describePlan(t *testing.T, p shared.SQLRequestPlanner) string {
 	case *TraceOrPlanner:
 		return fmt.Sprintf("or(%s,%s)", describePlan(t, p.LHS), describePlan(t, p.RHS))
 	case *OneHopPlanner:
-		return fmt.Sprintf("%s(%s,%s)", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS))
+		return fmt.Sprintf("%s(%s,%s)%s", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS), describeKeep(p.Keep))
 	case *TransitivePlanner:
-		return fmt.Sprintf("%s(%s,%s)", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS))
+		return fmt.Sprintf("%s(%s,%s)%s", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS), describeKeep(p.Keep))
 	case *AllSpansPlanner:
 		return "{}"
 	case *AttrlessConditionPlanner:
@@ -51,6 +51,17 @@ func describePlan(t *testing.T, p shared.SQLRequestPlanner) string {
 		return "{" + strings.Join(attrs, ",") + "}"
 	}
 	t.Fatalf("unexpected expression planner %T", p)
+	return ""
+}
+
+// describeKeep marks the operand a structural planner keeps.
+func describeKeep(k operandSide) string {
+	switch k {
+	case sideLHS:
+		return "+lhs"
+	case sideRHS:
+		return "+rhs"
+	}
 	return ""
 }
 
