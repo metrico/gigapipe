@@ -20,21 +20,54 @@
  "TestSearchCycles/transitive/{.a = \"1\"} \u003e\u003e {.b = \"1\"}/0": [
   "error: TraceQL structural query: a trace is deeper than the round limit of 20 rounds (1048576 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
  ],
- "TestSearchRoundLimit/resolved/{.a = \"1\"} !\u003e\u003e {.b = \"1\"}/3": [
+ "TestSearchRoundLimit/resolved/{.a = \"1\"} !\u003e {.b = \"1\"}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=1 [span 8@+23/10 b=\"1\"]",
+  "trace 20 start=+8 ms=0 root=/s1",
+  "  set matched=1 [span 8@+15/10 b=\"1\"]",
   "trace 1e start=+0 ms=0 root=/s1",
   "  set matched=1 [span 8@+7/10 b=\"1\"]"
  ],
+ "TestSearchRoundLimit/resolved/{.a = \"1\"} !\u003e\u003e {.b = \"1\"}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=1 [span 8@+23/10 b=\"1\"]",
+  "trace 1e start=+0 ms=0 root=/s1",
+  "  set matched=1 [span 8@+7/10 b=\"1\"]"
+ ],
+ "TestSearchRoundLimit/resolved/{.a = \"1\"} \u003e {.b = \"1\"}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=2 [span 15@+25/10 b=\"1\"] [span 17@+27/10 b=\"1\"]"
+ ],
  "TestSearchRoundLimit/resolved/{.a = \"1\"} \u003e {}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=3 [span 15@+25/10] [span 16@+26/10 a=\"1\"] [span 17@+27/10]",
   "trace 20 start=+8 ms=0 root=/s1",
   "  set matched=1 [span 2@+9/10]"
  ],
  "TestSearchRoundLimit/resolved/{.a = \"1\"} \u003e\u003e {.b = \"1\"}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=2 [span 15@+25/10 b=\"1\"] [span 17@+27/10 b=\"1\"]",
   "trace 20 start=+8 ms=0 root=/s1",
   "  set matched=1 [span 8@+15/10 b=\"1\"]"
  ],
+ "TestSearchRoundLimit/resolved/{.a = \"1\"} ~ {.b = \"1\"}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=2 [span 15@+25/10 b=\"1\"] [span 17@+27/10 b=\"1\"]"
+ ],
  "TestSearchRoundLimit/resolved/{.b = \"1\"} \u0026\u003c\u003c {.a = \"1\"}/3": [
+  "trace 21 start=+16 ms=0 root=/s1",
+  "  set matched=3 [span 14@+24/10 a=\"1\"] [span 15@+25/10 b=\"1\"] [span 17@+27/10 b=\"1\"]",
   "trace 20 start=+8 ms=0 root=/s1",
   "  set matched=2 [span 1@+8/10 a=\"1\"] [span 8@+15/10 b=\"1\"]"
+ ],
+ "TestSearchRoundLimit/unresolved-one-hop/{.a = \"1\"} !\u003e {.b = \"1\"}/3": [
+  "error: TraceQL structural query: a trace is deeper than the round limit of 3 rounds (8 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+ ],
+ "TestSearchRoundLimit/unresolved-one-hop/{.a = \"1\"} \u003e {.b = \"1\"}/3": [
+  "error: TraceQL structural query: a trace is deeper than the round limit of 3 rounds (8 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+ ],
+ "TestSearchRoundLimit/unresolved-one-hop/{.a = \"1\"} ~ {.b = \"1\"}/3": [
+  "error: TraceQL structural query: a trace is deeper than the round limit of 3 rounds (8 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
  ],
  "TestSearchRoundLimit/unresolved/{.a = \"1\"} !\u003e\u003e {.b = \"1\"}/3": [
   "error: TraceQL structural query: a trace is deeper than the round limit of 3 rounds (8 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
@@ -43,6 +76,8 @@
   "error: TraceQL structural query: a trace is deeper than the round limit of 3 rounds (8 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
  ],
  "TestSearchStructuralOperators/deep/{.a = \"1\"} \u003e {.b = \"1\"}/6": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=1 [span 5@+29/10 b=\"1\"]",
   "trace e start=+22 ms=0 root=/s1",
@@ -53,6 +88,8 @@
   "  set matched=4 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/deep/{.a = \"1\"} \u003e\u003e {.b = \"1\"}/6": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -65,48 +102,50 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/limit-2/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=1 [span 5@+29/10 b=\"1\"]"
+  "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/limit-2/{.a = \"1\"} \u003e\u003e {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
+  "trace 11 start=+30 ms=0 root=/s1",
+  "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]"
+ ],
+ "TestSearchStructuralOperators/limit-2/{}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]"
+ ],
+ "TestSearchStructuralOperators/limit-3/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=1 [span 5@+29/10 b=\"1\"]"
  ],
- "TestSearchStructuralOperators/limit-2/{}/0": [
-  "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=5 [span 1@+25/10] [span 2@+26/10] [span 3@+27/10] [span 4@+28/10] [span 5@+29/10]"
- ],
- "TestSearchStructuralOperators/limit-3/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
-  "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=1 [span 5@+29/10 b=\"1\"]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=1 [span 2@+24/10 b=\"1\"]"
- ],
  "TestSearchStructuralOperators/limit-3/{.a = \"1\"} \u003e\u003e {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=1 [span 5@+29/10 b=\"1\"]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=1 [span 2@+24/10 b=\"1\"]"
+  "  set matched=1 [span 5@+29/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/limit-3/{}/0": [
-  "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=5 [span 1@+25/10] [span 2@+26/10] [span 3@+27/10] [span 4@+28/10] [span 5@+29/10]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=2 [span 1@+22/10] [span 2@+24/10] [span 2@+24/10]"
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=17 [span 1@+70/10] [span 14@+71/10] [span 15@+72/10] [span 2@+73/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]"
  ],
  "TestSearchStructuralOperators/plain/{.a = \"1\"} \u0026\u0026 {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=11 [span 1@+70/10 a=\"1\"] [span 14@+71/10 b=\"1\"] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 8@+78/10 a=\"1\"] [span 9@+79/10 b=\"1\"] [span d@+83/10 a=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=4 [span 1@+30/10 a=\"1\"] [span b@+40/10 b=\"1\"] [span 15@+50/10 a=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -121,6 +160,12 @@
   "  set matched=7 [span 1@+0/10 a=\"1\"] [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/plain/{.a = \"1\"} || {.b = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=11 [span 1@+70/10 a=\"1\"] [span 14@+71/10 b=\"1\"] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 8@+78/10 a=\"1\"] [span 9@+79/10 b=\"1\"] [span d@+83/10 a=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=4 [span 1@+30/10 a=\"1\"] [span b@+40/10 b=\"1\"] [span 15@+50/10 a=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -135,6 +180,10 @@
   "  set matched=7 [span 1@+0/10 a=\"1\"] [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/plain/{.a = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 [span 1@+70/10 a=\"1\"] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 8@+78/10 a=\"1\"] [span d@+83/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 1@+30/10 a=\"1\"] [span 15@+50/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -149,6 +198,10 @@
   "  set matched=3 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/plain/{.b = \"1\"} | by(.a) | select(name)/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 by(.a)=\"nil\" [span 1@+87/10 name=s1 b=\"1\"] [span 2@+88/10 name=s2 b=\"1\"] [span 3@+89/10 name=s3 b=\"1\"] [span 4@+90/10 name=s4 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 by(.a)=\"nil\" [span 14@+71/10 name=s20 b=\"1\"] [span 3@+74/10 name=s3 b=\"1\"] [span 4@+75/10 name=s4 b=\"1\"] [span 9@+79/10 name=s9 b=\"1\"] [span e@+84/10 name=s14 b=\"1\"] [span 10@+86/10 name=s16 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -164,6 +217,10 @@
   "  set matched=4 by(.a)=\"nil\" [span 2@+1/10 name=s2 b=\"1\"] [span 7@+6/10 name=s7 b=\"1\"] [span c@+11/10 name=s12 b=\"1\"] [span f@+14/10 name=s15 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/plain/{.b = \"1\"} | count() \u003e 1/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 count()=int:4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 count()=int:6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 count()=int:2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -175,6 +232,14 @@
  ],
  "TestSearchStructuralOperators/plain/{.c = \"1\"}/0": [],
  "TestSearchStructuralOperators/plain/{} | by(.a)/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 by(.a)=\"1\" [span 1@+91/10] [span 2@+92/10]",
+  "  set matched=1 by(.a)=\"nil\" [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 by(.a)=\"nil\" [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 by(.a)=\"1\" [span 1@+70/10] [span 15@+72/10] [span 2@+73/10] [span 8@+78/10] [span d@+83/10]",
+  "  set matched=12 by(.a)=\"nil\" [span 14@+71/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 by(.a)=\"1\" [span 1@+30/10] [span 15@+50/10]",
   "  set matched=38 by(.a)=\"nil\" [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
@@ -195,6 +260,12 @@
   "  set matched=12 by(.a)=\"nil\" [span 2@+1/10] [span 4@+3/10] [span 5@+4/10] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/plain/{}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=17 [span 1@+70/10] [span 14@+71/10] [span 15@+72/10] [span 2@+73/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -209,38 +280,42 @@
   "  set matched=15 [span 1@+0/10] [span 2@+1/10] [span 3@+2/10] [span 4@+3/10] [span 5@+4/10] [span 6@+5/10] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/portions-2-limit-3/({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"} \u0026\u003e\u003e {.b = \"1\"}) || ({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"}) | select(name, nestedSetParent)/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 name=s1 a=\"1\" nestedSetParent=int:0]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 14@+71/10 name=s20 b=\"1\" nestedSetParent=int:0]",
   "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=2 [span 1@+22/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+24/10 name=s2 b=\"1\" nestedSetParent=int:0]",
-  "trace 10 start=+15 ms=0 root=/s1",
-  "  set matched=2 [span 1@+15/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+16/10 name=s2 b=\"1\" nestedSetParent=int:0]"
+  "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]"
  ],
  "TestSearchStructuralOperators/portions-2-limit-3/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=1 [span 5@+29/10 b=\"1\"]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=1 [span 2@+24/10 b=\"1\"]"
+  "  set matched=1 [span 5@+29/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-2-limit-3/{.b = \"1\"} | by(.a) | select(name)/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 by(.a)=\"nil\" [span 1@+87/10 name=s1 b=\"1\"] [span 2@+88/10 name=s2 b=\"1\"] [span 3@+89/10 name=s3 b=\"1\"] [span 4@+90/10 name=s4 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 by(.a)=\"nil\" [span 14@+71/10 name=s20 b=\"1\"] [span 3@+74/10 name=s3 b=\"1\"] [span 4@+75/10 name=s4 b=\"1\"] [span 9@+79/10 name=s9 b=\"1\"] [span e@+84/10 name=s14 b=\"1\"] [span 10@+86/10 name=s16 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=3 by(.a)=\"nil\" [span 3@+27/10 name=s3 b=\"1\"] [span 4@+28/10 name=s4 b=\"1\"] [span 5@+29/10 name=s5 b=\"1\"]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=1 by(.a)=\"nil\" [span 2@+24/10 name=s2 b=\"1\"]"
+  "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-2-limit-3/{}/0": [
-  "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=5 [span 1@+25/10] [span 2@+26/10] [span 3@+27/10] [span 4@+28/10] [span 5@+29/10]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=2 [span 1@+22/10] [span 2@+24/10] [span 2@+24/10]"
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=17 [span 1@+70/10] [span 14@+71/10] [span 15@+72/10] [span 2@+73/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]"
  ],
  "TestSearchStructuralOperators/portions-2/({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"} \u0026\u003e\u003e {.b = \"1\"}) || ({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"}) | select(name, nestedSetParent)/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 name=s1 a=\"1\" nestedSetParent=int:0]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 14@+71/10 name=s20 b=\"1\" nestedSetParent=int:0]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]",
   "trace e start=+22 ms=0 root=/s1",
@@ -251,6 +326,8 @@
   "  set matched=6 [span 1@+0/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+1/10 name=s2 b=\"1\" nestedSetParent=int:0] [span 6@+5/10 name=s6 a=\"1\" b=\"1\" nestedSetParent=int:0] [span 7@+6/10 name=s7 b=\"1\" nestedSetParent=int:0] [span c@+11/10 name=s12 b=\"1\" nestedSetParent=int:0] [span f@+14/10 name=s15 b=\"1\" nestedSetParent=int:0]"
  ],
  "TestSearchStructuralOperators/portions-2/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -263,6 +340,10 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-2/{.b = \"1\"} | by(.a) | select(name)/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 by(.a)=\"nil\" [span 1@+87/10 name=s1 b=\"1\"] [span 2@+88/10 name=s2 b=\"1\"] [span 3@+89/10 name=s3 b=\"1\"] [span 4@+90/10 name=s4 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 by(.a)=\"nil\" [span 14@+71/10 name=s20 b=\"1\"] [span 3@+74/10 name=s3 b=\"1\"] [span 4@+75/10 name=s4 b=\"1\"] [span 9@+79/10 name=s9 b=\"1\"] [span e@+84/10 name=s14 b=\"1\"] [span 10@+86/10 name=s16 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -278,6 +359,12 @@
   "  set matched=4 by(.a)=\"nil\" [span 2@+1/10 name=s2 b=\"1\"] [span 7@+6/10 name=s7 b=\"1\"] [span c@+11/10 name=s12 b=\"1\"] [span f@+14/10 name=s15 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-2/{}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=17 [span 1@+70/10] [span 14@+71/10] [span 15@+72/10] [span 2@+73/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -292,38 +379,42 @@
   "  set matched=15 [span 1@+0/10] [span 2@+1/10] [span 3@+2/10] [span 4@+3/10] [span 5@+4/10] [span 6@+5/10] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/portions-3-limit-3/({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"} \u0026\u003e\u003e {.b = \"1\"}) || ({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"}) | select(name, nestedSetParent)/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 name=s1 a=\"1\" nestedSetParent=int:0]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 14@+71/10 name=s20 b=\"1\" nestedSetParent=int:0]",
   "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=2 [span 1@+22/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+24/10 name=s2 b=\"1\" nestedSetParent=int:0]",
-  "trace 10 start=+15 ms=0 root=/s1",
-  "  set matched=2 [span 1@+15/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+16/10 name=s2 b=\"1\" nestedSetParent=int:0]"
+  "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]"
  ],
  "TestSearchStructuralOperators/portions-3-limit-3/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=1 [span 5@+29/10 b=\"1\"]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=1 [span 2@+24/10 b=\"1\"]"
+  "  set matched=1 [span 5@+29/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-3-limit-3/{.b = \"1\"} | by(.a) | select(name)/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 by(.a)=\"nil\" [span 1@+87/10 name=s1 b=\"1\"] [span 2@+88/10 name=s2 b=\"1\"] [span 3@+89/10 name=s3 b=\"1\"] [span 4@+90/10 name=s4 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 by(.a)=\"nil\" [span 14@+71/10 name=s20 b=\"1\"] [span 3@+74/10 name=s3 b=\"1\"] [span 4@+75/10 name=s4 b=\"1\"] [span 9@+79/10 name=s9 b=\"1\"] [span e@+84/10 name=s14 b=\"1\"] [span 10@+86/10 name=s16 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=3 by(.a)=\"nil\" [span 3@+27/10 name=s3 b=\"1\"] [span 4@+28/10 name=s4 b=\"1\"] [span 5@+29/10 name=s5 b=\"1\"]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=1 by(.a)=\"nil\" [span 2@+24/10 name=s2 b=\"1\"]"
+  "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-3-limit-3/{}/0": [
-  "trace 11 start=+30 ms=0 root=/s1",
-  "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
-  "trace 12 start=+25 ms=0 root=/s1",
-  "  set matched=5 [span 1@+25/10] [span 2@+26/10] [span 3@+27/10] [span 4@+28/10] [span 5@+29/10]",
-  "trace e start=+22 ms=0 root=/s1",
-  "  set matched=2 [span 1@+22/10] [span 2@+24/10] [span 2@+24/10]"
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=17 [span 1@+70/10] [span 14@+71/10] [span 15@+72/10] [span 2@+73/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]"
  ],
  "TestSearchStructuralOperators/portions-3/({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"} \u0026\u003e\u003e {.b = \"1\"}) || ({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"}) | select(name, nestedSetParent)/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 name=s1 a=\"1\" nestedSetParent=int:0]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 14@+71/10 name=s20 b=\"1\" nestedSetParent=int:0]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]",
   "trace e start=+22 ms=0 root=/s1",
@@ -334,6 +425,8 @@
   "  set matched=6 [span 1@+0/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+1/10 name=s2 b=\"1\" nestedSetParent=int:0] [span 6@+5/10 name=s6 a=\"1\" b=\"1\" nestedSetParent=int:0] [span 7@+6/10 name=s7 b=\"1\" nestedSetParent=int:0] [span c@+11/10 name=s12 b=\"1\" nestedSetParent=int:0] [span f@+14/10 name=s15 b=\"1\" nestedSetParent=int:0]"
  ],
  "TestSearchStructuralOperators/portions-3/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -346,6 +439,10 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-3/{.b = \"1\"} | by(.a) | select(name)/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 by(.a)=\"nil\" [span 1@+87/10 name=s1 b=\"1\"] [span 2@+88/10 name=s2 b=\"1\"] [span 3@+89/10 name=s3 b=\"1\"] [span 4@+90/10 name=s4 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 by(.a)=\"nil\" [span 14@+71/10 name=s20 b=\"1\"] [span 3@+74/10 name=s3 b=\"1\"] [span 4@+75/10 name=s4 b=\"1\"] [span 9@+79/10 name=s9 b=\"1\"] [span e@+84/10 name=s14 b=\"1\"] [span 10@+86/10 name=s16 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 by(.a)=\"nil\" [span b@+40/10 name=s11 b=\"1\"] [span 28@+69/10 name=s40 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -361,6 +458,12 @@
   "  set matched=4 by(.a)=\"nil\" [span 2@+1/10 name=s2 b=\"1\"] [span 7@+6/10 name=s7 b=\"1\"] [span c@+11/10 name=s12 b=\"1\"] [span f@+14/10 name=s15 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/portions-3/{}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10] [span 2@+92/10] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=17 [span 1@+70/10] [span 14@+71/10] [span 15@+72/10] [span 2@+73/10] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=40 [span 1@+30/10] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -381,10 +484,16 @@
   "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
  ],
  "TestSearchStructuralOperators/structural/({.a = \"1\"} \u003e {}) ~ {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=4 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"} \u0026\u003e\u003e {.b = \"1\"}) || ({nestedSetParent \u003c 0 \u0026\u0026 .a = \"1\"}) | select(name, nestedSetParent)/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 name=s1 a=\"1\" nestedSetParent=int:0]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 14@+71/10 name=s20 b=\"1\" nestedSetParent=int:0]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=3 [span 1@+30/10 name=s1 a=\"1\" nestedSetParent=int:0] [span b@+40/10 name=s11 b=\"1\" nestedSetParent=int:0] [span 28@+69/10 name=s40 b=\"1\" nestedSetParent=int:0]",
   "trace e start=+22 ms=0 root=/s1",
@@ -395,6 +504,10 @@
   "  set matched=6 [span 1@+0/10 name=s1 a=\"1\" nestedSetParent=int:0] [span 2@+1/10 name=s2 b=\"1\" nestedSetParent=int:0] [span 6@+5/10 name=s6 a=\"1\" b=\"1\" nestedSetParent=int:0] [span 7@+6/10 name=s7 b=\"1\" nestedSetParent=int:0] [span c@+11/10 name=s12 b=\"1\" nestedSetParent=int:0] [span f@+14/10 name=s15 b=\"1\" nestedSetParent=int:0]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -409,6 +522,12 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003c {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=16 [span 14@+71/10] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10 a=\"1\"] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10 a=\"1\"] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=39 [span 1@+30/10 a=\"1\"] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 15@+50/10 a=\"1\"] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -423,6 +542,10 @@
   "  set matched=13 [span 2@+1/10] [span 4@+3/10] [span 5@+4/10] [span 6@+5/10 a=\"1\"] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003c\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -437,6 +560,12 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003c\u003c {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=16 [span 14@+71/10] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10 a=\"1\"] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10 a=\"1\"] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=20 [span 15@+50/10 a=\"1\"] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -451,6 +580,10 @@
   "  set matched=13 [span 2@+1/10] [span 4@+3/10] [span 5@+4/10] [span 6@+5/10 a=\"1\"] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -463,6 +596,12 @@
   "  set matched=1 [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003e {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 a=\"1\"]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=15 [span 1@+70/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10 a=\"1\"] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10 a=\"1\"] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=38 [span 1@+30/10 a=\"1\"] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10 a=\"1\"] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -477,6 +616,10 @@
   "  set matched=9 [span 1@+0/10 a=\"1\"] [span 4@+3/10] [span 5@+4/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003e\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=2 [span 3@+27/10 b=\"1\"] [span 4@+28/10 b=\"1\"]",
   "trace c start=+20 ms=0 root=/s1",
@@ -485,6 +628,12 @@
   "  set matched=2 [span 4@+18/10 b=\"1\"] [span 5@+19/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !\u003e\u003e {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 a=\"1\"]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=15 [span 1@+70/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10 a=\"1\"] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10 a=\"1\"] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span 1@+30/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -499,6 +648,10 @@
   "  set matched=1 [span 1@+0/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !~ {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -513,6 +666,12 @@
   "  set matched=3 [span 6@+5/10 a=\"1\" b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} !~ {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10] [span 2@+88/10] [span 3@+89/10] [span 4@+90/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=16 [span 1@+70/10 a=\"1\"] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 3@+74/10] [span 4@+75/10] [span 5@+76/10] [span 7@+77/10] [span 8@+78/10 a=\"1\"] [span 9@+79/10] [span a@+80/10] [span b@+81/10] [span c@+82/10] [span d@+83/10 a=\"1\"] [span e@+84/10] [span f@+85/10] [span 10@+86/10]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=40 [span 1@+30/10 a=\"1\"] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10 a=\"1\"] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -528,6 +687,10 @@
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003c {.b = \"1\"}/0": [],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003c {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 a=\"1\"] [span 15@+72/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 14@+49/10] [span 15@+50/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -540,6 +703,10 @@
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 15@+50/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003c\u003c {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 a=\"1\"] [span 15@+72/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=21 [span 1@+30/10 a=\"1\"] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -548,6 +715,8 @@
   "  set matched=3 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003e {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 a=\"1\"] [span 14@+71/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=2 [span 2@+26/10 a=\"1\"] [span 5@+29/10 b=\"1\"]",
   "trace e start=+22 ms=0 root=/s1",
@@ -558,6 +727,10 @@
   "  set matched=6 [span 1@+0/10 a=\"1\"] [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003e {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=3 [span 1@+70/10 a=\"1\"] [span 14@+71/10] [span 15@+72/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=4 [span 1@+30/10 a=\"1\"] [span 2@+31/10] [span 15@+50/10 a=\"1\"] [span 16@+51/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -570,6 +743,8 @@
   "  set matched=7 [span 1@+0/10 a=\"1\"] [span 2@+1/10] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\"] [span 7@+6/10] [span c@+11/10] [span d@+12/10]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003e\u003e {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 a=\"1\"] [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=4 [span 1@+30/10 a=\"1\"] [span b@+40/10 b=\"1\"] [span 15@+50/10 a=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -582,6 +757,10 @@
   "  set matched=7 [span 1@+0/10 a=\"1\"] [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026\u003e\u003e {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=3 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=3 [span 1@+70/10 a=\"1\"] [span 14@+71/10] [span 15@+72/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=40 [span 1@+30/10 a=\"1\"] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10 a=\"1\"] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -594,12 +773,18 @@
   "  set matched=15 [span 1@+0/10 a=\"1\"] [span 2@+1/10] [span 3@+2/10 a=\"1\"] [span 4@+3/10] [span 5@+4/10] [span 6@+5/10 a=\"1\"] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026~ {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 14@+71/10 b=\"1\"] [span 15@+72/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=3 [span 2@+26/10 a=\"1\"] [span 3@+27/10 b=\"1\"] [span 4@+28/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=4 [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u0026~ {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 14@+71/10] [span 15@+72/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=3 [span 2@+26/10 a=\"1\"] [span 3@+27/10] [span 4@+28/10]",
   "trace a start=+0 ms=0 root=/s1",
@@ -607,6 +792,10 @@
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003c {.b = \"1\"}/0": [],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003c {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 1@+70/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span 14@+49/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -619,6 +808,10 @@
   "  set matched=1 [span b@+40/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003c\u003c {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 1@+91/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 1@+70/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=20 [span 1@+30/10 a=\"1\"] [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -627,6 +820,8 @@
   "  set matched=2 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003e {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=1 [span 5@+29/10 b=\"1\"]",
   "trace e start=+22 ms=0 root=/s1",
@@ -637,6 +832,10 @@
   "  set matched=4 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003e {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 14@+71/10] [span 15@+72/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 2@+31/10] [span 16@+51/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -655,6 +854,8 @@
   "  set matched=10 [span 4@+3/10] [span 5@+4/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10 b=\"1\"] [span d@+12/10] [span e@+13/10] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003e\u003e {.b = \"1\"} | select(.a)/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -667,6 +868,8 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003e\u003e {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -679,6 +882,10 @@
   "  set matched=5 [span 2@+1/10 b=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} \u003e\u003e {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 2@+92/10 a=\"1\"] [span 3@+93/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 14@+71/10] [span 15@+72/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=39 [span 2@+31/10] [span 3@+32/10] [span 4@+33/10] [span 5@+34/10] [span 6@+35/10] [span 7@+36/10] [span 8@+37/10] [span 9@+38/10] [span a@+39/10] [span b@+40/10] [span c@+41/10] [span d@+42/10] [span e@+43/10] [span f@+44/10] [span 10@+45/10] [span 11@+46/10] [span 12@+47/10] [span 13@+48/10] [span 14@+49/10] [span 15@+50/10 a=\"1\"] [span 16@+51/10] [span 17@+52/10] [span 18@+53/10] [span 19@+54/10] [span 1a@+55/10] [span 1b@+56/10] [span 1c@+57/10] [span 1d@+58/10] [span 1e@+59/10] [span 1f@+60/10] [span 20@+61/10] [span 21@+62/10] [span 22@+63/10] [span 23@+64/10] [span 24@+65/10] [span 25@+66/10] [span 26@+67/10] [span 27@+68/10] [span 28@+69/10]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -691,18 +898,28 @@
   "  set matched=14 [span 2@+1/10] [span 3@+2/10 a=\"1\"] [span 4@+3/10] [span 5@+4/10] [span 6@+5/10 a=\"1\"] [span 7@+6/10] [span 8@+7/10] [span 9@+8/10] [span a@+9/10] [span b@+10/10] [span c@+11/10] [span d@+12/10] [span e@+13/10] [span f@+14/10]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} ~ {.b = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=2 [span 3@+27/10 b=\"1\"] [span 4@+28/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=2 [span 2@+1/10 b=\"1\"] [span 7@+6/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.a = \"1\"} ~ {}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=1 [span 3@+93/10]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 14@+71/10]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=2 [span 3@+27/10] [span 4@+28/10]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=2 [span 2@+1/10] [span 7@+6/10]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003c {.a = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=4 [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 8@+78/10 a=\"1\"] [span d@+83/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 1@+30/10 a=\"1\"] [span 15@+50/10 a=\"1\"]",
   "trace c start=+20 ms=0 root=/s1",
@@ -711,6 +928,10 @@
   "  set matched=1 [span 3@+17/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=3 [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -725,12 +946,20 @@
   "  set matched=3 [span 2@+1/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003c\u003c {.a = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=4 [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 8@+78/10 a=\"1\"] [span d@+83/10 a=\"1\"]",
   "trace c start=+20 ms=0 root=/s1",
   "  set matched=1 [span 1@+20/10 a=\"1\"]",
   "trace 10 start=+15 ms=0 root=/s1",
   "  set matched=1 [span 3@+17/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003c\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=3 [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -745,6 +974,10 @@
   "  set matched=3 [span 2@+1/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003e {.a = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 [span 1@+70/10 a=\"1\"] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 8@+78/10 a=\"1\"] [span d@+83/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 1@+30/10 a=\"1\"] [span 15@+50/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -759,6 +992,10 @@
   "  set matched=3 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=3 [span 1@+87/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -773,6 +1010,10 @@
   "  set matched=3 [span 2@+1/10 b=\"1\"] [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003e\u003e {.a = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=5 [span 1@+70/10 a=\"1\"] [span 15@+72/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 8@+78/10 a=\"1\"] [span d@+83/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span 1@+30/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -787,6 +1028,10 @@
   "  set matched=3 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !\u003e\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=3 [span 1@+87/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span b@+40/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -801,6 +1046,10 @@
   "  set matched=3 [span 2@+1/10 b=\"1\"] [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !~ {.a = \"1\"}/0": [
+  "trace 2a start=+91 ms=0 root=/s1",
+  "  set matched=2 [span 1@+91/10 a=\"1\"] [span 2@+92/10 a=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=4 [span 1@+70/10 a=\"1\"] [span 2@+73/10 a=\"1\"] [span 8@+78/10 a=\"1\"] [span d@+83/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 1@+30/10 a=\"1\"] [span 15@+50/10 a=\"1\"]",
   "trace e start=+22 ms=0 root=/s1",
@@ -813,6 +1062,10 @@
   "  set matched=1 [span 1@+0/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} !~ {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=4 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"] [span 3@+89/10 b=\"1\"] [span 4@+90/10 b=\"1\"]",
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=6 [span 14@+71/10 b=\"1\"] [span 3@+74/10 b=\"1\"] [span 4@+75/10 b=\"1\"] [span 9@+79/10 b=\"1\"] [span e@+84/10 b=\"1\"] [span 10@+86/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -827,6 +1080,8 @@
   "  set matched=3 [span 2@+1/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003c {.a = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 a=\"1\"] [span 14@+71/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=2 [span 2@+26/10 a=\"1\"] [span 5@+29/10 b=\"1\"]",
   "trace e start=+22 ms=0 root=/s1",
@@ -837,10 +1092,14 @@
   "  set matched=6 [span 1@+0/10 a=\"1\"] [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=2 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=4 [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003c\u003c {.a = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 1@+70/10 a=\"1\"] [span 14@+71/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=4 [span 1@+30/10 a=\"1\"] [span b@+40/10 b=\"1\"] [span 15@+50/10 a=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -853,6 +1112,8 @@
   "  set matched=7 [span 1@+0/10 a=\"1\"] [span 2@+1/10 b=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003c\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=2 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
@@ -860,6 +1121,8 @@
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003e {.a = \"1\"}/0": [],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=2 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=4 [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
@@ -868,12 +1131,16 @@
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 15@+50/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026\u003e\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=2 [span 1@+87/10 b=\"1\"] [span 2@+88/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span b@+40/10 b=\"1\"] [span 28@+69/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=4 [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"] [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u0026~ {.a = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=2 [span 14@+71/10 b=\"1\"] [span 15@+72/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=3 [span 2@+26/10 a=\"1\"] [span 3@+27/10 b=\"1\"] [span 4@+28/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
@@ -886,6 +1153,8 @@
   "  set matched=2 [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003c {.a = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 1@+70/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=1 [span 2@+26/10 a=\"1\"]",
   "trace e start=+22 ms=0 root=/s1",
@@ -896,10 +1165,14 @@
   "  set matched=3 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=1 [span 1@+87/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=2 [span 6@+5/10 b=\"1\"] [span 7@+6/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003c\u003c {.a = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 1@+70/10 a=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=2 [span 1@+30/10 a=\"1\"] [span 15@+50/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
@@ -912,6 +1185,8 @@
   "  set matched=3 [span 1@+0/10 a=\"1\"] [span 3@+2/10 a=\"1\"] [span 6@+5/10 a=\"1\" b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003c\u003c {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=1 [span 1@+87/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span b@+40/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
@@ -919,6 +1194,8 @@
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003e {.a = \"1\"}/0": [],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=1 [span 2@+88/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=2 [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
@@ -927,12 +1204,16 @@
   "  set matched=1 [span 15@+50/10 a=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} \u003e\u003e {.b = \"1\"}/0": [
+  "trace 29 start=+87 ms=0 root=/s1",
+  "  set matched=1 [span 2@+88/10 b=\"1\"]",
   "trace 11 start=+30 ms=0 root=/s1",
   "  set matched=1 [span 28@+69/10 b=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",
   "  set matched=2 [span c@+11/10 b=\"1\"] [span f@+14/10 b=\"1\"]"
  ],
  "TestSearchStructuralOperators/structural/{.b = \"1\"} ~ {.a = \"1\"}/0": [
+  "trace 28 start=+70 ms=0 root=/s1",
+  "  set matched=1 [span 15@+72/10 a=\"1\"]",
   "trace 12 start=+25 ms=0 root=/s1",
   "  set matched=1 [span 2@+26/10 a=\"1\"]",
   "trace a start=+0 ms=0 root=/s1",

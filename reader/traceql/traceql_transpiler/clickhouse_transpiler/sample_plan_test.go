@@ -74,18 +74,18 @@ func TestMetricsSampleEveryOperandRead(t *testing.T) {
 	}
 }
 
-var edgesCTE = regexp.MustCompile(`_edges as \((.*?)\),_\d+`)
+var nodesCTE = regexp.MustCompile(`_nodes as \((.*?)\),_\d+`)
 
-// The edges of sampled traces come unsampled, so ancestry sees the whole tree.
+// The trees of sampled traces come unsampled, so ancestry sees the whole tree.
 func TestSampledAncestryReadsTheWholeTree(t *testing.T) {
 	for _, query := range []string{`{.a = 1} >> {.b = 2}`, `{.a = 1} > {.b = 2}`} {
 		res := planSampledMetrics(t, query)
-		edges := edgesCTE.FindStringSubmatch(res)
-		if edges == nil {
-			t.Fatalf("%s: no edges CTE:\n%s", query, res)
+		nodes := nodesCTE.FindStringSubmatch(res)
+		if nodes == nil {
+			t.Fatalf("%s: no nodes CTE:\n%s", query, res)
 		}
-		if strings.Contains(edges[1], "cityHash64") {
-			t.Errorf("%s: edges read sampled:\n%s", query, edges[1])
+		if strings.Contains(nodes[1], "cityHash64") {
+			t.Errorf("%s: nodes read sampled:\n%s", query, nodes[1])
 		}
 	}
 }

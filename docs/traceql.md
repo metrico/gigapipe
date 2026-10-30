@@ -85,8 +85,9 @@ TraceQL operators and fail with a parse error naming the spelling to use
 
 ### Depth limit
 
-Ancestry is resolved in a fixed number of rounds, set by
+Ancestry is resolved in up to `R` rounds, set by
 `GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS` (see [Configuration](configuration.md#traceql)).
+Each trace takes one round per doubling of its spans found so far.
 With `R` rounds, traces up to `2^R` spans deep resolve; the default of 20
 covers traces about a million spans deep.
 

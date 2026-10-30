@@ -98,8 +98,16 @@ func renderSelect(t *testing.T, s sql.ISelect) string {
 	return res
 }
 
+// roundCount is the jump anchor's per-trace round count, capped at rounds + 1.
+func roundCount(rounds int) string {
+	return fmt.Sprintf("<= %[1]d, greatest(1, ceil(log2(countIf(found = 1) OVER (PARTITION BY trace_id) + 1))), %[1]d + 1)", rounds)
+}
+
+// incompleteRecurse is the anchor condition of traces with a found root and a missing parent.
+const incompleteRecurse = "found = 1 AND max(found = 1 AND parent = toFixedString('', 8)) OVER (PARTITION BY trace_id) = 1 AND max(found = 0) OVER (PARTITION BY trace_id) = 1"
+
 // One-hop operators relate spans in one pass over their keys; only root
-// reachability recurses, over traces with a missing parent.
+// reachability recurses, over traces with a root and a missing parent.
 func TestOneHopRecursesOnlyForIncompleteTraces(t *testing.T) {
 	for _, query := range oneHopQueries {
 		t.Run(query, func(t *testing.T) {
@@ -108,19 +116,15 @@ func TestOneHopRecursesOnlyForIncompleteTraces(t *testing.T) {
 			if len(recursive) != 1 || !strings.HasSuffix(recursive[0].GetAlias(), "_jump") {
 				t.Fatalf("want one recursive reachability CTE, got %d", len(recursive))
 			}
-			anchor, err := recursive[0].GetQuery().String(sql.DefaultCtx(), sql.STRING_OPT_SKIP_WITH)
-			if err != nil {
-				t.Fatal(err)
+			anchor := renderSelect(t, recursive[0].GetQuery())
+			if !strings.Contains(anchor, incompleteRecurse) {
+				t.Errorf("reachability is not limited to traces with a root and a missing parent:\n%s", anchor)
 			}
-			if !strings.Contains(anchor, "has_root = 1 AND has_dangling = 1") {
-				t.Errorf("reachability is not limited to traces with a missing parent:\n%s", anchor)
+			if !strings.Contains(anchor, roundCount(traceqlconfig.DefaultAncestryRounds)) {
+				t.Errorf("reachability rounds are unbounded:\n%s", anchor)
 			}
-			step, err := recursive[0].GetStep().String(sql.DefaultCtx(), sql.STRING_OPT_SKIP_WITH)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(step, fmt.Sprintf("((x.k) < (%d))", traceqlconfig.DefaultAncestryRounds)) {
-				t.Errorf("reachability rounds are unbounded:\n%s", step)
+			if step := renderSelect(t, recursive[0].GetStep()); !strings.Contains(step, "(x.jumps < x.rounds)") {
+				t.Errorf("reachability does not stop at the trace's round count:\n%s", step)
 			}
 			for _, w := range withSuffix(withs, "_counted") {
 				if res := renderWith(t, w); !strings.Contains(res, "OVER (PARTITION BY trace_id, reachable, key)") {
@@ -141,7 +145,7 @@ func TestTransitiveOperatorsJumpOverEveryCandidateSpan(t *testing.T) {
 				t.Fatalf("want only transitive jump CTEs to recurse, got %d of %d", len(jumps), len(recursiveWiths(withs)))
 			}
 			for _, jump := range jumps {
-				if anchor := renderSelect(t, jump.GetQuery()); strings.Contains(anchor, "has_dangling") {
+				if anchor := renderSelect(t, jump.GetQuery()); strings.Contains(anchor, "max(found = 0)") {
 					t.Errorf("transitive jump is limited to incomplete traces:\n%s", anchor)
 				}
 			}
@@ -149,33 +153,34 @@ func TestTransitiveOperatorsJumpOverEveryCandidateSpan(t *testing.T) {
 	}
 }
 
-// Every pointer jump runs the configured number of rounds and fails the query
-// when a pointer is still unresolved after the last one.
+// Every pointer jump runs at most the configured number of rounds plus one,
+// and fails the query when a chain is unresolved.
 func TestAncestryRoundsComeFromTheSettingWithAGuard(t *testing.T) {
 	for _, rounds := range []int{0, 3, 7} {
 		want := rounds
 		if rounds == 0 {
 			want = traceqlconfig.DefaultAncestryRounds
 		}
+		guard := fmt.Sprintf(" AND if(rounds <= %d, anc != %s, past_limit = 1), '%s')", want, zeroSpanID, unresolvedAncestryMessage(want))
 		for _, query := range structuralQueries {
 			ctx := testPlannerContext(3)
 			ctx.AncestryRounds = rounds
 			withs := structuralWiths(t, query, ctx)
-			guarded := map[string]bool{}
-			for _, w := range withs {
-				body := renderWith(t, w)
-				for _, jump := range recursiveWiths(withs) {
-					if strings.Contains(body, "FROM "+jump.GetAlias()+" ") && strings.Contains(body,
-						fmt.Sprintf("throwIf(k = %d AND anc != %s, '%s')", want, zeroSpanID, unresolvedAncestryMessage(want))) {
-						guarded[jump.GetAlias()] = true
+			for _, jump := range recursiveWiths(withs) {
+				prefix := strings.TrimSuffix(jump.GetAlias(), "_jump")
+				if anchor := renderSelect(t, jump.GetQuery()); !strings.Contains(anchor, roundCount(want)) {
+					t.Errorf("rounds=%d %s: %s does not stop after %d rounds:\n%s", rounds, query, jump.GetAlias(), want, anchor)
+				}
+				if step := renderSelect(t, jump.GetStep()); !strings.Contains(step, fmt.Sprintf("x.jumps = %d AND", want)) {
+					t.Errorf("rounds=%d %s: %s does not flag chains past round %d:\n%s", rounds, query, jump.GetAlias(), want, step)
+				}
+				guarded := false
+				for alias, w := range withs {
+					if strings.HasPrefix(alias, prefix+"_") && strings.Contains(renderWith(t, w), guard) {
+						guarded = true
 					}
 				}
-			}
-			for _, jump := range recursiveWiths(withs) {
-				if step := renderSelect(t, jump.GetStep()); !strings.Contains(step, fmt.Sprintf("((x.k) < (%d))", want)) {
-					t.Errorf("rounds=%d %s: %s does not stop after %d rounds:\n%s", rounds, query, jump.GetAlias(), want, step)
-				}
-				if !guarded[jump.GetAlias()] {
+				if !guarded {
 					t.Errorf("rounds=%d %s: %s has no unresolved-ancestry guard", rounds, query, jump.GetAlias())
 				}
 			}
@@ -199,16 +204,20 @@ func TestUnresolvedAncestryMessageNamesTheSetting(t *testing.T) {
 	ctx := testPlannerContext(3)
 	ctx.AncestryRounds = 3
 	chErr := errors.New("code: 395, message: " + msg + ": while executing 'FUNCTION throwIf(...)'")
-	if err := UnresolvedAncestryError(ctx, chErr); err == nil || err.Error() != msg {
-		t.Errorf("UnresolvedAncestryError = %v, want %q", err, msg)
+	if err := unresolvedAncestryError(ctx, chErr); err == nil || err.Error() != msg {
+		t.Errorf("unresolvedAncestryError = %v, want %q", err, msg)
 	}
 	other := errors.New("code: 241, message: memory limit exceeded")
-	if err := UnresolvedAncestryError(ctx, other); err != other {
-		t.Errorf("UnresolvedAncestryError changed an unrelated error: %v", err)
+	if err := unresolvedAncestryError(ctx, other); err != other {
+		t.Errorf("unresolvedAncestryError changed an unrelated error: %v", err)
 	}
 }
 
-func TestStructuralEdgesComeFromTheTracesTableWithoutTimeBound(t *testing.T) {
+// tracesRead is the traces-table read of a nodes CTE, up to its union with
+// the operand rows.
+var tracesRead = regexp.MustCompile(`FROM tempo_traces(?:_dist)? as traces.*?UNION ALL`)
+
+func TestStructuralTreeComesFromTheTracesTableWithoutTimeBound(t *testing.T) {
 	for _, cluster := range []bool{false, true} {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
@@ -219,16 +228,17 @@ func TestStructuralEdgesComeFromTheTracesTableWithoutTimeBound(t *testing.T) {
 			in = " GLOBAL IN ("
 		}
 		for _, query := range []string{`{.a = 1} > {.b = 2}`, `{.a = 1} << {.b = 2}`} {
-			edges := withSuffix(structuralWiths(t, query, ctx), "_edges")
-			if len(edges) != 1 {
-				t.Fatalf("cluster=%v %s: %d edge CTEs, want 1", cluster, query, len(edges))
+			nodes := withSuffix(structuralWiths(t, query, ctx), "_nodes")
+			if len(nodes) != 1 {
+				t.Fatalf("cluster=%v %s: %d nodes CTEs, want 1", cluster, query, len(nodes))
 			}
-			res := renderWith(t, edges[0])
-			if !strings.Contains(res, table) || strings.Count(res, "traces.trace_id"+in) != 2 {
-				t.Errorf("cluster=%v %s: edges are not read from the traces table by trace id:\n%s", cluster, query, res)
+			res := renderWith(t, nodes[0])
+			read := tracesRead.FindString(res)
+			if !strings.Contains(read, table) || strings.Count(read, "traces.trace_id"+in) != 1 {
+				t.Errorf("cluster=%v %s: nodes are not read from the traces table by trace id:\n%s", cluster, query, res)
 			}
-			if strings.Contains(res, "timestamp_ns") || strings.Contains(res, "date") {
-				t.Errorf("cluster=%v %s: edges are bounded in time:\n%s", cluster, query, res)
+			if strings.Contains(read, "timestamp_ns") || strings.Contains(read, "date") {
+				t.Errorf("cluster=%v %s: nodes are bounded in time:\n%s", cluster, query, read)
 			}
 		}
 	}

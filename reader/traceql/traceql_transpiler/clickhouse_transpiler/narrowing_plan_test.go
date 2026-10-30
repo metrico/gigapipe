@@ -108,14 +108,19 @@ func TestNarrowedAncestryLoadsSurvivingTraces(t *testing.T) {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
 		res := renderSearch(t, planSearch(t, query), ctx)
-		edges := regexp.MustCompile(`(_\d+transitive_edges) as \(.*?GROUP BY`).FindString(res)
-		operands := regexp.MustCompile(`IN \(\s*SELECT trace_id FROM (_\d+transitive_(?:lhs|rhs))\)`).FindAllStringSubmatch(edges, -1)
+		nodes := regexp.MustCompile(`_\d+transitive_nodes as \(.*?\) as _\d+transitive_rows`).FindString(res)
+		sides := regexp.MustCompile(`IN \(\s*SELECT trace_id FROM (_\d+transitive_sides) GROUP BY trace_id HAVING`).FindStringSubmatch(nodes)
+		if sides == nil {
+			t.Fatalf("nodes do not read the operand traces:\n%s", nodes)
+		}
+		body := regexp.MustCompile(regexp.QuoteMeta(sides[1]) + ` as \(.*?\),_\d+`).FindString(res)
+		operands := regexp.MustCompile(`FROM (_\d+transitive_(?:lhs|rhs))\b`).FindAllStringSubmatch(body, -1)
 		if len(operands) != 2 {
-			t.Fatalf("edges do not read the operand traces:\n%s", edges)
+			t.Fatalf("%s does not read both operands:\n%s", sides[1], body)
 		}
 		for _, m := range operands {
 			body := res[strings.Index(res, m[1]+" as ("):]
-			if loc := narrowedRead.FindStringSubmatchIndex(body); loc == nil || strings.Contains(body[:loc[0]], "_edges as (") {
+			if loc := narrowedRead.FindStringSubmatchIndex(body); loc == nil || strings.Contains(body[:loc[0]], "_nodes as (") {
 				t.Errorf("%s is not narrowed to the previous stage:\n%s", m[1], res)
 			}
 		}

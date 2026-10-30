@@ -365,8 +365,8 @@ var plainSearches = []string{
 	`{.c = "1"}`,
 }
 
-// structuralTraces are well formed, dangling, rootless, deep, duplicated and
-// sibling traces.
+// structuralTraces are well formed, dangling, rootless, deep, duplicated,
+// sibling and one-sided traces.
 func structuralTraces() []span {
 	var spans []span
 	// 10: a tree of 15 spans.
@@ -404,7 +404,29 @@ func structuralTraces() []span {
 		}
 		spans = append(spans, s)
 	}
-	return spans
+	// 40: a root, siblings under the root and under a missing parent, and a
+	// chain 13 deep below the missing parent.
+	spans = append(spans,
+		span{40, 1, 0, []string{"a"}}, span{40, 20, 1, []string{"b"}}, span{40, 21, 1, []string{"a"}},
+		span{40, 2, 50, []string{"a"}}, span{40, 3, 50, []string{"b"}})
+	prev := 3
+	for _, id := range []int{4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16} {
+		s := span{trace: 40, id: id, parent: prev}
+		switch id {
+		case 8, 13:
+			s.attrs = []string{"a"}
+		case 4, 9, 14, 16:
+			s.attrs = []string{"b"}
+		}
+		spans = append(spans, s)
+		prev = id
+	}
+	return append(spans,
+		// 41: only b spans, one under a missing parent.
+		span{41, 1, 0, []string{"b"}}, span{41, 2, 1, []string{"b"}},
+		span{41, 3, 99, []string{"b"}}, span{41, 4, 3, []string{"b"}},
+		// 42: only a spans.
+		span{42, 1, 0, []string{"a"}}, span{42, 2, 1, []string{"a"}}, span{42, 3, 1, nil})
 }
 
 // limitSearches match more traces than the limits they run with.
@@ -508,11 +530,18 @@ func testSearchRoundLimit(t *testing.T, cluster bool) {
 		}
 		return res
 	}
-	queries := []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !>> {.b = "1"}`, `{.a = "1"} > {}`, `{.b = "1"} &<< {.a = "1"}`}
-	s.seed(t, append(chain(30, 8, 99), chain(32, 8, 0)...))
+	queries := []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !>> {.b = "1"}`, `{.a = "1"} > {}`, `{.b = "1"} &<< {.a = "1"}`,
+		`{.a = "1"} > {.b = "1"}`, `{.a = "1"} ~ {.b = "1"}`, `{.a = "1"} !> {.b = "1"}`}
+	// 33: a root with children, and a chain of 8 under a missing parent.
+	rooted := append(chain(33, 8, 99), span{33, 20, 0, []string{"a"}},
+		span{33, 21, 20, []string{"b"}}, span{33, 22, 20, []string{"a"}}, span{33, 23, 20, []string{"b"}})
+	s.seed(t, append(append(chain(30, 8, 99), chain(32, 8, 0)...), rooted...))
 	s.assertResults(t, "resolved", queries, searchRun{rounds: 3}, false)
 	s.seed(t, chain(31, 9, 0))
 	s.assertResults(t, "unresolved", queries[:2], searchRun{rounds: 3}, true)
+	// 34: a rooted chain of 9 and a span under a missing parent.
+	s.seed(t, append(chain(34, 9, 0), span{34, 20, 98, []string{"a"}}))
+	s.assertResults(t, "unresolved-one-hop", queries[4:7], searchRun{rounds: 3}, true)
 }
 
 // Search returns the traces, spansets and selected values of the golden
@@ -534,8 +563,8 @@ func TestSearchCycles(t *testing.T) { testSearchCycles(t, false) }
 
 func TestSearchCyclesOnCluster(t *testing.T) { testSearchCycles(t, true) }
 
-// At 3 rounds, a chain of 8 spans under a missing parent resolves and a
-// rooted chain of 9 does not.
+// At 3 rounds, a chain of 8 spans under a missing parent resolves, in a
+// rooted trace too, and a rooted chain of 9 does not.
 func TestSearchRoundLimit(t *testing.T) { testSearchRoundLimit(t, false) }
 
 func TestSearchRoundLimitOnCluster(t *testing.T) { testSearchRoundLimit(t, true) }
