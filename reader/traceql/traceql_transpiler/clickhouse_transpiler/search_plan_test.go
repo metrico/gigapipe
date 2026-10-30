@@ -53,6 +53,9 @@ var transitiveQueries = []string{
 	`{.a = 1} &<< ({.b = 2} !>> {.c = 3})`,
 	`{.a = 1} >> {.b = 2} | sum(.c) > 1`,
 	`{.a = .b} >> {.c = nil}`,
+	`({.a = 1} >> {.b = 2}) || {.a = 1}`,
+	`({nestedSetParent < 0 && resource.service.name = "a"} &>> {kind = server}) || ` +
+		`({nestedSetParent < 0 && resource.service.name = "a"}) | select(name)`,
 }
 
 // structuralQueries hold operators evaluated on the span tree.
@@ -326,12 +329,16 @@ func TestShardStatementSkipsUnavailableShardsLikeTheReadTables(t *testing.T) {
 	setting := regexp.MustCompile(`SETTINGS .*skip_unavailable_shards=1$`)
 	for _, skip := range []bool{false, true} {
 		for _, query := range structuralQueries {
-			ctx := testPlannerContext(3)
-			ctx.IsCluster = true
-			ctx.SkipUnavailableShards = skip
-			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
-			if setting.MatchString(res) != skip || strings.Count(res, "skip_unavailable_shards") > 1 {
-				t.Errorf("skip=%v %s: statement settings do not skip unavailable shards like the read tables:\n%s", skip, query, res)
+			statements := idsStatements(t, query)
+			statements["search"] = planSearch(t, query).Ids[0].Statement
+			for name, statement := range statements {
+				ctx := testPlannerContext(3)
+				ctx.IsCluster = true
+				ctx.SkipUnavailableShards = skip
+				res := renderPlan(t, statement, ctx)
+				if setting.MatchString(res) != skip || strings.Count(res, "skip_unavailable_shards") > 1 {
+					t.Errorf("skip=%v %s %s: statement settings do not skip unavailable shards like the read tables:\n%s", skip, name, query, res)
+				}
 			}
 		}
 	}

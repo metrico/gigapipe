@@ -9,13 +9,16 @@ import (
 	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
-// shardLocalPlanner runs Shard on each shard over local tables and keeps the
-// ctx.Limit newest traces; a trace's spans and attribute rows must live on
-// one shard. Every shard, the local one included, gets Shard as a remote
-// query so all shards run at once.
+// shardLocalPlanner runs Shard on each shard over local tables and returns
+// Cols of its rows; a trace's spans and attribute rows must live on one shard.
+// Every shard, the local one included, gets Shard as a remote query so all
+// shards run at once. Single node runs Single.
 type shardLocalPlanner struct {
 	Shard  shared.SQLRequestPlanner
 	Single shared.SQLRequestPlanner
+	Cols   []string
+	// Newest keeps the ctx.Limit traces with the greatest trace_newest.
+	Newest bool
 }
 
 func (s *shardLocalPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -40,13 +43,17 @@ func (s *shardLocalPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		}
 		return fmt.Sprintf("cluster(%s, view(%s))", name, body), nil
 	})
-	res := sql.NewSelect().
-		Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"), sql.NewRawObject("spansets")).
-		From(view).
-		OrderBy(
-			sql.NewOrderBy(sql.NewRawObject("trace_newest"), sql.ORDER_BY_DIRECTION_DESC),
-			sql.NewOrderBy(sql.NewRawObject("trace_id"), sql.ORDER_BY_DIRECTION_DESC)).
-		SetSetting("prefer_localhost_replica", "0")
+	cols := make([]sql.SQLObject, len(s.Cols))
+	for i, c := range s.Cols {
+		cols[i] = sql.NewRawObject(c)
+	}
+	res := sql.NewSelect().Select(cols...).From(view).SetSetting("prefer_localhost_replica", "0")
+	if !s.Newest {
+		return res, nil
+	}
+	res = res.OrderBy(
+		sql.NewOrderBy(sql.NewRawObject("trace_newest"), sql.ORDER_BY_DIRECTION_DESC),
+		sql.NewOrderBy(sql.NewRawObject("trace_id"), sql.ORDER_BY_DIRECTION_DESC))
 	if ctx.Limit > 0 {
 		res = res.Limit(sql.NewIntVal(ctx.Limit))
 	}

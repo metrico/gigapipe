@@ -45,7 +45,7 @@ func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (*MetricsPlan, err
 	return &MetricsPlan{
 		Ids: []IdsStatement{{
 			Table:     SearchResultTable,
-			Statement: p.structuralGate(&spanIdsPlanner{Result: result, Sample: sampleFilter(query)}),
+			Statement: p.structuralIds(&spanIdsPlanner{Result: result, Sample: sampleFilter(query)}),
 		}},
 		Metrics: &metricsPlanner{Spans: spans, Build: build},
 		spans:   spans,
@@ -72,7 +72,7 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 	}
 	sample := sampleFilter(query)
 	baseline := &windowPlanner{Main: &spanIdsPlanner{Result: result, Sample: sample}, From: baselineFrom, To: baselineTo}
-	res := &MetricsPlan{Ids: []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(baseline)}}}
+	res := &MetricsPlan{Ids: []IdsStatement{{Table: SearchResultTable, Statement: p.structuralIds(baseline)}}}
 	cmp := &comparePlanner{Baseline: &metricsSpansPlanner{Ids: SearchResultTable, Prefix: p.getPrefix()},
 		BaselineFrom: baselineFrom, BaselineTo: baselineTo, Build: build}
 	if selection != nil {

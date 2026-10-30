@@ -124,9 +124,9 @@ func metricsSpanStart(i int) int64 {
 	return metricsStart.Add(time.Duration(i) * time.Second).UnixNano()
 }
 
-// seed inserts spans, with name "s<id>" and duration id ms. On a cluster each
-// span goes to the shard of its id's parity, so a trace's spans sit on two
-// shards.
+// seed inserts spans, with name "s<id>" and duration id ms. On a cluster the
+// spans go through the Distributed tables with an empty oid, so a trace's
+// spans, attribute rows and numbering sit on one shard.
 func (s *metricsStore) seed(t *testing.T, spans []metricsSpan) {
 	t.Helper()
 	var rows, ns []string
@@ -151,27 +151,16 @@ func (s *metricsStore) seed(t *testing.T, spans []metricsSpan) {
 	if s.cluster == "" {
 		s.exec(t, "INSERT INTO traces_input "+cols+" VALUES "+strings.Join(rows, ", "))
 	} else {
-		nsTable = "seed_nested_set_split"
-		locals := map[string]string{
-			"seed_traces_split":     "tempo_traces",
-			"seed_attrs_split":      "tempo_traces_attrs_gin",
-			"seed_nested_set_split": "tempo_traces_nested_set",
-		}
-		for table, local := range locals {
-			s.exec(t, fmt.Sprintf(
-				"CREATE TABLE IF NOT EXISTS %s AS %s_dist ENGINE = Distributed('%s', '%s', '%s', "+
-					"reinterpretAsUInt8(substring(span_id, 8, 1)))",
-				table, local, s.cluster, s.name, local))
-		}
+		nsTable = "tempo_traces_nested_set_dist"
 		s.exec(t, "CREATE TABLE IF NOT EXISTS seed_input AS traces_input ENGINE = Memory")
 		s.exec(t, "TRUNCATE TABLE seed_input")
 		s.exec(t, "INSERT INTO seed_input "+cols+" VALUES "+strings.Join(rows, ", "))
-		s.exec(t, `INSERT INTO seed_traces_split (oid, trace_id, span_id, parent_id, name, timestamp_ns, duration_ns)
-			SELECT oid, unhex(trace_id)::FixedString(16), unhex(span_id)::FixedString(8), unhex(parent_id), name,
+		s.exec(t, `INSERT INTO tempo_traces_dist (oid, trace_id, span_id, parent_id, name, timestamp_ns, duration_ns)
+			SELECT '', unhex(trace_id)::FixedString(16), unhex(span_id)::FixedString(8), unhex(parent_id), name,
 			       timestamp_ns, duration_ns
 			FROM seed_input`)
-		s.exec(t, `INSERT INTO seed_attrs_split (oid, date, key, val, trace_id, span_id, timestamp_ns, duration)
-			SELECT oid, toDate(intDiv(timestamp_ns, 1000000000)), tags.1, tags.2, unhex(trace_id)::FixedString(16),
+		s.exec(t, `INSERT INTO tempo_traces_attrs_gin_dist (oid, date, key, val, trace_id, span_id, timestamp_ns, duration)
+			SELECT '', toDate(intDiv(timestamp_ns, 1000000000)), tags.1, tags.2, unhex(trace_id)::FixedString(16),
 			       unhex(span_id)::FixedString(8), timestamp_ns, duration_ns
 			FROM seed_input ARRAY JOIN tags`)
 	}
@@ -180,16 +169,20 @@ func (s *metricsStore) seed(t *testing.T, spans []metricsSpan) {
 			strings.Join(ns, ", "))
 	}
 	if s.cluster != "" {
-		for table := range map[string]bool{"seed_traces_split": true, "seed_attrs_split": true, "seed_nested_set_split": true} {
+		for _, table := range []string{"tempo_traces_dist", "tempo_traces_attrs_gin_dist", "tempo_traces_nested_set_dist"} {
 			s.exec(t, "SYSTEM FLUSH DISTRIBUTED "+table)
 		}
-		var shards uint64
-		if err := s.conn.QueryRow(context.Background(), `SELECT min(c) FROM
-			(SELECT trace_id, uniqExact(_shard_num) c FROM tempo_traces_dist GROUP BY trace_id)`).Scan(&shards); err != nil {
+		var perTrace, shards uint64
+		if err := s.conn.QueryRow(context.Background(), `SELECT max(c), uniqExact(shard) FROM
+			(SELECT trace_id, uniqExact(_shard_num) c, any(_shard_num) shard FROM (
+				SELECT trace_id, _shard_num FROM tempo_traces_dist
+				UNION ALL SELECT trace_id, _shard_num FROM tempo_traces_attrs_gin_dist
+				UNION ALL SELECT trace_id, _shard_num FROM tempo_traces_nested_set_dist)
+			GROUP BY trace_id)`).Scan(&perTrace, &shards); err != nil {
 			t.Fatal(err)
 		}
-		if shards < 2 {
-			t.Fatalf("a trace's spans on %d shards, want 2", shards)
+		if perTrace != 1 || shards < 2 {
+			t.Fatalf("traces on %d shards with up to %d shards per trace, want 2 and 1", shards, perTrace)
 		}
 	}
 }
@@ -643,7 +636,15 @@ func (r *queryRecorder) take() []string {
 // Each ids statement runs once per request, also when the series and their
 // exemplars both read its ids.
 func TestMetricsRunEachIdsStatementOncePerRequest(t *testing.T) {
-	s := openMetricsStore(t, false, false)
+	testMetricsRunEachIdsStatementOncePerRequest(t, false)
+}
+
+func TestMetricsRunEachIdsStatementOncePerRequestOnCluster(t *testing.T) {
+	testMetricsRunEachIdsStatementOncePerRequest(t, true)
+}
+
+func testMetricsRunEachIdsStatementOncePerRequest(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
 	s.seed(t, metricsTraces())
 	db, err := s.svc.Session.GetDB(context.Background())
 	if err != nil {

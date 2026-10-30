@@ -227,18 +227,14 @@ func TestStructuralTreeComesFromTheTracesTableWithoutTimeBound(t *testing.T) {
 				"metrics": planMetrics(t, query).Ids[0].Statement,
 			}
 			for name, statement := range statements {
-				// On a cluster the search statement runs on each shard over local tables.
-				table, in := "FROM tempo_traces as traces", " IN ("
-				if cluster && name == "metrics" {
-					table, in = "FROM tempo_traces_dist as traces", " GLOBAL IN ("
-				}
+				// On a cluster both statements run on each shard over local tables.
 				res := renderPlan(t, statement, ctx)
 				reads := tracesRead.FindAllString(res, -1)
 				if len(reads) != 1 {
 					t.Fatalf("cluster=%v %s %s: %d traces reads, want 1:\n%s", cluster, name, query, len(reads), res)
 				}
 				read := reads[0]
-				if !strings.Contains(read, table) || strings.Count(read, "traces.trace_id"+in) != 1 {
+				if !strings.Contains(read, "FROM tempo_traces as traces") || strings.Count(read, "traces.trace_id IN (") != 1 {
 					t.Errorf("cluster=%v %s %s: nodes are not read from the traces table by trace id:\n%s", cluster, name, query, read)
 				}
 				if strings.Contains(read, "timestamp_ns") || strings.Contains(read, "date") {

@@ -49,7 +49,7 @@ func planAutocomplete(query *traceql_ir.Query, attrs func(prefix string) shared.
 		return nil, err
 	}
 	return &SearchPlan{
-		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(&spanIdsPlanner{Result: result})}},
+		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralIds(&spanIdsPlanner{Result: result})}},
 		Data: attrs(p.getPrefix()),
 	}, nil
 }
@@ -109,6 +109,8 @@ func (p *planner) plan() (*SearchPlan, error) {
 		spansets = &shardLocalPlanner{
 			Shard:  &IndexLimitPlanner{&SearchSpansetPlanner{Main: res, Newest: true}},
 			Single: spansets,
+			Cols:   []string{"trace_id", "span_id", "spansets"},
+			Newest: true,
 		}
 	}
 	search := &searchRowsPlanner{Main: spansets}
@@ -267,6 +269,15 @@ func (p *planner) structuralGate(res shared.SQLRequestPlanner) shared.SQLRequest
 		return &StructuralQueryPlanner{Main: res}
 	}
 	return res
+}
+
+// structuralIds gates a structural ids statement and runs it whole on each
+// shard of a cluster.
+func (p *planner) structuralIds(ids shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+	if p.query.HasStructural() {
+		ids = &shardLocalPlanner{Shard: ids, Single: ids, Cols: []string{"trace_id", "span_ids"}}
+	}
+	return p.structuralGate(ids)
 }
 
 func (p *planner) getPrefix() string {

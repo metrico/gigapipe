@@ -54,6 +54,9 @@ func idsResult(t *testing.T, statement shared.SQLRequestPlanner) (structural boo
 		structural = true
 		statement = s.Main
 	}
+	if s, ok := statement.(*shardLocalPlanner); ok {
+		statement = s.Single
+	}
 	if w, ok := statement.(*windowPlanner); ok {
 		statement = w.Main
 	}
@@ -180,10 +183,12 @@ func TestMetricsStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing.T) {
 	}
 }
 
+// The ids statement of a non-structural query reads Distributed tables on a
+// cluster; TestStructuralIdsStatementsRunWholeOnEachShard covers the others.
 func TestMetricsReadDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin|_nested_set)?\b[^_]`)
 	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
-	for _, query := range searchQueries {
+	for _, query := range plainSearchQueries {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.IsCluster = true
@@ -230,6 +235,9 @@ func TestMetricsIdsStatementListsSpanIdsByTrace(t *testing.T) {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = cluster
 				plan := planMetricsFn(t, query)
+				if structural, _ := metricsResult(t, plan); structural && cluster {
+					t.Skip("on a cluster TestStructuralIdsStatementsRunWholeOnEachShard covers it")
+				}
 				if plan.Ids[0].Table != SearchResultTable {
 					t.Errorf("ids table %s, want %s", plan.Ids[0].Table, SearchResultTable)
 				}

@@ -98,6 +98,9 @@ func TestAutocompleteSearchListsSpanIdsByTrace(t *testing.T) {
 		for kind, plan := range autocompletePlans(t, query) {
 			for _, cluster := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s %s/cluster=%t", kind, query, cluster), func(t *testing.T) {
+					if cluster && slices.Contains(structuralQueries, query) {
+						t.Skip("on a cluster TestStructuralIdsStatementsRunWholeOnEachShard covers it")
+					}
 					ctx := testPlannerContext(3)
 					ctx.IsCluster = cluster
 					res := renderPlan(t, plan.Ids[0].Statement, ctx)
@@ -251,10 +254,15 @@ func TestAutocompleteStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing
 	}
 }
 
+// The search statement of a non-structural query reads Distributed tables on
+// a cluster; TestStructuralIdsStatementsRunWholeOnEachShard covers the others.
 func TestAutocompleteReadsDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin)?\b[^_]`)
 	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
 	for _, query := range filteredQueries() {
+		if slices.Contains(structuralQueries, query) {
+			continue
+		}
 		for kind, plan := range autocompletePlans(t, query) {
 			t.Run(kind+" "+query, func(t *testing.T) {
 				ctx := testPlannerContext(3)

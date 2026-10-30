@@ -242,7 +242,20 @@ func testAutocompleteOverHTTP(t *testing.T, cluster bool) {
 		`{.a = "1"} >> {.b = "1"}`,
 		`({nestedSetParent < 0 && .a = "1"} &>> {.b = "1"}) || ({nestedSetParent < 0 && .a = "1"}) | select(name, nestedSetParent)`,
 	}, searchRun{}, false)
-	s.assertSuggestions(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`}, searchRun{rounds: 5}, true)
+	shallow, rounds := []string{`{.a = "1"} >> {.b = "1"}`}, searchRun{rounds: 5}
+	if cluster {
+		// A shard's error can arrive mid-stream over HTTP: either error text passes.
+		for _, query := range shallow {
+			for _, kind := range autocompleteKinds {
+				if got := s.suggest(t, kind, query, rounds); len(got) != 1 ||
+					!(strings.Contains(got[0], "round limit of 5 rounds") || strings.Contains(got[0], "block decode for exception")) {
+					t.Errorf("shallow/%s/%s: got %.300q, want an error", kind, query, got)
+				}
+			}
+		}
+	} else {
+		s.assertSuggestions(t, "shallow", shallow, rounds, true)
+	}
 	s.assertSuggestions(t, "portions-2", portionedAutocompletes[:2], searchRun{portions: 2}, false)
 }
 
