@@ -77,6 +77,7 @@ make fmt-check                      # fail if any Go file is not gofmt-formatted
 make build                          # build the gigapipe binary the way CI does
 make test-unit                      # go test -race ./..., matching CI
 make test-integration               # integration tests against GIGAPIPE_URL (see test/integration/run.sh)
+make test-integration-cluster       # cluster migration lane on a two-node ClickHouse cluster (Docker)
 make lint                           # golangci-lint, gated to issues new since origin/master
 make arch-lint                      # go-arch-lint report against .go-arch-lint.yml
 make fuzz HEAD=promql DURATION=60s  # run the native Go parser fuzz target for a query head

@@ -27,7 +27,8 @@ GOLANGCI_LINT_VERSION ?= v2.14.0
 LINT_NEW_FROM_REV ?= origin/master
 
 .PHONY: docker e2e-deps e2e-build e2e-test e2e-cleanup e2e-full e2e-ci \
-	fmt-check build test-unit integration-start test-integration lint arch-lint fuzz
+	fmt-check build test-unit integration-start test-integration test-integration-cluster \
+	lint arch-lint fuzz
 
 docker:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
@@ -65,6 +66,17 @@ integration-start:
 # (default http://localhost:3100).
 test-integration:
 	go test -tags integration -count=1 -v ./test/integration/...
+
+# Run the cluster variant of the schema migration lane: start the two-node
+# ClickHouse cluster in test/integration/cluster, run the test against it and
+# always stop the cluster afterwards. It publishes ClickHouse on ports 9000,
+# 8123 and 8124, so stop the stack of test/integration/run.sh first.
+test-integration-cluster: build
+	docker compose -f test/integration/cluster/docker-compose.yml up -d --wait
+	go test -tags integration,integration_cluster -count=1 -v -run TestSchemaMigrationsCluster ./test/integration/... ; \
+		status=$$?; \
+		docker compose -f test/integration/cluster/docker-compose.yml down -v; \
+		exit $$status
 
 # Run golangci-lint with the repo's committed config, gating only issues
 # introduced since LINT_NEW_FROM_REV so this doesn't fail on pre-existing

@@ -22,13 +22,13 @@ var singleNodeScripts = []string{"log.sql", "traces.sql", "profiles.sql", "rules
 
 var createStatement = regexp.MustCompile(`(?i)CREATE\s+(?:TABLE|MATERIALIZED\s+VIEW|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?\{\{\.DB\}\}\.(\w+)`)
 
-// declaredTables returns every table and view the single-node migration
-// scripts create, plus ver, where the migration runner records how far each
-// script has been applied (ctrl/qryn/maintenance/update.go), sorted.
-func declaredTables(t *testing.T) []string {
+// declaredTables returns every table and view the given migration scripts
+// create, plus ver, where the migration runner records how far each script
+// has been applied (ctrl/qryn/maintenance/update.go), sorted.
+func declaredTables(t *testing.T, scripts []string) []string {
 	t.Helper()
 	names := []string{"ver"}
-	for _, script := range singleNodeScripts {
+	for _, script := range scripts {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "ctrl", "qryn", "sql", script))
 		if err != nil {
 			t.Fatal(err)
@@ -49,7 +49,7 @@ func declaredTables(t *testing.T) []string {
 func TestSchemaMigrations(t *testing.T) {
 	db := freshDatabase(t, "m2_migrate")
 	env := processEnv(db, "MODE=init_only")
-	want := declaredTables(t)
+	want := declaredTables(t, singleNodeScripts)
 
 	t.Run("an empty database gets every declared table", func(t *testing.T) {
 		runGigapipe(t, env, 2*time.Minute)

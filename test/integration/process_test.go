@@ -186,7 +186,13 @@ func tryStartGigapipe(t *testing.T, env []string) (base string, inUse bool) {
 // the body.
 func clickhouseQuery(t *testing.T, query string) string {
 	t.Helper()
-	endpoint := envOr("CLICKHOUSE_HTTP_URL", "http://localhost:8123")
+	return clickhouseQueryAt(t, envOr("CLICKHOUSE_HTTP_URL", "http://localhost:8123"), query)
+}
+
+// clickhouseQueryAt runs a query on the ClickHouse HTTP interface at endpoint
+// and returns the body.
+func clickhouseQueryAt(t *testing.T, endpoint, query string) string {
+	t.Helper()
 	resp, err := http.Post(endpoint+"/?"+url.Values{"query": {query}}.Encode(), "text/plain", nil)
 	if err != nil {
 		t.Fatalf("ClickHouse %s: %v", endpoint, err)
@@ -211,6 +217,13 @@ func freshDatabase(t *testing.T, prefix string) string {
 // databaseTables lists the tables and views of a database, sorted.
 func databaseTables(t *testing.T, db string) []string {
 	t.Helper()
-	out := clickhouseQuery(t, fmt.Sprintf("SELECT name FROM system.tables WHERE database = '%s' ORDER BY name", db))
+	return databaseTablesAt(t, envOr("CLICKHOUSE_HTTP_URL", "http://localhost:8123"), db)
+}
+
+// databaseTablesAt lists the tables and views of a database on the ClickHouse
+// HTTP interface at endpoint, sorted.
+func databaseTablesAt(t *testing.T, endpoint, db string) []string {
+	t.Helper()
+	out := clickhouseQueryAt(t, endpoint, fmt.Sprintf("SELECT name FROM system.tables WHERE database = '%s' ORDER BY name", db))
 	return strings.Fields(out)
 }
