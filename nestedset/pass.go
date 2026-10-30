@@ -332,10 +332,11 @@ func connReader(conn clickhouse.Conn) reader {
 	}
 }
 
-// Pass numbers the traces touched since cursor, never before now - 1 day, and
-// idle for at least idle, oldest first, up to maxSpans spans; a single trace
-// over the cap is numbered alone. reads are the earlier passes' reads. It
-// returns the cursor for the next pass and this pass's read.
+// Pass numbers the traces touched since cursor, never before now - 1 day (in
+// the last 5 minutes without a cursor), and idle for at least idle, oldest
+// first, up to maxSpans spans; a single trace over the cap is numbered alone.
+// reads are the earlier passes' reads. It returns the cursor for the next pass
+// and this pass's read.
 func Pass(ctx context.Context, conn clickhouse.Conn, idle time.Duration, maxSpans int, cursor time.Time, reads Reads) (time.Time, RunningRead, error) {
 	t := tables{}
 	st := localStatements(idle, maxSpans, replica{delay: t.replicaDelay(idle), since: t.replicaSince()})

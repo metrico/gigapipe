@@ -166,7 +166,7 @@ type elector struct {
 	leaseLen time.Duration
 	log      logger.ILogger
 	passOK   bool      // the last pass succeeded or found nothing to do
-	cursor   time.Time // where the next pass scans from (SQL clamps it to now - 1 day)
+	cursor   time.Time // where the next pass scans from; zero means the last 5 minutes
 	reads    Reads     // the running reads of this instance's passes, in every term
 	led      uint64    // the term this instance last led, 0 after stepping down
 	renewals uint64

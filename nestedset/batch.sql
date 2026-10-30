@@ -5,8 +5,9 @@
 --   {RUNNING} oldest running insert's start on any replica; {READS} earlier passes' (at, start) reads
 --   {RUNNING_INSERTS} the system.processes filter of those inserts
 WITH
-    -- The scan starts at the cursor, never before the 1-day TTL.
-    greatest({CURSOR}, now64(3) - INTERVAL 1 DAY) AS lo,
+    -- The scan starts at the cursor, never before the 1-day TTL; without a cursor, 5 minutes back.
+    if(toUnixTimestamp64Milli({CURSOR}) <= 0, now64(3) - INTERVAL 5 MINUTE,
+       greatest({CURSOR}, now64(3) - INTERVAL 1 DAY)) AS lo,
     -- The cutoff: the least of the idle bound, the replica-delay bound, any running insert's start
     -- (here and on any replica) and replica_cap.
     (

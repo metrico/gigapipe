@@ -139,8 +139,9 @@ Saved dashboards and alerts that use them will see different numbers.
   `_MAX_SPANS` (200000, per shard on clusters) tune it. If the runner stops,
   another instance takes over within 4 × `_INTERVAL`. It needs ClickHouse
   24.9 or newer; on an older server it doesn't start and every span reads
-  `0`/`0`/`0`. There is no backfill: traces stored before it ran may never
-  be numbered. See [TraceQL](traceql.md#the-numberer) and
+  `0`/`0`/`0`. There is no backfill: traces stored more than 5 minutes
+  before its first successful pass may never be numbered. See
+  [TraceQL](traceql.md#the-numberer) and
   [Configuration](configuration.md#traceql).
 - **New setting `GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** (1 to 32, default 20).
   Traces up to `2^R` spans deep resolve. See

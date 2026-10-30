@@ -381,7 +381,7 @@ nothing to enable; its settings are under
 - Each pass reads only the traces touched since the previous one. The
   leader keeps a cursor, the newest touch the last pass covered (on a
   cluster, the least across shards), in the lease table, so a new leader
-  continues from it. Without one, a pass reads the last day.
+  continues from it. Without one, a pass reads the last 5 minutes.
 - A pass waits for synchronous inserts into its database's `tempo_traces`
   (directly or through `tempo_traces_dist`) that are still running on any
   reachable node of the cluster, and for spans a lagging replica has yet to
@@ -410,10 +410,12 @@ nothing to enable; its settings are under
   than that may not be numbered until it receives another span.
 - While the lease can't be read or written, numbering pauses; the instances
   log the start and end of the outage. Traces whose only spans arrived more
-  than about a day before numbering resumes stay `0`/`0`/`0`.
+  than about a day before numbering resumes stay `0`/`0`/`0`, or more than
+  5 minutes before if no pass has succeeded yet.
 - There is no backfill. A trace that receives no spans once the
   `tempo_traces_touched` table exists is never numbered, and one whose last
-  span arrived more than a day before the numberer first ran may not be.
+  span arrived more than 5 minutes before the numberer's first successful
+  pass may not be.
 
 Instances log only leadership changes: winning a term, stepping down to a
 newer one, and lease outages. To see who leads and since when (on a

@@ -45,8 +45,22 @@ func passFrom(t *testing.T, conn clickhouse.Conn, idle time.Duration, maxSpans i
 // versions returns the distinct numbering versions of a trace.
 func versions(t *testing.T, conn clickhouse.Conn, table string, trace int) []uint64 {
 	t.Helper()
-	rows, err := conn.Query(context.Background(), fmt.Sprintf(
+	return uint64s(t, conn, fmt.Sprintf(
 		"SELECT DISTINCT version FROM %s WHERE trace_id = %s ORDER BY version", table, traceID(trace)))
+}
+
+// clusterNumberedTraces returns the numbered traces on every shard, ascending.
+func clusterNumberedTraces(t *testing.T, conn clickhouse.Conn, cluster, db string) []uint64 {
+	t.Helper()
+	return uint64s(t, conn, fmt.Sprintf(
+		"SELECT DISTINCT reinterpretAsUInt64(reverse(trace_id)) AS t FROM clusterAllReplicas('%s', %s.tempo_traces_nested_set) ORDER BY t",
+		cluster, db))
+}
+
+// uint64s returns the single UInt64 column of a query.
+func uint64s(t *testing.T, conn clickhouse.Conn, q string) []uint64 {
+	t.Helper()
+	rows, err := conn.Query(context.Background(), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +72,9 @@ func versions(t *testing.T, conn clickhouse.Conn, table string, trace int) []uin
 			t.Fatal(err)
 		}
 		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	return out
 }
@@ -220,7 +237,7 @@ func TestCursorEqualTimestampsAtTheCursorLoseNothing(t *testing.T) {
 
 func TestCursorCapStopsMidBacklogAndTheNextPassContinues(t *testing.T) {
 	conn := open(t)
-	base := serverNow(t, conn).Add(-10 * time.Minute).UnixMilli()
+	base := serverNow(t, conn).Add(-4 * time.Minute).UnixMilli()
 	touches := map[int]int64{}
 	for trace := 1; trace <= 10; trace++ {
 		insert(t, conn, chain(trace, 2)...)
@@ -238,7 +255,7 @@ func TestCursorCapStopsMidBacklogAndTheNextPassContinues(t *testing.T) {
 		t.Errorf("numbered %v, want all 10", got)
 	}
 	// Two traces per pass: frontiers at traces 2, 4, 6, 8, 10, then the cutoff.
-	if fmt.Sprint(frontiers[:5]) != "[2000 4000 6000 8000 10000]" || frontiers[5] < 10*60*1000-2000 {
+	if fmt.Sprint(frontiers[:5]) != "[2000 4000 6000 8000 10000]" || frontiers[5] < 4*60*1000-2000 {
 		t.Errorf("frontiers (ms after base) %v", frontiers)
 	}
 }
@@ -291,7 +308,7 @@ func TestCursorFailoverContinuesFromThePreviousTerm(t *testing.T) {
 	store := ConnStore{Conn: conn}
 	insert(t, conn, chain(1, 2)...)
 	insert(t, conn, chain(2, 2)...)
-	base := serverNow(t, conn).Add(-5 * time.Minute).UnixMilli()
+	base := serverNow(t, conn).Add(-4 * time.Minute).UnixMilli()
 	exec(t, conn, "TRUNCATE TABLE tempo_traces_touched")
 	addTouches(t, conn, "tempo_traces_touched", map[int]int64{1: base, 2: base + 1000})
 
@@ -357,7 +374,7 @@ func TestCursorEmptyShardDoesNotPassABackloggedShard(t *testing.T) {
 	conn, db, cluster, remote := openCluster(t)
 	spans := fmt.Sprintf("FUNCTION remote('%s', %s, tempo_traces)", remote, db)
 	touched := fmt.Sprintf("FUNCTION remote('%s', %s, tempo_traces_touched)", remote, db)
-	base := serverNow(t, conn).Add(-10 * time.Minute).UnixMilli()
+	base := serverNow(t, conn).Add(-4 * time.Minute).UnixMilli()
 	touches := map[int]int64{}
 	for trace := 1; trace <= 6; trace++ {
 		insertInto(t, conn, spans, chain(trace, 2)...)
@@ -379,7 +396,7 @@ func TestCursorEmptyShardDoesNotPassABackloggedShard(t *testing.T) {
 	}
 	// The connected shard is empty, its frontier is its cutoff; the minimum is
 	// the backlogged shard's frontier until it catches up.
-	if fmt.Sprint(frontiers[:3]) != "[2000 4000 6000]" || frontiers[3] < 10*60*1000-2000 {
+	if fmt.Sprint(frontiers[:3]) != "[2000 4000 6000]" || frontiers[3] < 4*60*1000-2000 {
 		t.Errorf("cluster cursors (ms after base) %v", frontiers)
 	}
 	var n uint64
@@ -900,5 +917,46 @@ func TestCursorTheNumberingFailsWithoutAFrontierRowOverAnEmptyTempoTraces(t *tes
 	st := localStatements(time.Millisecond, 1000, replica{delay: "toUInt64(0)", since: "NULL"})
 	if err := conn.Exec(context.Background(), st.number("00000000-0000-0000-0000-000000000003")); err == nil || !strings.Contains(err.Error(), "no frontier row") {
 		t.Errorf("numbering over an empty tempo_traces without a frontier row: err %v, want the missing frontier row", err)
+	}
+}
+
+func TestCursorAFirstPassScansTheLastFiveMinutes(t *testing.T) {
+	conn := open(t)
+	insert(t, conn, append(chain(1, 2), chain(2, 2)...)...)
+	touch(t, conn, map[int]time.Duration{1: 4 * time.Minute, 2: 6 * time.Minute})
+	passFrom(t, conn, time.Second, 1000, time.Time{})
+	if got := numberedTraces(t, conn, 1, 2); fmt.Sprint(got) != "[1]" {
+		t.Errorf("numbered %v, want only the trace touched 4 minutes ago", got)
+	}
+}
+
+func TestCursorAPassWithACursorScansFromIt(t *testing.T) {
+	conn := open(t)
+	insert(t, conn, append(chain(1, 2), chain(2, 2)...)...)
+	touch(t, conn, map[int]time.Duration{1: 30 * time.Minute, 2: 2 * time.Hour})
+	passFrom(t, conn, time.Second, 1000, serverNow(t, conn).Add(-time.Hour))
+	if got := numberedTraces(t, conn, 1, 2); fmt.Sprint(got) != "[1]" {
+		t.Errorf("numbered %v, want only the trace touched after the cursor", got)
+	}
+}
+
+func TestCursorAFirstClusterPassScansTheLastFiveMinutesOnEachShard(t *testing.T) {
+	conn, db, cluster, remote := openCluster(t)
+	spans := fmt.Sprintf("FUNCTION remote('%s', %s, tempo_traces)", remote, db)
+	touched := fmt.Sprintf("FUNCTION remote('%s', %s, tempo_traces_touched)", remote, db)
+	insertInto(t, conn, spans, append(chain(1, 2), chain(2, 2)...)...)
+	insert(t, conn, append(chain(3, 2), chain(4, 2)...)...)
+	exec(t, conn, fmt.Sprintf("TRUNCATE TABLE %s.tempo_traces_touched ON CLUSTER '%s' SYNC", db, cluster))
+	now := serverNow(t, conn)
+	fresh, stale := now.Add(-4*time.Minute).UnixMilli(), now.Add(-6*time.Minute).UnixMilli()
+	addTouches(t, conn, touched, map[int]int64{1: fresh, 2: stale})
+	addTouches(t, conn, "tempo_traces_touched", map[int]int64{3: fresh, 4: stale})
+
+	store := ClusterStore{Conn: conn, Cluster: cluster, Database: db}
+	if _, _, err := store.Pass(context.Background(), time.Second, 1000, time.Time{}, Reads{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := clusterNumberedTraces(t, conn, cluster, db); fmt.Sprint(got) != "[1 3]" {
+		t.Errorf("numbered %v, want the traces touched 4 minutes ago on each shard [1 3]", got)
 	}
 }

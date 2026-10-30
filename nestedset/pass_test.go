@@ -255,7 +255,7 @@ func TestPassIgnoresATouchPastItsDayOfRetention(t *testing.T) {
 	// Trace 1's touch has expired but is not merged away yet.
 	exec(t, conn, "ALTER TABLE tempo_traces_touched REMOVE TTL")
 	touch(t, conn, map[int]time.Duration{1: 25 * time.Hour, 2: time.Minute})
-	pass(t, conn, time.Second, 1000)
+	passFrom(t, conn, time.Second, 1000, serverNow(t, conn).Add(-48*time.Hour))
 	if got := numberedTraces(t, conn, 1, 2); fmt.Sprint(got) != "[2]" {
 		t.Errorf("numbered %v, want [2]", got)
 	}
