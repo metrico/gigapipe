@@ -1,0 +1,1071 @@
+{
+ "compare | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 8",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1"
+ ],
+ "compare | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"}) with(sample=0.3)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1"
+ ],
+ "compare | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"}) with(sample=0.5)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 6",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1"
+ ],
+ "compare | instant | {.a = \"1\"} \u003e\u003e {} | compare({.b = \"1\"}, 10, 1790812800000000000, 1790812810000000000)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1"
+ ],
+ "compare | instant | {.a = \"1\"} | compare({.c = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 19",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 7",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1"
+ ],
+ "compare | instant | {.a = \"1\"} | compare({})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 19",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 7",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1"
+ ],
+ "compare | instant | {.b = \"1\"} \u0026\u003c\u003c {.a = \"1\"} | compare({name = \"s2\"}, 3)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 7",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 7",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 3"
+ ],
+ "compare | instant | {.c = \"1\"} | compare({.b = \"1\"})": [],
+ "compare | instant | {.c = \"1\"} | compare({.c = \"1\"})": [],
+ "compare | instant | {} | compare({.a = \"1\"}, 10, 1790812800000000000, 1790812810000000000)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1"
+ ],
+ "compare | instant | {} | compare({.b = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 18",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 8",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 5",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 5",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 24",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 4",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "compare | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=8 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"}) with(sample=0.3)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"}) with(sample=0.5)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=6 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {.a = \"1\"} \u003e\u003e {} | compare({.b = \"1\"}, 10, 1790812800000000000, 1790812810000000000)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {.a = \"1\"} | compare({.c = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=19 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812830000=7 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {.a = \"1\"} | compare({})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=19 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812830000=7 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {.b = \"1\"} \u0026\u003c\u003c {.a = \"1\"} | compare({name = \"s2\"}, 3)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=7 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=7 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=3 exemplars=0"
+ ],
+ "compare | range | {.c = \"1\"} | compare({.b = \"1\"})": [],
+ "compare | range | {.c = \"1\"} | compare({.c = \"1\"})": [],
+ "compare | range | {} | compare({.a = \"1\"}, 10, 1790812800000000000, 1790812810000000000)": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "compare | range | {} | compare({.b = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=18 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812830000=8 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=5 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812830000=5 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"a\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=24 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812830000=4 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"selection\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812830000=2 exemplars=0"
+ ],
+ "exemplars | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | avg_over_time(duration)": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"avg_over_time\"}}] 0000000000000000000000000000000a@1790812801000=0.002,0000000000000000000000000000000a@1790812805000=0.006,0000000000000000000000000000000a@1790812806000=0.007,00000000000000000000000000000010@1790812808000=0.002,00000000000000000000000000000012@1790812818000=0.005,00000000000000000000000000000021@1790812828000=0.021,00000000000000000000000000000021@1790812830000=0.023,00000000000000000000000000000022@1790812839000=0.009,00000000000000000000000000000028@1790812842000=0.02"
+ ],
+ "exemplars | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | avg_over_time(nestedSetRight) by (nestedSetLeft)": [
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"0\"}}] 00000000000000000000000000000010@1790812808000=0.002,00000000000000000000000000000012@1790812818000=0.005,00000000000000000000000000000021@1790812828000=0.021,00000000000000000000000000000021@1790812830000=0.023,00000000000000000000000000000022@1790812839000=0.009,00000000000000000000000000000028@1790812842000=0.02",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"11\"}}] 0000000000000000000000000000000a@1790812806000=0.007",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"2\"}}] 0000000000000000000000000000000a@1790812801000=0.002",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"9\"}}] 0000000000000000000000000000000a@1790812805000=0.006"
+ ],
+ "exemplars | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 0000000000000000000000000000000a@1790812801000=1,00000000000000000000000000000010@1790812808000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 00000000000000000000000000000028@1790812842000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 00000000000000000000000000000021@1790812828000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 00000000000000000000000000000021@1790812830000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 00000000000000000000000000000012@1790812818000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 0000000000000000000000000000000a@1790812805000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 0000000000000000000000000000000a@1790812806000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 00000000000000000000000000000022@1790812839000=1"
+ ],
+ "exemplars | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time() by (name) with(sample=0.3)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 0000000000000000000000000000000a@1790812801000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 00000000000000000000000000000021@1790812828000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 00000000000000000000000000000021@1790812830000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 0000000000000000000000000000000a@1790812805000=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 0000000000000000000000000000000a@1790812806000=1"
+ ],
+ "exemplars | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | histogram_over_time(duration)": [
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.002097152}}] 0000000000000000000000000000000a@1790812801000=1,00000000000000000000000000000010@1790812808000=1",
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.008388608}}] 0000000000000000000000000000000a@1790812805000=1,0000000000000000000000000000000a@1790812806000=1,00000000000000000000000000000012@1790812818000=1",
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.016777216}}] 00000000000000000000000000000022@1790812839000=1",
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.033554432}}] 00000000000000000000000000000021@1790812828000=1,00000000000000000000000000000021@1790812830000=1,00000000000000000000000000000028@1790812842000=1"
+ ],
+ "exemplars | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | rate()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 0000000000000000000000000000000a@1790812801000=1,0000000000000000000000000000000a@1790812805000=1,0000000000000000000000000000000a@1790812806000=1,00000000000000000000000000000010@1790812808000=1,00000000000000000000000000000012@1790812818000=1,00000000000000000000000000000021@1790812828000=1,00000000000000000000000000000021@1790812830000=1,00000000000000000000000000000022@1790812839000=1,00000000000000000000000000000028@1790812842000=1"
+ ],
+ "exemplars | range | {} | rate()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 0000000000000000000000000000000a@1790812800000=1,0000000000000000000000000000000a@1790812801000=1,0000000000000000000000000000000a@1790812802000=1,0000000000000000000000000000000a@1790812803000=1,0000000000000000000000000000000a@1790812804000=1,0000000000000000000000000000000a@1790812805000=1,0000000000000000000000000000000a@1790812806000=1,0000000000000000000000000000000c@1790812812000=1,0000000000000000000000000000000c@1790812813000=1,00000000000000000000000000000010@1790812807000=1,00000000000000000000000000000010@1790812808000=1,00000000000000000000000000000010@1790812809000=1,00000000000000000000000000000010@1790812810000=1,00000000000000000000000000000010@1790812811000=1,00000000000000000000000000000012@1790812814000=1,00000000000000000000000000000012@1790812815000=1,00000000000000000000000000000012@1790812816000=1,00000000000000000000000000000012@1790812817000=1,00000000000000000000000000000012@1790812818000=1,00000000000000000000000000000021@1790812819000=1,00000000000000000000000000000021@1790812820000=1,00000000000000000000000000000021@1790812821000=1,00000000000000000000000000000021@1790812822000=1,00000000000000000000000000000021@1790812823000=1,00000000000000000000000000000021@1790812824000=1,00000000000000000000000000000021@1790812825000=1,00000000000000000000000000000021@1790812826000=1,00000000000000000000000000000021@1790812827000=1,00000000000000000000000000000021@1790812828000=1,00000000000000000000000000000021@1790812829000=1,00000000000000000000000000000021@1790812830000=1,00000000000000000000000000000022@1790812831000=1,00000000000000000000000000000022@1790812832000=1,00000000000000000000000000000022@1790812833000=1,00000000000000000000000000000022@1790812834000=1,00000000000000000000000000000022@1790812835000=1,00000000000000000000000000000022@1790812836000=1,00000000000000000000000000000022@1790812837000=1,00000000000000000000000000000022@1790812838000=1,00000000000000000000000000000022@1790812839000=1,00000000000000000000000000000022@1790812840000=1,00000000000000000000000000000028@1790812841000=1,00000000000000000000000000000028@1790812842000=1,00000000000000000000000000000028@1790812843000=1,00000000000000000000000000000028@1790812844000=1,00000000000000000000000000000028@1790812845000=1,00000000000000000000000000000028@1790812846000=1,00000000000000000000000000000028@1790812847000=1,00000000000000000000000000000028@1790812848000=1,00000000000000000000000000000028@1790812849000=1,00000000000000000000000000000028@1790812850000=1,00000000000000000000000000000028@1790812851000=1,00000000000000000000000000000028@1790812852000=1,00000000000000000000000000000028@1790812853000=1,00000000000000000000000000000028@1790812854000=1,00000000000000000000000000000028@1790812855000=1,00000000000000000000000000000028@1790812856000=1,00000000000000000000000000000028@1790812857000=1,00000000000000000000000000000029@1790812858000=1,00000000000000000000000000000029@1790812859000=1,00000000000000000000000000000029@1790812860000=1,00000000000000000000000000000029@1790812861000=1,0000000000000000000000000000002a@1790812862000=1,0000000000000000000000000000002a@1790812863000=1,0000000000000000000000000000002a@1790812864000=1"
+ ],
+ "metrics | instant | {.a = \"1\"} !\u003c {.b = \"1\"} | count_over_time()": [
+  "[] 24"
+ ],
+ "metrics | instant | {.a = \"1\"} !\u003c\u003c {.b = \"1\"} | count_over_time()": [
+  "[] 24"
+ ],
+ "metrics | instant | {.a = \"1\"} !\u003e {.b = \"1\"} | count_over_time()": [
+  "[] 16"
+ ],
+ "metrics | instant | {.a = \"1\"} !\u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[] 15"
+ ],
+ "metrics | instant | {.a = \"1\"} !~ {.b = \"1\"} | count_over_time()": [
+  "[] 17"
+ ],
+ "metrics | instant | {.a = \"1\"} \u0026\u0026 {.b = \"1\"} | rate() with(sample=0.5)": [
+  "[] 0.18333333333333332"
+ ],
+ "metrics | instant | {.a = \"1\"} \u0026\u003c {.b = \"1\"} | count_over_time()": [
+  "[] 0"
+ ],
+ "metrics | instant | {.a = \"1\"} \u0026\u003c\u003c {.b = \"1\"} | count_over_time()": [
+  "[] 0"
+ ],
+ "metrics | instant | {.a = \"1\"} \u0026\u003e {.b = \"1\"} | count_over_time()": [
+  "[] 14"
+ ],
+ "metrics | instant | {.a = \"1\"} \u0026\u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[] 16"
+ ],
+ "metrics | instant | {.a = \"1\"} \u0026~ {.b = \"1\"} | count_over_time()": [
+  "[] 12"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003c {.b = \"1\"} | count_over_time()": [
+  "[] 0"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003c\u003c {.b = \"1\"} | count_over_time()": [
+  "[] 0"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e {.b = \"1\"} | count_over_time()": [
+  "[] 8"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | avg_over_time(duration)": [
+  "[] 0.010555555555555556"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | avg_over_time(nestedSetRight) by (nestedSetLeft)": [
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"0\"}}] 0",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"11\"}}] 12",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"2\"}}] 7",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"9\"}}] 10"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[] 9"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time() by (name) with(sample=0.3)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | histogram_over_time(duration)": [],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | max_over_time(duration) by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 0.002",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 0.02",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 0.021",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 0.023",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 0.005",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 0.006",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 0.007",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 0.009"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | quantile_over_time(duration, 0.5)": [
+  "[] 0.007"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | rate()": [
+  "[] 0.075"
+ ],
+ "metrics | instant | {.a = \"1\"} \u003e\u003e {} | count_over_time() with(sample=0.5)": [
+  "[] 11"
+ ],
+ "metrics | instant | {.a = \"1\"} | count_over_time()": [
+  "[] 19"
+ ],
+ "metrics | instant | {.a = \"1\"} | count_over_time() with(sample=0.7)": [
+  "[] 13"
+ ],
+ "metrics | instant | {.a = \"1\"} || {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 7",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {.a = \"1\"} ~ {.b = \"1\"} | count_over_time()": [
+  "[] 7"
+ ],
+ "metrics | instant | {.b = \"1\"} !\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 7",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 7",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {.b = \"1\"} !\u003c\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 7",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {.b = \"1\"} !\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 9",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {.b = \"1\"} !\u003e\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 9",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {.b = \"1\"} !~ {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 9",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {.b = \"1\"} \u0026\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u0026\u003c\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u0026\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u0026\u003e\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u0026~ {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 5",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u003c\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} \u003e\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1"
+ ],
+ "metrics | instant | {.b = \"1\"} | count() \u003e 1 | count_over_time()": [
+  "[] 22"
+ ],
+ "metrics | instant | {.b = \"1\"} | max_over_time(nestedSetRight) by (nestedSetParent, name)": [
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 0",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"1\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 7",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"3\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 10",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"3\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 12"
+ ],
+ "metrics | instant | {.b = \"1\"} ~ {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1"
+ ],
+ "metrics | instant | {.c = \"1\"} \u003e\u003e {.b = \"1\"} | rate()": [
+  "[] 0"
+ ],
+ "metrics | instant | {.c = \"1\"} | rate()": [
+  "[] 0"
+ ],
+ "metrics | instant | {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 9",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 9",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 8",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 7",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 6",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 4",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 2"
+ ],
+ "metrics | instant | {} | count_over_time() by (nestedSetLeft)": [
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"0\"}}] 58",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"1\"}}] 1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"11\"}}] 1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"2\"}}] 1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"3\"}}] 1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"5\"}}] 1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"8\"}}] 1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"9\"}}] 1"
+ ],
+ "metrics | instant | {} | rate()": [
+  "[] 0.5416666666666666"
+ ],
+ "metrics | range | {.a = \"1\"} !\u003c {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=12,1790812830000=10,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} !\u003c\u003c {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=12,1790812830000=10,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} !\u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=6,1790812830000=8,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} !\u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=6,1790812830000=7,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} !~ {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=7,1790812830000=8,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} \u0026\u0026 {.b = \"1\"} | rate() with(sample=0.5)": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 1790812770000=0,1790812800000=0.7,1790812830000=0.03333333333333333,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u0026\u003c {.b = \"1\"} | count_over_time()": [],
+ "metrics | range | {.a = \"1\"} \u0026\u003c\u003c {.b = \"1\"} | count_over_time()": [],
+ "metrics | range | {.a = \"1\"} \u0026\u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=11,1790812830000=3,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u0026\u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=11,1790812830000=5,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u0026~ {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=9,1790812830000=3,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003c {.b = \"1\"} | count_over_time()": [],
+ "metrics | range | {.a = \"1\"} \u003c\u003c {.b = \"1\"} | count_over_time()": [],
+ "metrics | range | {.a = \"1\"} \u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=6,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | avg_over_time(duration)": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"avg_over_time\"}}] 1790812770000=0,1790812800000=0.007166666666666667,1790812830000=0.017333333333333333,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | avg_over_time(nestedSetRight) by (nestedSetLeft)": [
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"0\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"11\"}}] 1790812770000=0,1790812800000=12,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"2\"}}] 1790812770000=0,1790812800000=7,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"9\"}}] 1790812770000=0,1790812800000=10,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=6,1790812830000=3,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time() by (name) with(sample=0.3)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | histogram_over_time(duration)": [
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.002097152}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.008388608}}] 1790812770000=0,1790812800000=3,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.016777216}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"__bucket\",\"value\":{\"doubleValue\":0.033554432}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | max_over_time(duration) by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=0.002,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=0,1790812830000=0.02,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=0.021,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=0.023,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=0.005,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=0.006,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=0.007,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=0.009,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | quantile_over_time(duration, 0.5)": [
+  "[{\"key\":\"p\",\"value\":{\"doubleValue\":0.5}}] 1790812770000=0,1790812800000=0.0055,1790812830000=0.02,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | rate()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 1790812770000=0,1790812800000=0.2,1790812830000=0.1,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} \u003e\u003e {} | count_over_time() with(sample=0.5)": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=10,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.a = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=10,1790812830000=7,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} | count_over_time() with(sample=0.7)": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=7,1790812830000=5,1790812860000=1,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.a = \"1\"} || {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=4,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=3,1790812830000=1,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.a = \"1\"} ~ {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=5,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2"
+ ],
+ "metrics | range | {.b = \"1\"} !\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=4,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=2,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=2,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} !\u003c\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=1,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=3,1790812830000=1,1790812860000=2,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=4,1790812830000=1,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=4,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} !\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=5,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=5,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=2,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=2,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} !\u003e\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=5,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=5,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=2,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=2,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} !~ {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=5,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=4,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=2,1790812830000=2,1790812860000=2,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u0026\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=3,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u0026\u003c\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=3,1790812830000=3,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u0026\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u0026\u003e\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u0026~ {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=3,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u003c\u003c {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=3,1790812830000=3,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} \u003e\u003e {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} | count() \u003e 1 | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=11,1790812830000=9,1790812860000=2,1790812890000=0 exemplars=3"
+ ],
+ "metrics | range | {.b = \"1\"} | max_over_time(nestedSetRight) by (nestedSetParent, name)": [
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=3",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=3",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"0\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"1\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=7,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"3\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=10,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetParent\",\"value\":{\"intValue\":\"3\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=12,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.b = \"1\"} ~ {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {.c = \"1\"} \u003e\u003e {.b = \"1\"} | rate()": [],
+ "metrics | range | {.c = \"1\"} | rate()": [],
+ "metrics | range | {} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=5,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s10\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s11\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s12\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s13\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s14\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s15\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s16\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s2\"}}] 1790812770000=0,1790812800000=5,1790812830000=3,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s22\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=0,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s3\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=2,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s4\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=1,1790812890000=0 exemplars=3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s5\"}}] 1790812770000=0,1790812800000=4,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s6\"}}] 1790812770000=0,1790812800000=2,1790812830000=1,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s7\"}}] 1790812770000=0,1790812800000=2,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=2",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=0,1790812830000=2,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {} | count_over_time() by (nestedSetLeft)": [
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"0\"}}] 1790812770000=0,1790812800000=23,1790812830000=30,1790812860000=5,1790812890000=0 exemplars=3",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"1\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"11\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"2\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"3\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"5\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"8\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"nestedSetLeft\",\"value\":{\"intValue\":\"9\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "metrics | range | {} | rate()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 1790812770000=0,1790812800000=1,1790812830000=1,1790812860000=0.16666666666666666,1790812890000=0 exemplars=3"
+ ],
+ "rounds-resolved | instant | {.a = \"1\"} !\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 3"
+ ],
+ "rounds-resolved | instant | {.a = \"1\"} \u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1"
+ ],
+ "rounds-resolved | instant | {.a = \"1\"} \u003e {.b = \"1\"} | count_over_time()": [
+  "[] 2"
+ ],
+ "rounds-resolved | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 3",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1"
+ ],
+ "rounds-resolved | instant | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[] 3"
+ ],
+ "rounds-resolved | instant | {.a = \"1\"} ~ {.b = \"1\"} | rate()": [
+  "[] 0.016666666666666666"
+ ],
+ "rounds-resolved | instant | {.b = \"1\"} \u0026\u003c\u003c {.a = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1"
+ ],
+ "rounds-resolved | range | {.a = \"1\"} !\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=3,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-resolved | range | {.a = \"1\"} \u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "rounds-resolved | range | {.a = \"1\"} \u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-resolved | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=3 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "rounds-resolved | range | {.a = \"1\"} \u003e\u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=3,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-resolved | range | {.a = \"1\"} ~ {.b = \"1\"} | rate()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 1790812770000=0,1790812800000=0.06666666666666667,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-resolved | range | {.b = \"1\"} \u0026\u003c\u003c {.a = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s1\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s20\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ]
+}
