@@ -32,6 +32,8 @@ runs on each shard over that shard's spans, and the reader keeps the newest
 traces of the shards' results. A structural search misses the relations
 between spans of a trace split across shards, and can list that trace once
 per shard. The nested-set numberer has the same requirement.
+For the ClickHouse memory setting and per-node sizing of 24h structural
+queries, see [ClickHouse memory](configuration.md#clickhouse-memory).
 
 The nested-set intrinsics read values that a background numberer stores,
 which also needs ClickHouse 24.9 or newer; see

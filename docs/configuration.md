@@ -112,6 +112,18 @@ The nested-set numberer stores `nestedSetLeft`, `nestedSetRight` and `nestedSetP
 - **`GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`** - Time between numbering passes, as a Go duration (default: `5s`).
 - **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster the cap applies per shard.
 
+### ClickHouse memory
+
+Run the ClickHouse server with this variable in its environment (an environment variable, not a config key):
+
+```
+MALLOC_CONF=background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0
+```
+
+It makes ClickHouse return freed memory to the OS within about a second, so repeated large queries start from a low RSS instead of tripping the server memory limit (code 241).
+
+Sizing for 24h structural TraceQL queries (search including Grafana Traces Drilldown, metrics, `compare()`, autocomplete) on a two-shard cluster, measured on aarch64: with the variable set, each node uses up to ~3.8 GB of tracked memory and ~5.1 GiB RSS, so 7 GiB per node is enough. Without it, plan about 2.5 GiB more per node.
+
 ## Recording Rules (Ruler)
 
 The ruler evaluates LogQL and PromQL recording rules on a schedule and writes
