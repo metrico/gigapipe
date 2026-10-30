@@ -43,14 +43,8 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 	}
 
 	withMain := sql.NewWith(main, "result_ids")
-	withTraceIds := sql.NewWith(traceIdsOf(withMain), "trace_ids")
+	withTraceIds, withTraceIdsSpanIds := idsIn(withMain, "")
 	withTraceIdsRef := sql.NewWithRef(withTraceIds)
-	withTraceIdsSpanIds := sql.NewWith(
-		sql.NewSelect().
-			Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).
-			From(sql.NewWithRef(withMain)).
-			Join(sql.NewJoin("array", sql.NewRawObject("span_id"), nil)),
-		"trace_span_ids")
 	withTraceIdsSpanIdsRef := sql.NewWithRef(withTraceIdsSpanIds)
 	withTracesInfo := sql.NewWith(
 		sql.NewSelect().

@@ -94,7 +94,7 @@ func (p *fieldPivot) read(ctx *shared.PlannerContext, spans sql.ISelect, alias s
 	withs = []*sql.With{withAttrs}
 	var joins []*sql.Join
 	if len(p.nestedSet) > 0 {
-		ns := joinNestedSet(ctx, p.nestedSet, traceIds, nil, a, alias+"_ns", nestedSetCol.pivot)
+		ns := joinNestedSet(ctx, p.nestedSet, searchIn(ctx), traceIds, nil, a, alias+"_ns", nestedSetCol.pivot)
 		cols = append(cols, ns.cols...)
 		withs = append(withs, ns.with)
 		joins = append(joins, ns.join)

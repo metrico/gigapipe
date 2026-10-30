@@ -37,7 +37,7 @@ func TestPipelinePlansOneCTEPerStage(t *testing.T) {
 		t.Run(c.query, func(t *testing.T) {
 			for kind, plan := range map[string]shared.SQLRequestPlanner{
 				"search":  planSearch(t, c.query).Search,
-				"metrics": planMetrics(t, c.query),
+				"metrics": planMetrics(t, c.query).Ids[0].Statement,
 			} {
 				res := renderPlan(t, plan, testPlannerContext(3))
 				stages := stageCTEs(res)

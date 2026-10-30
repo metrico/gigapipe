@@ -1,6 +1,7 @@
 package clickhouse_transpiler
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -22,31 +23,58 @@ type MetricsBuild func(spans *sql.With) (sql.ISelect, error)
 // spans of the selection filter over the query range, or nil for `{}`.
 type CompareBuild func(baseline, selection *sql.With) (sql.ISelect, error)
 
-// PlanMetrics plans a metrics query over the result spans of the query's
-// spanset expression in the query range: the spans a search for it returns,
-// uncapped.
-func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (shared.SQLRequestPlanner, error) {
-	p := &planner{query: query}
-	spans, err := p.metricsSpans()
-	if err != nil {
-		return nil, err
-	}
-	spans.NestedSet = metricsNestedSet(query.Metrics)
-	return p.structuralGate(&metricsPlanner{Spans: spans, Sample: sampleFilter(query), Build: build}), nil
+// MetricsPlan is a metrics query in steps: each Ids statement lists span ids,
+// and Metrics reads the spans of those ids from the Ids external tables.
+type MetricsPlan struct {
+	Ids     []IdsStatement
+	Metrics shared.SQLRequestPlanner
+	// spans are a PlanMetrics plan's spans, nil for compare().
+	spans *metricsSpansPlanner
 }
 
-// PlanCompare plans compare(): the query's result spans over
-// [baselineFrom, baselineTo] are the baseline, and the spans of the selection
-// filter over the query range are the selection.
-func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
-	baselineFrom, baselineTo time.Time, build CompareBuild) (shared.SQLRequestPlanner, error) {
+// PlanMetrics plans a metrics query over the result spans of the query's
+// spanset expression in the query range: the spans a search for it returns,
+// uncapped, listed into SearchResultTable.
+func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (*MetricsPlan, error) {
 	p := &planner{query: query}
-	baseline, err := p.metricsSpans()
+	result, err := p.planQuery()
 	if err != nil {
 		return nil, err
 	}
-	res := &comparePlanner{Baseline: baseline, BaselineFrom: baselineFrom, BaselineTo: baselineTo,
-		Sample: sampleFilter(query), Build: build}
+	spans := &metricsSpansPlanner{Ids: SearchResultTable, Prefix: p.getPrefix(), NestedSet: metricsNestedSet(query.Metrics)}
+	return &MetricsPlan{
+		Ids: []IdsStatement{{
+			Table:     SearchResultTable,
+			Statement: p.structuralGate(&spanIdsPlanner{Result: result, Sample: sampleFilter(query)}),
+		}},
+		Metrics: &metricsPlanner{Spans: spans, Build: build},
+		spans:   spans,
+	}, nil
+}
+
+// Over is a metrics statement built by build over the spans of m's Ids
+// tables, like m.Metrics; m is a PlanMetrics plan.
+func (m *MetricsPlan) Over(build MetricsBuild) (shared.SQLRequestPlanner, error) {
+	if m.spans == nil {
+		return nil, errors.New("compare() has no metrics statement over its ids")
+	}
+	return &metricsPlanner{Spans: m.spans, Build: build}, nil
+}
+
+// PlanCompare plans compare() over the baseline, the result spans in [baselineFrom,
+// baselineTo], and the selection filter's spans, in their own ids tables.
+func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
+	baselineFrom, baselineTo time.Time, build CompareBuild) (*MetricsPlan, error) {
+	p := &planner{query: query}
+	result, err := p.planQuery()
+	if err != nil {
+		return nil, err
+	}
+	sample := sampleFilter(query)
+	baseline := &windowPlanner{Main: &spanIdsPlanner{Result: result, Sample: sample}, From: baselineFrom, To: baselineTo}
+	res := &MetricsPlan{Ids: []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(baseline)}}}
+	cmp := &comparePlanner{Baseline: &metricsSpansPlanner{Ids: SearchResultTable, Prefix: p.getPrefix()},
+		BaselineFrom: baselineFrom, BaselineTo: baselineTo, Build: build}
 	if selection != nil {
 		expr, err := p.operand(&traceql_ir.Selector{Filter: selection}).planner()
 		if err != nil {
@@ -56,9 +84,12 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 			Stages: []pipelineStage{&spansetStage{Expr: expr}},
 			Prefix: p.getPrefix(),
 		}
-		res.Selection = &metricsSpansPlanner{Result: filter, Prefix: p.getPrefix()}
+		res.Ids = append(res.Ids, IdsStatement{Table: SelectionResultTable,
+			Statement: &spanIdsPlanner{Result: filter, Sample: sample}})
+		cmp.Selection = &metricsSpansPlanner{Ids: SelectionResultTable, Prefix: p.getPrefix()}
 	}
-	return p.structuralGate(res), nil
+	res.Metrics = cmp
+	return res, nil
 }
 
 // sampleFilter is the hash sample of the query's sample hint, or nil without
@@ -92,15 +123,6 @@ func sampled(ctx *shared.PlannerContext, sample sql.SQLCondition) *shared.Planne
 	return &res
 }
 
-// metricsSpans plans the metrics spans of the query's pipeline.
-func (p *planner) metricsSpans() (*metricsSpansPlanner, error) {
-	result, err := p.planQuery()
-	if err != nil {
-		return nil, err
-	}
-	return &metricsSpansPlanner{Result: result, Prefix: p.getPrefix()}, nil
-}
-
 // metricsNestedSet lists the stored columns of the nested-set fields fn reads
 // as its argument or by-labels, each once; none without fn.
 func metricsNestedSet(fn *traceql_ir.MetricsFn) []nestedSetCol {
@@ -116,20 +138,17 @@ func metricsNestedSet(fn *traceql_ir.MetricsFn) []nestedSetCol {
 	return cols
 }
 
-// metricsSpansPlanner reads the traces table for the result spans of Result,
-// an evaluated pipeline: one row per span, as MetricsBuild reads, with the
-// stored values of the NestedSet columns.
+// metricsSpansPlanner reads the traces table for the spans of the ids table
+// Ids: one row per span, as MetricsBuild reads, with the stored values of the
+// NestedSet columns.
 type metricsSpansPlanner struct {
-	Result    shared.SQLRequestPlanner
+	Ids       string
 	Prefix    string
 	NestedSet []nestedSetCol
 }
 
 func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	withResult, withIds, err := resultSpanIds(ctx, m.Result, m.Prefix)
-	if err != nil {
-		return nil, err
-	}
+	withRows, withTraceIds, withSpanIds := idsOf(m.Ids, m.Prefix)
 	tsFrom, tsTo := timerange.SpanStart("traces.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	spans := sql.NewSelect().
 		Select(
@@ -143,19 +162,19 @@ func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		AndWhere(
 			tsFrom,
 			tsTo,
-			inSubquery(ctx, sql.NewRawObject("traces.trace_id"), traceIdsOf(withIds)),
-			inSubquery(ctx, sql.NewRawObject("(traces.trace_id, traces.span_id)"), sql.NewWithRef(withIds))).
+			plainIn(sql.NewRawObject("traces.trace_id"), sql.NewWithRef(withTraceIds)),
+			plainIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), sql.NewWithRef(withSpanIds))).
 		GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id"))
 	if len(m.NestedSet) == 0 {
-		return spans.With(withResult, withIds), nil
+		return spans.With(withRows, withTraceIds, withSpanIds), nil
 	}
 	withSpans := sql.NewWith(spans, m.Prefix+"metrics_traces")
 	s := withSpans.GetAlias()
-	ns := joinNestedSet(ctx, m.NestedSet, traceIdsOf(withIds), sql.NewWithRef(withIds), s,
+	ns := joinNestedSet(ctx, m.NestedSet, plainIn, sql.NewWithRef(withTraceIds), sql.NewWithRef(withSpanIds), s,
 		m.Prefix+"metrics_nested_set", nestedSetCol.metrics)
 	cols := columnsOf(s, "trace_id", "span_id", "timestamp_ns", "duration_ns", "name", "service_name")
 	return sql.NewSelect().
-		With(withResult, withIds, withSpans, ns.with).
+		With(withRows, withTraceIds, withSpanIds, withSpans, ns.with).
 		Select(append(cols, ns.cols...)...).
 		From(sql.NewWithRef(withSpans)).
 		Join(ns.join), nil
@@ -176,16 +195,14 @@ func resultSpanIds(ctx *shared.PlannerContext, result shared.SQLRequestPlanner, 
 	return withResult, sql.NewWith(ids, prefix+"result_span_ids"), nil
 }
 
-// metricsPlanner builds a metrics query over the metrics spans, whose
-// operand reads keep only Sample's rows when it is set.
+// metricsPlanner builds a metrics query over the metrics spans.
 type metricsPlanner struct {
-	Spans  *metricsSpansPlanner
-	Sample sql.SQLCondition
-	Build  MetricsBuild
+	Spans *metricsSpansPlanner
+	Build MetricsBuild
 }
 
 func (m *metricsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	spans, err := m.Spans.Process(sampled(ctx, m.Sample))
+	spans, err := m.Spans.Process(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -193,21 +210,16 @@ func (m *metricsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 }
 
 // comparePlanner builds compare() over the baseline spans, taken over the
-// baseline window, and the selection spans, nil for `{}`. Both keep only
-// Sample's rows when it is set.
+// baseline window, and the selection spans, nil for `{}`.
 type comparePlanner struct {
 	Baseline                 *metricsSpansPlanner
 	Selection                *metricsSpansPlanner
 	BaselineFrom, BaselineTo time.Time
-	Sample                   sql.SQLCondition
 	Build                    CompareBuild
 }
 
 func (c *comparePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	ctx = sampled(ctx, c.Sample)
-	baselineCtx := *ctx
-	baselineCtx.From, baselineCtx.To = c.BaselineFrom, c.BaselineTo
-	baseline, err := c.Baseline.Process(&baselineCtx)
+	baseline, err := (&windowPlanner{Main: c.Baseline, From: c.BaselineFrom, To: c.BaselineTo}).Process(ctx)
 	if err != nil {
 		return nil, err
 	}

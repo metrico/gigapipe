@@ -196,14 +196,14 @@ func TestFieldExpressionErrors(t *testing.T) {
 			if err == nil || err.Error() != c.err {
 				t.Errorf("search error = %v, want %s", err, c.err)
 			}
-			plan, err := PlanMetrics(q, countSpans)
+			metrics, err := PlanMetrics(q, countSpans)
 			if err == nil {
-				_, err = plan.Process(testPlannerContext(3))
+				err = processMetrics(metrics, testPlannerContext(3))
 			}
 			if err == nil || err.Error() != c.err {
 				t.Errorf("metrics error = %v, want %s", err, c.err)
 			}
-			plan, err = PlanTagsV2(q)
+			plan, err := PlanTagsV2(q)
 			if err == nil {
 				_, err = plan.Process(testPlannerContext(3))
 			}

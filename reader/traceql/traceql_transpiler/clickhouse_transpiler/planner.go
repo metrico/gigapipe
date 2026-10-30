@@ -102,7 +102,7 @@ func (p *planner) plan() (*SearchPlan, error) {
 	search := &searchRowsPlanner{Main: &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}}
 	return &SearchPlan{
 		Search: p.structuralGate(search),
-		Data:   &IndexLimitPlanner{NewTracesDataPlanner(searchResultPlanner{}, selected)},
+		Data:   &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},
 	}, nil
 }
 

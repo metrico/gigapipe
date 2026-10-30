@@ -53,14 +53,3 @@ func (s *searchRowsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.4, s.4), spansets)", "attr_texts")).
 		From(sql.NewWithRef(withMain)), nil
 }
-
-// searchResultPlanner reads SearchResultTable.
-type searchResultPlanner struct{}
-
-func (searchResultPlanner) Process(*shared.PlannerContext) (sql.ISelect, error) {
-	cols := make([]sql.SQLObject, len(SearchResultColumns))
-	for i, c := range SearchResultColumns {
-		cols[i] = sql.NewRawObject(c.Name)
-	}
-	return sql.NewSelect().Select(cols...).From(sql.NewRawObject(SearchResultTable)), nil
-}

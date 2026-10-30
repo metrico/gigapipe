@@ -72,10 +72,10 @@ type nestedSetJoin struct {
 }
 
 // joinNestedSet joins the newest stored values of cols onto the spans of the
-// CTE aliased spans, each value named name(col).
-func joinNestedSet(ctx *shared.PlannerContext, cols []nestedSetCol, traceIds, spanIds sql.SQLObject,
+// CTE aliased spans, each value named name(col), with ids filtered by in.
+func joinNestedSet(ctx *shared.PlannerContext, cols []nestedSetCol, in inFunc, traceIds, spanIds sql.SQLObject,
 	spans, alias string, name func(nestedSetCol) string) nestedSetJoin {
-	with := nestedSetValues(ctx, cols, searchIn(ctx), traceIds, spanIds, alias)
+	with := nestedSetValues(ctx, cols, in, traceIds, spanIds, alias)
 	v := with.GetAlias()
 	res := nestedSetJoin{with: with, join: sql.NewJoin("left", sql.NewWithRef(with), sameSpan(spans+".span_id", v+".span_id"))}
 	for _, col := range cols {

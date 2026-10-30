@@ -25,7 +25,7 @@ func narrowingPlans(t *testing.T, query string) map[string]shared.SQLRequestPlan
 	t.Helper()
 	plans := autocompletePlans(t, query)
 	plans["search"] = planSearch(t, query).Search
-	plans["metrics"] = planMetrics(t, query)
+	plans["metrics"] = planMetrics(t, query).Ids[0].Statement
 	return plans
 }
 

@@ -8,7 +8,6 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/ext"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -70,11 +69,7 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext) ([]model.Trace
 // spansets by hex trace id, and the ids as the external table
 // clickhouse_transpiler.SearchResultTable.
 func readSearch(ctx *shared.PlannerContext, strReq string) (map[string][]searchSpanset, *ext.Table, error) {
-	cols := make([]func(*ext.Table) error, len(clickhouse_transpiler.SearchResultColumns))
-	for i, c := range clickhouse_transpiler.SearchResultColumns {
-		cols[i] = ext.Column(c.Name, column.Type(c.Type))
-	}
-	table, err := ext.NewTable(clickhouse_transpiler.SearchResultTable, cols...)
+	table, err := clickhouse_transpiler.NewIdsTable(clickhouse_transpiler.SearchResultTable)
 	if err != nil {
 		return nil, nil, err
 	}

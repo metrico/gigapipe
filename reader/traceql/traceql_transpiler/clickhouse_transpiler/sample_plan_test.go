@@ -35,7 +35,10 @@ func planSampledMetrics(t *testing.T, query string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return renderPlan(t, plan, testPlannerContext(3))
+	if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); sampleCond.MatchString(res) {
+		t.Errorf("metrics statement samples:\n%s", res)
+	}
+	return renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
 }
 
 // sample hashes the trace id in every operand read when the query relates
@@ -97,8 +100,13 @@ func TestCompareSamplesBaselineAndSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sampleConds(t, renderPlan(t, plan, testPlannerContext(3))); got["span_id"] != 2 || len(got) != 1 {
-		t.Errorf("sample conditions %v, want 2 on span_id", got)
+	for _, ids := range plan.Ids {
+		if got := sampleConds(t, renderPlan(t, ids.Statement, testPlannerContext(3))); got["span_id"] != 1 || len(got) != 1 {
+			t.Errorf("%s: sample conditions %v, want 1 on span_id", ids.Table, got)
+		}
+	}
+	if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); sampleCond.MatchString(res) {
+		t.Errorf("compare statement samples:\n%s", res)
 	}
 }
 
@@ -114,7 +122,7 @@ func TestSampleOnlyAppliesToMetricsFractions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res := renderPlan(t, plan, testPlannerContext(3)); sampleCond.MatchString(res) {
+		if res := renderMetrics(t, plan, testPlannerContext(3)); sampleCond.MatchString(res) {
 			t.Errorf("%s samples:\n%s", hints, res)
 		}
 	}

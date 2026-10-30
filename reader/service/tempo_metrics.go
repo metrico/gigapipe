@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/ext"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/tempo"
@@ -51,7 +53,11 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	seriesMap := make(map[string]*model.MetricsTimeSeries)
 	hasByLabels := len(metricsFn.By) > 0
 
-	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
+	ids, err := readMetricsIds(planCtx, planner)
+	if err != nil {
+		return nil, err
+	}
+	err = queryMetricsOver(planCtx, planner.Metrics, ids, func(rows *stdsql.Rows) error {
 		byCount := len(resolvedByLabels)
 		var ts int64
 		var value float64
@@ -165,13 +171,13 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	}
 	var exemplarRows []exRow
 	var exByLabels []string
-	exPlanner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
+	exMetrics, err := planner.Over(func(spans *sql.With) (sql.ISelect, error) {
 		query, byLabels, err := tempo.BuildGenericExemplarsQuery(over(mreq, spans))
 		exByLabels = byLabels
 		return query, err
 	})
 	if err == nil && wantsExemplars(tq) {
-		_ = queryMetrics(planCtx, exPlanner, func(exRows *stdsql.Rows) error {
+		_ = queryMetricsOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
 			var ts int64
 			var traceID string
 			var durNs int64
@@ -408,9 +414,31 @@ func attrsTable(planCtx *shared.PlannerContext) string {
 	return planCtx.TracesAttrsTable
 }
 
-// queryMetrics runs planner's query, passing each row to scan.
-func queryMetrics(planCtx *shared.PlannerContext, planner shared.SQLRequestPlanner, scan func(*stdsql.Rows) error) error {
-	query, err := planner.Process(planCtx)
+// queryMetrics runs plan's ids statements, then its metrics statement over
+// their ids, passing each row to scan.
+func queryMetrics(planCtx *shared.PlannerContext, plan *clickhouse_transpiler.MetricsPlan, scan func(*stdsql.Rows) error) error {
+	ids, err := readMetricsIds(planCtx, plan)
+	if err != nil {
+		return err
+	}
+	return queryMetricsOver(planCtx, plan.Metrics, ids, scan)
+}
+
+// readMetricsIds runs plan's ids statements once, for every metrics
+// statement of the request over their ids.
+func readMetricsIds(planCtx *shared.PlannerContext, plan *clickhouse_transpiler.MetricsPlan) ([]*ext.Table, error) {
+	tables, err := clickhouse_transpiler.ReadIds(planCtx, plan.Ids)
+	if err != nil {
+		return nil, clickhouse_transpiler.UnresolvedAncestryError(planCtx, err)
+	}
+	return tables, nil
+}
+
+// queryMetricsOver runs the metrics statement metrics with ids attached as
+// external tables, passing each row to scan.
+func queryMetricsOver(planCtx *shared.PlannerContext, metrics shared.SQLRequestPlanner, ids []*ext.Table,
+	scan func(*stdsql.Rows) error) error {
+	query, err := metrics.Process(planCtx)
 	if err != nil {
 		return err
 	}
@@ -418,7 +446,8 @@ func queryMetrics(planCtx *shared.PlannerContext, planner shared.SQLRequestPlann
 	if err != nil {
 		return err
 	}
-	rows, err := planCtx.CHDb.QueryCtx(planCtx.Ctx, str)
+	ctx := clickhouse.Context(planCtx.Ctx, clickhouse.WithExternalTable(ids...))
+	rows, err := planCtx.CHDb.QueryCtx(ctx, str)
 	if err != nil {
 		return clickhouse_transpiler.UnresolvedAncestryError(planCtx, err)
 	}
@@ -448,7 +477,11 @@ func executeHistogramRange(
 	// Group by bucket_ns (power-of-2 upper bound) into separate series
 	seriesMap := make(map[uint64]*model.MetricsTimeSeries)
 
-	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
+	ids, err := readMetricsIds(planCtx, planner)
+	if err != nil {
+		return nil, err
+	}
+	err = queryMetricsOver(planCtx, planner.Metrics, ids, func(rows *stdsql.Rows) error {
 		var ts int64
 		var bucketNs uint64
 		var count uint64
@@ -517,11 +550,11 @@ func executeHistogramRange(
 		spanTs   int64
 	}
 	var exemplarRows []exRow
-	exPlanner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
+	exMetrics, err := planner.Over(func(spans *sql.With) (sql.ISelect, error) {
 		return tempo.BuildHistogramExemplarsQuery(over(mreq, spans))
 	})
 	if err == nil && wantsExemplars(tq) {
-		_ = queryMetrics(planCtx, exPlanner, func(exRows *stdsql.Rows) error {
+		_ = queryMetricsOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
 			var ts int64
 			var bucketNs uint64
 			var traceID string

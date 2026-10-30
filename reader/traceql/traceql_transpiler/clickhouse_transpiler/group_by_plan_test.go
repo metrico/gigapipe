@@ -110,7 +110,7 @@ func TestSearchListsSpansetsPerGroup(t *testing.T) {
 // Metrics count the spans of the groups that pass: group keys are no
 // series dimension.
 func TestGroupsFlattenForMetrics(t *testing.T) {
-	res := renderPlan(t, planMetrics(t, `{.a = 1} | by(.b) | count() > 1`), testPlannerContext(3))
+	res := renderPlan(t, planMetrics(t, `{.a = 1} | by(.b) | count() > 1`).Metrics, testPlannerContext(3))
 	spans := regexp.MustCompile(`metrics_spans as \(.*GROUP BY traces.trace_id, traces.span_id\)`).FindString(res)
 	if spans == "" || strings.Contains(res[strings.Index(res, "metrics_spans as ("):], "grp") {
 		t.Errorf("metrics read group keys:\n%s", res)
