@@ -69,6 +69,25 @@ For end-to-end tests:
 make e2e-full
 ```
 
+The Makefile is the entry point for every lane CI runs (CI calls these same
+recipes), plus parser-fuzz helpers for the query transpilers:
+
+```bash
+make fmt-check                      # fail if any Go file is not gofmt-formatted
+make build                          # build the gigapipe binary the way CI does
+make test-unit                      # go test -race ./..., matching CI
+make test-integration               # integration tests against GIGAPIPE_URL (see test/integration/run.sh)
+make test-integration-cluster       # cluster migration lane on a two-node ClickHouse cluster (Docker)
+make lint                           # golangci-lint, gated to issues new since origin/master
+make arch-lint                      # go-arch-lint report against .go-arch-lint.yml
+make fuzz HEAD=promql DURATION=60s  # run the native Go parser fuzz target for a query head
+```
+
+`make lint` and `make arch-lint` build their tools from pinned versions, so
+nothing needs to be installed first. If your fork's `origin/master` is behind,
+compare against another revision with `make lint LINT_NEW_FROM_REV=upstream/master`.
+Fuzzing can also be started from the "Parser fuzz" workflow in the Actions tab.
+
 ## Submitting a Pull Request
 
 1. Create a branch:

@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "checkout"
+    },
+    {
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p2",
+      "service_name": "checkout"
+    },
+    {
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p3",
+      "service_name": "checkout"
+    },
+    {
+      "app": "payments",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "payments"
+    }
+  ],
+  "status": "success"
+}

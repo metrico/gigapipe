@@ -1,0 +1,61 @@
+{
+  "data": [
+    {
+      "__name__": "http_requests_total",
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "http_requests_total",
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p2",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "http_requests_total",
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p3",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "http_requests_total",
+      "app": "payments",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "payments"
+    },
+    {
+      "__name__": "process_resident_memory_bytes",
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_resident_memory_bytes",
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p2",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_resident_memory_bytes",
+      "app": "checkout",
+      "m2_run": "RUN",
+      "pod": "p3",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_resident_memory_bytes",
+      "app": "payments",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "payments"
+    }
+  ],
+  "status": "success"
+}
