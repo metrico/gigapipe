@@ -182,7 +182,7 @@ func TestMetricsStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing.T) {
 
 func TestMetricsReadDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin|_nested_set)?\b[^_]`)
-	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|\w*result_span_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
+	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)

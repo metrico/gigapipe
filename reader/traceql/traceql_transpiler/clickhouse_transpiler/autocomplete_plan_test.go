@@ -253,7 +253,7 @@ func TestAutocompleteStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing
 
 func TestAutocompleteReadsDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin)?\b[^_]`)
-	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|\w*result_span_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
+	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
 	for _, query := range filteredQueries() {
 		for kind, plan := range autocompletePlans(t, query) {
 			t.Run(kind+" "+query, func(t *testing.T) {

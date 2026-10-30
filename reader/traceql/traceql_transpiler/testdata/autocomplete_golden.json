@@ -1,0 +1,1797 @@
+{
+  "TestAutocomplete/all-spans/tags/({})/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/all-spans/tags//0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/all-spans/tags/{}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/all-spans/values a/({})/0": [
+    "1"
+  ],
+  "TestAutocomplete/all-spans/values a//0": [
+    "1"
+  ],
+  "TestAutocomplete/all-spans/values a/{}/0": [
+    "1"
+  ],
+  "TestAutocomplete/all-spans/values name/({})/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/all-spans/values name//0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/all-spans/values name/{}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/deep/tags/{.a = \"1\"} > {.b = \"1\"}/6": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/deep/tags/{.a = \"1\"} >> {.b = \"1\"}/6": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/deep/values a/{.a = \"1\"} > {.b = \"1\"}/6": [
+    "1"
+  ],
+  "TestAutocomplete/deep/values a/{.a = \"1\"} >> {.b = \"1\"}/6": [
+    "1"
+  ],
+  "TestAutocomplete/deep/values name/{.a = \"1\"} > {.b = \"1\"}/6": [
+    "s12",
+    "s2",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/deep/values name/{.a = \"1\"} >> {.b = \"1\"}/6": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/limit-3/tags/{.a = \"1\"} >> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/limit-3/tags/{.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/limit-3/tags/{} >> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/limit-3/values a/{.a = \"1\"} >> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/limit-3/values a/{.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/limit-3/values a/{} >> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/limit-3/values name/{.a = \"1\"} >> {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15"
+  ],
+  "TestAutocomplete/limit-3/values name/{.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21"
+  ],
+  "TestAutocomplete/limit-3/values name/{} >> {}/0": [
+    "s10",
+    "s11",
+    "s12"
+  ],
+  "TestAutocomplete/plain/tags/{.a = \"1\"} && {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/plain/tags/{.a = \"1\"} || {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/plain/tags/{.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/plain/tags/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/plain/tags/{.b = \"1\"} | count() > 1/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/plain/tags/{.c = \"1\"}/0": [],
+  "TestAutocomplete/plain/tags/{} | by(.a)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/plain/values a/{.a = \"1\"} && {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/plain/values a/{.a = \"1\"} || {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/plain/values a/{.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/plain/values a/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "1"
+  ],
+  "TestAutocomplete/plain/values a/{.b = \"1\"} | count() > 1/0": [
+    "1"
+  ],
+  "TestAutocomplete/plain/values a/{.c = \"1\"}/0": [],
+  "TestAutocomplete/plain/values a/{} | by(.a)/0": [
+    "1"
+  ],
+  "TestAutocomplete/plain/values name/{.a = \"1\"} && {.b = \"1\"}/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s21",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/plain/values name/{.a = \"1\"} || {.b = \"1\"}/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s21",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/plain/values name/{.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/plain/values name/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/plain/values name/{.b = \"1\"} | count() > 1/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/plain/values name/{.c = \"1\"}/0": [],
+  "TestAutocomplete/plain/values name/{} | by(.a)/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/portions-2-limit-3/tags/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2-limit-3/tags/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2-limit-3/tags/{.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2-limit-3/tags/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values a/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values a/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values a/{.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values a/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values name/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "s1",
+    "s11",
+    "s12"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values name/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "s11",
+    "s12",
+    "s15"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values name/{.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21"
+  ],
+  "TestAutocomplete/portions-2-limit-3/values name/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "s11",
+    "s12",
+    "s15"
+  ],
+  "TestAutocomplete/portions-2/tags/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2/tags/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2/tags/{.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2/tags/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-2/values a/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2/values a/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2/values a/{.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2/values a/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-2/values name/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/portions-2/values name/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/portions-2/values name/{.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/portions-2/values name/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/portions-3-limit-3/tags/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3-limit-3/tags/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3-limit-3/tags/{.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3-limit-3/tags/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values a/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values a/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values a/{.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values a/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values name/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "s1",
+    "s11",
+    "s12"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values name/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "s11",
+    "s12",
+    "s15"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values name/{.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21"
+  ],
+  "TestAutocomplete/portions-3-limit-3/values name/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "s11",
+    "s12",
+    "s15"
+  ],
+  "TestAutocomplete/portions-3/tags/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3/tags/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3/tags/{.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3/tags/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/portions-3/values a/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3/values a/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3/values a/{.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3/values a/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "1"
+  ],
+  "TestAutocomplete/portions-3/values name/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/portions-3/values name/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/portions-3/values name/{.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/portions-3/values name/{.b = \"1\"} | by(.a) | select(name)/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/shallow/tags/{.a = \"1\"} >> {.b = \"1\"}/5": [
+    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+  ],
+  "TestAutocomplete/shallow/tags/{.b = \"1\"} &<< {.a = \"1\"}/5": [
+    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+  ],
+  "TestAutocomplete/shallow/values a/{.a = \"1\"} >> {.b = \"1\"}/5": [
+    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+  ],
+  "TestAutocomplete/shallow/values a/{.b = \"1\"} &<< {.a = \"1\"}/5": [
+    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+  ],
+  "TestAutocomplete/shallow/values name/{.a = \"1\"} >> {.b = \"1\"}/5": [
+    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+  ],
+  "TestAutocomplete/shallow/values name/{.b = \"1\"} &<< {.a = \"1\"}/5": [
+    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+  ],
+  "TestAutocomplete/structural/tags/({.a = \"1\"} > {}) ~ {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !< {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !< {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !<< {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !<< {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !> {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !>> {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !>> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !~ {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} !~ {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &< {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &< {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &<< {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &<< {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &>> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &>> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &~ {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} &~ {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} < {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} < {}/0": [
+    "a",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} << {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} << {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} > {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} > {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} >> {.b = \"1\"} >> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} >> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} >> {}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} ~ {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.a = \"1\"} ~ {}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !< {.a = \"1\"}/0": [
+    "a",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !< {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !<< {.a = \"1\"}/0": [
+    "a",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !<< {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !> {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !>> {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !>> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !~ {.a = \"1\"}/0": [
+    "a",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} !~ {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &< {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &< {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &<< {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &<< {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &> {.a = \"1\"}/0": [],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &>> {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &>> {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &~ {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} &~ {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} < {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} < {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} << {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} << {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} > {.a = \"1\"}/0": [],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} > {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} >> {.a = \"1\"}/0": [
+    "a",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} >> {.b = \"1\"}/0": [
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} ~ {.a = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/tags/{.b = \"1\"} ~ {.b = \"1\"}/0": [
+    "a",
+    "b",
+    "name"
+  ],
+  "TestAutocomplete/structural/values a/({.a = \"1\"} > {}) ~ {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !< {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !< {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !<< {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !<< {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !> {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !>> {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !>> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !~ {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} !~ {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &< {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &< {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &<< {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &<< {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &>> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &>> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &~ {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} &~ {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} < {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} < {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} << {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} << {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} > {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} > {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} >> {.b = \"1\"} >> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} >> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} >> {}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} ~ {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.a = \"1\"} ~ {}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !< {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !< {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !<< {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !<< {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !> {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !>> {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !>> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !~ {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} !~ {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &< {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &< {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &<< {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &<< {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &> {.a = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &>> {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &>> {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &~ {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} &~ {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} < {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} < {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} << {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} << {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} > {.a = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} > {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} >> {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} >> {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} ~ {.a = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values a/{.b = \"1\"} ~ {.b = \"1\"}/0": [
+    "1"
+  ],
+  "TestAutocomplete/structural/values name/({.a = \"1\"} > {}) ~ {.b = \"1\"}/0": [
+    "s12",
+    "s2",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/({nestedSetParent < 0 && .a = \"1\"} &>> {.b = \"1\"}) || ({nestedSetParent < 0 && .a = \"1\"}) | select(name, nestedSetParent)/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !< {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !< {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !<< {.b = \"1\"}/0": [
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !<< {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s2",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !> {.b = \"1\"}/0": [
+    "s11",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !> {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !>> {.b = \"1\"}/0": [
+    "s2",
+    "s3",
+    "s4",
+    "s5"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !>> {}/0": [
+    "s1",
+    "s2",
+    "s3",
+    "s4",
+    "s5"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !~ {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s4",
+    "s40",
+    "s5",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} !~ {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &< {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &< {}/0": [
+    "s1",
+    "s2",
+    "s20",
+    "s21",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &<< {.b = \"1\"}/0": [
+    "s11",
+    "s21"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &<< {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s3",
+    "s4",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &> {.b = \"1\"}/0": [
+    "s1",
+    "s12",
+    "s2",
+    "s3",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &> {}/0": [
+    "s1",
+    "s12",
+    "s13",
+    "s2",
+    "s21",
+    "s22",
+    "s3",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &>> {.b = \"1\"}/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s21",
+    "s3",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &>> {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &~ {.b = \"1\"}/0": [
+    "s2",
+    "s3",
+    "s4",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} &~ {}/0": [
+    "s2",
+    "s3",
+    "s4",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} < {.b = \"1\"}/0": [],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} < {}/0": [
+    "s1",
+    "s20",
+    "s3"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} << {.b = \"1\"}/0": [
+    "s11"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} << {}/0": [
+    "s1",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s3",
+    "s4",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} > {.b = \"1\"}/0": [
+    "s12",
+    "s2",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} > {}/0": [
+    "s12",
+    "s13",
+    "s2",
+    "s22",
+    "s3",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} >> {.b = \"1\"} >> {}/0": [
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} >> {.b = \"1\"} | select(.a)/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} >> {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} >> {}/0": [
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s2",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24",
+    "s25",
+    "s26",
+    "s27",
+    "s28",
+    "s29",
+    "s3",
+    "s30",
+    "s31",
+    "s32",
+    "s33",
+    "s34",
+    "s35",
+    "s36",
+    "s37",
+    "s38",
+    "s39",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} ~ {.b = \"1\"}/0": [
+    "s2",
+    "s3",
+    "s4",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.a = \"1\"} ~ {}/0": [
+    "s2",
+    "s3",
+    "s4",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !< {.a = \"1\"}/0": [
+    "s1",
+    "s21",
+    "s3"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !< {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !<< {.a = \"1\"}/0": [
+    "s1",
+    "s3"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !<< {.b = \"1\"}/0": [
+    "s12",
+    "s15",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !> {.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !> {.b = \"1\"}/0": [
+    "s11",
+    "s2",
+    "s3",
+    "s4",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !>> {.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !>> {.b = \"1\"}/0": [
+    "s11",
+    "s2",
+    "s3",
+    "s4",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !~ {.a = \"1\"}/0": [
+    "s1",
+    "s21",
+    "s3"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} !~ {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s4",
+    "s40",
+    "s5"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &< {.a = \"1\"}/0": [
+    "s1",
+    "s12",
+    "s2",
+    "s3",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &< {.b = \"1\"}/0": [
+    "s12",
+    "s15",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &<< {.a = \"1\"}/0": [
+    "s1",
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s21",
+    "s3",
+    "s40",
+    "s5",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &<< {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s40",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &> {.a = \"1\"}/0": [],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &> {.b = \"1\"}/0": [
+    "s12",
+    "s15",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &>> {.a = \"1\"}/0": [
+    "s11",
+    "s21"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &>> {.b = \"1\"}/0": [
+    "s11",
+    "s12",
+    "s15",
+    "s40",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &~ {.a = \"1\"}/0": [
+    "s2",
+    "s3",
+    "s4",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} &~ {.b = \"1\"}/0": [
+    "s3",
+    "s4",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} < {.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} < {.b = \"1\"}/0": [
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} << {.a = \"1\"}/0": [
+    "s1",
+    "s2",
+    "s21",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} << {.b = \"1\"}/0": [
+    "s11",
+    "s6",
+    "s7"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} > {.a = \"1\"}/0": [],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} > {.b = \"1\"}/0": [
+    "s12",
+    "s15"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} >> {.a = \"1\"}/0": [
+    "s21"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} >> {.b = \"1\"}/0": [
+    "s12",
+    "s15",
+    "s40"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} ~ {.a = \"1\"}/0": [
+    "s2",
+    "s3",
+    "s6"
+  ],
+  "TestAutocomplete/structural/values name/{.b = \"1\"} ~ {.b = \"1\"}/0": [
+    "s3",
+    "s4",
+    "s6",
+    "s7"
+  ]
+}
