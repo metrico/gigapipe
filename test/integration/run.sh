@@ -24,5 +24,5 @@ echo "--- building + starting stack ---"
 $COMPOSE up -d --build
 
 echo "--- running integration tests against $GIGAPIPE_URL ---"
-cd ../..
-go test -tags integration -count=1 -v ./test/integration/...
+# Subshell: cleanup must still run from this directory, where docker-compose.yml is.
+(cd ../.. && make test-integration)

@@ -1,0 +1,80 @@
+{
+  "flamebearer": {
+    "levels": [
+      [
+        0,
+        3330000000,
+        0,
+        0,
+        3670000000,
+        0,
+        0
+      ],
+      [
+        0,
+        3330000000,
+        0,
+        0,
+        3670000000,
+        0,
+        1
+      ],
+      [
+        0,
+        3330000000,
+        0,
+        0,
+        3670000000,
+        0,
+        2
+      ],
+      [
+        0,
+        3330000000,
+        1270000000,
+        0,
+        3670000000,
+        1500000000,
+        3
+      ],
+      [
+        0,
+        900000000,
+        900000000,
+        0,
+        1180000000,
+        1180000000,
+        4,
+        0,
+        1160000000,
+        1160000000,
+        0,
+        990000000,
+        990000000,
+        5
+      ]
+    ],
+    "maxSelf": 1500000000,
+    "names": [
+      "total",
+      "main.main",
+      "net/http.HandlerFunc.ServeHTTP",
+      "main.handleCheckout",
+      "encoding/json.Marshal",
+      "main.chargePayment"
+    ],
+    "numTicks": 7000000000
+  },
+  "groups": null,
+  "heatmap": null,
+  "leftTicks": 3330000000,
+  "metadata": {
+    "format": "double",
+    "name": "cpu",
+    "sampleRate": 1000000000,
+    "spyName": "",
+    "units": "samples"
+  },
+  "rightTicks": 3670000000,
+  "timeline": null
+}
