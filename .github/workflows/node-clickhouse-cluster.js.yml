@@ -7,13 +7,11 @@ on:
     branches: [ master, beta ]
     paths-ignore:
       - '**.md'
-      - '**.yml'
       - '**.yaml'
   pull_request:
     branches: [ master, beta ]
     paths-ignore:
       - '**.md'
-      - '**.yml'
       - '**.yaml'
 
 jobs:
