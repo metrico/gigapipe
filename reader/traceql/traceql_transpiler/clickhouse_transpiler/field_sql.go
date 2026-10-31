@@ -2,17 +2,19 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
-// fieldRef is what an attribute or intrinsic reads: the attribute key, or
-// the span duration when duration is set.
+// fieldRef is what an attribute or intrinsic reads: the attribute key, the
+// span duration when duration is set, or the stored nested-set column.
 type fieldRef struct {
-	key      string
-	duration bool
+	key       string
+	duration  bool
+	nestedSet nestedSetCol
 }
 
 // fieldRefOf maps an attribute or intrinsic to what it reads. An unscoped
@@ -31,16 +33,19 @@ func fieldRefOf(name string) (fieldRef, error) {
 	case "rootServiceName":
 		return fieldRef{key: "service.name"}, nil
 	}
+	if col, ok := nestedSetCols[name]; ok {
+		return fieldRef{nestedSet: col}, nil
+	}
 	if traceql_ir.IsIntrinsic(name) {
 		return fieldRef{}, fmt.Errorf("unsupported attribute %s", name)
 	}
 	return fieldRef{key: name}, nil
 }
 
-// fieldKeys lists the attribute keys e reads, each once, in order.
-func fieldKeys(e traceql_ir.FieldExpr) ([]string, error) {
-	var keys []string
-	seen := map[string]bool{}
+// pivotOf plans the pivot of what e reads: its attribute keys, each once
+// in order, its nested-set columns and whether it holds a root filter.
+func pivotOf(e traceql_ir.FieldExpr) (*fieldPivot, error) {
+	p := &fieldPivot{}
 	var walk func(e traceql_ir.FieldExpr) error
 	walk = func(e traceql_ir.FieldExpr) error {
 		switch e := e.(type) {
@@ -49,11 +54,19 @@ func fieldKeys(e traceql_ir.FieldExpr) ([]string, error) {
 			if err != nil {
 				return err
 			}
-			if !ref.duration && !seen[ref.key] {
-				seen[ref.key] = true
-				keys = append(keys, ref.key)
+			switch {
+			case ref.nestedSet != "":
+				if !slices.Contains(p.nestedSet, ref.nestedSet) {
+					p.nestedSet = append(p.nestedSet, ref.nestedSet)
+				}
+			case !ref.duration && !containsKey(p.keys, ref.key):
+				p.keys = append(p.keys, ref.key)
 			}
 		case *traceql_ir.BinaryOp:
+			if isRootFilter(e) {
+				p.root = true
+				return nil
+			}
 			if err := walk(e.LHS); err != nil {
 				return err
 			}
@@ -65,7 +78,25 @@ func fieldKeys(e traceql_ir.FieldExpr) ([]string, error) {
 		}
 		return nil
 	}
-	return keys, walk(e)
+	return p, walk(e)
+}
+
+// isRootFilter reports whether e is `nestedSetParent < 0` or
+// `nestedSetParent = -1`, which hold for the spans without a parent id.
+func isRootFilter(e *traceql_ir.BinaryOp) bool {
+	attr, ok := e.LHS.(*traceql_ir.Attribute)
+	if !ok || attr.Name != traceql_ir.NestedSetParent {
+		return false
+	}
+	lit, ok := e.RHS.(*traceql_ir.Static)
+	if !ok || lit.Kind != traceql_ir.ValueNumber {
+		return false
+	}
+	v, err := strconv.ParseFloat(lit.Text, 64)
+	if err != nil {
+		return false
+	}
+	return e.Op == "<" && v == 0 || e.Op == "=" && v == -1
 }
 
 // fieldSQL compiles checked field expressions to ClickHouse SQL under the nil
@@ -78,6 +109,11 @@ type fieldSQL struct {
 	attr func(key string) string
 	// duration is the column holding the span duration in nanoseconds.
 	duration string
+	// nestedSet is the pivot column of a stored nested-set column, 0 for a
+	// span without one.
+	nestedSet func(col nestedSetCol) string
+	// root is the column that is 1 for a span without a parent id.
+	root string
 }
 
 // number is a numeric SQL value: val is a Nullable(Float64), isInt whether
@@ -182,6 +218,9 @@ func (c *fieldSQL) number(e traceql_ir.FieldExpr) (number, error) {
 		if ref.duration {
 			return number{val: "toFloat64(" + c.duration + ")", isInt: "0"}, nil
 		}
+		if ref.nestedSet != "" {
+			return number{val: "toFloat64(" + c.nestedSet(ref.nestedSet) + ")", isInt: "1"}, nil
+		}
 		v := c.attr(ref.key)
 		return number{val: "toFloat64OrNull(" + v + ")", isInt: "isNotNull(toInt64OrNull(" + v + "))"}, nil
 	case *traceql_ir.Static:
@@ -236,6 +275,9 @@ func (c *fieldSQL) text(e traceql_ir.FieldExpr) (string, error) {
 		if ref.duration {
 			return "toString(" + c.duration + ")", nil
 		}
+		if ref.nestedSet != "" {
+			return "toString(" + c.nestedSet(ref.nestedSet) + ")", nil
+		}
 		return c.attr(ref.key), nil
 	case *traceql_ir.Static:
 		switch e.Kind {
@@ -253,6 +295,9 @@ func (c *fieldSQL) text(e traceql_ir.FieldExpr) (string, error) {
 // Two attributes compare as numbers when both are numbers, as strings when
 // neither is, and are nil otherwise.
 func (c *fieldSQL) comparison(e *traceql_ir.BinaryOp) (string, error) {
+	if isRootFilter(e) {
+		return c.root, nil
+	}
 	d := domainOf(e.LHS)
 	if d == domainAny {
 		d = domainOf(e.RHS)

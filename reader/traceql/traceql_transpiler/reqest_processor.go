@@ -7,6 +7,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/sql_select"
@@ -83,15 +84,7 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string)
 		}
 		spans := make(map[string]model.SpanInfo, len(spanIds))
 		for i, spanId := range spanIds {
-			span := model.SpanInfo{
-				SpanID:            spanId,
-				DurationNanos:     fmt.Sprintf("%d", durationsNs[i]),
-				StartTimeUnixNano: fmt.Sprintf("%d", timestampsNs[i]),
-				Attributes:        make([]model.SpanAttr, 0),
-			}
-			if durationsNs[i] == timestampsNs[i] {
-				span.DurationNanos = "n/a"
-			}
+			span := searchSpan(spanId, durationsNs[i], timestampsNs[i])
 			if i < len(spanAttrKeys) {
 				addSelected(&span, spanAttrKeys[i], spanAttrVals[i])
 			}
@@ -127,8 +120,18 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string)
 	return res, rows.Err()
 }
 
-// addSelected adds a span's selected values: the span name as its name, any
-// other value as an attribute.
+// searchSpan builds a search-result span without selected values.
+func searchSpan(spanId string, durationNs, timestampNs int64) model.SpanInfo {
+	return model.SpanInfo{
+		SpanID:            spanId,
+		DurationNanos:     strconv.FormatInt(durationNs, 10),
+		StartTimeUnixNano: strconv.FormatInt(timestampNs, 10),
+		Attributes:        make([]model.SpanAttr, 0),
+	}
+}
+
+// addSelected adds a span's selected values: the span name as its name, a
+// nested-set value as an int attribute, any other value as a string attribute.
 func addSelected(span *model.SpanInfo, keys, vals []string) {
 	for i, key := range keys {
 		if key == "name" {
@@ -136,7 +139,11 @@ func addSelected(span *model.SpanInfo, keys, vals []string) {
 			continue
 		}
 		attr := model.SpanAttr{Key: key}
-		attr.Value.StringValue = vals[i]
+		if traceql_ir.IsNestedSet(key) {
+			attr.Value.IntValue = &vals[i]
+		} else {
+			attr.Value.StringValue = &vals[i]
+		}
 		span.Attributes = append(span.Attributes, attr)
 	}
 }

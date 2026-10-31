@@ -105,6 +105,12 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 
 Structural TraceQL queries need ClickHouse 24.9 or newer; see [TraceQL](traceql.md#requirements).
 
+The nested-set numberer stores `nestedSetLeft`, `nestedSetRight` and `nestedSetParent` for each span; see [TraceQL](traceql.md#the-numberer). Every instance in `all` or `writer` mode takes part, and ClickHouse elects one of them to run the passes; if it stops, another takes over within 4 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. It needs ClickHouse 24.9 or newer; on an older server it logs an error and doesn't start, and every span reads `0`/`0`/`0`. With the defaults, values appear about 15s after a trace's last span. In `all` or `writer` mode an invalid value of the settings below stops Gigapipe at start-up; a `reader` ignores them.
+
+- **`GIGAPIPE_NESTED_SET_NUMBERER_IDLE`** - How long a trace must receive no spans before it is numbered, as a Go duration (default: `10s`).
+- **`GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`** - Time between numbering passes, as a Go duration (default: `5s`).
+- **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster the cap applies per shard.
+
 ## Recording Rules (Ruler)
 
 The ruler evaluates LogQL and PromQL recording rules on a schedule and writes

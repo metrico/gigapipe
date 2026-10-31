@@ -21,6 +21,8 @@ import (
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/ctrl"
+	ctrlmaintenance "github.com/metrico/qryn/v5/ctrl/maintenance"
+	"github.com/metrico/qryn/v5/nestedset"
 	"github.com/metrico/qryn/v5/reader"
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -321,6 +323,7 @@ func start() {
 	if os.Getenv("MODE") == "init_only" {
 		return
 	}
+	startNestedSetNumberer(cfg)
 
 	app := mux.NewRouter()
 	app.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
@@ -384,6 +387,35 @@ func bootSequence(mode string) []bootStep {
 
 var listener net.Listener
 
+var numberer *nestedset.Numberer
+
+// startNestedSetNumberer enters an instance that boots the writer into the
+// nested-set numberer's election. Invalid settings there fail startup; a
+// server it can't run on only logs an error.
+func startNestedSetNumberer(cfg *clconfig.ClokiConfig) {
+	if !bootsWriter(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		return
+	}
+	nsCfg, err := nestedset.ConfigFromEnv()
+	if err != nil {
+		panic(err)
+	}
+	if len(cfg.Setting.DATABASE_DATA) == 0 {
+		return
+	}
+	db := cfg.Setting.DATABASE_DATA[0]
+	conn, err := ctrlmaintenance.ConnectV2(&db, true)
+	if err != nil {
+		logger.Error("nested-set numberer not started: ", err.Error())
+		return
+	}
+	var store nestedset.Store = nestedset.ConnStore{Conn: conn}
+	if db.ClusterName != "" {
+		store = nestedset.ClusterStore{Conn: conn, Cluster: db.ClusterName, Database: db.Name}
+	}
+	numberer = nestedset.Start(context.Background(), store, nsCfg, logger.Logger)
+}
+
 func stop() {
 	listener.Close()
 }
@@ -393,11 +425,13 @@ func stop() {
 const shutdownTimeout = 30 * time.Second
 
 // servesGRPC reports whether a node in this mode mounts the OTLP/gRPC
-// receiver. The receiver ingests through the write path (controller.Registry,
-// populated by writer.Init), so it is derived from bootSequence rather than
-// restating its mode literals: a mode that mounts the receiver without booting
-// the writer would resolve services against an empty registry.
+// receiver, which ingests through the writer.
 func servesGRPC(mode string) bool {
+	return bootsWriter(mode)
+}
+
+// bootsWriter reports whether a node in this mode boots the writer.
+func bootsWriter(mode string) bool {
 	return slices.ContainsFunc(bootSequence(mode), func(s bootStep) bool { return s.name == "writer" })
 }
 
@@ -453,6 +487,10 @@ func httpStart(server *mux.Router, httpURL string, mode string, grpcOpts writerg
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error:", err)
+	}
+
+	if numberer != nil {
+		numberer.Stop()
 	}
 
 	// 2. Stop the ruler (cancels evaluation loops, waits for in-flight evals).

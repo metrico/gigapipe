@@ -96,10 +96,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 				}
 			}
 			for i, label := range resolvedByLabels {
-				labels = append(labels, model.MetricsKeyValue{
-					Key:   label,
-					Value: model.MetricsLabelValue{StringValue: byVals[i]},
-				})
+				labels = append(labels, byLabel(label, byVals[i]))
 			}
 
 			var promParts []string
@@ -107,7 +104,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 				if lbl.Value.DoubleValue != nil {
 					promParts = append(promParts, fmt.Sprintf("%s=\"%g\"", lbl.Key, *lbl.Value.DoubleValue))
 				} else {
-					promParts = append(promParts, fmt.Sprintf("%s=\"%s\"", lbl.Key, lbl.Value.StringValue))
+					promParts = append(promParts, fmt.Sprintf("%s=\"%s\"", lbl.Key, labelText(lbl.Value)))
 				}
 			}
 			promLabels := "{" + strings.Join(promParts, ", ") + "}"
@@ -212,7 +209,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			for _, lbl := range result[i].Labels {
 				isBy := slices.Contains(resolvedByLabels, lbl.Key)
 				if isBy {
-					keyParts = append(keyParts, lbl.Value.StringValue)
+					keyParts = append(keyParts, labelText(lbl.Value))
 				}
 			}
 			seriesKey := strings.Join(keyParts, "\x00")
@@ -244,7 +241,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 					}
 				} else {
 					labels = append(labels, model.MetricsKeyValue{
-						Key: "nestedSetParent", Value: model.MetricsLabelValue{IntValue: "-1"},
+						Key: traceql_ir.NestedSetParent, Value: model.MetricsLabelValue{IntValue: "-1"},
 					})
 				}
 				exTsMs := ex.spanTs / 1e6
@@ -320,10 +317,7 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 
 		labels := make([]model.MetricsKeyValue, byCount)
 		for i, label := range resolvedByLabels {
-			labels[i] = model.MetricsKeyValue{
-				Key:   label,
-				Value: model.MetricsLabelValue{StringValue: byVals[i]},
-			}
+			labels[i] = byLabel(label, byVals[i])
 		}
 
 		result = append(result, model.MetricsInstantSeries{
@@ -345,6 +339,23 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		Series:  result,
 		Metrics: []byte(`{}`),
 	}, nil
+}
+
+// byLabel is a series label of a by() field: an int for a nested-set field,
+// else a string.
+func byLabel(key, val string) model.MetricsKeyValue {
+	if traceql_ir.IsNestedSet(key) {
+		return model.MetricsKeyValue{Key: key, Value: model.MetricsLabelValue{IntValue: val}}
+	}
+	return model.MetricsKeyValue{Key: key, Value: model.MetricsLabelValue{StringValue: val}}
+}
+
+// labelText is a string or int label value as text.
+func labelText(v model.MetricsLabelValue) string {
+	if v.IntValue != "" {
+		return v.IntValue
+	}
+	return v.StringValue
 }
 
 // metricsPlannerContext parses the metrics query of req and resolves the
@@ -536,7 +547,7 @@ func executeHistogramRange(
 			exList = append(exList, tempo.HistogramExemplar{
 				Labels: []model.MetricsKeyValue{
 					{Key: "trace:id", Value: model.MetricsLabelValue{StringValue: ex.traceID}},
-					{Key: "nestedSetParent", Value: model.MetricsLabelValue{IntValue: "-1"}},
+					{Key: traceql_ir.NestedSetParent, Value: model.MetricsLabelValue{IntValue: "-1"}},
 					{Key: "duration", Value: model.MetricsLabelValue{StringValue: metricsFormatDuration(ex.durNs)}},
 				},
 				Value:       1,

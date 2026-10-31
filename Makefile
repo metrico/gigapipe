@@ -6,7 +6,7 @@ docker-compose ?= docker-compose
 E2E_TESTS_REPO ?= https://github.com/metrico/gigapipe-tests.git
 E2E_TESTS_DIR ?= ./deps/gigapipe-tests
 # Branch, tag or commit of the suite to run; a PR may pin its own tests branch.
-E2E_TESTS_REF ?= traceql-structural-ops
+E2E_TESTS_REF ?= traceql-nested-set
 # ClickHouse image of the e2e stack; the TraceQL suite also runs on the 24.9 floor.
 export E2E_CLICKHOUSE_IMAGE ?= clickhouse/clickhouse-server:25.3
 # Extra jest arguments, e.g. --testNamePattern=grid.traceql to run one suite.

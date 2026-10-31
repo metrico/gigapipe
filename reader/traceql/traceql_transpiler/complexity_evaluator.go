@@ -78,10 +78,11 @@ func (t *TraceQLComplexityEvaluator[T]) ProcessComplexReq(ctx *shared.PlannerCon
 	return t.complexRequestProcessor.Process(ctx, complexity)
 }
 
+// sortSpans orders spans earliest-first, ties by span id.
 func sortSpans(spans []model.SpanInfo) {
 	slices.SortFunc(spans, func(a, b model.SpanInfo) int {
 		s1, _ := strconv.ParseInt(a.StartTimeUnixNano, 10, 64)
 		s2, _ := strconv.ParseInt(b.StartTimeUnixNano, 10, 64)
-		return cmp.Compare(s2, s1)
+		return cmp.Or(cmp.Compare(s1, s2), cmp.Compare(a.SpanID, b.SpanID))
 	})
 }

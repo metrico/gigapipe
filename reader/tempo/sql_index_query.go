@@ -58,7 +58,6 @@ func (s *SQLIndexQuery) String(ctx *sql.Ctx, options ...int) (string, error) {
 			AndWhere(
 				sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(k)),
 				cond(sql.NewStringVal(v)),
-				//TODO: move to PRO !!!TURNED OFFF sql.Eq(sql.NewRawObject("oid"), sql.NewStringVal(s.Oid)),
 			)
 		if s.Limit > 0 && s.Ver.IsVersionSupported("tempo_v2", s.FromNS, s.ToNS) {
 			sqlTagRequests[i].Select(

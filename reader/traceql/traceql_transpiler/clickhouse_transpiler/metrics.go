@@ -3,6 +3,7 @@ package clickhouse_transpiler
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -12,8 +13,8 @@ import (
 )
 
 // MetricsBuild builds a metrics query reading spans, a CTE with one row per
-// span the metrics function counts: trace_id, span_id, timestamp_ns,
-// duration_ns, name and service_name.
+// span: trace_id, span_id, timestamp_ns, duration_ns, name, service_name and
+// the MetricsNestedSetColumn of each nested-set field the function reads.
 type MetricsBuild func(spans *sql.With) (sql.ISelect, error)
 
 // CompareBuild builds compare() from two CTEs shaped like MetricsBuild's:
@@ -30,6 +31,7 @@ func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (shared.SQLRequest
 	if err != nil {
 		return nil, err
 	}
+	spans.NestedSet = metricsNestedSet(query.Metrics)
 	return p.structuralGate(&metricsPlanner{Spans: spans, Sample: sampleFilter(query), Build: build}), nil
 }
 
@@ -99,11 +101,28 @@ func (p *planner) metricsSpans() (*metricsSpansPlanner, error) {
 	return &metricsSpansPlanner{Result: result, Prefix: p.getPrefix()}, nil
 }
 
+// metricsNestedSet lists the stored columns of the nested-set fields fn reads
+// as its argument or by-labels, each once; none without fn.
+func metricsNestedSet(fn *traceql_ir.MetricsFn) []nestedSetCol {
+	if fn == nil {
+		return nil
+	}
+	var cols []nestedSetCol
+	for _, f := range append([]string{fn.Attr}, fn.By...) {
+		if col, ok := nestedSetCols[f]; ok && !slices.Contains(cols, col) {
+			cols = append(cols, col)
+		}
+	}
+	return cols
+}
+
 // metricsSpansPlanner reads the traces table for the result spans of Result,
-// an evaluated pipeline: one row per span, as MetricsBuild reads.
+// an evaluated pipeline: one row per span, as MetricsBuild reads, with the
+// stored values of the NestedSet columns.
 type metricsSpansPlanner struct {
-	Result shared.SQLRequestPlanner
-	Prefix string
+	Result    shared.SQLRequestPlanner
+	Prefix    string
+	NestedSet []nestedSetCol
 }
 
 func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -112,8 +131,7 @@ func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		return nil, err
 	}
 	tsFrom, tsTo := timerange.SpanStart("traces.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
-	return sql.NewSelect().
-		With(withResult, withIds).
+	spans := sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("traces.trace_id", "trace_id"),
 			sql.NewSimpleCol("traces.span_id", "span_id"),
@@ -125,10 +143,22 @@ func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		AndWhere(
 			tsFrom,
 			tsTo,
-			inSubquery(ctx, sql.NewRawObject("traces.trace_id"),
-				sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewWithRef(withIds))),
+			inSubquery(ctx, sql.NewRawObject("traces.trace_id"), traceIdsOf(withIds)),
 			inSubquery(ctx, sql.NewRawObject("(traces.trace_id, traces.span_id)"), sql.NewWithRef(withIds))).
-		GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id")), nil
+		GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id"))
+	if len(m.NestedSet) == 0 {
+		return spans.With(withResult, withIds), nil
+	}
+	withSpans := sql.NewWith(spans, m.Prefix+"metrics_traces")
+	s := withSpans.GetAlias()
+	ns := joinNestedSet(ctx, m.NestedSet, traceIdsOf(withIds), sql.NewWithRef(withIds), s,
+		m.Prefix+"metrics_nested_set", nestedSetCol.metrics)
+	cols := columnsOf(s, "trace_id", "span_id", "timestamp_ns", "duration_ns", "name", "service_name")
+	return sql.NewSelect().
+		With(withResult, withIds, withSpans, ns.with).
+		Select(append(cols, ns.cols...)...).
+		From(sql.NewWithRef(withSpans)).
+		Join(ns.join), nil
 }
 
 // resultSpanIds evaluates result, a pipeline, and returns its span rows and

@@ -10,9 +10,9 @@ and tag/value autocomplete:
 Search and metrics are also served under the `/tempo` prefix.
 
 This page covers the parts of TraceQL that relate spans to each other
-(structural operators, `&&`/`||` between spansets, pipelines) and the field
-expressions used inside spanset filters. Where gigapipe deliberately differs
-from Tempo, the difference is listed in
+(structural operators, `&&`/`||` between spansets, pipelines, the nested-set
+intrinsics) and the field expressions used inside spanset filters. Where
+gigapipe deliberately differs from Tempo, the difference is listed in
 [Differences from Tempo](#differences-from-tempo).
 
 ## Requirements
@@ -26,6 +26,10 @@ Structural queries need no schema migration, writer change or backfill: the
 span tree is resolved at query time from the `parent_id` of the stored spans.
 Clustered (Distributed) deployments return the same results as single-node
 ones.
+
+The nested-set intrinsics read values that a background numberer stores,
+which also needs ClickHouse 24.9 or newer; see
+[Nested-set intrinsics](#nested-set-intrinsics).
 
 ## Time range
 
@@ -224,9 +228,9 @@ before the query runs, so it rejects `({A} | by(.x)) > {B}` and
 `{A} | by(.x) | {B} > {C}` even when every trace has a single group.
 
 Group-key values: attributes are returned as `stringValue` with their stored
-text, number expressions as `intValue`/`doubleValue` (or a duration
-`stringValue`), comparisons as `boolValue`, and the nil group as
-`stringValue` `"nil"`.
+text, nested-set intrinsics and other number expressions as
+`intValue`/`doubleValue` (or a duration `stringValue`), comparisons as
+`boolValue`, and the nil group as `stringValue` `"nil"`.
 
 ### `select()`
 
@@ -235,8 +239,13 @@ as span attributes, without filtering. It can appear at any pipeline position.
 
 - Only attributes and intrinsics are accepted; a field expression such as
   `select(.a + .b)` is a parse error.
-- Values are returned as `stringValue` and sorted by key. A span without the
-  field omits it. `name` sets the span's `name` field.
+- Values are sorted by key. The nested-set intrinsics are returned as
+  `intValue` and every other field as `stringValue`. A span without the
+  field omits it; the nested-set intrinsics are never omitted. `name` sets
+  the span's `name` field.
+- An attribute named like a nested-set intrinsic selects the intrinsic:
+  `select(.nestedSetLeft)` and `select(span.nestedSetLeft)` return the
+  `nestedSetLeft` int.
 - `duration`, `rootName`, `rootServiceName`, `traceDuration` and the span
   and trace ids are already part of every search result and add nothing.
 - `select()` before a metrics function is accepted and has no effect;
@@ -258,7 +267,9 @@ Fields:
 
 - attributes: `span.x`, `resource.x`, `.x`
 - intrinsics: `duration` (`span:duration`), `name` (`span:name`), `status`,
-  `kind`, `statusMessage`, `rootName`, `rootServiceName`
+  `kind`, `statusMessage`, `rootName`, `rootServiceName`, and the ints
+  `nestedSetLeft`, `nestedSetRight`, `nestedSetParent` (see
+  [Nested-set intrinsics](#nested-set-intrinsics))
 
 Operators, from loosest to tightest:
 
@@ -308,16 +319,168 @@ Binary `-` needs whitespace: `.a-.b` is one attribute named `a-.b`, while
   `!(.a = 1)` matches spans without `.a`.
 - `&&` and `||` treat a nil operand as false.
 
+## Nested-set intrinsics
+
+`nestedSetLeft`, `nestedSetRight` and `nestedSetParent` describe a span's
+place in its trace's tree. They are ints, accepted wherever Tempo accepts
+them: spanset filters with any comparison, field expressions, `select()`,
+`by()`, aggregates, and metrics `by (...)` and `*_over_time()` arguments.
+They are returned as `intValue` in search spans, group keys and metrics
+labels. Autocomplete doesn't offer them.
+
+```
+{ nestedSetParent < 0 } | select(nestedSetLeft, nestedSetRight)
+{ nestedSetRight - nestedSetLeft > 1 }
+```
+
+The values follow Tempo's relationships, but the absolute numbers can
+differ:
+
+- A depth-first walk numbers each trace from 1, with one counter across all
+  roots. A span's descendants have their `nestedSetLeft` inside the span's
+  `[nestedSetLeft, nestedSetRight]`, and a leaf has
+  `nestedSetRight = nestedSetLeft + 1`.
+- `nestedSetParent` is the parent's `nestedSetLeft`. Roots hold `-1`.
+- Spans that can't reach a root (a missing parent, a cycle, a trace without
+  a root) read `0`/`0`/`0`.
+- Siblings, and the roots of a trace, are numbered by start time, then span
+  id.
+- Spans sharing a span id form one node, placed by the earliest-starting
+  copy. Every copy reports that node's values.
+
+In filters, an attribute named like a nested-set intrinsic
+(`.nestedSetLeft`, `span.nestedSetRight`) is an attribute. In `select()`
+and in the filter echo it selects the intrinsic.
+
+### The numberer
+
+The values are computed after ingestion by a background loop, the
+numberer, and stored in the `tempo_traces_nested_set` table. There is
+nothing to enable; its settings are under
+[Configuration](configuration.md#traceql).
+
+- Every gigapipe instance in `all` or `writer` mode takes part, and
+  ClickHouse elects one of them to run the passes through a lease in the
+  `tempo_traces_nested_set_lease` table. If the leader stops, or its passes
+  keep failing, another instance takes over within 4 ×
+  `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL` (20s by default), so values can
+  lag that much longer. `reader` instances never take part.
+- On a cluster, each instance judges the lease by the clock of the
+  ClickHouse node it connects to, so node clocks must agree to well within
+  3 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. NTP is enough. On a
+  replicated cluster, all nodes must also agree within 2s and well within
+  the idle period.
+- It needs **ClickHouse 24.9 or newer**. On an older server it logs an error
+  and doesn't start, and every span reads `0`/`0`/`0`.
+- A trace is numbered once it has received no spans for the idle period.
+  With the defaults, values appear about 15s after a trace's last span. A
+  late span renumbers its whole trace.
+- Each pass numbers at most `GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS` spans,
+  oldest traces first; the rest wait for the next pass. On a cluster, each
+  shard numbers its own traces and the cap applies per shard.
+- Each pass reads only the traces touched since the previous one. The
+  leader keeps a cursor, the newest touch the last pass covered (on a
+  cluster, the least across shards), in the lease table, so a new leader
+  continues from it. Without one, a pass reads the last 5 minutes.
+- A pass waits for synchronous inserts into its database's `tempo_traces`
+  (directly or through `tempo_traces_dist`) that are still running on any
+  reachable node of the cluster, and for spans a lagging replica has yet to
+  fetch. While a replica has replication log entries left to pull, its shard
+  numbers only traces idle for 2s longer than the idle period; while it has
+  entries left to apply, only traces touched more than its delay (plus 2s
+  once it is a second or more) ago. The cursor also stays at or before the
+  oldest running insert's start as one of the leader instance's kept reads
+  saw it, a read taken at least 2s before those entries were created.
+  An instance keeps, across its terms, its newest read and, for each k
+  from 0 to 11, the oldest kept read at most 2^k reads older. So a lag of
+  up to about 1,000 reads (passes that read the running inserts; at least
+  85 minutes at the default interval) holds that shard's numbering at most
+  about three times the lag plus a pass behind. When no kept read
+  qualifies (a longer lag, or an instance that has just started), that
+  shard numbers nothing and the cursor holds, pass after pass. A replica that
+  can't catch up (a broken part, fetches stopped), or whose tables have yet
+  to receive their first insert, holds its shard and the cursor until it
+  does. So the cursor doesn't pass the start of an insert whose spans a
+  replica has yet to apply. A pass doesn't see an insert on a node
+  that doesn't connect within 1s or complete its handshake within 2s. A node
+  that then takes over 3s to answer fails the pass, and numbering resumes
+  once it answers. A long insert, such as a backfill, holds back every
+  shard's traces touched after it started until it ends. Async inserts are
+  assumed to commit within the idle period. A trace whose spans commit later
+  than that may not be numbered until it receives another span.
+- While the lease can't be read or written, numbering pauses; the instances
+  log the start and end of the outage. Traces whose only spans arrived more
+  than about a day before numbering resumes stay `0`/`0`/`0`, or more than
+  5 minutes before if no pass has succeeded yet.
+- There is no backfill. A trace that receives no spans once the
+  `tempo_traces_touched` table exists is never numbered, and one whose last
+  span arrived more than 5 minutes before the numberer's first successful
+  pass may not be.
+
+Instances log only leadership changes: winning a term, stepping down to a
+newer one, and lease outages. To see who leads and since when (on a
+cluster, query `tempo_traces_nested_set_lease_dist`):
+
+```sql
+SELECT term,
+       if(countIf(NOT claim) > 0, argMaxIf(holder, (expires_at, holder), NOT claim),
+          argMinIf(holder, (expires_at, holder), claim)) AS leader,
+       min(expires_at) - INTERVAL 15 SECOND AS since,
+       max(expires_at) AS until,
+       until > now64(3) AS live
+FROM tempo_traces_nested_set_lease
+GROUP BY term
+ORDER BY term DESC
+LIMIT 1
+```
+
+`leader` is the hostname, PID and a random suffix of the leading process.
+`since` subtracts the lease length, 3 × the interval: `15 SECOND` holds
+only at the default, so change it to match your interval. Rows are kept
+for a day after they expire, so for a term led longer than that, `since`
+shows about a day ago.
+
+### Unnumbered spans
+
+A span not numbered yet, or never, reads `0`/`0`/`0` in `select()`, the
+filter echo, filters, `by()`, aggregates and metrics. Unnumbered and
+unreachable spans look the same.
+
+The root filter is the exception: `{ nestedSetParent < 0 }` and
+`{ nestedSetParent = -1 }` find roots through the span's parent id, so they
+match the roots of every trace, numbered or not. An unnumbered root still
+selects and echoes `nestedSetParent = 0`. Only these forms, with the number
+on the right, read the parent id; other spellings such as
+`-1 = nestedSetParent` or `nestedSetParent <= -1` read the stored value and
+miss unnumbered roots.
+
+Structural operators never read the stored values; they resolve the tree at
+query time. A span that matches `>>` can therefore carry `0`/`0`/`0`, or
+stale numbers when its trace received a late span after it was numbered.
+
 ## Search results
 
-- `spss` (spans per spanset) is the number of spans listed per spanset,
-  newest first. It defaults to 3. A value that isn't a positive integer is
-  rejected with `invalid spss: must be a positive number`.
+- `spss` (spans per spanset) is the number of spans listed per spanset. It
+  defaults to 3. A value that isn't a positive integer is rejected with
+  `invalid spss: must be a positive number`.
+- Each spanset lists its `spss` earliest-starting spans, earliest first,
+  ties by span id.
 - `matched` is the number of spans the spanset matched, even when `spss`
   lists fewer.
 - `limit` counts traces that satisfy the whole query.
 - No cap applies to the spans a query evaluates; ClickHouse memory limits
   apply.
+- `durationNanos` is always the span duration in nanoseconds.
+
+### Filter echo
+
+Listed spans carry the attributes and intrinsics the query's spanset filters
+`{...}` read, as if they were added to a `select()`.
+`{ .a = 1 } >> { .b = 2 }` returns `.a` and `.b` on each listed span that has
+them. The keys are the union over the whole query, and values follow the
+`select()` rules above. Fields read only by a scalar filter
+(`| avg(.x) > 1`) or by `by()` are not echoed. Metrics and autocomplete are
+unaffected.
 
 ## Metrics
 
@@ -329,7 +492,8 @@ of either side. Spans are bucketed by start time within `(from, to]`.
 Scalar filters and `by()` before the metrics function decide which traces and
 groups contribute; the spans of every passing group feed the metric.
 `by()` groups never become series labels; use the metrics function's
-`by (...)` for that.
+`by (...)` for that. `by (...)` labels are strings, except the nested-set
+intrinsics, which are `intValue`.
 
 ### Hints
 
@@ -416,9 +580,34 @@ gigapipe returns the spans Tempo returns, except where listed here.
 - A bare word as an aggregate argument (`avg(spanN)`) reads the attribute of
   that name; Tempo rejects it.
 
+**Nested-set intrinsics**
+
+- Nested-set siblings are numbered by start time, then span id; Tempo
+  numbers them in its storage order, so the absolute values can differ.
+- Spans sharing a span id form one nested-set node, placed by the
+  earliest-starting copy; Tempo matches two copies by kind and zeroes a trace
+  in which three or more share an id.
+- Every pass renumbers whole traces, so merges leave no stale nested-set
+  numbers, as they can in Tempo.
+- A trace reads `0`/`0`/`0` until the numberer has numbered it, about 15s
+  after its last span with the defaults, and traces stored before the
+  numberer ran may never be numbered.
+
+**Search results**
+
+- Each spanset lists its `spss` earliest-starting spans; Tempo lists the
+  first spans in its storage order. Under clock skew, a child can be kept
+  ahead of its parent.
+- The filter echo uses the union of the query's keys:
+  `{ .a = 1 } >> { .b = 2 }` shows `.a` on returned spans that carry it,
+  where Tempo shows only `.b`.
+- Fields read only by a scalar filter or `by()` aren't echoed; Tempo
+  returns them too.
+
 **`select()`**
 
-- Selected values are returned as strings; Tempo returns typed values.
+- Selected attribute values are returned as strings; Tempo returns typed
+  values.
 - An attribute named like an intrinsic shares its storage key: a span
   attribute `name`, `status` or `kind` is reported as the span's name,
   status or kind.

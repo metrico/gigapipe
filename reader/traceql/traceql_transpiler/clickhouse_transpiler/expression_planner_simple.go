@@ -1,8 +1,6 @@
 package clickhouse_transpiler
 
 import (
-	"strings"
-
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
@@ -137,8 +135,6 @@ func attrComparable(name, op string, kind traceql_ir.ValueKind) bool {
 	isString := kind == traceql_ir.ValueString && (isEquality || isRegex) ||
 		kind == traceql_ir.ValueIdent && isEquality
 	switch {
-	case strings.HasPrefix(name, "nestedSet"):
-		return true
 	case name == "duration" || name == "span:duration":
 		return kind == traceql_ir.ValueDuration && !isRegex
 	case name == "status" || name == "kind":

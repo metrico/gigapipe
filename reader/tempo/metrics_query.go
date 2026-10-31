@@ -6,6 +6,7 @@ import (
 	"time"
 
 	model "github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -28,8 +29,8 @@ var metricsAggFn = map[string]string{
 }
 
 // MetricsRequest is a metrics function over Spans, a CTE with one row per
-// span it counts: trace_id, span_id, timestamp_ns, duration_ns, name and
-// service_name.
+// span it counts: trace_id, span_id, timestamp_ns, duration_ns, name,
+// service_name and the MetricsNestedSetColumn of each nested-set field it reads.
 type MetricsRequest struct {
 	Spans      *sql.With
 	Fn         string
@@ -182,12 +183,19 @@ func resolveAttrForAgg(attr string) string {
 	if col, ok := IntrinsicAttr[attr]; ok {
 		return "main." + col
 	}
+	if col, ok := clickhouse_transpiler.MetricsNestedSetColumn(attr); ok {
+		return "main." + col
+	}
 	return ""
 }
 
-// resolveAttrColumn resolves a TraceQL attribute to a direct tempo_traces column (intrinsics only).
+// resolveAttrColumn resolves a TraceQL attribute to a column of the spans
+// (intrinsics and nested-set fields only).
 func resolveAttrColumn(label string) string {
 	if col, ok := IntrinsicAttr[label]; ok {
+		return col
+	}
+	if col, ok := clickhouse_transpiler.MetricsNestedSetColumn(label); ok {
 		return col
 	}
 	if label == "resource.service.name" || label == "service.name" || label == "rootServiceName" {

@@ -22,14 +22,14 @@ func newGroupByStage(g *traceql_ir.GroupBy) (*groupByStage, error) {
 	if err := traceql_ir.CheckGroupBy(g); err != nil {
 		return nil, err
 	}
-	keys, err := fieldKeys(g.Expr)
+	pivot, err := pivotOf(g.Expr)
 	if err != nil {
 		return nil, err
 	}
-	if len(keys) > 0 && !nilWhenAbsent(g.Expr) && !containsKey(keys, anchorKey) {
-		keys = append(keys, anchorKey)
+	if len(pivot.keys) > 0 && !nilWhenAbsent(g.Expr) && !containsKey(pivot.keys, anchorKey) {
+		pivot.keys = append(pivot.keys, anchorKey)
 	}
-	return &groupByStage{by: g, pivot: &fieldPivot{keys: keys}}, nil
+	return &groupByStage{by: g, pivot: pivot}, nil
 }
 
 func (s *groupByStage) process(ctx *shared.PlannerContext, alias string, prev, _ *sql.With) (sql.ISelect, error) {
@@ -48,7 +48,7 @@ func (s *groupByStage) process(ctx *shared.PlannerContext, alias string, prev, _
 	spans.AndWhere(
 		inSubquery(ctx, sql.NewRawObject(table+".trace_id"), prevTraces),
 		inSubquery(ctx, sql.NewRawObject(fmt.Sprintf("(%s.trace_id, %s.span_id)", table, table)), prevSpans))
-	withPivot := sql.NewWith(spans, alias+"_pivot")
+	withs, withPivot := pivot.read(ctx, spans, alias+"_pivot")
 	withKeys := sql.NewWith(sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("trace_id", "trace_id"),
@@ -66,7 +66,7 @@ func (s *groupByStage) process(ctx *shared.PlannerContext, alias string, prev, _
 	withKeyed := sql.NewWith(keyed, alias+"_keyed")
 	attr := fmt.Sprintf("tuple(%s, tupleElement(key, 4), tupleElement(key, 2), tupleElement(key, 3))", sqlString(s.by.String()))
 	return sql.NewSelect().
-		With(withPivot, withKeys, withKeyed).
+		With(append(withs, withKeys, withKeyed)...).
 		Select(stageRowCols("", "arrayPushBack(attrs, "+attr+")", "arrayPushBack(grp, key)")...).
 		From(sql.NewWithRef(withKeyed)), nil
 }

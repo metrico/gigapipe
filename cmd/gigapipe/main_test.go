@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/nestedset"
 	writergrpc "github.com/metrico/qryn/v5/writer/grpc"
 )
 
@@ -158,6 +161,31 @@ func TestServesGRPCModes(t *testing.T) {
 			t.Errorf("servesGRPC(%q) = %v, want %v", mode, got, w)
 		}
 	}
+}
+
+// TestNestedSetNumbererModes pins which modes enter the numberer's election
+// and validate its settings; a reader ignores them.
+func TestNestedSetNumbererModes(t *testing.T) {
+	t.Setenv(nestedset.IntervalEnv, "bogus")
+	for mode, want := range map[string]bool{
+		"all": true, "writer": true, "": true,
+		"reader": false, "init_only": false,
+	} {
+		if got := bootsWriter(mode); got != want {
+			t.Errorf("bootsWriter(%q) = %v, want %v", mode, got, want)
+		}
+		if failed := startNumbererPanics(mode); failed != want {
+			t.Errorf("mode %q: an invalid interval failed start-up %v, want %v", mode, failed, want)
+		}
+	}
+}
+
+func startNumbererPanics(mode string) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	cfg := &clconfig.ClokiConfig{Setting: &config.ClokiBaseSettingServer{}}
+	cfg.Setting.SYSTEM_SETTINGS.Mode = mode
+	startNestedSetNumberer(cfg)
+	return false
 }
 
 // TestHTTPRootWriterModes asserts that a node which serves gRPC gets both

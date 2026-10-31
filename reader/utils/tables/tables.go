@@ -37,6 +37,7 @@ func init() {
 	tableNames["profiles"] = "profiles"
 	tableNames["tempo_traces_attrs_gin"] = "tempo_traces_attrs_gin"
 	tableNames["tempo_traces_attrs_gin_dist"] = "tempo_traces_attrs_gin_dist"
+	tableNames["tempo_traces_nested_set"] = "tempo_traces_nested_set"
 	tableNames["patterns"] = "patterns"
 }
 
@@ -95,6 +96,8 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.TracesDistTable = GetTableName("tempo_traces")
 	ctx.TracesKVTable = GetTableName("tempo_traces_kv")
 	ctx.TracesKVDistTable = GetTableName("tempo_traces_kv")
+	ctx.TracesNestedSetTable = GetTableName("tempo_traces_nested_set")
+	ctx.TracesNestedSetDistTable = GetTableName("tempo_traces_nested_set")
 
 	if db.Config.ClusterName != "" {
 		suffix := distconfig.Suffix()
@@ -112,6 +115,7 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 		ctx.TracesAttrsDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesAttrsTable, suffix)
 		ctx.TracesDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesTable, suffix)
 		ctx.TracesKVDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesKVTable, suffix)
+		ctx.TracesNestedSetDistTable = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TracesNestedSetTable, suffix)
 	}
 	return ctx
 }

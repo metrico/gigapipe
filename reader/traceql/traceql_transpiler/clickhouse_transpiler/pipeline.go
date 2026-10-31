@@ -143,8 +143,7 @@ func stageRowCols(alias, attrs, grp string) []sql.SQLObject {
 	return append(spanRowColsOf(alias), sql.NewSimpleCol(attrs, "attrs"), sql.NewSimpleCol(grp, "grp"))
 }
 
-// spansetStage is the span rows of a spanset expression that pass the
-// traces-table conditions of its selectors. After another stage, its
+// spansetStage is the span rows of a spanset expression. After another stage, its
 // selectors match only that stage's spans, whose attributes and group keys
 // it keeps.
 type spansetStage struct {
@@ -155,9 +154,7 @@ type spansetStage struct {
 }
 
 func (s *spansetStage) process(ctx *shared.PlannerContext, alias string, prev, _ *sql.With) (sql.ISelect, error) {
-	// The selectors set their traces-table conditions on a context of their own.
 	exprCtx := *ctx
-	exprCtx.TracesIntrinsicWhere = nil
 	if prev != nil {
 		exprCtx.TracesOperandSpans = prev
 	}
@@ -181,24 +178,5 @@ func (s *spansetStage) process(ctx *shared.PlannerContext, alias string, prev, _
 	if prev != nil && !s.Pipeline {
 		res.Join(sql.NewJoin("inner", sql.NewWithRef(prev), sameSpan(prev.GetAlias()+".span_id", e+".span_id")))
 	}
-	if cond := intrinsicFilter(&exprCtx, withExpr); cond != nil {
-		res.AndWhere(cond)
-	}
 	return res, nil
-}
-
-// intrinsicFilter keeps the rows of spans, evaluated span rows, that pass the
-// traces-table conditions the expression's selectors set, or is nil without any.
-func intrinsicFilter(ctx *shared.PlannerContext, spans *sql.With) sql.SQLCondition {
-	if len(ctx.TracesIntrinsicWhere) == 0 {
-		return nil
-	}
-	intrinsic := sql.NewSelect().
-		Select(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id")).
-		From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
-		AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"),
-			sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewWithRef(spans)))).
-		AndWhere(ctx.TracesIntrinsicWhere...)
-	alias := spans.GetAlias()
-	return sql.NewIn(sql.NewRawObject(fmt.Sprintf("(%s.trace_id, %s.span_id)", alias, alias)), intrinsic)
 }

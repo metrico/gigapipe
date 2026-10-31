@@ -173,13 +173,8 @@ func TestAutocompleteSpanStartIsLeftOpenRightClosed(t *testing.T) {
 func TestAutocompleteRootFilterAppliesToTheResultSpans(t *testing.T) {
 	for kind, plan := range autocompletePlans(t, `{nestedSetParent < 0 && .a = 1}`) {
 		for i := 0; i < 2; i++ {
-			ctx := testPlannerContext(3)
-			res := renderPlan(t, plan, ctx)
-			if len(ctx.TracesIntrinsicWhere) != 0 {
-				t.Errorf("%s: planning left %d conditions on the caller's context", kind, len(ctx.TracesIntrinsicWhere))
-			}
-			if !regexp.MustCompile(`\(_\d+stage0_expr\.trace_id, _\d+stage0_expr\.span_id\) IN \(`).MatchString(res) ||
-				!strings.Contains(res, "traces.parent_id") {
+			res := renderPlan(t, plan, testPlannerContext(3))
+			if !strings.Contains(res, rootColumn) {
 				t.Errorf("%s, evaluation %d: root filter missing from the result spans:\n%s", kind, i+1, res)
 			}
 		}

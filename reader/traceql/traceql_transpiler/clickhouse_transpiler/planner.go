@@ -90,7 +90,7 @@ type planner struct {
 }
 
 func (p *planner) plan() (shared.SQLRequestPlanner, error) {
-	selected, err := selectedKeys(p.query)
+	selected, err := spanValueKeys(p.query)
 	if err != nil {
 		return nil, err
 	}

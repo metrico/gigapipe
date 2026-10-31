@@ -131,7 +131,6 @@ func TestScalarFilterErrors(t *testing.T) {
 		{`{} | 1 < avg(rootServiceName) + 1`, "aggregate field expressions must resolve to a number type: avg(rootServiceName)"},
 		{`({} | min(statusMessage) > 1) && {.a = 1}`, "aggregate field expressions must resolve to a number type: min(statusMessage)"},
 		{`{} | count() > 1 | avg(span:childCount) > 1`, "unsupported attribute span:childCount"},
-		{`{} | max(nestedSetLeft) > 1`, "unsupported attribute nestedSetLeft"},
 	} {
 		t.Run(c.query, func(t *testing.T) {
 			q, err := traceql_ir.Parse(c.query)

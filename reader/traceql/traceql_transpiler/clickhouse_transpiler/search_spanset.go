@@ -11,9 +11,9 @@ import (
 const DefaultSpansPerSpanSet = 3
 
 // SearchSpansetPlanner groups the result span rows into spansets, one per
-// trace and group key, each listing its newest spss spans (ties by span id)
-// and matched, the count of all. A trace lists its spansets by group key;
-// traces come newest-span first.
+// trace and group key, each listing its earliest-starting spss spans (ties by
+// span id) and matched, the count of all. A trace lists its spansets by group
+// key; traces come newest-span first.
 type SearchSpansetPlanner struct {
 	Main shared.SQLRequestPlanner
 }
@@ -34,7 +34,7 @@ func (s *SearchSpansetPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 			sql.NewSimpleCol("result_spans.trace_id", "trace_id"),
 			sql.NewSimpleCol("result_spans.grp", "grp"),
 			sql.NewSimpleCol(fmt.Sprintf(
-				"arrayMap(x -> x.2, arraySlice(arrayReverseSort(groupUniqArray((result_spans.timestamp_ns, result_spans.span_id))), 1, %d))", spss),
+				"arrayMap(x -> x.2, arraySlice(arraySort(groupUniqArray((result_spans.timestamp_ns, result_spans.span_id))), 1, %d))", spss),
 				"span_ids"),
 			sql.NewSimpleCol("toInt64(count(DISTINCT result_spans.span_id))", "matched"),
 			sql.NewSimpleCol("any(result_spans.attrs)", "attrs"),

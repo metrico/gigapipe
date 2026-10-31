@@ -132,6 +132,11 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 	if err != nil {
 		return err
 	}
+	err = storagePolicyUpdate(db, clusterName, distributed, storagePolicy, "v1_traces_nested_set_storage_policy",
+		"tempo_traces_nested_set")
+	if err != nil {
+		return err
+	}
 	metrics15sExists, err := tableExists(db, "metrics_15s")
 	if err != nil {
 		return err
@@ -192,6 +197,14 @@ func Rotate(db clickhouse.Conn, clusterName string, distributed bool, days []Rot
 		"date",
 		tracesDefaultTTLString("date"), "tempo_attrs_v1",
 		logger, "tempo_traces_attrs_gin", "tempo_traces_kv")
+	if err != nil {
+		return err
+	}
+	err = rotateTables(db, clusterName, distributed, days,
+		dayTTL,
+		"date",
+		tracesDefaultTTLString("date"), "tempo_nested_set_v1",
+		logger, "tempo_traces_nested_set")
 	if err != nil {
 		return err
 	}

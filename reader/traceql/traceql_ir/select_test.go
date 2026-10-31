@@ -69,3 +69,20 @@ func TestSelectedFields(t *testing.T) {
 		require.Equal(t, want, mustParse(t, query).SelectedFields(), query)
 	}
 }
+
+// The filtered fields of a query are those every spanset filter reads, across
+// operators and nested pipelines, each once in first-seen order.
+func TestFilteredFields(t *testing.T) {
+	for query, want := range map[string][]*Attribute{
+		`{}`:                                               nil,
+		`{} | select(.x) | count() > 1`:                    nil,
+		`{.a = 1 && (name = "n" || !(-.b > 2))}`:           attrs(".a", "name", ".b"),
+		`{.a != nil} >> ({span.c = 3} | {.a = 1})`:         attrs(".a", "span.c"),
+		`{nestedSetParent < 0} && {duration > 1s}`:         attrs("nestedSetParent", "duration"),
+		`({.a = .b + 1} | avg(.x) > 1) | by(.y)`:           attrs(".a", ".b"),
+		`{status = error} | count() > 1 | {kind = server}`: attrs("status", "kind"),
+		`{.a = 1} | rate()`:                                attrs(".a"),
+	} {
+		require.Equal(t, want, mustParse(t, query).FilteredFields(), query)
+	}
+}
