@@ -23,9 +23,12 @@ func narrowedReads(res string) map[string]int {
 // narrowingPlans plans query for search, metrics and autocomplete.
 func narrowingPlans(t *testing.T, query string) map[string]shared.SQLRequestPlanner {
 	t.Helper()
-	plans := autocompletePlans(t, query)
-	plans["search"] = planSearch(t, query)
-	plans["metrics"] = planMetrics(t, query)
+	plans := map[string]shared.SQLRequestPlanner{}
+	for kind, plan := range autocompletePlans(t, query) {
+		plans[kind] = plan.Ids[0].Statement
+	}
+	plans["search"] = planSearch(t, query).Ids[0].Statement
+	plans["metrics"] = planMetrics(t, query).Ids[0].Statement
 	return plans
 }
 
@@ -90,7 +93,7 @@ func TestNarrowedStagesCarryThePreviousStageAttributes(t *testing.T) {
 		{`({.b = 2} | avg(.c) > 1)`, `_\d+stage0_expr\.attrs as attrs, _\d+stage0_expr\.grp as grp FROM _\d+stage0_expr\)`},
 	} {
 		t.Run(c.query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			if !regexp.MustCompile(c.attrs).MatchString(res) {
 				t.Errorf("attrs are not %s:\n%s", c.attrs, res)
 			}
@@ -104,15 +107,20 @@ func TestNarrowedAncestryLoadsSurvivingTraces(t *testing.T) {
 	for _, cluster := range []bool{false, true} {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
-		res := renderPlan(t, planSearch(t, query), ctx)
-		edges := regexp.MustCompile(`(_\d+transitive_edges) as \(.*?GROUP BY`).FindString(res)
-		operands := regexp.MustCompile(`IN \(\s*SELECT trace_id FROM (_\d+transitive_(?:lhs|rhs))\)`).FindAllStringSubmatch(edges, -1)
+		res := renderSearch(t, planSearch(t, query), ctx)
+		nodes := regexp.MustCompile(`_\d+transitive_nodes as \(.*?\) as _\d+transitive_rows`).FindString(res)
+		sides := regexp.MustCompile(`IN \(\s*SELECT trace_id FROM (_\d+transitive_sides) GROUP BY trace_id HAVING`).FindStringSubmatch(nodes)
+		if sides == nil {
+			t.Fatalf("nodes do not read the operand traces:\n%s", nodes)
+		}
+		body := regexp.MustCompile(regexp.QuoteMeta(sides[1]) + ` as \(.*?\),_\d+`).FindString(res)
+		operands := regexp.MustCompile(`FROM (_\d+transitive_(?:lhs|rhs))\b`).FindAllStringSubmatch(body, -1)
 		if len(operands) != 2 {
-			t.Fatalf("edges do not read the operand traces:\n%s", edges)
+			t.Fatalf("%s does not read both operands:\n%s", sides[1], body)
 		}
 		for _, m := range operands {
 			body := res[strings.Index(res, m[1]+" as ("):]
-			if loc := narrowedRead.FindStringSubmatchIndex(body); loc == nil || strings.Contains(body[:loc[0]], "_edges as (") {
+			if loc := narrowedRead.FindStringSubmatchIndex(body); loc == nil || strings.Contains(body[:loc[0]], "_nodes as (") {
 				t.Errorf("%s is not narrowed to the previous stage:\n%s", m[1], res)
 			}
 		}

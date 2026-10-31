@@ -85,7 +85,7 @@ func (p *fieldPivot) read(ctx *shared.PlannerContext, spans sql.ISelect, alias s
 	}
 	withAttrs := sql.NewWith(spans, alias+"_attrs")
 	a := withAttrs.GetAlias()
-	traceIds := traceIdsOf(withAttrs)
+	traceIds := p.traceIds(spans)
 	names := []string{"trace_id", "span_id", "timestamp_ns", "duration"}
 	for _, k := range p.keys {
 		names = append(names, p.column(k))
@@ -94,7 +94,7 @@ func (p *fieldPivot) read(ctx *shared.PlannerContext, spans sql.ISelect, alias s
 	withs = []*sql.With{withAttrs}
 	var joins []*sql.Join
 	if len(p.nestedSet) > 0 {
-		ns := joinNestedSet(ctx, p.nestedSet, traceIds, nil, a, alias+"_ns", nestedSetCol.pivot)
+		ns := joinNestedSet(ctx, p.nestedSet, searchIn(ctx), traceIds, nil, a, alias+"_ns", nestedSetCol.pivot)
 		cols = append(cols, ns.cols...)
 		withs = append(withs, ns.with)
 		joins = append(joins, ns.join)
@@ -122,6 +122,20 @@ func (p *fieldPivot) read(ctx *shared.PlannerContext, spans sql.ISelect, alias s
 	}
 	pivot = sql.NewWith(res, alias)
 	return append(withs, pivot), pivot
+}
+
+// traceIds selects the trace ids of spans' source rows.
+func (p *fieldPivot) traceIds(spans sql.ISelect) sql.ISelect {
+	table := "traces_idx"
+	if len(p.keys) == 0 {
+		table = "traces"
+	}
+	id := sql.NewRawObject(table + ".trace_id")
+	res := sql.NewSelect().Select(id).From(spans.GetFrom()).GroupBy(id)
+	if where := spans.GetWhere(); where != nil {
+		res.AndWhere(where)
+	}
+	return res
 }
 
 // attrsWhere selects the attribute rows of the pivot's keys in range.

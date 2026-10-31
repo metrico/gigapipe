@@ -19,9 +19,9 @@ func describePlan(t *testing.T, p shared.SQLRequestPlanner) string {
 	case *TraceOrPlanner:
 		return fmt.Sprintf("or(%s,%s)", describePlan(t, p.LHS), describePlan(t, p.RHS))
 	case *OneHopPlanner:
-		return fmt.Sprintf("%s(%s,%s)", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS))
+		return fmt.Sprintf("%s(%s,%s)%s", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS), describeKeep(p.Keep))
 	case *TransitivePlanner:
-		return fmt.Sprintf("%s(%s,%s)", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS))
+		return fmt.Sprintf("%s(%s,%s)%s", p.Op, describePlan(t, p.LHS), describePlan(t, p.RHS), describeKeep(p.Keep))
 	case *AllSpansPlanner:
 		return "{}"
 	case *AttrlessConditionPlanner:
@@ -54,6 +54,17 @@ func describePlan(t *testing.T, p shared.SQLRequestPlanner) string {
 	return ""
 }
 
+// describeKeep marks the operand a structural planner keeps.
+func describeKeep(k operandSide) string {
+	switch k {
+	case sideLHS:
+		return "+lhs"
+	case sideRHS:
+		return "+rhs"
+	}
+	return ""
+}
+
 func TestSearchPlansSpansetOperatorTree(t *testing.T) {
 	for _, c := range []struct{ query, want string }{
 		{`{.a = 1} && {.b = 2}`, `and({.a},{.b})`},
@@ -82,12 +93,12 @@ func TestSearchPlansSpansetOperatorTree(t *testing.T) {
 
 func TestSearchSpansetOperatorsAreTraceLevel(t *testing.T) {
 	for _, query := range []string{`{.a = 1} && {.b = 2}`, `{.a = 1} || {.b = 2}`} {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if strings.Contains(res, "INTERSECT") {
 			t.Errorf("%s intersects spans:\n%s", query, res)
 		}
 	}
-	res := renderPlan(t, planSearch(t, `{.a = 1} && {.b = 2}`), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, `{.a = 1} && {.b = 2}`), testPlannerContext(3))
 	if !strings.Contains(res, "OVER (PARTITION BY trace_id)") {
 		t.Errorf("&& is not evaluated per trace:\n%s", res)
 	}
@@ -96,7 +107,7 @@ func TestSearchSpansetOperatorsAreTraceLevel(t *testing.T) {
 // Every operand keeps its own conditions however deep it is nested.
 func TestSearchPlansEveryOperand(t *testing.T) {
 	const query = `({.a = "w"} && {.b = "x"}) || ({.c = "y"} && ({.d = "z"} || {.e = "v"}))`
-	res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 	for _, v := range []string{"w", "x", "y", "z", "v"} {
 		if !strings.Contains(res, fmt.Sprintf("'%s'", v)) {
 			t.Errorf("operand %q missing:\n%s", v, res)

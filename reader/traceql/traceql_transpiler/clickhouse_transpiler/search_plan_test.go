@@ -52,6 +52,9 @@ var transitiveQueries = []string{
 	`{.a = 1} &<< ({.b = 2} !>> {.c = 3})`,
 	`{.a = 1} >> {.b = 2} | sum(.c) > 1`,
 	`{.a = .b} >> {.c = nil}`,
+	`({.a = 1} >> {.b = 2}) || {.a = 1}`,
+	`({nestedSetParent < 0 && resource.service.name = "a"} &>> {kind = server}) || ` +
+		`({nestedSetParent < 0 && resource.service.name = "a"}) | select(name)`,
 }
 
 // structuralQueries hold operators evaluated on the span tree.
@@ -61,6 +64,8 @@ var searchQueries = append(append([]string{}, plainSearchQueries...), structural
 
 func testPlannerContext(spss int64) *shared.PlannerContext {
 	return &shared.PlannerContext{
+		ClusterName:              "test_cluster",
+		DistSuffix:               "_dist",
 		From:                     time.Unix(86390, 0).UTC(),
 		To:                       time.Unix(86410, 0).UTC(),
 		Limit:                    5,
@@ -88,7 +93,13 @@ func renderPlan(t *testing.T, planner shared.SQLRequestPlanner, ctx *shared.Plan
 	return res
 }
 
-func planSearch(t *testing.T, query string) shared.SQLRequestPlanner {
+// renderSearch renders plan's Search and Data statements, in that order.
+func renderSearch(t *testing.T, plan *SearchPlan, ctx *shared.PlannerContext) string {
+	t.Helper()
+	return renderPlan(t, plan.Ids[0].Statement, ctx) + ";\n" + renderPlan(t, plan.Data, ctx)
+}
+
+func planSearch(t *testing.T, query string) *SearchPlan {
 	t.Helper()
 	q, err := traceql_ir.Parse(query)
 	if err != nil {
@@ -105,7 +116,7 @@ func TestSearchOperandSetsAreUncapped(t *testing.T) {
 	capped := regexp.MustCompile(`group(Uniq)?Array\(\d+\)`)
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(7))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(7))
 			if m := capped.FindString(res); m != "" {
 				t.Errorf("operand set capped by %s:\n%s", m, res)
 			}
@@ -113,9 +124,11 @@ func TestSearchOperandSetsAreUncapped(t *testing.T) {
 	}
 }
 
-// searchStages unwraps the planners above the evaluated expression.
-func searchStages(t *testing.T, plan shared.SQLRequestPlanner) (stages []string, expr shared.SQLRequestPlanner) {
+// searchStages unwraps the planners of the Search statement above the
+// evaluated expression.
+func searchStages(t *testing.T, search *SearchPlan) (stages []string, expr shared.SQLRequestPlanner) {
 	t.Helper()
+	plan := search.Ids[0].Statement
 	for {
 		switch p := plan.(type) {
 		case *StructuralQueryPlanner:
@@ -124,9 +137,12 @@ func searchStages(t *testing.T, plan shared.SQLRequestPlanner) (stages []string,
 		case *IndexLimitPlanner:
 			stages = append(stages, "limit")
 			plan = p.Main
-		case *TracesDataPlanner:
-			stages = append(stages, "traces")
+		case *searchRowsPlanner:
+			stages = append(stages, "rows")
 			plan = p.Main
+		case *shardLocalPlanner:
+			stages = append(stages, "shard-local")
+			plan = p.Single
 		case *SearchSpansetPlanner:
 			stages = append(stages, "spanset")
 			return stages, p.Main
@@ -140,15 +156,15 @@ func TestSearchCapsAndLimitsAfterEvaluation(t *testing.T) {
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
 			stages, expr := searchStages(t, planSearch(t, query))
-			want := []string{"limit", "traces", "limit", "spanset"}
+			want := []string{"rows", "limit", "spanset"}
 			if slices.Contains(structuralQueries, query) {
-				want = append([]string{"structural"}, want...)
+				want = []string{"structural", "rows", "shard-local", "limit", "spanset"}
 			}
 			if strings.Join(stages, ",") != strings.Join(want, ",") {
 				t.Errorf("stages = %v, want %v", stages, want)
 			}
 			switch expr.(type) {
-			case *IndexLimitPlanner, *TracesDataPlanner, *SearchSpansetPlanner:
+			case *IndexLimitPlanner, *searchRowsPlanner, *SearchSpansetPlanner, *shardLocalPlanner:
 				t.Errorf("expression planner is %T", expr)
 			}
 		})
@@ -161,7 +177,7 @@ func TestSearchSpanCapComesFromSpss(t *testing.T) {
 		want string
 	}{{7, ", 1, 7)"}, {0, ", 1, 3)"}} {
 		for _, query := range searchQueries {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(c.spss))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(c.spss))
 			if n := strings.Count(res, "arraySlice("); n != 1 {
 				t.Errorf("%s: %d span caps, want 1:\n%s", query, n, res)
 			}
@@ -175,7 +191,7 @@ func TestSearchSpanCapComesFromSpss(t *testing.T) {
 func TestSearchSpanCapKeepsEarliestStarts(t *testing.T) {
 	const earliestCap = "arraySlice(arraySort(groupUniqArray((result_spans.timestamp_ns, result_spans.span_id))), 1, 3)"
 	for _, query := range searchQueries {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if !strings.Contains(res, earliestCap) {
 			t.Errorf("%s: span cap is not earliest start, ties by span id:\n%s", query, res)
 		}
@@ -189,7 +205,7 @@ func TestSearchRootFilterBeforeSpanCap(t *testing.T) {
 	if !strings.Contains(res, rootColumn) {
 		t.Errorf("root filter missing from the spanset stage:\n%s", res)
 	}
-	res = renderPlan(t, planSearch(t, query), testPlannerContext(3))
+	res = renderSearch(t, planSearch(t, query), testPlannerContext(3))
 	if n := strings.Count(res, "traces.parent_id"); n != 1 {
 		t.Errorf("root filter applied %d times, want once:\n%s", n, res)
 	}
@@ -225,20 +241,23 @@ func TestSearchSpanStartIsLeftOpenRightClosed(t *testing.T) {
 	}
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			check(t, renderPlan(t, planSearch(t, query), testPlannerContext(3)))
+			check(t, renderSearch(t, planSearch(t, query), testPlannerContext(3)))
 		})
 	}
 }
 
+// The Search statement of a non-structural search reads Distributed tables on
+// a cluster; the Data statement's reads are checked by
+// TestSearchDataUsesPlainInOnClusters.
 func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin)?\b[^_]`)
 	localJoin := regexp.MustCompile(`[^l] any left JOIN`)
 	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|trace_span_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
-	for _, query := range searchQueries {
+	for _, query := range plainSearchQueries {
 		t.Run(query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.IsCluster = true
-			res := renderPlan(t, planSearch(t, query), ctx)
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
 			if m := local.FindString(res); m != "" {
 				t.Errorf("reads a local table (%q):\n%s", m, res)
 			}
@@ -249,5 +268,88 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 				t.Errorf("distributed join is not GLOBAL:\n%s", res)
 			}
 		})
+	}
+}
+
+// shardViewThen splits a cluster statement into the coordinator's part
+// before the shard view, the statement run on each shard, and rest, the part after.
+func shardViewThen(rest string) *regexp.Regexp {
+	return regexp.MustCompile(`(?s)^(.*)FROM cluster\('test_cluster', view\((.*)\)\)` + rest + `$`)
+}
+
+// shardView splits a cluster's structural Search statement.
+var shardView = shardViewThen(`( ORDER BY trace_newest .*)`)
+
+var newestMerge = regexp.MustCompile(`ORDER BY trace_newest desc\s*,\s*trace_id desc\s+LIMIT 5[ )]`)
+
+func TestStructuralSearchRunsWholeOnEachShard(t *testing.T) {
+	for _, query := range structuralQueries {
+		t.Run(query, func(t *testing.T) {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
+			m := shardView.FindStringSubmatch(res)
+			if m == nil {
+				t.Fatalf("statement is not run on each shard:\n%s", res)
+			}
+			shard, merge := m[2], m[1]+m[3]
+			for _, bad := range []string{"GLOBAL", "_dist", "cluster("} {
+				if strings.Contains(shard, bad) {
+					t.Errorf("shard statement holds %q:\n%s", bad, shard)
+				}
+			}
+			if !strings.Contains(shard, "max(newest) as trace_newest") || !strings.HasSuffix(shard, "LIMIT 5") {
+				t.Errorf("shard statement does not return its newest 5 traces:\n%s", shard)
+			}
+			if !newestMerge.MatchString(merge) {
+				t.Errorf("coordinator does not keep the newest 5 traces:\n%s", merge)
+			}
+		})
+	}
+}
+
+func TestShardStatementSendsEveryShardItsBodyAtOnce(t *testing.T) {
+	setting := regexp.MustCompile(`LIMIT 5 SETTINGS prefer_localhost_replica=0\)`)
+	for _, query := range structuralQueries {
+		ctx := testPlannerContext(3)
+		ctx.IsCluster = true
+		m := shardView.FindStringSubmatch(renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx))
+		if m == nil || !setting.MatchString(m[3]) {
+			t.Errorf("%s: shard statement runs the local shard in-process:\n%v", query, m)
+		}
+	}
+}
+
+func TestStructuralStatementsOnSingleNodeHaveNoShardStatement(t *testing.T) {
+	for _, query := range structuralQueries {
+		statements := idsStatements(t, query)
+		statements["search"] = planSearch(t, query).Ids[0].Statement
+		for name, statement := range statements {
+			res := renderPlan(t, statement, testPlannerContext(3))
+			for _, bad := range []string{"cluster(", "trace_newest", "prefer_localhost_replica"} {
+				if strings.Contains(res, bad) {
+					t.Errorf("%s %s: single-node statement holds %q:\n%s", name, query, bad, res)
+				}
+			}
+		}
+	}
+}
+
+func TestShardStatementSkipsUnavailableShardsLikeTheReadTables(t *testing.T) {
+	setting := regexp.MustCompile(`SETTINGS .*skip_unavailable_shards=1$`)
+	for _, skip := range []bool{false, true} {
+		for _, query := range structuralQueries {
+			statements := idsStatements(t, query)
+			statements["search"] = planSearch(t, query).Ids[0].Statement
+			for name, statement := range statements {
+				ctx := testPlannerContext(3)
+				ctx.IsCluster = true
+				ctx.SkipUnavailableShards = skip
+				res := renderPlan(t, statement, ctx)
+				if setting.MatchString(res) != skip || strings.Count(res, "skip_unavailable_shards") > 1 {
+					t.Errorf("skip=%v %s %s: statement settings do not skip unavailable shards like the read tables:\n%s", skip, name, query, res)
+				}
+			}
+		}
 	}
 }

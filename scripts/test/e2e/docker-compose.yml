@@ -40,6 +40,8 @@ services:
     image: ${E2E_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.3}
     container_name: e2e.clickhouse
     hostname: e2e.clickhouse
+    environment:
+      MALLOC_CONF: "background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0"
     volumes:
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml
       - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
@@ -55,6 +57,8 @@ services:
     image: ${E2E_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.3}
     container_name: e2e.clickhouse2
     hostname: e2e.clickhouse2
+    environment:
+      MALLOC_CONF: "background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0"
     volumes:
       - ./clickhouse/config2.xml:/etc/clickhouse-server/config.xml
       - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml

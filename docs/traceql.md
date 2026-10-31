@@ -25,7 +25,17 @@ other TraceQL queries keep working on older servers.
 Structural queries need no schema migration, writer change or backfill: the
 span tree is resolved at query time from the `parent_id` of the stored spans.
 Clustered (Distributed) deployments return the same results as single-node
-ones.
+ones, provided **a trace's spans and attribute rows live on one shard**.
+Writers inserting through the `_dist` tables place them so: the sharding key is
+`sipHash64(oid, trace_id)`, and a trace has one `oid`. A structural query
+(search, metrics, `compare()`, tag autocomplete) resolves relations on each
+shard over that shard's spans; a split trace loses the relations between its
+shards' spans. Search keeps the newest traces of the shards' results and can
+list a split trace once per shard. `compare()`, structural or not, counts
+attribute values on each shard over that shard's traces, and the reader sums
+the shards' counts. The nested-set numberer has the same requirement.
+For the ClickHouse memory setting and per-node sizing of 24h structural
+queries, see [ClickHouse memory](configuration.md#clickhouse-memory).
 
 The nested-set intrinsics read values that a background numberer stores,
 which also needs ClickHouse 24.9 or newer; see
@@ -85,8 +95,9 @@ TraceQL operators and fail with a parse error naming the spelling to use
 
 ### Depth limit
 
-Ancestry is resolved in a fixed number of rounds, set by
+Ancestry is resolved in up to `R` rounds, set by
 `GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS` (see [Configuration](configuration.md#traceql)).
+Each trace takes one round per doubling of its spans found so far.
 With `R` rounds, traces up to `2^R` spans deep resolve; the default of 20
 covers traces about a million spans deep.
 
@@ -377,7 +388,8 @@ nothing to enable; its settings are under
   late span renumbers its whole trace.
 - Each pass numbers at most `GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS` spans,
   oldest traces first; the rest wait for the next pass. On a cluster, each
-  shard numbers its own traces and the cap applies per shard.
+  shard numbers its own traces and the cap applies per shard, so a trace's
+  spans must live on one shard (see [Requirements](#requirements)).
 - Each pass reads only the traces touched since the previous one. The
   leader keeps a cursor, the newest touch the last pass covered (on a
   cluster, the least across shards), in the lease table, so a new leader

@@ -19,6 +19,10 @@ const AddrEnv = "GIGAPIPE_TEST_CLICKHOUSE"
 // and no replicas. Tests that need it skip when it is unset.
 const ClusterEnv = "GIGAPIPE_TEST_CLICKHOUSE_CLUSTER"
 
+// HTTPAddrEnv names the HTTP address (host:port) of the AddrEnv server.
+// Tests that need it skip when it is unset.
+const HTTPAddrEnv = "GIGAPIPE_TEST_CLICKHOUSE_HTTP"
+
 // ReplicatedClusterEnv names a cluster of the AddrEnv server whose shards
 // have two replicas each, with Keeper. Tests that need it skip when it is unset.
 const ReplicatedClusterEnv = "GIGAPIPE_TEST_CLICKHOUSE_REPLICATED_CLUSTER"

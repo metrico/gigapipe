@@ -6,10 +6,11 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 )
 
 type ComplexRequestProcessor struct {
-	main shared.SQLRequestPlanner
+	main *clickhouse_transpiler.SearchPlan
 }
 
 func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
@@ -70,6 +71,6 @@ func (t *ComplexRequestProcessor) ProcessComplexReqIteration(ctx *shared.Planner
 	return res, from, cachedTraceIDs, nil
 }
 
-func (c *ComplexRequestProcessor) SetMain(main shared.SQLRequestPlanner) {
+func (c *ComplexRequestProcessor) SetMain(main *clickhouse_transpiler.SearchPlan) {
 	c.main = main
 }

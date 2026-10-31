@@ -1,34 +1,34 @@
 package traceql_transpiler
 
 import (
+	"database/sql"
 	"slices"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
-	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-// autocompleteRequestProcessor reads the tags or values main selects.
+// autocompleteRequestProcessor reads the tags or values plan selects.
 type autocompleteRequestProcessor struct {
-	main shared.SQLRequestPlanner
+	plan *clickhouse_transpiler.SearchPlan
 }
 
 func (a *autocompleteRequestProcessor) Process(ctx *shared.PlannerContext) (chan []string, error) {
-	res, err := readSuggestions(ctx, a.main)
+	res, err := readSuggestions(ctx, a.plan)
 	if err != nil {
 		return nil, err
 	}
 	return sendSuggestions(res), nil
 }
 
-func (a *autocompleteRequestProcessor) SetMain(main shared.SQLRequestPlanner) {
-	a.main = main
+func (a *autocompleteRequestProcessor) SetMain(plan *clickhouse_transpiler.SearchPlan) {
+	a.plan = plan
 }
 
-// complexAutocompleteRequestProcessor reads main one complexity portion of
+// complexAutocompleteRequestProcessor reads plan one complexity portion of
 // traces at a time and merges the portions' suggestions.
 type complexAutocompleteRequestProcessor struct {
-	main shared.SQLRequestPlanner
+	plan *clickhouse_transpiler.SearchPlan
 }
 
 func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext,
@@ -39,7 +39,7 @@ func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext
 		portionCtx := *ctx
 		portionCtx.RandomFilter = shared.RandomFilter{Max: int(portions), I: int(i)}
 		portionCtx.CachedTraceIds = nil
-		res, err := readSuggestions(&portionCtx, c.main)
+		res, err := readSuggestions(&portionCtx, c.plan)
 		if err != nil {
 			return nil, err
 		}
@@ -48,35 +48,25 @@ func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext
 	return sendSuggestions(mergeSuggestions(parts, ctx.Limit)), nil
 }
 
-func (c *complexAutocompleteRequestProcessor) SetMain(main shared.SQLRequestPlanner) {
-	c.main = main
+func (c *complexAutocompleteRequestProcessor) SetMain(plan *clickhouse_transpiler.SearchPlan) {
+	c.plan = plan
 }
 
-// readSuggestions runs main and reads its one string column.
-func readSuggestions(ctx *shared.PlannerContext, main shared.SQLRequestPlanner) ([]string, error) {
-	req, err := main.Process(ctx)
-	if err != nil {
-		return nil, err
-	}
-	strReq, err := req.String(sql_select.DefaultCtx())
-	if err != nil {
-		return nil, err
-	}
-	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, strReq)
-	if err != nil {
-		return nil, clickhouse_transpiler.UnresolvedAncestryError(ctx, err)
-	}
-	defer rows.Close()
+// readSuggestions runs plan's Ids, then Data over them; Data runs alone when
+// the plan has no ids statements, and not at all when they find no ids.
+func readSuggestions(ctx *shared.PlannerContext, plan *clickhouse_transpiler.SearchPlan) ([]string, error) {
 	var res []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		res = append(res, s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, clickhouse_transpiler.UnresolvedAncestryError(ctx, err)
+	err := clickhouse_transpiler.Query(ctx, plan.Ids, nil, plan.Data, clickhouse_transpiler.SkipOnEmptyIds,
+		func(rows *sql.Rows) error {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				return err
+			}
+			res = append(res, s)
+			return nil
+		})
+	if err != nil {
+		return nil, err
 	}
 	return res, nil
 }

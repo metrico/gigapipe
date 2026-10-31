@@ -40,8 +40,10 @@ func MetricsNestedSetColumn(field string) (string, bool) {
 }
 
 // nestedSetValues reads the newest stored values of cols of the traces in
-// traceIds (and the spans in spanIds unless nil): one row per numbered span.
-func nestedSetValues(ctx *shared.PlannerContext, cols []nestedSetCol, traceIds, spanIds sql.SQLObject, alias string) *sql.With {
+// traceIds (and the spans in spanIds unless nil), each filtered by in: one row
+// per numbered span.
+func nestedSetValues(ctx *shared.PlannerContext, cols []nestedSetCol, in inFunc,
+	traceIds, spanIds sql.SQLObject, alias string) *sql.With {
 	table := ctx.TracesNestedSetTable
 	if ctx.IsCluster {
 		table = ctx.TracesNestedSetDistTable
@@ -53,10 +55,10 @@ func nestedSetValues(ctx *shared.PlannerContext, cols []nestedSetCol, traceIds, 
 	res := sql.NewSelect().
 		Select(sel...).
 		From(sql.NewSimpleCol(table, "ns")).
-		AndWhere(inSubquery(ctx, sql.NewRawObject("ns.trace_id"), traceIds)).
+		AndWhere(in(sql.NewRawObject("ns.trace_id"), traceIds)).
 		GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"))
 	if spanIds != nil {
-		res.AndWhere(inSubquery(ctx, sql.NewRawObject("(ns.trace_id, ns.span_id)"), spanIds))
+		res.AndWhere(in(sql.NewRawObject("(ns.trace_id, ns.span_id)"), spanIds))
 	}
 	return sql.NewWith(res, alias)
 }
@@ -70,10 +72,10 @@ type nestedSetJoin struct {
 }
 
 // joinNestedSet joins the newest stored values of cols onto the spans of the
-// CTE aliased spans, each value named name(col).
-func joinNestedSet(ctx *shared.PlannerContext, cols []nestedSetCol, traceIds, spanIds sql.SQLObject,
+// CTE aliased spans, each value named name(col), with ids filtered by in.
+func joinNestedSet(ctx *shared.PlannerContext, cols []nestedSetCol, in inFunc, traceIds, spanIds sql.SQLObject,
 	spans, alias string, name func(nestedSetCol) string) nestedSetJoin {
-	with := nestedSetValues(ctx, cols, traceIds, spanIds, alias)
+	with := nestedSetValues(ctx, cols, in, traceIds, spanIds, alias)
 	v := with.GetAlias()
 	res := nestedSetJoin{with: with, join: sql.NewJoin("left", sql.NewWithRef(with), sameSpan(spans+".span_id", v+".span_id"))}
 	for _, col := range cols {
