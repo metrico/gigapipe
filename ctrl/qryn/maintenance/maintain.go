@@ -159,10 +159,10 @@ func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
 
 // MigrateAllMetrics runs one metric migration of each database in turn, stopping at the
 // first that does not succeed.
-func MigrateAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) ([]MetricMigrationReport, error) {
+func MigrateAllMetrics(ctx context.Context, base []config.ClokiBaseDataBase, logger logger.ILogger) ([]MetricMigrationReport, error) {
 	var reports []MetricMigrationReport
 	for _, dbObject := range base {
-		report, err := migrateMetrics(&dbObject, logger)
+		report, err := migrateMetrics(ctx, &dbObject, logger)
 		if err != nil {
 			return reports, err
 		}
@@ -171,7 +171,7 @@ func MigrateAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) (
 	return reports, nil
 }
 
-func migrateMetrics(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) (MetricMigrationReport, error) {
+func migrateMetrics(ctx context.Context, dbObject *config.ClokiBaseDataBase, logger logger.ILogger) (MetricMigrationReport, error) {
 	if dbObject.ClusterName != "" {
 		return MetricMigrationReport{}, &MigrationRefusedError{
 			Reason: fmt.Sprintf("database %s is on cluster %s; the cluster form is not supported", dbObject.Name, dbObject.ClusterName),
@@ -186,7 +186,7 @@ func migrateMetrics(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) (
 		return MetricMigrationReport{}, &MigrationFailedError{Database: dbObject.Name, Step: "connect", Err: err}
 	}
 	defer conn.Close()
-	return RunMetricMigration(context.Background(), NewClickhouseExecutor(conn), MetricMigrationOptions{
+	return RunMetricMigration(ctx, NewClickhouseExecutor(conn), MetricMigrationOptions{
 		Database:    dbObject.Name,
 		SamplesDays: dbObject.TTLDays,
 		RollupDays:  rollupDays,

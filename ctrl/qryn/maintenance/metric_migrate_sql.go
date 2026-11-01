@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,7 @@ const (
 	opRebuild   = "rebuild"
 	opSeries    = "series"
 	opMetadata  = "metadata"
+	opKill      = "kill"
 )
 
 const (
@@ -93,6 +95,11 @@ func rollup15sHoursSQL(lifetime, floor time.Time) string {
 		int64(time.Hour), legacyRollup, where)
 }
 
+// countTierSQL counts the tier's buckets of the unit's hour.
+func countTierSQL(tier metricTier, u migrationUnit) string {
+	return fmt.Sprintf("SELECT count() FROM %s WHERE %s", tier.Table, msBounds("bucket", u.from, u.to))
+}
+
 // deleteTierSQL deletes the tier's buckets of the unit's hour.
 func deleteTierSQL(tier metricTier, u migrationUnit) string {
 	return fmt.Sprintf("DELETE FROM %s WHERE %s", tier.Table, msBounds("bucket", u.from, u.to))
@@ -152,4 +159,15 @@ func metadataSQL() string {
 // unitQueryID is the query id each statement of a unit runs under.
 func unitQueryID(db string, u migrationUnit) string {
 	return fmt.Sprintf("metric_migrate-%s-%s-%d", db, u.kind, u.to.UnixMilli())
+}
+
+// runQueryID is the query id of the run's series or metadata statement op.
+func runQueryID(db, op string) string {
+	return fmt.Sprintf("metric_migrate-%s-%s", db, op)
+}
+
+// killSQL kills the statements running under queryID and waits for them to stop.
+func killSQL(queryID string) string {
+	id := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(queryID)
+	return fmt.Sprintf("KILL QUERY WHERE query_id = '%s' SYNC", id)
 }

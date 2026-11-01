@@ -307,8 +307,14 @@ func start() {
 		return
 	}
 	if migratesMetrics(cfg.Setting.SYSTEM_SETTINGS.Mode) {
-		os.Exit(runMigrateMetrics(func() ([]maintenance.MetricMigrationReport, error) {
-			return ctrl.MigrateMetrics(cfg)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		// After the first signal, a second one terminates the process.
+		go func() {
+			<-ctx.Done()
+			stop()
+		}()
+		os.Exit(runMigrateMetrics(ctx, func(ctx context.Context) ([]maintenance.MetricMigrationReport, error) {
+			return ctrl.MigrateMetrics(ctx, cfg)
 		}, os.Stdout))
 	}
 

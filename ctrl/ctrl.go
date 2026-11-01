@@ -1,6 +1,7 @@
 package ctrl
 
 import (
+	"context"
 	"fmt"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
@@ -38,8 +39,8 @@ func Init(config *clconfig.ClokiConfig, project string) error {
 }
 
 // MigrateMetrics runs one metric migration of each database.
-func MigrateMetrics(config *clconfig.ClokiConfig) ([]maintenance.MetricMigrationReport, error) {
-	return maintenance.MigrateAllMetrics(config.Setting.DATABASE_DATA, logger.Logger)
+func MigrateMetrics(ctx context.Context, config *clconfig.ClokiConfig) ([]maintenance.MetricMigrationReport, error) {
+	return maintenance.MigrateAllMetrics(ctx, config.Setting.DATABASE_DATA, logger.Logger)
 }
 
 func Rotate(config *clconfig.ClokiConfig, project string) error {

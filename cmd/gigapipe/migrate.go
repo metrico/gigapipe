@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -45,11 +46,14 @@ func schemaStep(cfg *clconfig.ClokiConfig) {
 }
 
 // runMigrateMetrics runs migrate, prints each database's summary or the failure, and returns
-// the exit code: 0 success, 1 failure, 2 refused, 3 lease held.
-func runMigrateMetrics(migrate func() ([]maintenance.MetricMigrationReport, error), out io.Writer) int {
-	reports, err := migrate()
+// the exit code: 0 success, 1 failure or signal, 2 refused, 3 lease held.
+func runMigrateMetrics(ctx context.Context, migrate func(context.Context) ([]maintenance.MetricMigrationReport, error), out io.Writer) int {
+	reports, err := migrate(ctx)
 	for _, r := range reports {
 		fmt.Fprintln(out, r.Summary())
+		if r.NoNewData() {
+			fmt.Fprintln(out, "metric migration: no new data to migrate")
+		}
 	}
 	if err == nil {
 		return 0

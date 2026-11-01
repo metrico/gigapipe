@@ -7,9 +7,14 @@ import (
 	"time"
 )
 
+// stopTimeout bounds the kill and the lease release once the run stops.
+const stopTimeout = 30 * time.Second
+
 // migration is one run holding the lease.
 type migration struct {
-	exec    Executor
+	exec Executor
+	// control runs the kill, outside any limits or gating on exec.
+	control Executor
 	records migrationRecords
 	lease   *migrationLease
 	opts    MetricMigrationOptions
@@ -51,6 +56,7 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 		start := m.opts.now()
 		rows, err := m.unit(ctx, u)
 		if err != nil {
+			m.kill(ctx, unitQueryID(m.opts.Database, u), unitLabel(u))
 			return report, m.failed(unitLabel(u), err)
 		}
 		report.Units++
@@ -59,13 +65,18 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 		} else {
 			report.RawSamples += rows
 		}
+		if u.recovery {
+			report.Recovered++
+		}
 		m.opts.Logger.Info(fmt.Sprintf("metric migration: %d/%d %s: %d rows in %s",
 			i+1, len(plan.units), unitLabel(u), rows, m.opts.now().Sub(start).Round(time.Millisecond)))
 	}
 	if report.Series, err = m.series(ctx, recs[seriesRecord] == unitDone, plan.watermark, rollup != nil); err != nil {
+		m.kill(ctx, runQueryID(m.opts.Database, opSeries), opSeries)
 		return report, m.failed(opSeries, err)
 	}
-	if report.Metadata, err = m.exec.Exec(ctx, m.statement(opMetadata, metadataTable, metadataSQL())); err != nil {
+	if report.Metadata, err = m.exec.Exec(ctx, m.runStatement(opMetadata, metadataTable, metadataSQL())); err != nil {
+		m.kill(ctx, runQueryID(m.opts.Database, opMetadata), opMetadata)
 		return report, m.failed(opMetadata, err)
 	}
 	if err = m.records.put(ctx, watermarkRecord, strconv.FormatInt(plan.top.UnixMilli(), 10)); err != nil {
@@ -100,6 +111,19 @@ func (m *migration) rollupHistory(ctx context.Context, now, floor time.Time) (*r
 	return h, err
 }
 
+// kill stops the statements still running under queryID once ctx is cancelled.
+func (m *migration) kill(ctx context.Context, queryID, label string) {
+	if ctx.Err() == nil {
+		return
+	}
+	kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+	defer cancel()
+	// The kill carries no limits and is not gated.
+	if _, err := m.control.Exec(kctx, Statement{Op: opKill, SQL: killSQL(queryID)}); err != nil {
+		m.opts.Logger.Error(fmt.Sprintf("metric migration: kill %s: %v", label, err))
+	}
+}
+
 // unitLabel names a unit in progress lines and errors.
 func unitLabel(u migrationUnit) string {
 	return fmt.Sprintf("%s (%s, %s]", u.kind, u.from.UTC().Format(time.RFC3339), u.to.UTC().Format(time.RFC3339))
@@ -110,6 +134,13 @@ func (m *migration) statement(op, table, sql string) Statement {
 	return Statement{Op: op, Table: table, SQL: sql, Settings: m.limitSettings()}
 }
 
+// runStatement is a series or metadata statement, run under the run's query id for op.
+func (m *migration) runStatement(op, table, sql string) Statement {
+	s := m.statement(op, table, sql)
+	s.QueryID = runQueryID(m.opts.Database, op)
+	return s
+}
+
 // unitStatement is a statement of unit u, run under the unit's query id.
 func (m *migration) unitStatement(u migrationUnit, op, table, sql string) Statement {
 	s := m.statement(op, table, sql)
@@ -117,8 +148,9 @@ func (m *migration) unitStatement(u migrationUnit, op, table, sql string) Statem
 	return s
 }
 
-// unit records u started, copies its samples into raw, rebuilds each tier's buckets of
-// the hour from raw and records it done. It returns the raw samples the copy added.
+// unit records u started, copies its samples into raw, rebuilds each tier's buckets of the hour
+// from raw and records it done. It returns the raw samples the copy added; when it added none
+// and u is not a recovery unit, the rebuild is skipped.
 func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	held, err := m.lease.held(ctx)
 	if err != nil {
@@ -142,18 +174,21 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	for _, tier := range metricTiers {
-		if err = m.tier(ctx, u, tier, &split); err != nil {
-			return 0, err
+	rows := uint64(0)
+	if after > before {
+		rows = after - before
+	}
+	if rows > 0 || u.recovery {
+		for _, tier := range metricTiers {
+			if err = m.tier(ctx, u, tier, &split); err != nil {
+				return 0, err
+			}
 		}
 	}
 	if err = m.records.put(ctx, u.name(), unitDone); err != nil {
 		return 0, err
 	}
-	if after < before {
-		return 0, nil
-	}
-	return after - before, nil
+	return rows, nil
 }
 
 func (m *migration) countRaw(ctx context.Context, u migrationUnit) (uint64, error) {
@@ -167,9 +202,9 @@ func (m *migration) countRaw(ctx context.Context, u migrationUnit) (uint64, erro
 func (m *migration) series(ctx context.Context, done bool, watermark time.Time, rollup bool) (uint64, error) {
 	if done && !watermark.IsZero() {
 		since := watermark.Add(-m.opts.Lookback)
-		return m.exec.Exec(ctx, m.statement(opSeries, seriesTable, seriesSQL(false, since)))
+		return m.exec.Exec(ctx, m.runStatement(opSeries, seriesTable, seriesSQL(false, since)))
 	}
-	n, err := m.exec.Exec(ctx, m.statement(opSeries, seriesTable, seriesSQL(rollup, time.Time{})))
+	n, err := m.exec.Exec(ctx, m.runStatement(opSeries, seriesTable, seriesSQL(rollup, time.Time{})))
 	if err != nil {
 		return 0, err
 	}

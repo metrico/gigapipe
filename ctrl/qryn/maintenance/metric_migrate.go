@@ -122,13 +122,20 @@ type MetricMigrationReport struct {
 	Rollup15sSamples uint64
 	Series           uint64
 	Metadata         uint64
-	Duration         time.Duration
+	// Recovered counts the units a run left started that this run completed.
+	Recovered int
+	Duration  time.Duration
 }
 
 // Summary is the run's summary line.
 func (r MetricMigrationReport) Summary() string {
-	return fmt.Sprintf("metric migration: %s: %d raw samples, %d approximate 15s samples, %d series, %d metadata in %s",
-		r.Database, r.RawSamples, r.Rollup15sSamples, r.Series, r.Metadata, r.Duration.Round(time.Millisecond))
+	return fmt.Sprintf("metric migration: %s: %d raw samples, %d approximate 15s samples, %d series, %d metadata, %d recovered units in %s",
+		r.Database, r.RawSamples, r.Rollup15sSamples, r.Series, r.Metadata, r.Recovered, r.Duration.Round(time.Millisecond))
+}
+
+// NoNewData reports a run that copied no raw or 15s samples and recovered no unit.
+func (r MetricMigrationReport) NoNewData() bool {
+	return r.RawSamples == 0 && r.Rollup15sSamples == 0 && r.Recovered == 0
 }
 
 // MigrationFailedError reports a run that stopped at Step, a unit or a run step.
@@ -220,7 +227,7 @@ func RunMetricMigration(ctx context.Context, exec Executor, opts MetricMigration
 			}
 		}
 	}()
-	m := &migration{exec: exec, records: records, lease: lease, opts: opts}
+	m := &migration{exec: exec, control: exec, records: records, lease: lease, opts: opts}
 	report, err := m.run(runCtx)
 	// stop is the renewal's reason for cancelling the run, if any.
 	var stop error
@@ -229,7 +236,9 @@ func RunMetricMigration(ctx context.Context, exec Executor, opts MetricMigration
 	}
 	cancel(nil)
 	<-renewed
-	releaseErr := lease.release(context.WithoutCancel(ctx))
+	rctx, rcancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
+	defer rcancel()
+	releaseErr := lease.release(rctx)
 	var f *MigrationFailedError
 	switch {
 	case errors.As(err, &f):

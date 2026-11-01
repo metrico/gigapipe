@@ -24,6 +24,22 @@ func limitedStatements(f *fakeExec) []Statement {
 	return out
 }
 
+// requireTierSteps fails t unless each tier saw a count, a delete and a rebuild.
+func requireTierSteps(t *testing.T, ss []Statement) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, s := range ss {
+		seen[s.Op+" "+s.Table] = true
+	}
+	for _, tier := range metricTiers {
+		for _, op := range []string{opCount, opDelete, opRebuild} {
+			if !seen[op+" "+tier.Table] {
+				t.Fatalf("no %s %s", op, tier.Table)
+			}
+		}
+	}
+}
+
 func TestEveryStatementCarriesTheLimitsAndNoPriority(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	opts.MaxThreads = 3
@@ -32,6 +48,7 @@ func TestEveryStatementCarriesTheLimitsAndNoPriority(t *testing.T) {
 	opts.ExternalSort = 100 * mib
 	opts.ExternalGroupBy = 200 * mib
 	opts.MaxSpill = 7 * gib
+	f.on = recoveryRawGrowth(10, 17, 3, nil)
 	if _, err := migrate(t, f, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -45,9 +62,7 @@ func TestEveryStatementCarriesTheLimitsAndNoPriority(t *testing.T) {
 		"max_temporary_data_on_disk_size_for_query": 7 * gib,
 	}
 	ss := limitedStatements(f)
-	if len(ss) == 0 {
-		t.Fatal("no statements")
-	}
+	requireTierSteps(t, ss)
 	for _, s := range ss {
 		for k, v := range want {
 			if s.Settings[k] != v {
@@ -72,9 +87,11 @@ func TestTheExternalSortRatioIsSentOnlyWhenTheServerListsIt(t *testing.T) {
 			}
 			return nil, nil
 		}
+		f.on = recoveryRawGrowth(10, 17, 3, f.on)
 		if _, err := migrate(t, f, opts); err != nil {
 			t.Fatal(err)
 		}
+		requireTierSteps(t, limitedStatements(f))
 		probes := 0
 		for _, s := range limitedStatements(f) {
 			if s.Op == opSetting {
@@ -119,13 +136,13 @@ func limitHit(code int32) error {
 func TestACopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	failed := false
-	f.on = func(_ context.Context, s Statement) (any, error) {
+	f.on = recoveryRawGrowth(10, 17, 3, func(_ context.Context, s Statement) (any, error) {
 		if s.Op == opCopy && !failed {
 			failed = true
 			return nil, limitHit(241)
 		}
 		return nil, nil
-	}
+	})
 	if _, err := migrate(t, f, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -135,9 +152,11 @@ func TestACopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 		"copy metric_samples 0/2",
 		"copy metric_samples 1/2",
 		"count metric_samples",
+		"count metrics_5m",
 		"delete metrics_5m",
 		"rebuild metrics_5m 0/2",
 		"rebuild metrics_5m 1/2",
+		"count metrics_1h",
 		"delete metrics_1h",
 		"rebuild metrics_1h 0/2",
 		"rebuild metrics_1h 1/2",
@@ -150,13 +169,13 @@ func TestACopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 func TestARebuildOverTheTimeLimitDeletesAgainBeforeItsParts(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	failed := false
-	f.on = func(_ context.Context, s Statement) (any, error) {
+	f.on = recoveryRawGrowth(10, 17, 3, func(_ context.Context, s Statement) (any, error) {
 		if s.Op == opRebuild && s.Table == "metrics_5m" && !failed {
 			failed = true
 			return nil, limitHit(159)
 		}
 		return nil, nil
-	}
+	})
 	if _, err := migrate(t, f, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -164,12 +183,42 @@ func TestARebuildOverTheTimeLimitDeletesAgainBeforeItsParts(t *testing.T) {
 		"count metric_samples",
 		"copy metric_samples",
 		"count metric_samples",
+		"count metrics_5m",
 		"delete metrics_5m",
 		"rebuild metrics_5m",
 		"delete metrics_5m",
 		"rebuild metrics_5m 0/2",
 		"rebuild metrics_5m 1/2",
+		"count metrics_1h",
 		"delete metrics_1h",
+		"rebuild metrics_1h 0/2",
+		"rebuild metrics_1h 1/2",
+	})
+}
+
+func TestARebuildRetryDeletesTheHourEvenWhenTheTierHeldNone(t *testing.T) {
+	f, opts := newRun("2026-10-02 08:00")
+	failed := false
+	f.on = recoveryRawGrowth(10, 17, 0, func(_ context.Context, s Statement) (any, error) {
+		if s.Op == opRebuild && s.Table == "metrics_5m" && !failed {
+			failed = true
+			return nil, limitHit(159)
+		}
+		return nil, nil
+	})
+	if _, err := migrate(t, f, opts); err != nil {
+		t.Fatal(err)
+	}
+	sameStrings(t, "steps", splitSteps(f, "2026-10-02 09:00"), []string{
+		"count metric_samples",
+		"copy metric_samples",
+		"count metric_samples",
+		"count metrics_5m",
+		"rebuild metrics_5m",
+		"delete metrics_5m",
+		"rebuild metrics_5m 0/2",
+		"rebuild metrics_5m 1/2",
+		"count metrics_1h",
 		"rebuild metrics_1h 0/2",
 		"rebuild metrics_1h 1/2",
 	})
@@ -263,6 +312,9 @@ func TestALimitInAWholeHourStepFailsTheRunWithoutRetrying(t *testing.T) {
 			}
 			return nil, nil
 		}
+		if op == opDelete {
+			f.on = recoveryRawGrowth(10, 17, 3, f.on)
+		}
 		if _, err := migrate(t, f, opts); err == nil {
 			t.Fatalf("%s: run succeeded", op)
 		}
@@ -329,9 +381,11 @@ func TestASubSecondExecutionTimeRoundsUpToWholeSeconds(t *testing.T) {
 	} {
 		f, opts := newRun("2026-10-02 08:00")
 		opts.MaxExecutionTime = d
+		f.on = recoveryRawGrowth(10, 17, 3, nil)
 		if _, err := migrate(t, f, opts); err != nil {
 			t.Fatal(err)
 		}
+		requireTierSteps(t, limitedStatements(f))
 		for _, s := range limitedStatements(f) {
 			if s.Settings["max_execution_time"] != want {
 				t.Errorf("%s: %s max_execution_time = %v, want %d", d, step(s), s.Settings["max_execution_time"], want)

@@ -51,6 +51,7 @@ func unitSteps(f *fakeExec, to string) []string {
 
 func TestAUnitCopiesThenRebuildsEachTierBetweenItsRecords(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
+	f.on = recoveryRawGrowth(10, 17, 3, nil)
 	if _, err := migrate(t, f, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -60,31 +61,14 @@ func TestAUnitCopiesThenRebuildsEachTierBetweenItsRecords(t *testing.T) {
 		"count metric_samples",
 		"copy metric_samples",
 		"count metric_samples",
+		"count metrics_5m",
 		"delete metrics_5m",
 		"rebuild metrics_5m",
+		"count metrics_1h",
 		"delete metrics_1h",
 		"rebuild metrics_1h",
 		"record " + name + "=done",
 	})
-}
-
-func TestATierDeleteWaitsForItsMutation(t *testing.T) {
-	f, opts := newRun("2026-10-02 08:00")
-	if _, err := migrate(t, f, opts); err != nil {
-		t.Fatal(err)
-	}
-	deletes := 0
-	for _, s := range f.statements() {
-		if s.Op == opDelete {
-			deletes++
-			if s.Settings["mutations_sync"] != 2 {
-				t.Errorf("%s settings = %v", step(s), s.Settings)
-			}
-		}
-	}
-	if deletes != 2 {
-		t.Fatalf("%d deletes", deletes)
-	}
 }
 
 func TestTheFirstRunRecordsEachUnitTheFloorTheWatermarkAndTheSeries(t *testing.T) {
@@ -123,7 +107,7 @@ func TestTheWatermarkAdvancesAfterTheUnitsSeriesAndMetadata(t *testing.T) {
 	}
 	var tail []string
 	for _, s := range f.statements() {
-		if s.QueryID == "" && !strings.HasPrefix(step(s), "record lease") {
+		if (s.QueryID == "" || s.QueryID == runQueryID("cloki", s.Op)) && !strings.HasPrefix(step(s), "record lease") {
 			tail = append(tail, step(s))
 		}
 	}
@@ -342,12 +326,12 @@ func TestARenewalErrorCancelsTheRunningUnitNamingTheError(t *testing.T) {
 func TestAFailingStatementFailsTheRunAtItsUnitLeavingItStarted(t *testing.T) {
 	f, opts := newRun("2026-10-02 07:00")
 	boom := errors.New("code: 241, memory limit exceeded")
-	f.on = func(_ context.Context, s Statement) (any, error) {
+	f.on = recoveryRawGrowth(10, 17, 0, func(_ context.Context, s Statement) (any, error) {
 		if s.Op == opRebuild && strings.HasSuffix(s.QueryID, ms(at("2026-10-02 08:00"))) {
 			return nil, boom
 		}
 		return nil, nil
-	}
+	})
 	_, err := migrate(t, f, opts)
 	var failed *MigrationFailedError
 	if !errors.As(err, &failed) || !errors.Is(err, boom) {

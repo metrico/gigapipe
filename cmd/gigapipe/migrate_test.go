@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -54,7 +55,9 @@ func TestOmitCreateTablesSkipsTheSchemaStepInMigrateMetrics(t *testing.T) {
 func runMigrate(t *testing.T, reports []maintenance.MetricMigrationReport, err error) (int, []string) {
 	t.Helper()
 	var out strings.Builder
-	code := runMigrateMetrics(func() ([]maintenance.MetricMigrationReport, error) { return reports, err }, &out)
+	code := runMigrateMetrics(context.Background(), func(context.Context) ([]maintenance.MetricMigrationReport, error) {
+		return reports, err
+	}, &out)
 	return code, strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 }
 
@@ -116,5 +119,56 @@ func TestAHeldLeaseExitsThreeNamingTheHolder(t *testing.T) {
 func TestOtherErrorsExitOne(t *testing.T) {
 	if code, _ := runMigrate(t, nil, errors.New("boom")); code != 1 {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+const noNewData = "metric migration: no new data to migrate"
+
+func TestARunWithNoNewDataSaysSoAfterItsSummary(t *testing.T) {
+	code, lines := runMigrate(t, []maintenance.MetricMigrationReport{{Database: "cloki", Units: 3, Series: 2}}, nil)
+	if code != 0 || len(lines) != 2 || lines[1] != noNewData {
+		t.Fatalf("exit %d, %q", code, lines)
+	}
+}
+
+func TestEachDatabaseWithNoNewDataSaysSo(t *testing.T) {
+	_, lines := runMigrate(t, []maintenance.MetricMigrationReport{
+		{Database: "a"}, {Database: "b", RawSamples: 5}, {Database: "c"},
+	}, nil)
+	if len(lines) != 5 || lines[1] != noNewData || lines[3] == noNewData || lines[4] != noNewData {
+		t.Fatalf("%q", lines)
+	}
+}
+
+func TestARunThatCopiedOrRecoveredDoesNotSayNoNewData(t *testing.T) {
+	for _, r := range []maintenance.MetricMigrationReport{
+		{Database: "cloki", RawSamples: 5},
+		{Database: "cloki", Recovered: 1},
+	} {
+		if _, lines := runMigrate(t, []maintenance.MetricMigrationReport{r}, nil); len(lines) != 1 {
+			t.Errorf("%+v printed %q", r, lines)
+		}
+	}
+}
+
+func TestAFailedRunDoesNotSayNoNewData(t *testing.T) {
+	_, lines := runMigrate(t, nil,
+		&maintenance.MigrationFailedError{Database: "cloki", Step: "lease", Err: errors.New("boom")})
+	for _, l := range lines {
+		if l == noNewData {
+			t.Fatalf("printed %q", lines)
+		}
+	}
+}
+
+func TestASignalledMigrationExitsOne(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out strings.Builder
+	code := runMigrateMetrics(ctx, func(ctx context.Context) ([]maintenance.MetricMigrationReport, error) {
+		return nil, &maintenance.MigrationFailedError{Database: "cloki", Step: "raw", Err: ctx.Err()}
+	}, &out)
+	if code != 1 || !strings.Contains(out.String(), "context canceled") {
+		t.Fatalf("exit %d, %q", code, out.String())
 	}
 }

@@ -118,14 +118,23 @@ func (m *migration) copy(ctx context.Context, u migrationUnit, n *int) error {
 }
 
 // tier deletes the tier's buckets of the hour whole, then rebuilds them split into *n parts.
-// Each retry deletes the hour again.
+// The first attempt deletes only when the tier holds buckets of the hour; each retry deletes
+// the hour again.
 func (m *migration) tier(ctx context.Context, u migrationUnit, tier metricTier, n *int) error {
+	var buckets uint64
+	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, tier.Table, countTierSQL(tier, u)), &buckets); err != nil {
+		return err
+	}
+	retry := false
 	return m.splitting(u, n, func(parts int) error {
-		del := m.unitStatement(u, opDelete, tier.Table, deleteTierSQL(tier, u))
-		del.Settings["mutations_sync"] = 2
-		if _, err := m.exec.Exec(ctx, del); err != nil {
-			return err
+		if buckets > 0 || retry {
+			del := m.unitStatement(u, opDelete, tier.Table, deleteTierSQL(tier, u))
+			del.Settings["mutations_sync"] = 2
+			if _, err := m.exec.Exec(ctx, del); err != nil {
+				return err
+			}
 		}
+		retry = true
 		return m.parts(ctx, u, opRebuild, tier.Table, parts, func(p int) string { return rebuildTierSQL(tier, u, parts, p) })
 	})
 }
