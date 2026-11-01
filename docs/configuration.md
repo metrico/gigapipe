@@ -99,7 +99,7 @@ A PromQL query is served whole from one tier. While its earliest read (the query
 
 ### Upgrading a deployment with metric history
 
-Metric samples and series held in `samples_v3` and `time_series` are copied into the metric tables by running the instance once with `MODE=migrate_metrics`.
+Metric samples and series held in `samples_v3` and `time_series` are copied into the metric tables by running the instance once with `MODE=migrate_metrics`. History in `metrics_15s` older than the samples TTL is copied approximately: each 15-second row becomes one sample at its start, carrying its last value, which is exact at a 15-second scrape interval.
 
 ## Mode
 

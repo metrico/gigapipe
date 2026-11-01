@@ -11,6 +11,7 @@ const (
 	opRecord    = "record"
 	opRecordAge = "record_age"
 	opExists    = "exists"
+	op15sHours  = "15s_hours"
 	opCount     = "count"
 	opCopy      = "copy"
 	opDelete    = "delete"
@@ -59,6 +60,37 @@ func copyRawSQL(u migrationUnit, parts, part int) string {
 		"FROM %s WHERE %s AND timestamp_ns >= %d AND timestamp_ns < %d%s",
 		rawSamples, legacySamples, legacyMetricRows, (u.from.UnixMilli()+1)*msNs, (u.to.UnixMilli()+1)*msNs,
 		splitWhere(parts, part))
+}
+
+// copySQL copies split part of the unit's samples into raw: samples_v3 rows for a raw unit,
+// metrics_15s rows lying wholly below the floor for a 15s unit.
+func copySQL(u migrationUnit, floor time.Time, parts, part int) string {
+	if u.kind == unit15s {
+		return copy15sSQL(u, floor, parts, part)
+	}
+	return copyRawSQL(u, parts, part)
+}
+
+// copy15sSQL turns each metrics_15s metric row of split part in the unit's hour starting
+// before the floor into one sample at its start, carrying its last value.
+func copy15sSQL(u migrationUnit, floor time.Time, parts, part int) string {
+	return fmt.Sprintf("INSERT INTO %s (fingerprint, timestamp, value) "+
+		"SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, argMaxMerge(last) AS value "+
+		"FROM %s WHERE %s AND timestamp_ns > %d AND timestamp_ns <= %d AND timestamp_ns < %d%s "+
+		"GROUP BY fingerprint, timestamp_ns",
+		rawSamples, legacyRollup, legacyMetricRows, u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano(),
+		splitWhere(parts, part))
+}
+
+// rollup15sHoursSQL lists, newest first, the hours (H − 1h, H] holding metrics_15s metric rows
+// that start before the floor and, with lifetime set, after it; each as H in whole hours.
+func rollup15sHoursSQL(lifetime, floor time.Time) string {
+	where := fmt.Sprintf("%s AND timestamp_ns < %d", legacyMetricRows, floor.UnixNano())
+	if !lifetime.IsZero() {
+		where += fmt.Sprintf(" AND timestamp_ns > %d", lifetime.UnixNano())
+	}
+	return fmt.Sprintf("SELECT DISTINCT toInt64(intDiv(timestamp_ns - 1, %d) + 1) AS hour FROM %s WHERE %s ORDER BY hour DESC",
+		int64(time.Hour), legacyRollup, where)
 }
 
 // deleteTierSQL deletes the tier's buckets of the unit's hour.

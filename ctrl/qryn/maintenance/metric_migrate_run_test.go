@@ -116,7 +116,7 @@ func TestTheFirstRunRecordsEachUnitTheFloorTheWatermarkAndTheSeries(t *testing.T
 	}
 }
 
-func TestSeriesAndMetadataRunAfterTheUnitsAndTheWatermark(t *testing.T) {
+func TestTheWatermarkAdvancesAfterTheUnitsSeriesAndMetadata(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	if _, err := migrate(t, f, opts); err != nil {
 		t.Fatal(err)
@@ -130,14 +130,58 @@ func TestSeriesAndMetadataRunAfterTheUnitsAndTheWatermark(t *testing.T) {
 	unit := rawRecord("2026-10-02 09:00")
 	sameStrings(t, "run steps", tail, []string{
 		"setting system.settings",
+		"exists metrics_15s",
 		"record " + unit + "=started",
 		"record " + unit + "=done",
-		"record watermark=" + ms(at("2026-10-02 09:00")),
-		"exists metrics_15s",
 		"series metric_series",
 		"record series=done",
 		"metadata metric_metadata",
+		"record watermark=" + ms(at("2026-10-02 09:00")),
 	})
+}
+
+func TestASeriesOrMetadataFailureLeavesTheWatermarkForTheNextRun(t *testing.T) {
+	for _, op := range []string{opSeries, opMetadata} {
+		t.Run(op, func(t *testing.T) {
+			f, opts := newRun("2026-10-02 07:00")
+			f.record(watermarkRecord, ms(at("2026-10-02 00:30")))
+			f.record(seriesRecord, unitDone)
+			boom := errors.New("code: 159, timeout exceeded")
+			f.on = func(_ context.Context, s Statement) (any, error) {
+				if s.Op == op {
+					return nil, boom
+				}
+				return nil, nil
+			}
+			_, err := migrate(t, f, opts)
+			var failed *MigrationFailedError
+			if !errors.As(err, &failed) || !errors.Is(err, boom) || failed.Step != op {
+				t.Fatalf("err = %v", err)
+			}
+			if got := f.value(watermarkRecord); got != ms(at("2026-10-02 00:30")) {
+				t.Fatalf("watermark = %s", got)
+			}
+			f.on = nil
+			if _, err = migrate(t, f, opts); err != nil {
+				t.Fatal(err)
+			}
+			series := 0
+			for _, s := range f.statements() {
+				if s.Op == opSeries {
+					series++
+					if !strings.Contains(s.SQL, "date >= toDate('2026-10-01')") {
+						t.Errorf("series since: %s", s.SQL)
+					}
+				}
+			}
+			if series != 2 {
+				t.Errorf("%d series statements", series)
+			}
+			if got := f.value(watermarkRecord); got != ms(at("2026-10-02 09:00")) {
+				t.Errorf("watermark = %s", got)
+			}
+		})
+	}
 }
 
 func TestALaterRunCopiesTheSeriesSinceTheLookbackDay(t *testing.T) {
@@ -148,14 +192,24 @@ func TestALaterRunCopiesTheSeriesSinceTheLookbackDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range f.statements() {
-		if s.Op == opExists {
-			t.Error("a later run reads whether metrics_15s exists")
-		}
 		if s.Op == opSeries && !strings.Contains(s.SQL, "date >= toDate('2026-10-01')") {
 			t.Errorf("series since: %s", s.SQL)
 		}
 		if s.Op == opRecord && s.Args[2] == seriesRecord {
 			t.Error("series recorded again")
+		}
+	}
+}
+
+func TestSeriesDoneWithoutAWatermarkCopiesEverySeries(t *testing.T) {
+	f, opts := newRun("2026-10-02 08:00")
+	f.record(seriesRecord, unitDone)
+	if _, err := migrate(t, f, opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range f.statements() {
+		if s.Op == opSeries && strings.Contains(s.SQL, "date >=") {
+			t.Errorf("series since: %s", s.SQL)
 		}
 	}
 }

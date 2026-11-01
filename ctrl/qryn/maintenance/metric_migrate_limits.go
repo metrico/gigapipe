@@ -110,10 +110,10 @@ func (m *migration) parts(ctx context.Context, u migrationUnit, op, table string
 	return nil
 }
 
-// copy copies the unit's samples_v3 rows into raw, split into *n parts.
+// copy copies the unit's samples into raw, split into *n parts.
 func (m *migration) copy(ctx context.Context, u migrationUnit, n *int) error {
 	return m.splitting(u, n, func(parts int) error {
-		return m.parts(ctx, u, opCopy, rawSamples, parts, func(p int) string { return copyRawSQL(u, parts, p) })
+		return m.parts(ctx, u, opCopy, rawSamples, parts, func(p int) string { return copySQL(u, m.floor, parts, p) })
 	})
 }
 

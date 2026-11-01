@@ -15,14 +15,16 @@ type migration struct {
 	opts    MetricMigrationOptions
 	// ratioKnown is whether the server lists max_bytes_ratio_before_external_sort.
 	ratioKnown bool
+	// floor is the run's floor, set once planned.
+	floor time.Time
 }
 
 func (m *migration) failed(step string, err error) error {
 	return &MigrationFailedError{Database: m.opts.Database, Step: step, Err: err}
 }
 
-// run migrates the planned units newest first, advances the watermark to the top, then
-// copies series and metadata.
+// run migrates the planned units newest first, copies series and metadata, then advances
+// the watermark to the top.
 func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 	report := MetricMigrationReport{Database: m.opts.Database}
 	if err := m.probeLimits(ctx); err != nil {
@@ -32,7 +34,14 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 	if err != nil {
 		return report, m.failed("plan", err)
 	}
-	plan := planMigration(m.opts.now(), m.opts.SamplesDays, m.opts.Margin, m.opts.Lookback, recs)
+	now := m.opts.now()
+	floor := planFloor(now, m.opts.SamplesDays, recs)
+	rollup, err := m.rollupHistory(ctx, now, floor)
+	if err != nil {
+		return report, m.failed("plan", err)
+	}
+	plan := planMigration(now, m.opts.SamplesDays, m.opts.Margin, m.opts.Lookback, recs, rollup)
+	m.floor = plan.floor
 	if _, ok := recordedTime(recs, floorRecord); !ok {
 		if err = m.records.put(ctx, floorRecord, strconv.FormatInt(plan.floor.UnixMilli(), 10)); err != nil {
 			return report, m.failed("plan", err)
@@ -45,20 +54,50 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 			return report, m.failed(unitLabel(u), err)
 		}
 		report.Units++
-		report.RawSamples += rows
+		if u.kind == unit15s {
+			report.Rollup15sSamples += rows
+		} else {
+			report.RawSamples += rows
+		}
 		m.opts.Logger.Info(fmt.Sprintf("metric migration: %d/%d %s: %d rows in %s",
 			i+1, len(plan.units), unitLabel(u), rows, m.opts.now().Sub(start).Round(time.Millisecond)))
 	}
-	if err = m.records.put(ctx, watermarkRecord, strconv.FormatInt(plan.top.UnixMilli(), 10)); err != nil {
-		return report, m.failed("watermark", err)
-	}
-	if report.Series, err = m.series(ctx, recs[seriesRecord] == unitDone, plan.watermark); err != nil {
+	if report.Series, err = m.series(ctx, recs[seriesRecord] == unitDone, plan.watermark, rollup != nil); err != nil {
 		return report, m.failed(opSeries, err)
 	}
 	if report.Metadata, err = m.exec.Exec(ctx, m.statement(opMetadata, metadataTable, metadataSQL())); err != nil {
 		return report, m.failed(opMetadata, err)
 	}
+	if err = m.records.put(ctx, watermarkRecord, strconv.FormatInt(plan.top.UnixMilli(), 10)); err != nil {
+		return report, m.failed("watermark", err)
+	}
 	return report, nil
+}
+
+// rollupHistory reads the hours below floor holding metrics_15s metric rows within its
+// lifetime as of now, or nil when metrics_15s does not exist.
+func (m *migration) rollupHistory(ctx context.Context, now, floor time.Time) (*rollupHistory, error) {
+	var exists uint8
+	if err := m.exec.Scalar(ctx, m.statement(opExists, legacyRollup, existsSQL(legacyRollup)), &exists); err != nil {
+		return nil, err
+	}
+	if exists != 1 {
+		return nil, nil
+	}
+	h := &rollupHistory{}
+	if m.opts.RollupDays > 0 {
+		h.lifetime = hourBefore(now, m.opts.RollupDays)
+	}
+	err := m.exec.Rows(ctx, m.statement(op15sHours, legacyRollup, rollup15sHoursSQL(h.lifetime, floor)),
+		func(scan func(dest ...any) error) error {
+			var hour int64
+			if err := scan(&hour); err != nil {
+				return err
+			}
+			h.ends = append(h.ends, time.UnixMilli(hour*time.Hour.Milliseconds()).UTC())
+			return nil
+		})
+	return h, err
 }
 
 // unitLabel names a unit in progress lines and errors.
@@ -78,7 +117,7 @@ func (m *migration) unitStatement(u migrationUnit, op, table, sql string) Statem
 	return s
 }
 
-// unit records u started, copies its samples_v3 rows into raw, rebuilds each tier's buckets of
+// unit records u started, copies its samples into raw, rebuilds each tier's buckets of
 // the hour from raw and records it done. It returns the raw samples the copy added.
 func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	held, err := m.lease.held(ctx)
@@ -123,18 +162,14 @@ func (m *migration) countRaw(ctx context.Context, u migrationUnit) (uint64, erro
 	return n, err
 }
 
-// series copies every series on the first run, joined with metrics_15s when it exists, and
-// records it done; later runs copy the series seen since watermark − lookback.
-func (m *migration) series(ctx context.Context, done bool, watermark time.Time) (uint64, error) {
-	if done {
+// series copies every series, joined with metrics_15s when it exists, and records it done;
+// once done with a watermark recorded, it copies the series seen since watermark − lookback.
+func (m *migration) series(ctx context.Context, done bool, watermark time.Time, rollup bool) (uint64, error) {
+	if done && !watermark.IsZero() {
 		since := watermark.Add(-m.opts.Lookback)
 		return m.exec.Exec(ctx, m.statement(opSeries, seriesTable, seriesSQL(false, since)))
 	}
-	var rollup uint8
-	if err := m.exec.Scalar(ctx, m.statement(opExists, legacyRollup, existsSQL(legacyRollup)), &rollup); err != nil {
-		return 0, err
-	}
-	n, err := m.exec.Exec(ctx, m.statement(opSeries, seriesTable, seriesSQL(rollup == 1, time.Time{})))
+	n, err := m.exec.Exec(ctx, m.statement(opSeries, seriesTable, seriesSQL(rollup, time.Time{})))
 	if err != nil {
 		return 0, err
 	}

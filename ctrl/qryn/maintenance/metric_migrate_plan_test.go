@@ -58,7 +58,7 @@ func TestTheTopUnitEndsAtTheLastHourBoundaryBeforeTheMargin(t *testing.T) {
 		{"2026-10-02 09:05", "2026-10-02 09:00"},
 		{"2026-10-02 09:59", "2026-10-02 09:00"},
 	} {
-		plan := planMigration(at(c.now), 1, 5*time.Minute, time.Hour, nil)
+		plan := planMigration(at(c.now), 1, 5*time.Minute, time.Hour, nil, nil)
 		if !plan.top.Equal(at(c.top)) {
 			t.Errorf("now %s: top = %s, want %s", c.now, plan.top, c.top)
 		}
@@ -69,7 +69,7 @@ func TestTheTopUnitEndsAtTheLastHourBoundaryBeforeTheMargin(t *testing.T) {
 }
 
 func TestTheFirstRunPlansWholeHoursNewestFirstDownToTheFloor(t *testing.T) {
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, nil)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, nil, nil)
 	if !plan.floor.Equal(at("2026-10-01 09:00")) {
 		t.Fatalf("floor = %s", plan.floor)
 	}
@@ -90,7 +90,7 @@ func TestAFirstRunResumedAfterAFailureSkipsTheHoursDone(t *testing.T) {
 		rawRecord("2026-10-02 09:00"): unitDone,
 		rawRecord("2026-10-02 08:00"): unitStarted,
 	}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, nil)
 	sameStrings(t, "units", bounds(plan.units), []string{
 		"10-02 07:00 10-02 08:00", "10-02 06:00 10-02 07:00", "10-02 05:00 10-02 06:00",
 	})
@@ -106,7 +106,7 @@ func TestALaterRunPlansTheHoursNotDoneAndTheLookback(t *testing.T) {
 		records[rawRecord(to)] = unitDone
 	}
 	records[rawRecord("2026-10-02 07:00")] = unitStarted
-	plan := planMigration(at("2026-10-02 11:30"), 1, 5*time.Minute, 90*time.Minute, records)
+	plan := planMigration(at("2026-10-02 11:30"), 1, 5*time.Minute, 90*time.Minute, records, nil)
 	sameStrings(t, "units", bounds(plan.units), []string{
 		"10-02 10:00 10-02 11:00",
 		"10-02 09:00 10-02 10:00",
@@ -128,6 +128,6 @@ func TestALaterRunWithEveryHourDonePlansOnlyTheLookback(t *testing.T) {
 	for _, to := range []string{"2026-10-02 09:00", "2026-10-02 08:00"} {
 		records[rawRecord(to)] = unitDone
 	}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, nil)
 	sameStrings(t, "units", bounds(plan.units), []string{"10-02 08:00 10-02 09:00"})
 }

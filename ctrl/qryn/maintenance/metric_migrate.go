@@ -118,15 +118,17 @@ type MetricMigrationReport struct {
 	Database   string
 	Units      int
 	RawSamples uint64
-	Series     uint64
-	Metadata   uint64
-	Duration   time.Duration
+	// Rollup15sSamples are the approximate samples copied from metrics_15s.
+	Rollup15sSamples uint64
+	Series           uint64
+	Metadata         uint64
+	Duration         time.Duration
 }
 
 // Summary is the run's summary line.
 func (r MetricMigrationReport) Summary() string {
-	return fmt.Sprintf("metric migration: %s: %d raw samples, %d series, %d metadata in %s",
-		r.Database, r.RawSamples, r.Series, r.Metadata, r.Duration.Round(time.Millisecond))
+	return fmt.Sprintf("metric migration: %s: %d raw samples, %d approximate 15s samples, %d series, %d metadata in %s",
+		r.Database, r.RawSamples, r.Rollup15sSamples, r.Series, r.Metadata, r.Duration.Round(time.Millisecond))
 }
 
 // MigrationFailedError reports a run that stopped at Step, a unit or a run step.
