@@ -8,6 +8,7 @@ import (
 	"time"
 
 	clconfig "github.com/metrico/cloki-config"
+	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
 )
 
@@ -169,6 +170,17 @@ func TestASignalledMigrationExitsOne(t *testing.T) {
 		return nil, &maintenance.MigrationFailedError{Database: "cloki", Step: "raw", Err: ctx.Err()}
 	}, &out)
 	if code != 1 || !strings.Contains(out.String(), "context canceled") {
+		t.Fatalf("exit %d, %q", code, out.String())
+	}
+}
+
+func TestABadMigrateMetricsEnvValueExitsTwo(t *testing.T) {
+	t.Setenv("GIGAPIPE_MIGRATE_METRICS_PAUSE", "soon")
+	var out strings.Builder
+	code := runMigrateMetrics(context.Background(), func(ctx context.Context) ([]maintenance.MetricMigrationReport, error) {
+		return maintenance.MigrateAllMetrics(ctx, []config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}}, nil)
+	}, &out)
+	if code != 2 || !strings.Contains(out.String(), "GIGAPIPE_MIGRATE_METRICS_PAUSE") {
 		t.Fatalf("exit %d, %q", code, out.String())
 	}
 }

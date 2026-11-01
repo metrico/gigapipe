@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v5/ctrl/logger"
 )
 
@@ -40,8 +41,8 @@ type MetricMigrationOptions struct {
 	BackoffParts  float64
 	BackoffMerges int
 	BackoffMemory float64
-	// DSN is the ClickHouse DSN the migrator connects with, the instance's when empty.
-	DSN string
+	// DSN holds the connection options parsed from the migrator's DSN; nil connects as the instance.
+	DSN *clickhouse.Options
 	// LeaseTTL is the age at which a lease is taken over; Renew is how often it is refreshed;
 	// Settle is the wait before an acquired lease is read back.
 	LeaseTTL time.Duration

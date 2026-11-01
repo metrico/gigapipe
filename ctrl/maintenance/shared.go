@@ -11,6 +11,14 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/logger"
 )
 
+// SessionSettings are the ClickHouse settings every maintenance connection runs with.
+func SessionSettings() map[string]any {
+	return map[string]any{
+		"allow_experimental_database_replicated": "1",
+		"materialize_ttl_after_modify":           "0",
+	}
+}
+
 func ConnectV2(dbObject *config.ClokiBaseDataBase, database bool) (clickhouse_v2.Conn, error) {
 	return ConnectV2ReadTimeout(dbObject, database, time.Second*30)
 }
@@ -35,10 +43,7 @@ func ConnectV2ReadTimeout(dbObject *config.ClokiBaseDataBase, database bool,
 		MaxOpenConns:    10,
 		MaxIdleConns:    2,
 		ConnMaxLifetime: time.Hour,
-		Settings: map[string]any{
-			"allow_experimental_database_replicated": "1",
-			"materialize_ttl_after_modify":           "0",
-		},
+		Settings:        SessionSettings(),
 	}
 	if dbObject.Secure {
 		opt.TLS = &tls.Config{InsecureSkipVerify: true}
