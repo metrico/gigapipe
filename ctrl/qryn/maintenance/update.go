@@ -213,6 +213,9 @@ func migrationEnv(dbname string, clusterName string, replicated bool, ttlDays in
 		"METRICS_1H_DAYS": strconv.Itoa(tiers.HourDays),
 		"SERIES_DAYS":     strconv.Itoa(tiers.HourDays),
 	}
+	for _, tier := range metricTiers {
+		env[tierViewEnvKey(tier)] = tierAggregation(tier, dbname+".metric_samples_in")
+	}
 	if storagePolicy != "" {
 		env["CREATE_SETTINGS"] = fmt.Sprintf("SETTINGS storage_policy = '%s'", storagePolicy)
 	}
