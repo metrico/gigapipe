@@ -279,7 +279,7 @@ func TestAFirstRunPlansFromOneReadingOfTheClock(t *testing.T) {
 
 func TestThe15sRebuildTakesEachRowOfItsHourAsOneSample1msAfterItsStart(t *testing.T) {
 	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
-	sql := rebuild15sTierSQL(metricTiers[0], u, 1, 0)
+	sql := localTables.rebuild15sTierSQL(metricTiers[0], u, 1, 0)
 	for _, want := range []string{
 		"INSERT INTO metrics_5m (" + tierColumns + ")",
 		"fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000) + 1) AS timestamp",
@@ -305,7 +305,7 @@ func TestThe15sCountReadsTheRowsStartingInTheHour(t *testing.T) {
 		"fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000) + 1) AS timestamp, "+
 		"argMaxMerge(last) AS value FROM metrics_15s WHERE type IN (2, 0) AND timestamp_ns >= %d AND timestamp_ns < %d "+
 		"GROUP BY fingerprint, timestamp_ns)", u.from.UnixNano(), u.to.UnixNano())
-	if sql := count15sSQL(u); sql != want {
+	if sql := localTables.count15sSQL(u); sql != want {
 		t.Errorf("count = %s", sql)
 	}
 }
@@ -315,10 +315,10 @@ func TestThe15sHoursQueryListsEachRowUnderTheHourItStartsIn(t *testing.T) {
 	hour := fmt.Sprintf("intDiv(timestamp_ns, %d) + 1", int64(time.Hour))
 	below := fmt.Sprintf("%s AND timestamp_ns < %d", legacyMetricRows, edge.UnixNano())
 	after := fmt.Sprintf("timestamp_ns >= %d", lifetime.UnixNano())
-	if sql := rollup15sHoursSQL(lifetime, edge); !strings.Contains(sql, hour) || !strings.Contains(sql, below) || !strings.Contains(sql, after) {
+	if sql := localTables.rollup15sHoursSQL(lifetime, edge); !strings.Contains(sql, hour) || !strings.Contains(sql, below) || !strings.Contains(sql, after) {
 		t.Errorf("with lifetime: %s", sql)
 	}
-	if sql := rollup15sHoursSQL(time.Time{}, edge); !strings.Contains(sql, below) || strings.Contains(sql, "timestamp_ns >") {
+	if sql := localTables.rollup15sHoursSQL(time.Time{}, edge); !strings.Contains(sql, below) || strings.Contains(sql, "timestamp_ns >") {
 		t.Errorf("without lifetime: %s", sql)
 	}
 }

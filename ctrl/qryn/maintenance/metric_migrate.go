@@ -42,6 +42,9 @@ type MetricMigrationOptions struct {
 	BackoffParts  float64
 	BackoffMerges int
 	BackoffMemory float64
+	// Cluster names the cluster the run reads and writes through the _dist tables; empty on a
+	// single node.
+	Cluster string
 	// LeaseTTL is the age at which a lease is taken over; Renew is how often it is refreshed;
 	// Settle is the wait before an acquired lease is read back.
 	LeaseTTL time.Duration
@@ -179,12 +182,31 @@ var errLeaseLost = errors.New("the metric migration lease passed to another inst
 // errLeaseRenew wraps an error renewing the lease.
 var errLeaseRenew = errors.New("renew the metric migration lease")
 
+// CheckMetricMigration refuses a run on a cluster that lacks samples_v3_dist or time_series_dist,
+// or whose legacy _dist tables name a cluster the server does not define; a single-node run
+// passes unread.
+func CheckMetricMigration(ctx context.Context, exec Executor, opts MetricMigrationOptions) error {
+	if opts.Cluster == "" {
+		return nil
+	}
+	err := checkLegacyClusters(ctx, exec, opts.Cluster)
+	var refused *MigrationRefusedError
+	if errors.As(err, &refused) {
+		return &MigrationRefusedError{Reason: fmt.Sprintf("database %s: %s", opts.Database, refused.Reason)}
+	}
+	if err != nil {
+		return &MigrationFailedError{Database: opts.Database, Step: opClusters, Err: err}
+	}
+	return nil
+}
+
 // RunMetricMigration runs one migration of samples_v3, time_series and metrics_15s into the metric stack
 // while holding the lease, and reports what it copied.
 func RunMetricMigration(ctx context.Context, exec Executor, opts MetricMigrationOptions) (MetricMigrationReport, error) {
 	opts = opts.withDefaults()
 	start := opts.now()
-	records := &settingsRecords{exec: exec}
+	tables := tablesFor(opts.Cluster)
+	records := &settingsRecords{exec: exec, tables: tables}
 	lease := &migrationLease{
 		records:  records,
 		instance: opts.Instance,
@@ -227,7 +249,7 @@ func RunMetricMigration(ctx context.Context, exec Executor, opts MetricMigration
 			}
 		}
 	}()
-	m := &migration{exec: newGatedExecutor(exec, opts), control: exec, records: records, lease: lease, opts: opts}
+	m := &migration{exec: newGatedExecutor(exec, opts), control: exec, records: records, tables: tables, lease: lease, opts: opts}
 	report, err := m.run(runCtx)
 	// stop is the renewal's reason for cancelling the run, if any.
 	var stop error

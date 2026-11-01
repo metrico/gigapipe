@@ -103,19 +103,39 @@ const (
 	unitDone            = "done"
 )
 
-// settingsRecords keeps the migration's records in settings under type 'metric_migrate'.
+// settingsRecords keeps the migration's records in the settings table of tables under type
+// 'metric_migrate'.
 type settingsRecords struct {
-	exec Executor
+	exec   Executor
+	tables migrationTables
+}
+
+// readSettings are the settings of a record read: every shard on a cluster.
+func (s *settingsRecords) readSettings() map[string]any {
+	if s.tables.cluster == "" {
+		return nil
+	}
+	return map[string]any{"skip_unavailable_shards": 0}
+}
+
+// writeSettings are the settings of a record write: on a cluster, it returns once the row is on
+// its shard.
+func (s *settingsRecords) writeSettings() map[string]any {
+	if s.tables.cluster == "" {
+		return nil
+	}
+	return map[string]any{"insert_distributed_sync": 1}
 }
 
 func (s *settingsRecords) all(ctx context.Context) (map[string]string, error) {
 	out := map[string]string{}
 	err := s.exec.Rows(ctx, Statement{
 		Op:    opRecords,
-		Table: "settings",
+		Table: s.tables.settings,
 		SQL: "SELECT argMax(name, inserted_at), argMax(value, inserted_at) " +
-			"FROM settings WHERE type = $1 GROUP BY fingerprint",
-		Args: []any{migrationRecordType},
+			"FROM " + s.tables.settings + " WHERE type = $1 GROUP BY fingerprint",
+		Args:     []any{migrationRecordType},
+		Settings: s.readSettings(),
 	}, func(scan func(dest ...any) error) error {
 		var name, value string
 		if err := scan(&name, &value); err != nil {
@@ -130,10 +150,11 @@ func (s *settingsRecords) all(ctx context.Context) (map[string]string, error) {
 func (s *settingsRecords) put(ctx context.Context, name, value string) error {
 	_, err := s.exec.Exec(ctx, Statement{
 		Op:    opRecord,
-		Table: "settings",
-		SQL: "INSERT INTO settings (fingerprint, type, name, value, inserted_at) " +
+		Table: s.tables.settings,
+		SQL: "INSERT INTO " + s.tables.settings + " (fingerprint, type, name, value, inserted_at) " +
 			"VALUES ($1, $2, $3, $4, now64(9))",
-		Args: []any{migrationRecordFingerprint(name), migrationRecordType, name, value},
+		Args:     []any{migrationRecordFingerprint(name), migrationRecordType, name, value},
+		Settings: s.writeSettings(),
 	})
 	return err
 }
@@ -141,10 +162,11 @@ func (s *settingsRecords) put(ctx context.Context, name, value string) error {
 func (s *settingsRecords) age(ctx context.Context, name string) (time.Duration, error) {
 	var ms int64
 	err := s.exec.Scalar(ctx, Statement{
-		Op:    opRecordAge,
-		Table: "settings",
-		SQL:   "SELECT dateDiff('millisecond', max(inserted_at), now64(9)) FROM settings WHERE fingerprint = $1",
-		Args:  []any{migrationRecordFingerprint(name)},
+		Op:       opRecordAge,
+		Table:    s.tables.settings,
+		SQL:      "SELECT dateDiff('millisecond', max(inserted_at), now64(9)) FROM " + s.tables.settings + " WHERE fingerprint = $1",
+		Args:     []any{migrationRecordFingerprint(name)},
+		Settings: s.readSettings(),
 	}, &ms)
 	return time.Duration(ms) * time.Millisecond, err
 }

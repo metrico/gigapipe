@@ -98,8 +98,9 @@ func TestAFailedMigrationNamesTheUnitAndExitsOne(t *testing.T) {
 }
 
 func TestARefusedMigrationExitsTwo(t *testing.T) {
-	code, lines := runMigrate(t, nil, &maintenance.MigrationRefusedError{Reason: "cluster form not supported"})
-	if want := "metric migration refused: cluster form not supported"; code != 2 || lines[len(lines)-1] != want {
+	reason := "database cloki: samples_v3_dist names cluster 'old', which is not in system.clusters"
+	code, lines := runMigrate(t, nil, &maintenance.MigrationRefusedError{Reason: reason})
+	if want := "metric migration refused: " + reason; code != 2 || lines[len(lines)-1] != want {
 		t.Fatalf("exit %d, %q, want %q", code, lines, want)
 	}
 }
@@ -196,10 +197,11 @@ func TestABadMigrateMetricsEnvValueExitsTwoBeforeTheSchemaStep(t *testing.T) {
 	}
 }
 
-func TestAClusterDatabaseExitsTwoBeforeTheSchemaStep(t *testing.T) {
-	code, out, schemaRan := migrateMain(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1, ClusterName: "c1"})
-	want := "metric migration refused: database db is on cluster c1; CLUSTER_NAME must be unset, the cluster form is not supported\n"
-	if code != 2 || out != want || schemaRan {
+func TestAClusterDatabaseIsNotRefusedBeforeTheSchemaStep(t *testing.T) {
+	code, out, schemaRan := migrateMainWith(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1, ClusterName: "c1"}, func() {
+		panic(errors.New("stop"))
+	})
+	if code != 1 || !schemaRan || strings.Contains(out, "refused") {
 		t.Fatalf("exit %d, %q, schema step ran: %v", code, out, schemaRan)
 	}
 }

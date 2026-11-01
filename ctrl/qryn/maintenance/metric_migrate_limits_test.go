@@ -366,14 +366,14 @@ func TestALimitInAWholeHourStepFailsTheRunWithoutRetrying(t *testing.T) {
 func TestASplitPartSelectsItsShareOfTheSeries(t *testing.T) {
 	u := migrationUnit{kind: unitRaw, from: at("2026-10-02 08:00"), to: at("2026-10-02 09:00")}
 	for name, sql := range map[string]string{
-		"copy":    copyRawSQL(u, 4, 3),
-		"rebuild": rebuildTierSQL(metricTiers[0], u, 4, 3),
+		"copy":    localTables.copyRawSQL(u, 4, 3),
+		"rebuild": localTables.rebuildTierSQL(metricTiers[0], u, 4, 3),
 	} {
 		if !strings.Contains(sql, "fingerprint >= 13835058055282163712") {
 			t.Errorf("%s: %s", name, sql)
 		}
 	}
-	if strings.Contains(copyRawSQL(u, 1, 0), "fingerprint >=") {
+	if strings.Contains(localTables.copyRawSQL(u, 1, 0), "fingerprint >=") {
 		t.Error("whole copy is split")
 	}
 }
@@ -425,14 +425,14 @@ func TestSplitPartsAreContiguousFingerprintRangesCoveringTheSpace(t *testing.T) 
 func TestRawFinalReadsFilterTheHourInPrewhere(t *testing.T) {
 	u := migrationUnit{kind: unitRaw, from: at("2026-10-02 08:00"), to: at("2026-10-02 09:00")}
 	for name, sql := range map[string]string{
-		"count":   countRawSQL(u),
-		"rebuild": rebuildTierSQL(metricTiers[0], u, 2, 1),
+		"count":   localTables.countRawSQL(u),
+		"rebuild": localTables.rebuildTierSQL(metricTiers[0], u, 2, 1),
 	} {
 		if !strings.Contains(sql, "FINAL PREWHERE timestamp > ") || strings.Contains(sql, "FINAL WHERE") {
 			t.Errorf("%s: %s", name, sql)
 		}
 	}
-	if !strings.Contains(rebuildTierSQL(metricTiers[0], u, 2, 1), "AND fingerprint >= 9223372036854775808))") {
+	if !strings.Contains(localTables.rebuildTierSQL(metricTiers[0], u, 2, 1), "AND fingerprint >= 9223372036854775808))") {
 		t.Error("split part is outside the rebuild's PREWHERE")
 	}
 }

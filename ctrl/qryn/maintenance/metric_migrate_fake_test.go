@@ -10,6 +10,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// localTables are the tables of a single-node run.
+var localTables = tablesFor("")
+
 // fakeExec is a scripted Executor. It keeps the settings records in memory and logs every
 // statement; on answers the others with a result (written rows, a scalar or rows) or an error.
 type fakeExec struct {

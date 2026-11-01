@@ -135,10 +135,10 @@ func TestTheChecksCountNonStaleSamplesAndSumEachTiersHour(t *testing.T) {
 	u := migrationUnit{kind: unitRaw, from: at("2026-10-02 08:00"), to: at("2026-10-02 09:00")}
 	bounds := fmt.Sprintf("> fromUnixTimestamp64Milli(%d) AND ", u.from.UnixMilli())
 	bounds2 := fmt.Sprintf(" <= fromUnixTimestamp64Milli(%d)", u.to.UnixMilli())
-	if got, want := countRawSQL(u), "SELECT count(), countIf(reinterpretAsUInt64(value) != 0x7ff0000000000002) FROM metric_samples FINAL PREWHERE timestamp "+bounds+"timestamp"+bounds2; got != want {
+	if got, want := localTables.countRawSQL(u), "SELECT count(), countIf(reinterpretAsUInt64(value) != 0x7ff0000000000002) FROM metric_samples FINAL PREWHERE timestamp "+bounds+"timestamp"+bounds2; got != want {
 		t.Errorf("count = %s", got)
 	}
-	if got, want := checkTierSQL(metricTiers[0], u), "SELECT sum(count) FROM metrics_5m WHERE bucket "+bounds+"bucket"+bounds2; got != want {
+	if got, want := localTables.checkTierSQL(metricTiers[0], u), "SELECT sum(count) FROM metrics_5m WHERE bucket "+bounds+"bucket"+bounds2; got != want {
 		t.Errorf("check = %s", got)
 	}
 }

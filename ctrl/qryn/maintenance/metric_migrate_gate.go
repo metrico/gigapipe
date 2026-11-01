@@ -54,11 +54,54 @@ SELECT 'memory',
   ''`
 }
 
+// gateClusterSQL reads gateSQL's signals on every replica of cluster, one row per signal and
+// node for parts, merges and memory, each against that node's own limit. A parts row's table
+// column holds its node's host name.
+func gateClusterSQL(cluster string) string {
+	all := func(table string) string {
+		return fmt.Sprintf("clusterAllReplicas(%s, system.%s)", quoteString(cluster), table)
+	}
+	return `SELECT 'parts' AS signal, toFloat64(m.parts) AS value, toFloat64(s.lim) AS lim, m.host AS tbl, '' AS mid
+  FROM (SELECT hostName() AS host, maxIf(value, metric = 'MaxPartCountForPartition') AS parts
+    FROM ` + all("asynchronous_metrics") + ` GROUP BY host) AS m
+  LEFT JOIN (SELECT hostName() AS host, toFloat64OrZero(anyIf(value, name = 'parts_to_delay_insert')) AS lim
+    FROM ` + all("merge_tree_settings") + ` GROUP BY host) AS s USING host
+UNION ALL
+SELECT 'merges', toFloat64(count()), toFloat64(0), toString(ifNull(topK(1)(concat(database, '.', table))[1], '')), ''
+  FROM ` + all("merges") + ` GROUP BY hostName()
+UNION ALL
+SELECT 'mutations', toFloat64(count()), toFloat64(0),
+  argMin(concat(database, '.', table), create_time), argMin(mutation_id, create_time)
+  FROM ` + all("mutations") + ` WHERE NOT is_done AND latest_fail_reason = ''
+UNION ALL
+SELECT 'delayed', toFloat64(max(delayed)), toFloat64(0), '', ''
+  FROM (SELECT hostName() AS host, sum(value) AS delayed FROM ` + all("metrics") + `
+    WHERE metric = 'DelayedInserts' GROUP BY host)
+UNION ALL
+SELECT 'memory', toFloat64(m.resident),
+  if(s.fixed > 0, s.fixed, s.ratio * if(m.cgroup > 0 AND m.cgroup < m.total, m.cgroup, m.total)), '', ''
+  FROM (SELECT hostName() AS host, maxIf(value, metric = 'MemoryResident') AS resident,
+      maxIf(value, metric = 'OSMemoryTotal') AS total, maxIf(value, metric = 'CGroupMemoryTotal') AS cgroup
+    FROM ` + all("asynchronous_metrics") + ` GROUP BY host) AS m
+  LEFT JOIN (SELECT hostName() AS host,
+      toFloat64OrZero(anyIf(value, name = 'max_server_memory_usage')) AS fixed,
+      toFloat64OrZero(anyIf(value, name = 'max_server_memory_usage_to_ram_ratio')) AS ratio
+    FROM ` + all("server_settings") + ` GROUP BY host) AS s USING host`
+}
+
 // gatePartsTableSQL reads the table holding the visible partition with the most active parts
 // and that partition's part count; an empty table and 0 when no part is visible.
 func gatePartsTableSQL() string {
 	return `SELECT argMax(tbl, n), toFloat64(max(n)) FROM (SELECT concat(database, '.', table) AS tbl, count() AS n
   FROM system.parts WHERE active GROUP BY database, table, partition_id)`
+}
+
+// gatePartsTableClusterSQL reads gatePartsTableSQL's table and part count over the partitions
+// of host, read through cluster.
+func gatePartsTableClusterSQL(cluster, host string) string {
+	return fmt.Sprintf(`SELECT argMax(tbl, n), toFloat64(max(n)) FROM (SELECT hostName() AS host, concat(database, '.', table) AS tbl, count() AS n
+  FROM clusterAllReplicas(%s, system.parts) WHERE active GROUP BY host, database, table, partition_id)
+  WHERE host = %s`, quoteString(cluster), quoteString(host))
 }
 
 // gateSignals is the order in which over-threshold signals are reported.
@@ -97,6 +140,8 @@ type pressure struct {
 	signal           string
 	value, threshold float64
 	table, mutation  string
+	// host is the node a cluster's parts signal was read on.
+	host string
 }
 
 // gatedExecutor waits at the back-off gate before each statement and logs a running unit's
@@ -194,8 +239,12 @@ func (g *gatedExecutor) table(ctx context.Context, p *pressure) (string, error) 
 		return p.table, nil
 	}
 	var table string
+	sql := gatePartsTableSQL()
+	if g.opts.Cluster != "" {
+		sql = gatePartsTableClusterSQL(g.opts.Cluster, p.host)
+	}
 	var count float64
-	if err := g.exec.Scalar(ctx, Statement{Op: opGateTable, SQL: gatePartsTableSQL()}, &table, &count); err != nil {
+	if err := g.exec.Scalar(ctx, Statement{Op: opGateTable, SQL: sql}, &table, &count); err != nil {
 		return "", err
 	}
 	if count < p.value {
@@ -204,16 +253,29 @@ func (g *gatedExecutor) table(ctx context.Context, p *pressure) (string, error) 
 	return table, nil
 }
 
-// pressure returns the over-threshold signal first in gateSignals, nil when none is.
+// pressure returns the over-threshold signal first in gateSignals, nil when none is; among
+// nodes over on the same signal, the one with the largest value.
 func (g *gatedExecutor) pressure(ctx context.Context) (*pressure, error) {
 	var found *pressure
-	err := g.exec.Rows(ctx, Statement{Op: opGate, SQL: gateSQL()}, func(scan func(dest ...any) error) error {
+	sql := gateSQL()
+	if g.opts.Cluster != "" {
+		sql = gateClusterSQL(g.opts.Cluster)
+	}
+	err := g.exec.Rows(ctx, Statement{Op: opGate, SQL: sql}, func(scan func(dest ...any) error) error {
 		var p pressure
 		var limit float64
-		if err := scan(&p.signal, &p.value, &limit, &p.table, &p.mutation); err != nil {
+		var where string
+		if err := scan(&p.signal, &p.value, &limit, &where, &p.mutation); err != nil {
 			return err
 		}
-		if g.over(&p, limit) && (found == nil || rank(p.signal) < rank(found.signal)) {
+		// The parts row names its host; the other rows name their table.
+		if p.signal == "parts" {
+			p.host = where
+		} else {
+			p.table = where
+		}
+		if g.over(&p, limit) && (found == nil || rank(p.signal) < rank(found.signal) ||
+			(p.signal == found.signal && p.value > found.value)) {
 			found = &p
 		}
 		return nil

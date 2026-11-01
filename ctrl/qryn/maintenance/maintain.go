@@ -163,6 +163,8 @@ type MetricMigration struct {
 	rawDays    []int
 	rollupDays []int
 	opts       MetricMigrationOptions
+	// open connects the migrator to a database, returning its executor and the close.
+	open func(*config.ClokiBaseDataBase, MetricMigrationOptions) (Executor, func() error, error)
 }
 
 // PrepareMetricMigration reads the MIGRATE_METRICS_* settings and checks each database,
@@ -172,13 +174,8 @@ func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, 
 	if err != nil {
 		return nil, err
 	}
-	m := &MetricMigration{base: base, opts: opts}
+	m := &MetricMigration{base: base, opts: opts, open: openMigratorExecutor}
 	for _, dbObject := range base {
-		if dbObject.ClusterName != "" {
-			return nil, &MigrationRefusedError{
-				Reason: fmt.Sprintf("database %s is on cluster %s; CLUSTER_NAME must be unset, the cluster form is not supported", dbObject.Name, dbObject.ClusterName),
-			}
-		}
 		rollupDays, err := rollupTTLDays(&dbObject)
 		if err != nil {
 			return nil, &MigrationRefusedError{Reason: err.Error()}
@@ -193,28 +190,43 @@ func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, 
 	return m, nil
 }
 
-// Run migrates each database in turn, stopping at the first that does not succeed.
+func openMigratorExecutor(dbObject *config.ClokiBaseDataBase, opts MetricMigrationOptions) (Executor, func() error, error) {
+	conn, err := openMigratorConn(dbObject, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return NewClickhouseExecutor(conn), conn.Close, nil
+}
+
+// Run connects to and checks every database, then migrates each in turn, stopping at the
+// first that does not succeed.
 func (m *MetricMigration) Run(ctx context.Context, logger logger.ILogger) ([]MetricMigrationReport, error) {
+	execs := make([]Executor, len(m.base))
+	opts := make([]MetricMigrationOptions, len(m.base))
+	for i := range m.base {
+		db := &m.base[i]
+		exec, closeConn, err := m.open(db, m.opts)
+		if err != nil {
+			return nil, &MigrationFailedError{Database: db.Name, Step: "connect", Err: err}
+		}
+		defer closeConn()
+		execs[i], opts[i] = exec, m.opts
+		opts[i].Database, opts[i].SamplesDays, opts[i].Logger = db.Name, db.TTLDays, logger
+		opts[i].RawDays, opts[i].RollupDays = m.rawDays[i], m.rollupDays[i]
+		opts[i].Cluster = db.ClusterName
+		if err = CheckMetricMigration(ctx, exec, opts[i]); err != nil {
+			return nil, err
+		}
+	}
 	var reports []MetricMigrationReport
 	for i := range m.base {
-		report, err := migrateMetrics(ctx, &m.base[i], m.rawDays[i], m.rollupDays[i], m.opts, logger)
+		report, err := RunMetricMigration(ctx, execs[i], opts[i])
 		if err != nil {
 			return reports, err
 		}
 		reports = append(reports, report)
 	}
 	return reports, nil
-}
-
-func migrateMetrics(ctx context.Context, dbObject *config.ClokiBaseDataBase, rawDays, rollupDays int, opts MetricMigrationOptions, logger logger.ILogger) (MetricMigrationReport, error) {
-	conn, err := openMigratorConn(dbObject, opts)
-	if err != nil {
-		return MetricMigrationReport{}, &MigrationFailedError{Database: dbObject.Name, Step: "connect", Err: err}
-	}
-	defer conn.Close()
-	opts.Database, opts.SamplesDays, opts.Logger = dbObject.Name, dbObject.TTLDays, logger
-	opts.RawDays, opts.RollupDays = rawDays, rollupDays
-	return RunMetricMigration(ctx, NewClickhouseExecutor(conn), opts)
 }
 
 func effectivePort(db *config.ClokiBaseDataBase) uint32 {

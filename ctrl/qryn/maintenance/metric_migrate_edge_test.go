@@ -220,7 +220,7 @@ func sqlRows(sql string) func(ns int64) bool {
 
 // sourceSample is where the 15s unit's source SQL places the row at ts, and whether it reads it.
 func sourceSample(u migrationUnit) func(ts time.Time) (time.Time, bool) {
-	sql := source15sSQL(u, 1, 0)
+	sql := localTables.source15sSQL(u, 1, 0)
 	reads := sqlRows(sql)
 	m := sqlSampleAt.FindStringSubmatch(sql)
 	if m == nil {
@@ -237,14 +237,14 @@ func sourceSample(u migrationUnit) func(ts time.Time) (time.Time, bool) {
 
 // rawCovers is whether the raw unit's copy holds the samples just after the row at ts starts.
 func rawCovers(u migrationUnit) func(ts time.Time) bool {
-	copies := sqlRows(copyRawSQL(u, 1, 0))
+	copies := sqlRows(localTables.copyRawSQL(u, 1, 0))
 	return func(ts time.Time) bool { return copies(ts.Add(time.Millisecond).UnixNano()) }
 }
 
 // listed is the hours the listing SQL returns for lifetime and edge over the rows at the 15s
 // steps from lo, newest first.
 func listed(rows func(time.Time) bool, lo, lifetime, edge time.Time) []time.Time {
-	sql := rollup15sHoursSQL(lifetime, edge)
+	sql := localTables.rollup15sHoursSQL(lifetime, edge)
 	m := sqlHourOf.FindStringSubmatch(sql)
 	width, _ := strconv.ParseInt(m[1], 10, 64)
 	lists := sqlRows(sql)

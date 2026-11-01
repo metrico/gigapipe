@@ -20,8 +20,30 @@ func settingKnownSQL(name string) string {
 	return fmt.Sprintf("SELECT count() FROM system.settings WHERE name = '%s'", name)
 }
 
-// probeLimits reads which optional limit settings the server knows.
+// settingKnownOnClusterSQL counts, per node of cluster, the settings named name.
+func settingKnownOnClusterSQL(cluster, name string) string {
+	return fmt.Sprintf("SELECT hostName() AS host, countIf(name = '%s') AS n "+
+		"FROM clusterAllReplicas(%s, system.settings) GROUP BY host", name, quoteString(cluster))
+}
+
+// probeLimits reads which optional limit settings the server knows: on a cluster, every node.
 func (m *migration) probeLimits(ctx context.Context) error {
+	if c := m.tables.cluster; c != "" {
+		hosts, known := 0, true
+		err := m.exec.Rows(ctx, m.statement(opSetting, "system.settings", settingKnownOnClusterSQL(c, externalSortRatio)),
+			func(scan func(dest ...any) error) error {
+				var host string
+				var n uint64
+				if err := scan(&host, &n); err != nil {
+					return err
+				}
+				hosts++
+				known = known && n > 0
+				return nil
+			})
+		m.ratioKnown = err == nil && hosts > 0 && known
+		return err
+	}
 	var n uint64
 	if err := m.exec.Scalar(ctx, m.statement(opSetting, "system.settings", settingKnownSQL(externalSortRatio)), &n); err != nil {
 		return err
@@ -45,6 +67,13 @@ func (m *migration) limitSettings() map[string]any {
 	}
 	if m.ratioKnown {
 		s[externalSortRatio] = 0
+	}
+	if m.tables.cluster != "" {
+		s["insert_distributed_sync"] = 1
+		s["skip_unavailable_shards"] = 0
+		// Writes and reads of a unit go to one replica of each shard: the local one, else the first with the fewest errors.
+		s["load_balancing"] = "in_order"
+		s["use_hedged_requests"] = 0
 	}
 	return s
 }
@@ -114,7 +143,7 @@ func (m *migration) parts(ctx context.Context, u migrationUnit, op, table string
 // copy copies the raw unit's samples into raw, split into *n parts.
 func (m *migration) copy(ctx context.Context, u migrationUnit, n *int) error {
 	return m.splitting(u, n, func(parts int) error {
-		return m.parts(ctx, u, opCopy, rawSamples, parts, func(p int) string { return copyRawSQL(u, parts, p) })
+		return m.parts(ctx, u, opCopy, m.tables.raw, parts, func(p int) string { return m.tables.copyRawSQL(u, parts, p) })
 	})
 }
 
@@ -134,7 +163,7 @@ func (m *migration) tier(ctx context.Context, u migrationUnit, tier metricTier, 
 			}
 		}
 		retry = true
-		return m.parts(ctx, u, opRebuild, tier.Table, parts, func(p int) string { return m.rebuildSQL(tier, u, parts, p) })
+		return m.parts(ctx, u, opRebuild, m.tables.tier(tier), parts, func(p int) string { return m.rebuildSQL(tier, u, parts, p) })
 	})
 }
 
@@ -158,14 +187,17 @@ func (m *migration) clearTiers(ctx context.Context, u migrationUnit) error {
 // tierBuckets counts the tier's buckets of the unit's hour.
 func (m *migration) tierBuckets(ctx context.Context, u migrationUnit, tier metricTier) (uint64, error) {
 	var buckets uint64
-	err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, tier.Table, countTierSQL(tier, u)), &buckets)
+	err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, m.tables.tier(tier), m.tables.countTierSQL(tier, u)), &buckets)
 	return buckets, err
 }
 
 // deleteTier deletes the tier's buckets of the unit's hour, waiting for the mutation.
 func (m *migration) deleteTier(ctx context.Context, u migrationUnit, tier metricTier) error {
-	del := m.unitStatement(u, opDelete, tier.Table, deleteTierSQL(tier, u))
+	del := m.unitStatement(u, opDelete, tier.Table, m.tables.deleteTierSQL(tier, u))
 	del.Settings["mutations_sync"] = 2
+	if m.tables.cluster != "" {
+		del.Settings["distributed_ddl_task_timeout"] = wholeSeconds(m.opts.MaxExecutionTime)
+	}
 	_, err := m.exec.Exec(ctx, del)
 	return err
 }
@@ -173,9 +205,9 @@ func (m *migration) deleteTier(ctx context.Context, u migrationUnit, tier metric
 // rebuildSQL rebuilds the tier from raw for a raw unit and from metrics_15s for a 15s unit.
 func (m *migration) rebuildSQL(tier metricTier, u migrationUnit, parts, part int) string {
 	if u.kind == unit15s {
-		return rebuild15sTierSQL(tier, u, parts, part)
+		return m.tables.rebuild15sTierSQL(tier, u, parts, part)
 	}
-	return rebuildTierSQL(tier, u, parts, part)
+	return m.tables.rebuildTierSQL(tier, u, parts, part)
 }
 
 // warn logs msg at warning level when the logger has one.

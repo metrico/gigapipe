@@ -16,8 +16,10 @@ type migration struct {
 	// control runs the kill, outside any limits or gating on exec.
 	control Executor
 	records migrationRecords
-	lease   *migrationLease
-	opts    MetricMigrationOptions
+	// tables names the tables the run reads and writes.
+	tables migrationTables
+	lease  *migrationLease
+	opts   MetricMigrationOptions
 	// ratioKnown is whether the server lists max_bytes_ratio_before_external_sort.
 	ratioKnown bool
 }
@@ -77,7 +79,7 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 		m.kill(ctx, runQueryID(m.opts.Database, opSeries), opSeries)
 		return report, m.failed(opSeries, err)
 	}
-	if report.Metadata, err = m.exec.Exec(ctx, m.runStatement(opMetadata, metadataTable, metadataSQL())); err != nil {
+	if report.Metadata, err = m.insert(ctx, opMetadata, m.tables.metadataOut, m.tables.metadataSQL()); err != nil {
 		m.kill(ctx, runQueryID(m.opts.Database, opMetadata), opMetadata)
 		return report, m.failed(opMetadata, err)
 	}
@@ -91,7 +93,7 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 // lifetime as of now, or nil when metrics_15s does not exist.
 func (m *migration) rollupHistory(ctx context.Context, now, edge time.Time) (*rollupHistory, error) {
 	var exists uint8
-	if err := m.exec.Scalar(ctx, m.statement(opExists, legacyRollup, existsSQL(legacyRollup)), &exists); err != nil {
+	if err := m.exec.Scalar(ctx, m.statement(opExists, m.tables.rollup, existsSQL(m.tables.rollup)), &exists); err != nil {
 		return nil, err
 	}
 	if exists != 1 {
@@ -101,7 +103,7 @@ func (m *migration) rollupHistory(ctx context.Context, now, edge time.Time) (*ro
 	if m.opts.RollupDays > 0 {
 		h.lifetime = hourBefore(now, m.opts.RollupDays)
 	}
-	err := m.exec.Rows(ctx, m.statement(op15sHours, legacyRollup, rollup15sHoursSQL(h.lifetime, edge)),
+	err := m.exec.Rows(ctx, m.statement(op15sHours, m.tables.rollup, m.tables.rollup15sHoursSQL(h.lifetime, edge)),
 		func(scan func(dest ...any) error) error {
 			var hour int64
 			if err := scan(&hour); err != nil {
@@ -113,16 +115,23 @@ func (m *migration) rollupHistory(ctx context.Context, now, edge time.Time) (*ro
 	return h, err
 }
 
-// kill stops the statements still running under queryID once ctx is cancelled.
+// kill stops the statements still running under queryID once ctx is cancelled: on a cluster,
+// first on this node, then on every node.
 func (m *migration) kill(ctx context.Context, queryID, label string) {
 	if ctx.Err() == nil {
 		return
 	}
 	kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
 	defer cancel()
-	// The kill carries no limits and is not gated.
-	if _, err := m.control.Exec(kctx, Statement{Op: opKill, SQL: killSQL(queryID)}); err != nil {
-		m.opts.Logger.Error(fmt.Sprintf("metric migration: kill %s: %v", label, err))
+	kills := []string{killSQL(queryID)}
+	if m.tables.cluster != "" {
+		kills = append(kills, m.tables.killClusterSQL(queryID))
+	}
+	for _, sql := range kills {
+		// The kill carries no limits and is not gated.
+		if _, err := m.control.Exec(kctx, Statement{Op: opKill, SQL: sql}); err != nil {
+			m.opts.Logger.Error(fmt.Sprintf("metric migration: kill %s: %v", label, err))
+		}
 	}
 }
 
@@ -219,7 +228,7 @@ func (m *migration) rawUnit(ctx context.Context, u migrationUnit) (uint64, error
 // started raw record. It returns the source samples.
 func (m *migration) unit15s(ctx context.Context, u migrationUnit) (uint64, error) {
 	var rows, expected uint64
-	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, legacyRollup, count15sSQL(u)), &rows, &expected); err != nil {
+	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, m.tables.rollup, m.tables.count15sSQL(u)), &rows, &expected); err != nil {
 		return 0, err
 	}
 	if rows == 0 {
@@ -250,7 +259,7 @@ func (m *migration) tiers(ctx context.Context, u migrationUnit, split *int) erro
 func (m *migration) check(ctx context.Context, u migrationUnit, source string, expected uint64) error {
 	for _, tier := range metricTiers {
 		var sum uint64
-		if err := m.exec.Scalar(ctx, m.unitStatement(u, opCheck, tier.Table, checkTierSQL(tier, u)), &sum); err != nil {
+		if err := m.exec.Scalar(ctx, m.unitStatement(u, opCheck, m.tables.tier(tier), m.tables.checkTierSQL(tier, u)), &sum); err != nil {
 			return err
 		}
 		if sum < expected {
@@ -263,7 +272,7 @@ func (m *migration) check(ctx context.Context, u migrationUnit, source string, e
 
 // countRaw counts the raw samples of the unit's hour, then its non-stale ones.
 func (m *migration) countRaw(ctx context.Context, u migrationUnit) (n, live uint64, err error) {
-	err = m.exec.Scalar(ctx, m.unitStatement(u, opCount, rawSamples, countRawSQL(u)), &n, &live)
+	err = m.exec.Scalar(ctx, m.unitStatement(u, opCount, m.tables.raw, m.tables.countRawSQL(u)), &n, &live)
 	return n, live, err
 }
 
@@ -272,11 +281,40 @@ func (m *migration) countRaw(ctx context.Context, u migrationUnit) (n, live uint
 func (m *migration) series(ctx context.Context, done bool, watermark time.Time, rollup bool) (uint64, error) {
 	if done && !watermark.IsZero() {
 		since := watermark.Add(-m.opts.Lookback)
-		return m.exec.Exec(ctx, m.runStatement(opSeries, seriesTable, seriesSQL(false, since)))
+		return m.insert(ctx, opSeries, m.tables.seriesOut, m.tables.seriesSQL(false, since))
 	}
-	n, err := m.exec.Exec(ctx, m.runStatement(opSeries, seriesTable, seriesSQL(rollup, time.Time{})))
+	n, err := m.insert(ctx, opSeries, m.tables.seriesOut, m.tables.seriesSQL(rollup, time.Time{}))
 	if err != nil {
 		return 0, err
 	}
 	return n, m.records.put(ctx, seriesRecord, unitDone)
+}
+
+// insert runs the series or metadata insert op into table and returns the rows it added: the
+// rows written on a single node, the change in the table's FINAL count on a cluster.
+func (m *migration) insert(ctx context.Context, op, table, sql string) (uint64, error) {
+	if m.tables.cluster == "" {
+		return m.exec.Exec(ctx, m.runStatement(op, table, sql))
+	}
+	before, err := m.countFinal(ctx, op, table)
+	if err != nil {
+		return 0, err
+	}
+	if _, err = m.exec.Exec(ctx, m.runStatement(op, table, sql)); err != nil {
+		return 0, err
+	}
+	after, err := m.countFinal(ctx, op, table)
+	if err != nil || after < before {
+		return 0, err
+	}
+	return after - before, nil
+}
+
+// countFinal counts table's rows after merging, under the query id of op.
+func (m *migration) countFinal(ctx context.Context, op, table string) (uint64, error) {
+	var n uint64
+	s := m.statement(opCount, table, fmt.Sprintf("SELECT count() FROM %s FINAL", table))
+	s.QueryID = runQueryID(m.opts.Database, op)
+	err := m.exec.Scalar(ctx, s, &n)
+	return n, err
 }
