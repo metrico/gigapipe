@@ -13,11 +13,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// limitedStatements are the logged statements other than lease and run-state records.
+// limitedStatements are the logged statements other than lease and run-state records
+// and the back-off gate's own reads.
 func limitedStatements(f *fakeExec) []Statement {
 	var out []Statement
 	for _, s := range f.statements() {
-		if s.Op != opRecord && s.Op != opRecords && s.Op != opRecordAge {
+		if s.Op != opRecord && s.Op != opRecords && s.Op != opRecordAge && s.Op != opGate && s.Op != opGateTable {
 			out = append(out, s)
 		}
 	}

@@ -107,7 +107,7 @@ func TestTheWatermarkAdvancesAfterTheUnitsSeriesAndMetadata(t *testing.T) {
 	}
 	var tail []string
 	for _, s := range f.statements() {
-		if (s.QueryID == "" || s.QueryID == runQueryID("cloki", s.Op)) && !strings.HasPrefix(step(s), "record lease") {
+		if (s.QueryID == "" || s.QueryID == runQueryID("cloki", s.Op)) && s.Op != opGate && !strings.HasPrefix(step(s), "record lease") {
 			tail = append(tail, step(s))
 		}
 	}

@@ -227,7 +227,7 @@ func RunMetricMigration(ctx context.Context, exec Executor, opts MetricMigration
 			}
 		}
 	}()
-	m := &migration{exec: exec, control: exec, records: records, lease: lease, opts: opts}
+	m := &migration{exec: newGatedExecutor(exec, opts), control: exec, records: records, lease: lease, opts: opts}
 	report, err := m.run(runCtx)
 	// stop is the renewal's reason for cancelling the run, if any.
 	var stop error

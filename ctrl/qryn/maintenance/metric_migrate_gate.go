@@ -1,0 +1,249 @@
+package maintenance
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/metrico/qryn/v5/ctrl/logger"
+)
+
+const (
+	opGate      = "gate"
+	opGateTable = "gate table"
+)
+
+const (
+	// gatePoll is how often a waiting gate reads the signals again.
+	gatePoll = 10 * time.Second
+	// progressEvery is the interval of back-off and running-unit lines.
+	progressEvery = 60 * time.Second
+)
+
+// gateSQL reads each back-off signal as (signal, value, limit, table): limit is the
+// setting a fraction applies to, table the signal's busiest table where one is known.
+func gateSQL() string {
+	return `SELECT 'parts' AS signal,
+  (SELECT toFloat64(maxIf(value, metric = 'MaxPartCountForPartition')) FROM system.asynchronous_metrics) AS value,
+  (SELECT toFloat64OrZero(any(value)) FROM system.merge_tree_settings WHERE name = 'parts_to_delay_insert') AS lim,
+  '' AS tbl
+UNION ALL
+SELECT 'merges', toFloat64(count()), toFloat64(0), toString(ifNull(topK(1)(concat(database, '.', table))[1], ''))
+  FROM system.merges
+UNION ALL
+SELECT 'mutations', toFloat64(count()), toFloat64(0), toString(ifNull(any(concat(database, '.', table)), ''))
+  FROM system.mutations WHERE NOT is_done
+UNION ALL
+SELECT 'delayed', toFloat64(sum(value)), toFloat64(0), ''
+  FROM system.metrics WHERE metric = 'DelayedInserts'
+UNION ALL
+SELECT 'memory',
+  (SELECT toFloat64(maxIf(value, metric = 'MemoryResident')) FROM system.asynchronous_metrics),
+  (WITH
+    (SELECT toFloat64OrZero(any(value)) FROM system.server_settings WHERE name = 'max_server_memory_usage') AS fixed,
+    (SELECT toFloat64OrZero(any(value)) FROM system.server_settings WHERE name = 'max_server_memory_usage_to_ram_ratio') AS ratio,
+    (SELECT toFloat64(maxIf(value, metric = 'OSMemoryTotal')) FROM system.asynchronous_metrics) AS total,
+    (SELECT toFloat64(maxIf(value, metric = 'CGroupMemoryTotal')) FROM system.asynchronous_metrics) AS cgroup,
+    if(cgroup > 0 AND cgroup < total, cgroup, total) AS ram
+  SELECT if(fixed > 0, fixed, ratio * ram)),
+  ''`
+}
+
+// gatePartsTableSQL reads the table holding the partition with the most active parts.
+func gatePartsTableSQL() string {
+	return `SELECT ifNull((SELECT concat(database, '.', table) FROM system.parts WHERE active
+  GROUP BY database, table, partition_id ORDER BY count() DESC LIMIT 1), '')`
+}
+
+// gateSignals is the order in which over-threshold signals are reported.
+var gateSignals = []string{"parts", "memory", "delayed", "merges", "mutations"}
+
+// rank is the signal's position in gateSignals.
+func rank(signal string) int {
+	for i, s := range gateSignals {
+		if s == signal {
+			return i
+		}
+	}
+	return len(gateSignals)
+}
+
+// String formats the signal's value against its threshold, memory in bytes.
+func (p *pressure) String() string {
+	if p.signal == "memory" {
+		return fmt.Sprintf("%s: %s at threshold %s", p.signal, formatBytes(p.value), formatBytes(p.threshold))
+	}
+	return fmt.Sprintf("%s: %g at threshold %g", p.signal, p.value, p.threshold)
+}
+
+// formatBytes formats n bytes in the largest binary unit it reaches.
+func formatBytes(n float64) string {
+	for i, unit := range []string{"GiB", "MiB", "KiB"} {
+		if size := float64(int64(1) << (30 - 10*i)); n >= size {
+			return fmt.Sprintf("%.1f %s", n/size, unit)
+		}
+	}
+	return fmt.Sprintf("%.0f B", n)
+}
+
+// pressure is a signal at or over its threshold.
+type pressure struct {
+	signal           string
+	value, threshold float64
+	table            string
+}
+
+// gatedExecutor waits at the back-off gate before each statement and logs a running unit's
+// rows read every progressEvery.
+type gatedExecutor struct {
+	exec  Executor
+	opts  MetricMigrationOptions
+	mu    sync.Mutex
+	unit  string
+	start time.Time
+	shown time.Time
+}
+
+func newGatedExecutor(exec Executor, opts MetricMigrationOptions) Executor {
+	return &gatedExecutor{exec: exec, opts: opts}
+}
+
+func (g *gatedExecutor) Exec(ctx context.Context, s Statement) (uint64, error) {
+	if err := g.wait(ctx, s); err != nil {
+		return 0, err
+	}
+	return g.exec.Exec(ctx, g.watch(s))
+}
+
+func (g *gatedExecutor) Scalar(ctx context.Context, s Statement, dest ...any) error {
+	if err := g.wait(ctx, s); err != nil {
+		return err
+	}
+	return g.exec.Scalar(ctx, g.watch(s), dest...)
+}
+
+func (g *gatedExecutor) Rows(ctx context.Context, s Statement, row func(scan func(dest ...any) error) error) error {
+	if err := g.wait(ctx, s); err != nil {
+		return err
+	}
+	return g.exec.Rows(ctx, g.watch(s), row)
+}
+
+func (g *gatedExecutor) log() logger.ILogger { return g.opts.Logger }
+
+// wait polls the signals every gatePoll until none is over its threshold.
+func (g *gatedExecutor) wait(ctx context.Context, s Statement) error {
+	var since, shown time.Time
+	for {
+		p, err := g.pressure(ctx)
+		if err != nil {
+			return err
+		}
+		now := g.opts.now()
+		switch {
+		case p == nil && since.IsZero():
+			return nil
+		case p == nil:
+			g.log().Info(fmt.Sprintf("metric migration: back-off resumed after %s", now.Sub(since).Round(time.Second)))
+			return nil
+		case since.IsZero():
+			since, shown = now, now
+			table, err := g.table(ctx, p)
+			if err != nil {
+				return err
+			}
+			if table == "" {
+				table = s.Table
+			}
+			g.log().Info(fmt.Sprintf("metric migration: back-off on %s, table %s", p, table))
+		case now.Sub(shown) >= progressEvery:
+			shown = now
+			g.log().Info(fmt.Sprintf("metric migration: back-off on %s, waited %s",
+				p, now.Sub(since).Round(time.Second)))
+		}
+		if err = g.opts.sleep(ctx, gatePoll); err != nil {
+			return err
+		}
+	}
+}
+
+// table is the busiest table of p's signal, read from system.parts for the parts signal.
+func (g *gatedExecutor) table(ctx context.Context, p *pressure) (string, error) {
+	if p.signal != "parts" {
+		return p.table, nil
+	}
+	var table string
+	err := g.exec.Scalar(ctx, Statement{Op: opGateTable, SQL: gatePartsTableSQL()}, &table)
+	return table, err
+}
+
+// pressure returns the over-threshold signal first in gateSignals, nil when none is.
+func (g *gatedExecutor) pressure(ctx context.Context) (*pressure, error) {
+	var found *pressure
+	err := g.exec.Rows(ctx, Statement{Op: opGate, SQL: gateSQL()}, func(scan func(dest ...any) error) error {
+		var p pressure
+		var limit float64
+		if err := scan(&p.signal, &p.value, &limit, &p.table); err != nil {
+			return err
+		}
+		if g.over(&p, limit) && (found == nil || rank(p.signal) < rank(found.signal)) {
+			found = &p
+		}
+		return nil
+	})
+	return found, err
+}
+
+// over sets p's threshold and reports whether p's value holds the gate.
+func (g *gatedExecutor) over(p *pressure, limit float64) bool {
+	switch p.signal {
+	case "parts":
+		p.threshold = g.opts.BackoffParts * limit
+		return limit > 0 && p.value >= p.threshold
+	case "memory":
+		p.threshold = g.opts.BackoffMemory * limit
+		return limit > 0 && p.value >= p.threshold
+	case "merges":
+		p.threshold = float64(g.opts.BackoffMerges)
+		return p.value > p.threshold
+	case "mutations", "delayed":
+		return p.value > 0
+	}
+	return false
+}
+
+// watch chains a progress callback logging the rows read of a unit running past progressEvery.
+// A unit is the statements sharing a query id; a statement without one is its own unit.
+func (g *gatedExecutor) watch(s Statement) Statement {
+	label := s.QueryID + " " + s.Op + " " + s.Table
+	key := s.QueryID
+	if key == "" {
+		key = label
+	}
+	now := g.opts.now()
+	g.mu.Lock()
+	if g.unit != key || s.QueryID == "" {
+		g.unit, g.start, g.shown = key, now, now
+	}
+	g.mu.Unlock()
+	next := s.Progress
+	s.Progress = func(read, written uint64) {
+		now := g.opts.now()
+		g.mu.Lock()
+		due := now.Sub(g.shown) >= progressEvery
+		if due {
+			g.shown = now
+		}
+		running := now.Sub(g.start)
+		g.mu.Unlock()
+		if due {
+			g.log().Info(fmt.Sprintf("metric migration: %s running %s: %d rows read",
+				label, running.Round(time.Second), read))
+		}
+		if next != nil {
+			next(read, written)
+		}
+	}
+	return s
+}

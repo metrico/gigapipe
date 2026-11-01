@@ -189,7 +189,7 @@ func TestTheRunAsksForThe15sHoursBeforeTheUnits(t *testing.T) {
 		if s.QueryID != "" {
 			break
 		}
-		if !strings.HasPrefix(step(s), "record lease") {
+		if s.Op != opGate && !strings.HasPrefix(step(s), "record lease") {
 			head = append(head, step(s))
 		}
 	}

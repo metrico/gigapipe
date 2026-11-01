@@ -70,6 +70,11 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 		}
 		m.opts.Logger.Info(fmt.Sprintf("metric migration: %d/%d %s: %d rows in %s",
 			i+1, len(plan.units), unitLabel(u), rows, m.opts.now().Sub(start).Round(time.Millisecond)))
+		if i+1 < len(plan.units) {
+			if err = m.opts.sleep(ctx, m.opts.Pause); err != nil {
+				return report, m.failed("pause", err)
+			}
+		}
 	}
 	if report.Series, err = m.series(ctx, recs[seriesRecord] == unitDone, plan.watermark, rollup != nil); err != nil {
 		m.kill(ctx, runQueryID(m.opts.Database, opSeries), opSeries)
