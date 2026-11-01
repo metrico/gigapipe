@@ -35,7 +35,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        # --new-from-rev needs the pull request's base commit in the history.
+        # --new-from-rev needs the commit it compares against in the history.
         fetch-depth: 0
 
     - name: Set up Go
@@ -43,10 +43,11 @@ jobs:
       with:
         go-version-file: go.mod
 
-    # Only issues introduced by this pull request fail the job, so adoption
-    # doesn't require cleaning up pre-existing findings first.
+    # Only new issues fail the job (since the pull request's base commit, or
+    # since the previous commit on a push), so adoption doesn't require
+    # cleaning up pre-existing findings first.
     - name: golangci-lint
-      run: make lint LINT_NEW_FROM_REV=${{ github.event.pull_request.base.sha }}
+      run: make lint LINT_NEW_FROM_REV=${{ github.event.pull_request.base.sha || github.event.before }}
 
   arch-lint:
     runs-on: ubuntu-latest
