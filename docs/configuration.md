@@ -56,7 +56,8 @@ The former `QRYN_` and `CLOKI_` prefixes are still accepted so existing
 deployments keep working unchanged. At start-up each `GIGAPIPE_` variable is
 applied to its legacy equivalent, so when both are set the `GIGAPIPE_` value is
 the one that takes effect. Setting only a legacy name logs a deprecation
-warning naming the variable to move to.
+warning naming the variable to move to. Setting `METRICS_15S_ENABLED` or
+`COMPAT_4_0_19`, which nothing reads, logs a warning that it has no effect.
 
 Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 `BULK_*` and so on — are unprefixed and unchanged.
