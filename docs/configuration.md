@@ -67,7 +67,7 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 - **`ADVANCED_SAMPLES_ORDERING`** - ClickHouse `ORDER BY` clause for the `samples_v3` table (default: `timestamp_ns`). Applies **only when the table is first created** — setting it on a deployment that already has `samples_v3` has no effect, and the sort key cannot be changed by `ALTER`. The value is interpolated into DDL without validation. See [Table Ordering](table-ordering.md).
 - **`ADVANCED_PROMETHEUS_MAX_SAMPLES`** - Maximum number of samples returned in Prometheus queries
 - **`ADVANCED_OMIT_EMPTY_VALUES`** - Omit empty values in query results (`true`, `false`)
-- **`OMIT_CREATE_TABLES`** - Skip table creation on startup (`true`, `false`)
+- **`OMIT_CREATE_TABLES`** - Skip the schema step (table creation and upgrade) on start in `all`, `writer`, `init_only` and `migrate_metrics` mode (`true`, `false`)
 
 ## Storage and Retention
 
@@ -99,7 +99,106 @@ A PromQL query is served whole from one tier. While its earliest read (the query
 
 ### Upgrading a deployment with metric history
 
-Metric samples and series held in `samples_v3` and `time_series` are copied into the metric tables by running the instance once with `MODE=migrate_metrics`. History in `metrics_15s` older than the samples TTL is copied approximately: each 15-second row becomes one sample at its start, carrying its last value, which is exact at a 15-second scrape interval.
+`MODE=migrate_metrics` copies the metric history of the legacy tables into the metric tables: metric rows of `samples_v3` into `metric_samples` and both tiers (`metrics_5m`, `metrics_1h`), `time_series` into `metric_series` and `metric_metadata`, and `metrics_15s` history older than `SAMPLES_DAYS` as approximate samples. Each run is incremental: it copies what earlier runs have not, prints a summary and exits. The legacy tables are only read; their rows age out by their TTL.
+
+The steps below are for a single ClickHouse server. A database with `CLUSTER_NAME` set is refused with exit code 2.
+
+#### Single node
+
+1. With the old release still serving all reads and writes, run the new release once with `MODE=migrate_metrics`. Its schema step only adds tables and views, so the old release keeps working beside it.
+2. Swap the readers and writers to the new release.
+3. Run `MODE=migrate_metrics` again, as many times as needed, until it prints `metric migration: no new data to migrate`. Each re-run copies again the last `MIGRATE_METRICS_LOOKBACK` below the previous run's top, which picks up what the old release wrote before the swap.
+
+A run prints one summary line per database to stdout:
+
+```
+metric migration: <database>: <n> raw samples, <n> approximate 15s samples, <n> series, <n> metadata, <n> recovered units in <duration>
+```
+
+followed by `metric migration: no new data to migrate` when it copied no raw or 15s samples and recovered no unit. Its exit code says what to do next:
+
+| Exit | Printed | What to do |
+|---|---|---|
+| `0` | the summary of each database | Re-run until it prints `no new data to migrate`. |
+| `1` | `metric migration: <database> failed at <step>: <error>; re-run MODE=migrate_metrics to resume` | Fix the cause the error names if any (memory, disk, connection) and re-run. Units a failed run left started are recovered by the next run. A failed schema step exits 1 with `metric migration: schema step failed: <error>; re-run MODE=migrate_metrics to resume`. A run stopped by `SIGINT` or `SIGTERM` exits 1 as well, after killing its running queries; a signal during the schema step lets it finish and prints `metric migration: stopped by a signal before the migration started; re-run MODE=migrate_metrics to resume`. A second signal terminates the run at once. |
+| `2` | `metric migration refused: <reason>` | Nothing was written, and the schema step did not run. Fix the variable or setting the reason names and re-run. |
+| `3` | `metric migration lease held by <instance>, renewed <time>, taken over in <duration>` | Another run holds the lease. Wait for it to finish, or for the lease to expire after the `taken over in` time if that run died, and re-run. |
+
+Refusals (exit 2) name the variable and what it expects, for example `MIGRATE_METRICS_PAUSE="soon": expected a positive duration such as 30s, 5m or 1h`. A run is also refused for a `MIGRATE_METRICS_MAX_SPLIT` below `MIGRATE_METRICS_SPLIT`, a `MIGRATE_METRICS_DSN` naming another database than the one migrated, a `METRICS_15S_TTL_DAYS` that is not a positive number of days, or a database with `CLUSTER_NAME` set.
+
+`OMIT_CREATE_TABLES` skips the schema step in this mode as in the others.
+
+#### Migrator settings
+
+Every variable is also accepted with the `GIGAPIPE_` prefix, which wins when both are set. An empty value counts as unset. Durations are Go durations (`30s`, `5m`, `1h`) and must be positive; counts are positive integers; sizes are plain bytes or a number with `KiB`, `MiB`, `GiB`, `TiB`, `KB`, `MB`, `GB` or `TB`; fractions lie in (0, 1]. The defaults are conservative, for a run beside live traffic.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MIGRATE_METRICS_LOOKBACK` | `1h` | How far below the previous run's top a re-run copies again |
+| `MIGRATE_METRICS_MARGIN` | `5m` | Hours ending after now − margin are left to a later run |
+| `MIGRATE_METRICS_SPLIT` | `1` | Parts a unit is first split into, by `cityHash64(fingerprint) % N` |
+| `MIGRATE_METRICS_MAX_SPLIT` | `64` | Largest split a unit is retried at after a memory (241), time (159) or spill (307) limit error; at least `MIGRATE_METRICS_SPLIT` |
+| `MIGRATE_METRICS_MAX_THREADS` | `2` | `max_threads` of each statement (`max_insert_threads` is `1`) |
+| `MIGRATE_METRICS_MAX_MEMORY` | `2GiB` | `max_memory_usage` of each statement |
+| `MIGRATE_METRICS_MAX_EXECUTION_TIME` | `30m` | `max_execution_time` of each statement |
+| `MIGRATE_METRICS_EXTERNAL_SORT` | `512MiB` | `max_bytes_before_external_sort` |
+| `MIGRATE_METRICS_EXTERNAL_GROUP_BY` | `512MiB` | `max_bytes_before_external_group_by` |
+| `MIGRATE_METRICS_MAX_SPILL` | `20GiB` | `max_temporary_data_on_disk_size_for_query` |
+| `MIGRATE_METRICS_PAUSE` | `1s` | Wait between units |
+| `MIGRATE_METRICS_BACKOFF_PARTS` | `0.5` | Back off while the busiest partition of a written table holds at least this fraction of `parts_to_delay_insert` parts |
+| `MIGRATE_METRICS_BACKOFF_MERGES` | `16` | Back off while more merges than this are running |
+| `MIGRATE_METRICS_BACKOFF_MEMORY` | `0.8` | Back off while server memory use is at or above this fraction of its limit |
+| `MIGRATE_METRICS_DSN` | unset | The migrator's own ClickHouse DSN, such as `clickhouse://migrator:password@host:9000`; unset, it uses the instance's connection. It may name no database or the one migrated. |
+
+Before each statement the run waits while any back-off signal is over its threshold, or while a mutation is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>, waited <duration>`. The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes, unless the DSN sets `read_timeout`.
+
+#### A ClickHouse user for the migrator
+
+The schema step uses the instance's connection; `MIGRATE_METRICS_DSN` lets the copy run as its own user under its own quotas. That user needs a settings profile with `readonly = 0`, because every statement carries its limits as query settings, and these grants:
+
+```sql
+CREATE SETTINGS PROFILE migrator_profile SETTINGS readonly = 0;
+CREATE USER migrator IDENTIFIED BY '...' SETTINGS PROFILE 'migrator_profile';
+GRANT SELECT ON cloki.samples_v3 TO migrator;
+GRANT SELECT ON cloki.time_series TO migrator;
+GRANT SELECT ON cloki.metrics_15s TO migrator;
+GRANT SELECT, INSERT ON cloki.metric_samples TO migrator;
+GRANT SELECT, INSERT, ALTER DELETE ON cloki.metrics_5m TO migrator;
+GRANT SELECT, INSERT, ALTER DELETE ON cloki.metrics_1h TO migrator;
+GRANT INSERT ON cloki.metric_series TO migrator;
+GRANT INSERT ON cloki.metric_metadata TO migrator;
+GRANT SELECT, INSERT ON cloki.settings TO migrator;
+```
+
+with `cloki` replaced by the database migrated. The run also reads `system.settings`, `system.server_settings`, `system.merge_tree_settings`, `system.parts`, `system.merges`, `system.mutations`, `system.metrics`, `system.asynchronous_metrics` and `system.processes`, and kills only its own queries.
+
+#### Units, recovery and state
+
+A run holds a lease in the `settings` table while it works, renewing it every minute; the lease expires 3 minutes after its last renewal. It copies in units of one hour, `(H, H+1h]`, newest first:
+
+- The first run records a floor, the hour of now − `SAMPLES_DAYS`. It copies every raw hour from the last hour boundary at or before now − `MIGRATE_METRICS_MARGIN` down to the floor, then every hour below the floor that has metric rows in `metrics_15s`, down to that table's lifetime (`METRICS_15S_TTL_DAYS`).
+- A later run copies every hour not yet done, and again every hour ending after its previous top − `MIGRATE_METRICS_LOOKBACK`.
+
+A unit is marked started, counts its raw rows, copies the legacy rows into `metric_samples`, and counts again; the difference is the rows it reports. An hour whose count did not change is marked done there. Otherwise the unit deletes that hour's buckets from `metrics_5m` and `metrics_1h` and rebuilds them from `metric_samples`, then is marked done. After the last unit the run copies the series index and metadata, then records its top. The series copy takes everything on the first run, then only `time_series` rows dated from the previous top − `MIGRATE_METRICS_LOOKBACK`; a run that fails before recording its top leaves the previous one in place.
+
+A unit left started by a failed or stopped run is redone in full by the next one, which reports it among the recovered units. A copy or rebuild that hits a memory, time or spill limit is retried with the unit split into twice as many parts, up to `MIGRATE_METRICS_MAX_SPLIT`. A unit that still hits a limit there fails the run (exit 1) and logs `metric migration: <unit> hit <setting> (code <code>) at the maximum split <n>; giving up`.
+
+The run logs each unit as `metric migration: <i>/<n> <kind> (<from>, <to>]: <rows> rows in <duration>`, each retry as `metric migration: <unit> hit <setting> (code <code>); retrying split <n>`, each back-off as `metric migration: back-off on <signal>: <value> at threshold <threshold>, table <table>` and `metric migration: back-off resumed after <duration>`, and a statement still running every minute as `metric migration: <query id> <op> <table> running <duration>: <n> rows read`, where the duration is the time since the unit started.
+
+The run's state is kept in the `settings` table under `type = 'metric_migrate'`: `floor` and `watermark` (the previous top) in Unix milliseconds, `series` once the first series copy is done, `lease` as `<instance>:<unix seconds>`, and one record per unit, `raw:<end>` or `15s:<end>` in Unix milliseconds, valued `started` or `done`. To inspect it:
+
+```sql
+SELECT argMax(name, inserted_at) AS name, argMax(value, inserted_at) AS value
+FROM settings WHERE type = 'metric_migrate' GROUP BY fingerprint ORDER BY name
+```
+
+#### Limits
+
+- A legacy row that arrives below `watermark − MIGRATE_METRICS_LOOKBACK` after its hour was copied is not migrated. To cover a slow swap, raise `MIGRATE_METRICS_LOOKBACK` for the re-runs.
+- A late live sample at or before now − `MIGRATE_METRICS_MARGIN` that arrives between a unit's tier delete and its rebuild is counted twice in the tiers.
+- A sample that lands in a unit's range between its two raw counts is reported as migrated.
+- History in `metrics_15s` beyond `SAMPLES_DAYS` is approximate: each 15-second row becomes one sample at its start, carrying its last value. That is exact at a 15-second scrape interval; a faster scrape undercounts samples and sums.
+- A series with no `time_series` labels left has its 15s history copied but cannot be queried.
 
 ## Mode
 
@@ -108,7 +207,7 @@ Metric samples and series held in `samples_v3` and `time_series` are copied into
   - `reader` - Run query/read endpoints only
   - `writer` - Run ingestion/write endpoints only
   - `init_only` - Initialize database and exit
-  - `migrate_metrics` - Initialize database, copy the metric history into the metric tables once and exit
+  - `migrate_metrics` - Initialize database, run one incremental metric migration and exit (see [Upgrading a deployment with metric history](#upgrading-a-deployment-with-metric-history))
 - **`READONLY`** - Set to `true` to force reader mode (equivalent to `MODE=reader`)
 
 ## Logging
