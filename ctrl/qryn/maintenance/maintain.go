@@ -150,16 +150,23 @@ func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
 	if v := os.Getenv("METRICS_15S_TTL_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			return 0, fmt.Errorf("METRICS_15S_TTL_DAYS: invalid value %q", v)
+			return 0, fmt.Errorf("METRICS_15S_TTL_DAYS=%q: expected a positive number of days", v)
 		}
 		return n, nil
 	}
 	return dbObject.TTLDays, nil
 }
 
-// MigrateAllMetrics runs one metric migration of each database in turn, stopping at the
-// first that does not succeed.
-func MigrateAllMetrics(ctx context.Context, base []config.ClokiBaseDataBase, logger logger.ILogger) ([]MetricMigrationReport, error) {
+// MetricMigration is a checked metric migration of each database in turn.
+type MetricMigration struct {
+	base       []config.ClokiBaseDataBase
+	rollupDays []int
+	opts       MetricMigrationOptions
+}
+
+// PrepareMetricMigration reads the MIGRATE_METRICS_* settings and checks each database,
+// refusing before any connection what the run cannot migrate.
+func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, error) {
 	opts, err := MetricMigrationOptionsFromEnv(os.LookupEnv)
 	if err != nil {
 		return nil, err
@@ -167,9 +174,27 @@ func MigrateAllMetrics(ctx context.Context, base []config.ClokiBaseDataBase, log
 	if err := checkMigratorDSN(opts.DSN, base); err != nil {
 		return nil, err
 	}
-	var reports []MetricMigrationReport
+	m := &MetricMigration{base: base, opts: opts}
 	for _, dbObject := range base {
-		report, err := migrateMetrics(ctx, &dbObject, opts, logger)
+		if dbObject.ClusterName != "" {
+			return nil, &MigrationRefusedError{
+				Reason: fmt.Sprintf("database %s is on cluster %s; CLUSTER_NAME must be unset, the cluster form is not supported", dbObject.Name, dbObject.ClusterName),
+			}
+		}
+		rollupDays, err := rollupTTLDays(&dbObject)
+		if err != nil {
+			return nil, &MigrationRefusedError{Reason: err.Error()}
+		}
+		m.rollupDays = append(m.rollupDays, rollupDays)
+	}
+	return m, nil
+}
+
+// Run migrates each database in turn, stopping at the first that does not succeed.
+func (m *MetricMigration) Run(ctx context.Context, logger logger.ILogger) ([]MetricMigrationReport, error) {
+	var reports []MetricMigrationReport
+	for i := range m.base {
+		report, err := migrateMetrics(ctx, &m.base[i], m.rollupDays[i], m.opts, logger)
 		if err != nil {
 			return reports, err
 		}
@@ -178,16 +203,7 @@ func MigrateAllMetrics(ctx context.Context, base []config.ClokiBaseDataBase, log
 	return reports, nil
 }
 
-func migrateMetrics(ctx context.Context, dbObject *config.ClokiBaseDataBase, opts MetricMigrationOptions, logger logger.ILogger) (MetricMigrationReport, error) {
-	if dbObject.ClusterName != "" {
-		return MetricMigrationReport{}, &MigrationRefusedError{
-			Reason: fmt.Sprintf("database %s is on cluster %s; the cluster form is not supported", dbObject.Name, dbObject.ClusterName),
-		}
-	}
-	rollupDays, err := rollupTTLDays(dbObject)
-	if err != nil {
-		return MetricMigrationReport{}, &MigrationRefusedError{Reason: err.Error()}
-	}
+func migrateMetrics(ctx context.Context, dbObject *config.ClokiBaseDataBase, rollupDays int, opts MetricMigrationOptions, logger logger.ILogger) (MetricMigrationReport, error) {
 	conn, err := openMigratorConn(dbObject, opts)
 	if err != nil {
 		return MetricMigrationReport{}, &MigrationFailedError{Database: dbObject.Name, Step: "connect", Err: err}

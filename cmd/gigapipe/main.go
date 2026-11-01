@@ -20,8 +20,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v5/ctrl"
-	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
 	"github.com/metrico/qryn/v5/reader"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -300,22 +298,14 @@ func start() {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
 
+	if migratesMetrics(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		os.Exit(migrateMetricsMain(cfg, os.Stdout))
+	}
 	if runsSchemaStep(cfg.Setting.SYSTEM_SETTINGS.Mode) {
 		schemaStep(cfg)
 	}
 	if os.Getenv("MODE") == "init_only" {
 		return
-	}
-	if migratesMetrics(cfg.Setting.SYSTEM_SETTINGS.Mode) {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		// After the first signal, a second one terminates the process.
-		go func() {
-			<-ctx.Done()
-			stop()
-		}()
-		os.Exit(runMigrateMetrics(ctx, func(ctx context.Context) ([]maintenance.MetricMigrationReport, error) {
-			return ctrl.MigrateMetrics(ctx, cfg)
-		}, os.Stdout))
 	}
 
 	app := mux.NewRouter()

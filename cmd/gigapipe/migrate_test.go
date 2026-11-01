@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -23,8 +25,8 @@ func TestOnlyMigrateMetricsModeMigrates(t *testing.T) {
 	}
 }
 
-func TestMigrateMetricsRunsTheSchemaStep(t *testing.T) {
-	for _, mode := range []string{"all", "writer", "init_only", "migrate_metrics"} {
+func TestStartUpModesRunTheSchemaStep(t *testing.T) {
+	for _, mode := range []string{"all", "writer", "init_only"} {
 		if !runsSchemaStep(mode) {
 			t.Errorf("mode %q skips the schema step", mode)
 		}
@@ -97,8 +99,8 @@ func TestAFailedMigrationNamesTheUnitAndExitsOne(t *testing.T) {
 
 func TestARefusedMigrationExitsTwo(t *testing.T) {
 	code, lines := runMigrate(t, nil, &maintenance.MigrationRefusedError{Reason: "cluster form not supported"})
-	if code != 2 || !strings.Contains(lines[len(lines)-1], "cluster form not supported") {
-		t.Fatalf("exit %d, %q", code, lines)
+	if want := "metric migration refused: cluster form not supported"; code != 2 || lines[len(lines)-1] != want {
+		t.Fatalf("exit %d, %q, want %q", code, lines, want)
 	}
 }
 
@@ -106,14 +108,9 @@ func TestAHeldLeaseExitsThreeNamingTheHolder(t *testing.T) {
 	code, lines := runMigrate(t, nil, &maintenance.MigrationLeaseHeldError{
 		Holder: "host-a-12", Renewed: time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC), TakeoverIn: 2 * time.Minute,
 	})
-	if code != 3 {
-		t.Fatalf("exit %d", code)
-	}
-	last := lines[len(lines)-1]
-	for _, want := range []string{"host-a-12", "2026-10-02T09:00:00Z", "2m0s"} {
-		if !strings.Contains(last, want) {
-			t.Errorf("last line %q lacks %q", last, want)
-		}
+	want := "metric migration lease held by host-a-12, renewed 2026-10-02T09:00:00Z, taken over in 2m0s"
+	if code != 3 || lines[len(lines)-1] != want {
+		t.Fatalf("exit %d, %q, want %q", code, lines, want)
 	}
 }
 
@@ -174,13 +171,79 @@ func TestASignalledMigrationExitsOne(t *testing.T) {
 	}
 }
 
-func TestABadMigrateMetricsEnvValueExitsTwo(t *testing.T) {
+func migrateMain(t *testing.T, db config.ClokiBaseDataBase) (code int, out string, schemaRan bool) {
+	t.Helper()
+	return migrateMainWith(t, db, func() {})
+}
+
+// migrateMainWith runs migrateMetricsMain with createTables replaced by a stub that calls schema.
+func migrateMainWith(t *testing.T, db config.ClokiBaseDataBase, schema func()) (code int, out string, schemaRan bool) {
+	t.Helper()
+	saved := createTables
+	createTables = func(*clconfig.ClokiConfig) { schemaRan = true; schema() }
+	defer func() { createTables = saved }()
+	cfg := &clconfig.ClokiConfig{Setting: &config.ClokiBaseSettingServer{DATABASE_DATA: []config.ClokiBaseDataBase{db}}}
+	var b strings.Builder
+	code = migrateMetricsMain(cfg, &b)
+	return code, b.String(), schemaRan
+}
+
+func TestABadMigrateMetricsEnvValueExitsTwoBeforeTheSchemaStep(t *testing.T) {
 	t.Setenv("GIGAPIPE_MIGRATE_METRICS_PAUSE", "soon")
-	var out strings.Builder
-	code := runMigrateMetrics(context.Background(), func(ctx context.Context) ([]maintenance.MetricMigrationReport, error) {
-		return maintenance.MigrateAllMetrics(ctx, []config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}}, nil)
-	}, &out)
-	if code != 2 || !strings.Contains(out.String(), "GIGAPIPE_MIGRATE_METRICS_PAUSE") {
-		t.Fatalf("exit %d, %q", code, out.String())
+	code, out, schemaRan := migrateMain(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1})
+	if code != 2 || !strings.Contains(out, "GIGAPIPE_MIGRATE_METRICS_PAUSE") || schemaRan {
+		t.Fatalf("exit %d, %q, schema step ran: %v", code, out, schemaRan)
+	}
+}
+
+func TestAClusterDatabaseExitsTwoBeforeTheSchemaStep(t *testing.T) {
+	code, out, schemaRan := migrateMain(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1, ClusterName: "c1"})
+	want := "metric migration refused: database db is on cluster c1; CLUSTER_NAME must be unset, the cluster form is not supported\n"
+	if code != 2 || out != want || schemaRan {
+		t.Fatalf("exit %d, %q, schema step ran: %v", code, out, schemaRan)
+	}
+}
+
+func TestABadMetrics15sTTLExitsTwoBeforeTheSchemaStep(t *testing.T) {
+	t.Setenv("METRICS_15S_TTL_DAYS", "-1")
+	code, out, schemaRan := migrateMain(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1})
+	want := "metric migration refused: METRICS_15S_TTL_DAYS=\"-1\": expected a positive number of days\n"
+	if code != 2 || out != want || schemaRan {
+		t.Fatalf("exit %d, %q, schema step ran: %v", code, out, schemaRan)
+	}
+}
+
+func TestAFailedSchemaStepExitsOneNamingIt(t *testing.T) {
+	code, out, _ := migrateMainWith(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1}, func() {
+		panic(errors.New("dial tcp 127.0.0.1:1: connection refused"))
+	})
+	want := "metric migration: schema step failed: dial tcp 127.0.0.1:1: connection refused; re-run MODE=migrate_metrics to resume\n"
+	if code != 1 || out != want {
+		t.Fatalf("exit %d, %q", code, out)
+	}
+}
+
+func TestASignalDuringTheSchemaStepExitsOne(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	saved := signalContext
+	signalContext = func() (context.Context, context.CancelFunc) { return ctx, cancel }
+	defer func() { signalContext = saved }()
+	code, out, _ := migrateMainWith(t, config.ClokiBaseDataBase{Name: "db", Host: "127.0.0.1", Port: 1}, cancel)
+	want := "metric migration: stopped by a signal before the migration started; re-run MODE=migrate_metrics to resume\n"
+	if code != 1 || out != want {
+		t.Fatalf("exit %d, %q", code, out)
+	}
+}
+
+func TestTheSignalHandlerCatchesSIGINT(t *testing.T) {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGINT did not cancel the context")
 	}
 }

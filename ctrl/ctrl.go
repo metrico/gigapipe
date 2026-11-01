@@ -38,9 +38,15 @@ func Init(config *clconfig.ClokiConfig, project string) error {
 	return err
 }
 
-// MigrateMetrics runs one metric migration of each database.
-func MigrateMetrics(ctx context.Context, config *clconfig.ClokiConfig) ([]maintenance.MetricMigrationReport, error) {
-	return maintenance.MigrateAllMetrics(ctx, config.Setting.DATABASE_DATA, logger.Logger)
+// PrepareMetricMigration checks the metric migration of each database and returns its run.
+func PrepareMetricMigration(config *clconfig.ClokiConfig) (func(context.Context) ([]maintenance.MetricMigrationReport, error), error) {
+	m, err := maintenance.PrepareMetricMigration(config.Setting.DATABASE_DATA)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context) ([]maintenance.MetricMigrationReport, error) {
+		return m.Run(ctx, logger.Logger)
+	}, nil
 }
 
 func Rotate(config *clconfig.ClokiConfig, project string) error {

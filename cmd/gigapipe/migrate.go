@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"slices"
+	"syscall"
 
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/ctrl"
@@ -14,9 +17,10 @@ import (
 
 const migrateMetricsMode = "migrate_metrics"
 
-// runsSchemaStep reports whether mode creates and upgrades the tables on start.
+// runsSchemaStep reports whether mode creates and upgrades the tables on start;
+// migrateMetricsMain runs it for migrate_metrics.
 func runsSchemaStep(mode string) bool {
-	return slices.Contains([]string{"all", "writer", "init_only", migrateMetricsMode}, mode)
+	return slices.Contains([]string{"all", "writer", "init_only"}, mode)
 }
 
 // migratesMetrics reports whether mode runs one metric migration and exits.
@@ -45,6 +49,49 @@ func schemaStep(cfg *clconfig.ClokiConfig) {
 	}
 }
 
+// signalContext is cancelled by the first SIGINT or SIGTERM; after it, a second one terminates the process.
+var signalContext = func() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, stop
+}
+
+// migrateMetricsMain refuses bad migration settings before the schema step, then runs
+// the schema step and one migration under a signal context and returns the exit code.
+func migrateMetricsMain(cfg *clconfig.ClokiConfig, out io.Writer) int {
+	migrate, err := ctrl.PrepareMetricMigration(cfg)
+	if err != nil {
+		return runMigrateMetrics(context.Background(), func(context.Context) ([]maintenance.MetricMigrationReport, error) {
+			return nil, err
+		}, out)
+	}
+	ctx, stop := signalContext()
+	defer stop()
+	if err := runSchemaStep(cfg); err != nil {
+		fmt.Fprintf(out, "metric migration: schema step failed: %v; re-run MODE=%s to resume\n", err, migrateMetricsMode)
+		return 1
+	}
+	if ctx.Err() != nil {
+		fmt.Fprintf(out, "metric migration: stopped by a signal before the migration started; re-run MODE=%s to resume\n", migrateMetricsMode)
+		return 1
+	}
+	return runMigrateMetrics(ctx, migrate, out)
+}
+
+// runSchemaStep runs schemaStep, returning its panic as an error.
+func runSchemaStep(cfg *clconfig.ClokiConfig) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	schemaStep(cfg)
+	return nil
+}
+
 // runMigrateMetrics runs migrate, prints each database's summary or the failure, and returns
 // the exit code: 0 success, 1 failure or signal, 2 refused, 3 lease held.
 func runMigrateMetrics(ctx context.Context, migrate func(context.Context) ([]maintenance.MetricMigrationReport, error), out io.Writer) int {
@@ -63,10 +110,10 @@ func runMigrateMetrics(ctx context.Context, migrate func(context.Context) ([]mai
 	var held *maintenance.MigrationLeaseHeldError
 	switch {
 	case errors.As(err, &refused):
-		fmt.Fprintf(out, "metric migration: %v\n", err)
+		fmt.Fprintln(out, refused)
 		return 2
 	case errors.As(err, &held):
-		fmt.Fprintf(out, "metric migration: %v\n", err)
+		fmt.Fprintln(out, held)
 		return 3
 	case errors.As(err, &failed):
 		fmt.Fprintf(out, "metric migration: %s failed at %s: %v; re-run MODE=%s to resume\n",

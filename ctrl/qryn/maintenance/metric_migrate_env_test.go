@@ -1,7 +1,6 @@
 package maintenance
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -192,18 +191,18 @@ func TestEnvRefusalNeverEchoesAnyPartOfTheUserInfo(t *testing.T) {
 	}
 }
 
-func TestMigrateAllMetricsRefusesABadEnvBeforeConnecting(t *testing.T) {
+func TestPrepareMetricMigrationRefusesABadEnv(t *testing.T) {
 	t.Setenv("MIGRATE_METRICS_MAX_MEMORY", "2 gigs")
-	reports, err := MigrateAllMetrics(context.Background(), []config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}}, nil)
+	m, err := PrepareMetricMigration([]config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}})
 	var refused *MigrationRefusedError
-	if !errors.As(err, &refused) || len(reports) != 0 {
-		t.Fatalf("reports %v, err %v", reports, err)
+	if !errors.As(err, &refused) || m != nil {
+		t.Fatalf("migration %v, err %v", m, err)
 	}
 }
 
-func TestMigrateAllMetricsRefusesADSNNamingAnotherDatabase(t *testing.T) {
+func TestPrepareMetricMigrationRefusesADSNNamingAnotherDatabase(t *testing.T) {
 	t.Setenv("MIGRATE_METRICS_DSN", "clickhouse://mig@127.0.0.1:1/other")
-	_, err := MigrateAllMetrics(context.Background(), []config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}}, nil)
+	_, err := PrepareMetricMigration([]config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}})
 	var refused *MigrationRefusedError
 	if !errors.As(err, &refused) || !strings.Contains(refused.Reason, "MIGRATE_METRICS_DSN") ||
 		!strings.Contains(refused.Reason, "other") {
