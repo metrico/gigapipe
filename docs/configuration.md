@@ -118,7 +118,7 @@ A PromQL query is served whole from one tier. While its earliest read (the query
 
 `MODE=migrate_metrics` copies the metric history of the legacy tables into the metric tables: metric rows of `samples_v3` into `metric_samples` and both tiers (`metrics_5m`, `metrics_1h`), `time_series` into `metric_series` and `metric_metadata`, and `metrics_15s` history older than `SAMPLES_DAYS` as approximate samples into both tiers only, never into `metric_samples`. Each run is incremental: it copies what earlier runs have not, prints a summary and exits. The legacy tables are only read; their rows age out by their TTL.
 
-The steps below are for a single ClickHouse server. A database with `CLUSTER_NAME` set is refused with exit code 2.
+The steps below hold for a single ClickHouse server and for a cluster; [Cluster](#cluster) lists what differs on a cluster.
 
 #### Single node
 
@@ -137,13 +137,47 @@ followed by `metric migration: no new data to migrate` when it migrated no raw o
 | Exit | Printed | What to do |
 |---|---|---|
 | `0` | the summary of each database | Re-run until it prints `no new data to migrate`. |
-| `1` | `metric migration: <database> failed at <step>: <error>; re-run MODE=migrate_metrics to resume` | Fix the cause the error names if any (memory, disk, connection) and re-run. Units a failed run left started are recovered by the next run. A failed schema step exits 1 with `metric migration: schema step failed: <error>; re-run MODE=migrate_metrics to resume`. A run stopped by `SIGINT` or `SIGTERM` exits 1 as well, after killing its running queries; a signal during the schema step lets it finish and prints `metric migration: stopped by a signal before the migration started; re-run MODE=migrate_metrics to resume`. A second signal terminates the run at once. |
-| `2` | `metric migration refused: <reason>` | Nothing was written, and the schema step did not run. Fix the variable or setting the reason names and re-run. |
+| `1` | `metric migration: <database> failed at <step>: <error>; re-run MODE=migrate_metrics to resume` | Fix the cause the error names if any (memory, disk, connection) and re-run. Units a failed run left started are recovered by the next run. A tier short of its samples (`<tier> holds <n> samples …`) needs only a re-run; a unit that hits a limit (241, 159, 396) at `MIGRATE_METRICS_MAX_SPLIT` needs a larger limit or split (see [Units](#units-recovery-and-state)). A failed schema step exits 1 with `metric migration: schema step failed: <error>; re-run MODE=migrate_metrics to resume`. A run stopped by `SIGINT` or `SIGTERM` exits 1 as well, after killing its running queries; a signal during the schema step lets it finish and prints `metric migration: stopped by a signal before the migration started; re-run MODE=migrate_metrics to resume`. A second signal terminates the run at once. |
+| `2` | `metric migration refused: <reason>` | No database was migrated. Except for the cluster and `metrics_15s` refusals below, the schema step did not run either. Fix the variable, setting or table the reason names and re-run. |
 | `3` | `metric migration lease held by <instance>, renewed <time>, taken over in <duration>` | Another run holds the lease. Wait for it to finish, or for the lease to expire after the `taken over in` time if that run died, and re-run. |
 
-Refusals (exit 2) name the variable and what it expects, for example `MIGRATE_METRICS_PAUSE="soon": expected a positive duration such as 30s, 5m or 1h`. A run is also refused for a `MIGRATE_METRICS_MAX_SPLIT` below `MIGRATE_METRICS_SPLIT`, a `METRICS_15S_TTL_DAYS` that is not a positive number of days, or a database with `CLUSTER_NAME` set.
+Refusals (exit 2) name the variable and what it expects, for example `MIGRATE_METRICS_PAUSE="soon": expected a positive duration such as 30s, 5m or 1h`. A run is also refused for a `MIGRATE_METRICS_MAX_SPLIT` below `MIGRATE_METRICS_SPLIT` or a `METRICS_15S_TTL_DAYS` that is not a positive number of days. On a cluster, a run is also refused after the schema step, before migrating any database, when a legacy `_dist` table names a cluster ClickHouse does not define (see [Cluster](#cluster)).
+
+A run is also refused after the schema step, before migrating any database, when the migrator user may not see `metrics_15s` (`metrics_15s_dist` on a cluster); see [migrator user](#a-clickhouse-user-for-the-migrator).
 
 `OMIT_CREATE_TABLES` skips the schema step in this mode as in the others.
+
+#### Cluster
+
+With `CLUSTER_NAME` set, run `MODE=migrate_metrics` from any one node, with the same steps as on a single node. The run differs as follows:
+
+- **Distributed reads and writes.** It reads `samples_v3_dist`, `time_series_dist` and `metrics_15s_dist`, and writes through `metric_samples_dist`, `metrics_5m_dist`, `metrics_1h_dist`, `metric_series_dist` and `metric_metadata_dist`. Its reads and writes, run-state records included, carry `insert_distributed_sync = 1` and `skip_unavailable_shards = 0`, so it waits for each shard's write and fails rather than skip a shard, and `load_balancing = 'in_order'` with `use_hedged_requests = 0`, so a unit writes to and reads from the same replica of each shard: the starting node itself for its own shard, otherwise the first in configuration order among those with the fewest errors.
+- **One run state.** The lease and the run's records live in `settings_dist`, so the whole cluster has one run state and one lease, whichever node a run starts from. Query it through `settings_dist` in place of `settings`.
+- **`ON CLUSTER` deletes and kills.** A unit deletes the tier buckets of its hour with `DELETE FROM metrics_5m ON CLUSTER` and `DELETE FROM metrics_1h ON CLUSTER` on the local tables, waiting for the mutation on every node. A stopped run kills its queries on the node it runs on, then with `KILL QUERY ON CLUSTER` on every node.
+- **Every node is checked.** The back-off gate reads the signals of every node through `clusterAllReplicas` and waits while any one node is over its own threshold. `max_bytes_ratio_before_external_sort` is set only when every node lists it.
+- **Legacy cluster refusal.** Before migrating any database, the run reads the cluster each database's legacy `_dist` tables name, expanding macros from `system.macros`. It refuses with exit code 2, naming the database and the table, when `samples_v3_dist` or `time_series_dist` does not exist (`metrics_15s_dist` is optional), a table is not `Distributed`, a macro is not in `system.macros`, or the cluster is not in `system.clusters`, for example `metric migration refused: database cloki: samples_v3_dist names cluster 'old', which is not in system.clusters` or `metric migration refused: database cloki: time_series_dist does not exist; a run on cluster 'c1' reads it`. Create or recreate the table over a defined cluster and re-run. The schema step has run by then; it only adds tables and views.
+- **Cluster totals.** The summary counts the whole cluster: raw and 15s samples from `count()` through `metric_samples_dist` before and after each unit, series and metadata from `count()` through `metric_series_dist` and `metric_metadata_dist` with `FINAL` before and after each copy. There are no per-shard lines. On a cluster, `series` and `metadata` therefore count the series and metric families the copy added, including any live ingest added meanwhile, so a re-run prints about 0. On a single node they count the rows the copy wrote, existing ones included.
+- **Partial writes.** A unit's `_dist` insert that fails after some shards wrote leaves the unit started, and the next run recovers it like any other started unit.
+
+The [migrator user](#a-clickhouse-user-for-the-migrator) keeps its single-node grants on the local tables, on every node, and needs these as well:
+
+```sql
+GRANT SELECT ON cloki.samples_v3_dist TO migrator;
+GRANT SELECT ON cloki.time_series_dist TO migrator;
+GRANT SELECT ON cloki.metrics_15s_dist TO migrator;
+GRANT SELECT, INSERT ON cloki.metric_samples_dist TO migrator;
+GRANT SELECT, INSERT ON cloki.metrics_5m_dist TO migrator;
+GRANT SELECT, INSERT ON cloki.metrics_1h_dist TO migrator;
+GRANT SELECT, INSERT ON cloki.metric_series_dist TO migrator;
+GRANT SELECT, INSERT ON cloki.metric_metadata_dist TO migrator;
+GRANT SELECT, INSERT ON cloki.settings_dist TO migrator;
+GRANT SELECT ON cloki.metric_series TO migrator;
+GRANT SELECT ON cloki.metric_metadata TO migrator;
+GRANT REMOTE ON *.* TO migrator;
+GRANT CLUSTER ON *.* TO migrator;
+```
+
+`SELECT` on `metric_series` and `metric_metadata` serves the cluster totals. `REMOTE` serves the `clusterAllReplicas` reads of the gate and the settings check. `CLUSTER` serves the `ON CLUSTER` deletes and kills. The run also reads `system.tables`, `system.macros` and `system.clusters`.
 
 #### Migrator settings
 
