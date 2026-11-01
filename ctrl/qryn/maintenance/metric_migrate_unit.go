@@ -13,6 +13,8 @@ type migration struct {
 	records migrationRecords
 	lease   *migrationLease
 	opts    MetricMigrationOptions
+	// ratioKnown is whether the server lists max_bytes_ratio_before_external_sort.
+	ratioKnown bool
 }
 
 func (m *migration) failed(step string, err error) error {
@@ -23,6 +25,9 @@ func (m *migration) failed(step string, err error) error {
 // copies series and metadata.
 func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 	report := MetricMigrationReport{Database: m.opts.Database}
+	if err := m.probeLimits(ctx); err != nil {
+		return report, m.failed(opSetting, err)
+	}
 	recs, err := m.records.all(ctx)
 	if err != nil {
 		return report, m.failed("plan", err)
@@ -63,7 +68,7 @@ func unitLabel(u migrationUnit) string {
 
 // statement builds every unit and run statement; lease and run-state records build their own.
 func (m *migration) statement(op, table, sql string) Statement {
-	return Statement{Op: op, Table: table, SQL: sql}
+	return Statement{Op: op, Table: table, SQL: sql, Settings: m.limitSettings()}
 }
 
 // unitStatement is a statement of unit u, run under the unit's query id.
@@ -90,7 +95,8 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err = m.exec.Exec(ctx, m.unitStatement(u, opCopy, rawSamples, copyRawSQL(u))); err != nil {
+	split := m.opts.Split
+	if err = m.copy(ctx, u, &split); err != nil {
 		return 0, err
 	}
 	after, err := m.countRaw(ctx, u)
@@ -98,12 +104,7 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 		return 0, err
 	}
 	for _, tier := range metricTiers {
-		del := m.unitStatement(u, opDelete, tier.Table, deleteTierSQL(tier, u))
-		del.Settings = map[string]any{"mutations_sync": 2}
-		if _, err = m.exec.Exec(ctx, del); err != nil {
-			return 0, err
-		}
-		if _, err = m.exec.Exec(ctx, m.unitStatement(u, opRebuild, tier.Table, rebuildTierSQL(tier, u))); err != nil {
+		if err = m.tier(ctx, u, tier, &split); err != nil {
 			return 0, err
 		}
 	}

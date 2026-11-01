@@ -43,12 +43,22 @@ func countRawSQL(u migrationUnit) string {
 	return fmt.Sprintf("SELECT count() FROM %s FINAL WHERE %s", rawSamples, msBounds("timestamp", u.from, u.to))
 }
 
-// copyRawSQL copies the samples_v3 metric rows whose ms lies in the unit's hour into raw.
-func copyRawSQL(u migrationUnit) string {
+// splitWhere selects the series of part of a split into parts, or every series when parts ≤ 1.
+func splitWhere(parts, part int) string {
+	if parts <= 1 {
+		return ""
+	}
+	return fmt.Sprintf(" AND cityHash64(fingerprint) %% %d = %d", parts, part)
+}
+
+// copyRawSQL copies the samples_v3 metric rows of split part whose ms lies in the unit's hour
+// into raw.
+func copyRawSQL(u migrationUnit, parts, part int) string {
 	return fmt.Sprintf("INSERT INTO %s (fingerprint, timestamp, value) "+
 		"SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, value "+
-		"FROM %s WHERE %s AND timestamp_ns >= %d AND timestamp_ns < %d",
-		rawSamples, legacySamples, legacyMetricRows, (u.from.UnixMilli()+1)*msNs, (u.to.UnixMilli()+1)*msNs)
+		"FROM %s WHERE %s AND timestamp_ns >= %d AND timestamp_ns < %d%s",
+		rawSamples, legacySamples, legacyMetricRows, (u.from.UnixMilli()+1)*msNs, (u.to.UnixMilli()+1)*msNs,
+		splitWhere(parts, part))
 }
 
 // deleteTierSQL deletes the tier's buckets of the unit's hour.
@@ -56,15 +66,15 @@ func deleteTierSQL(tier metricTier, u migrationUnit) string {
 	return fmt.Sprintf("DELETE FROM %s WHERE %s", tier.Table, msBounds("bucket", u.from, u.to))
 }
 
-// rebuildTierSQL aggregates the raw samples of the unit's hour into the tier. Each sample's
-// predecessor is the latest earlier non-stale sample of its series within the hour.
-func rebuildTierSQL(tier metricTier, u migrationUnit) string {
+// rebuildTierSQL aggregates the raw samples of split part in the unit's hour into the tier. Each
+// sample's predecessor is the latest earlier non-stale sample of its series within the hour.
+func rebuildTierSQL(tier metricTier, u migrationUnit, parts, part int) string {
 	input := fmt.Sprintf("(SELECT fingerprint, timestamp, value, "+
 		"prev.1 AS prev_timestamp, prev.2 AS prev_value, 1 AS aggregate "+
 		"FROM (SELECT fingerprint, timestamp, value, "+
 		"argMaxIf((timestamp, value), timestamp, reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev "+
-		"FROM %s FINAL WHERE %s))", rawSamples, msBounds("timestamp", u.from, u.to))
+		"FROM %s FINAL WHERE %s%s))", rawSamples, msBounds("timestamp", u.from, u.to), splitWhere(parts, part))
 	return fmt.Sprintf("INSERT INTO %s (%s) %s", tier.Table, tierColumns, tierAggregation(tier, input))
 }
 

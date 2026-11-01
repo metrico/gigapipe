@@ -8,7 +8,8 @@ import (
 )
 
 // Statement is one migrator statement. Op and Table identify its step; QueryID and Settings
-// travel with the query, and Progress receives the rows read and written so far.
+// travel with the query, and Progress receives the rows read and written so far. Part of Parts
+// names a fingerprint-hash split part; Parts ≤ 1 is the whole step.
 type Statement struct {
 	Op       string
 	Table    string
@@ -17,6 +18,8 @@ type Statement struct {
 	Settings map[string]any
 	QueryID  string
 	Progress func(read, written uint64)
+	Part     int
+	Parts    int
 }
 
 // Executor runs the migrator's statements.

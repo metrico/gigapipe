@@ -129,6 +129,7 @@ func TestSeriesAndMetadataRunAfterTheUnitsAndTheWatermark(t *testing.T) {
 	}
 	unit := rawRecord("2026-10-02 09:00")
 	sameStrings(t, "run steps", tail, []string{
+		"setting system.settings",
 		"record " + unit + "=started",
 		"record " + unit + "=done",
 		"record watermark=" + ms(at("2026-10-02 09:00")),
