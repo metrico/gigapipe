@@ -55,6 +55,17 @@ func TestOmitCreateTablesSkipsTheSchemaStepInMigrateMetrics(t *testing.T) {
 	}
 }
 
+func TestAMalformedOmitCreateTablesFailsTheSchemaStep(t *testing.T) {
+	saved := createTables
+	createTables = func(*clconfig.ClokiConfig) { t.Fatal("schema step ran with a malformed OMIT_CREATE_TABLES") }
+	defer func() { createTables = saved }()
+
+	t.Setenv("OMIT_CREATE_TABLES", "maybe")
+	if err := runSchemaStep(&clconfig.ClokiConfig{}); err == nil {
+		t.Error("schema step accepted OMIT_CREATE_TABLES=maybe")
+	}
+}
+
 func runMigrate(t *testing.T, reports []maintenance.MetricMigrationReport, err error) (int, []string) {
 	t.Helper()
 	var out strings.Builder

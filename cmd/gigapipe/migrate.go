@@ -38,7 +38,7 @@ var createTables = func(cfg *clconfig.ClokiConfig) {
 	}
 }
 
-// schemaStep runs the schema step unless OMIT_CREATE_TABLES is set.
+// schemaStep runs the schema step unless OMIT_CREATE_TABLES is set; a malformed value panics.
 func schemaStep(cfg *clconfig.ClokiConfig) {
 	omit, err := boolEnv("OMIT_CREATE_TABLES")
 	if err != nil {
