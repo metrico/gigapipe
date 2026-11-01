@@ -157,34 +157,41 @@ func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
 	return dbObject.TTLDays, nil
 }
 
-// ImportAllMetrics runs the metric import of each single-node database in the background until
-// it completes.
-func ImportAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) {
+// MigrateAllMetrics runs one metric migration of each database in turn, stopping at the
+// first that does not succeed.
+func MigrateAllMetrics(base []config.ClokiBaseDataBase, logger logger.ILogger) ([]MetricMigrationReport, error) {
+	var reports []MetricMigrationReport
 	for _, dbObject := range base {
-		if dbObject.ClusterName != "" {
-			logger.Info(fmt.Sprintf("metric import: not run on cluster %s", dbObject.ClusterName))
-			continue
+		report, err := migrateMetrics(&dbObject, logger)
+		if err != nil {
+			return reports, err
 		}
-		go func() {
-			rollupDays, err := rollupTTLDays(&dbObject)
-			if err != nil {
-				logger.Error("metric import: ", err.Error())
-				return
-			}
-			conn, err := maintenance.ConnectV2ReadTimeout(&dbObject, true, time.Hour)
-			if err != nil {
-				logger.Error("metric import: ", err.Error())
-				return
-			}
-			defer conn.Close()
-			RunMetricImport(context.Background(), conn, MetricImportOptions{
-				Database:    dbObject.Name,
-				SamplesDays: dbObject.TTLDays,
-				RollupDays:  rollupDays,
-				Logger:      logger,
-			})
-		}()
+		reports = append(reports, report)
 	}
+	return reports, nil
+}
+
+func migrateMetrics(dbObject *config.ClokiBaseDataBase, logger logger.ILogger) (MetricMigrationReport, error) {
+	if dbObject.ClusterName != "" {
+		return MetricMigrationReport{}, &MigrationRefusedError{
+			Reason: fmt.Sprintf("database %s is on cluster %s; the cluster form is not supported", dbObject.Name, dbObject.ClusterName),
+		}
+	}
+	rollupDays, err := rollupTTLDays(dbObject)
+	if err != nil {
+		return MetricMigrationReport{}, &MigrationRefusedError{Reason: err.Error()}
+	}
+	conn, err := maintenance.ConnectV2ReadTimeout(dbObject, true, time.Hour)
+	if err != nil {
+		return MetricMigrationReport{}, &MigrationFailedError{Database: dbObject.Name, Step: "connect", Err: err}
+	}
+	defer conn.Close()
+	return RunMetricMigration(context.Background(), NewClickhouseExecutor(conn), MetricMigrationOptions{
+		Database:    dbObject.Name,
+		SamplesDays: dbObject.TTLDays,
+		RollupDays:  rollupDays,
+		Logger:      logger,
+	})
 }
 
 func effectivePort(db *config.ClokiBaseDataBase) uint32 {

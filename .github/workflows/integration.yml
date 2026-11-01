@@ -31,7 +31,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build gigapipe
-        run: go build -o gigapipe cmd/gigapipe/main.go
+        run: go build -o gigapipe ./cmd/gigapipe
 
       - name: Start gigapipe
         run: |

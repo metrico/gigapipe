@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// memRecords holds the import's settings records in memory, stamped by the server clock.
+// memRecords holds the migration's settings records in memory, stamped by the server clock.
 type memRecords struct {
 	values map[string]string
 	at     map[string]time.Time
@@ -36,8 +36,8 @@ type testClock struct{ t time.Time }
 
 func (c *testClock) now() time.Time { return c.t }
 
-func newTestLease(records *memRecords, instance string, clock *testClock) *importLease {
-	return &importLease{
+func newTestLease(records *memRecords, instance string, clock *testClock) *migrationLease {
+	return &migrationLease{
 		records:  records,
 		instance: instance,
 		ttl:      3 * time.Minute,
@@ -46,7 +46,7 @@ func newTestLease(records *memRecords, instance string, clock *testClock) *impor
 	}
 }
 
-func holds(t *testing.T, l *importLease, op func(context.Context) (bool, error)) bool {
+func holds(t *testing.T, l *migrationLease, op func(context.Context) (bool, error)) bool {
 	t.Helper()
 	ok, err := op(context.Background())
 	if err != nil {

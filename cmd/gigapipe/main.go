@@ -21,6 +21,7 @@ import (
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/ctrl"
+	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
 	"github.com/metrico/qryn/v5/reader"
 	"github.com/metrico/qryn/v5/reader/promql/metricread"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -64,24 +65,6 @@ func boolEnv(key string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("%s value must be one of [no, n, false, 0, yes, y, true, 1]", key)
-}
-
-func initDB(cfg *clconfig.ClokiConfig) {
-	bVal, err := boolEnv("OMIT_CREATE_TABLES")
-	if err != nil {
-		panic(err)
-	}
-	if bVal {
-		return
-	}
-	err = ctrl.Init(cfg, "gigapipe")
-	if err != nil {
-		panic(err)
-	}
-	err = ctrl.Rotate(cfg, "gigapipe")
-	if err != nil {
-		panic(err)
-	}
 }
 
 func portCHEnv(cfg *clconfig.ClokiConfig) error {
@@ -317,15 +300,16 @@ func start() {
 		cfg.Setting.HTTP_SETTINGS.Port = 3100
 	}
 
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" ||
-		cfg.Setting.SYSTEM_SETTINGS.Mode == "init_only" {
-		initDB(cfg)
+	if runsSchemaStep(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		schemaStep(cfg)
 	}
 	if os.Getenv("MODE") == "init_only" {
 		return
 	}
-	if cfg.Setting.SYSTEM_SETTINGS.Mode == "all" || cfg.Setting.SYSTEM_SETTINGS.Mode == "writer" {
-		ctrl.ImportMetrics(cfg)
+	if migratesMetrics(cfg.Setting.SYSTEM_SETTINGS.Mode) {
+		os.Exit(runMigrateMetrics(func() ([]maintenance.MetricMigrationReport, error) {
+			return ctrl.MigrateMetrics(cfg)
+		}, os.Stdout))
 	}
 
 	app := mux.NewRouter()
