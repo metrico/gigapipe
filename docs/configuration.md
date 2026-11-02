@@ -149,11 +149,11 @@ Every variable is also accepted with the `GIGAPIPE_` prefix, which wins when bot
 | `MIGRATE_METRICS_BACKOFF_MERGES` | `8` | Back off while more merges than this are running |
 | `MIGRATE_METRICS_BACKOFF_MEMORY` | `0.8` | Back off while server memory use is at or above this fraction of its limit |
 
-Before each statement the run waits while any back-off signal is over its threshold, or while a mutation is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>, table <table>, waited <duration>`. The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes.
+Before each statement the run waits while any back-off signal is over its threshold, or while a mutation that is not failing is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>[, table <table>[, mutation <id>]], waited <duration>`. The parts and merges signals name their busiest table, and mutations the table and id of the oldest unfinished mutation; delayed inserts and memory name none. The wait has no deadline: a long healthy mutation holds the run, and `SIGTERM` stops it (exit 1, recovered by the next run). The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes.
 
 #### A ClickHouse user for the migrator
 
-The run uses the instance's `CLICKHOUSE_*` connection. For the copy, its user needs a settings profile with `readonly = 0`, because every statement carries its limits as query settings, and these grants:
+The run uses the instance's `CLICKHOUSE_*` connection. To run it as a dedicated user, set that user on the migrate command only, for example `MODE=migrate_metrics CLICKHOUSE_AUTH=migrator:<password> OMIT_CREATE_TABLES=true`; the readers and writers keep theirs. The user cannot run the schema step, so run it first with the instance's user, for example once with `MODE=init_only`, which runs the schema step and exits. The user needs a settings profile with `readonly = 0`, because every statement carries its limits as query settings, and these grants:
 
 ```sql
 CREATE SETTINGS PROFILE migrator_profile SETTINGS readonly = 0;
@@ -162,27 +162,39 @@ GRANT SELECT ON cloki.samples_v3 TO migrator;
 GRANT SELECT ON cloki.time_series TO migrator;
 GRANT SELECT ON cloki.metrics_15s TO migrator;
 GRANT SELECT, INSERT ON cloki.metric_samples TO migrator;
-GRANT SELECT, INSERT, ALTER DELETE ON cloki.metrics_5m TO migrator;
-GRANT SELECT, INSERT, ALTER DELETE ON cloki.metrics_1h TO migrator;
+GRANT SELECT, INSERT, ALTER DELETE, ALTER UPDATE(_row_exists) ON cloki.metrics_5m TO migrator;
+GRANT SELECT, INSERT, ALTER DELETE, ALTER UPDATE(_row_exists) ON cloki.metrics_1h TO migrator;
 GRANT INSERT ON cloki.metric_series TO migrator;
 GRANT INSERT ON cloki.metric_metadata TO migrator;
 GRANT SELECT, INSERT ON cloki.settings TO migrator;
+GRANT SELECT(metric, value) ON system.asynchronous_metrics TO migrator;
+GRANT SELECT(metric, value) ON system.metrics TO migrator;
+GRANT SELECT(name, value) ON system.merge_tree_settings TO migrator;
+GRANT SELECT(name, value) ON system.server_settings TO migrator;
+GRANT SELECT(database, table) ON system.merges TO migrator;
+GRANT SELECT(database, table, is_done, latest_fail_reason, mutation_id, create_time) ON system.mutations TO migrator;
+GRANT SELECT(database, table, active, partition_id) ON system.parts TO migrator;
+GRANT SELECT(query_id, user, query) ON system.processes TO migrator;
 ```
 
-with `cloki` replaced by the database migrated. The run also reads `system.settings`, `system.server_settings`, `system.merge_tree_settings`, `system.parts`, `system.merges`, `system.mutations`, `system.metrics`, `system.asynchronous_metrics` and `system.processes`, and kills only its own queries.
+with `cloki` replaced by the database migrated. `system.settings` and `system.tables` need no grant. The run kills only its own queries.
+
+The run turns off insert deduplication for its own statements; live writers' tables and settings are unchanged. A profile constraint that pins `insert_deduplicate` fails the run (exit 1) at its first statement, the settings check.
+
+Without further grants the back-off signals see only the migrator's granted tables: merges and mutations on other tables do not hold the run, and a parts back-off whose busiest partition lies in another table logs `table not visible to this user`. `GRANT SHOW TABLES ON *.* TO migrator`, run by the operator, widens them to every table. It is optional, and it exposes table names, part and merge metadata and mutation commands, but no table data.
 
 #### Units, recovery and state
 
 A run holds a lease in the `settings` table while it works, renewing it every minute; the lease expires 3 minutes after its last renewal. It copies in units of one hour, `(H, H+1h]`, newest first:
 
-- The first run records a floor, the hour of now − `SAMPLES_DAYS`. It copies every raw hour from the last hour boundary at or before now − `MIGRATE_METRICS_MARGIN` down to the floor, then every hour below the floor that has metric rows in `metrics_15s`, down to that table's lifetime (`METRICS_15S_TTL_DAYS`).
+- The first run records a floor, the hour of now − `SAMPLES_DAYS`. It copies every raw hour from the last hour boundary at or before now − `MIGRATE_METRICS_MARGIN` down to the floor, then every hour below the floor that has metric rows in `metrics_15s`, down to that table's lifetime (`METRICS_15S_TTL_DAYS`). The floor is fixed by the first run: a later `SAMPLES_DAYS` change does not move it. Editing the `floor` record makes the next run rebuild those hours' tiers from `metrics_15s`, replacing exact tier data with approximate data, so leave it as recorded.
 - A later run copies every hour not yet done, and again every hour ending after its previous top − `MIGRATE_METRICS_LOOKBACK`.
 
-A unit is marked started, counts its raw rows, copies the legacy rows into `metric_samples`, and counts again; the difference is the rows it reports. An hour whose count did not change is marked done there. Otherwise the unit deletes that hour's buckets from `metrics_5m` and `metrics_1h` and rebuilds them from `metric_samples`, then is marked done. After the last unit the run copies the series index and metadata, then records its top. The series copy takes everything on the first run, then only `time_series` rows dated from the previous top − `MIGRATE_METRICS_LOOKBACK`; a run that fails before recording its top leaves the previous one in place.
+A unit is marked started, counts its raw rows, copies the legacy rows into `metric_samples`, and counts again; the difference is the rows it reports. An hour whose count did not change is marked done there, unless a failed run left it started. Otherwise the unit deletes that hour's buckets from `metrics_5m` and `metrics_1h` and rebuilds them from `metric_samples`, then checks them: each tier must count at least the hour's non-stale raw samples. A unit whose tiers pass is marked done. A unit below the floor counts its `metrics_15s` rows; with none it is marked done, otherwise it deletes and rebuilds that hour's tier buckets from `metrics_15s`, never writing `metric_samples`, and checks them against the non-stale 15s samples the same way. A tier short of its samples fails the run (exit 1) with `<tier> holds <n> samples, <source> holds <n>; the hour stays started and the next run rebuilds it`, where the source is `raw` or `metrics_15s`. The same hour failing its check twice in a row is structural: report it rather than re-run. After the last unit the run copies the series index and metadata, then records its top. The series copy takes everything on the first run, then only `time_series` rows dated from the previous top − `MIGRATE_METRICS_LOOKBACK`; a run that fails before recording its top leaves the previous one in place.
 
-A unit left started by a failed or stopped run is redone in full by the next one, which reports it among the recovered units. A copy or rebuild that hits a memory, time or spill limit is retried with the unit split into twice as many parts, up to `MIGRATE_METRICS_MAX_SPLIT`. A unit that still hits a limit there fails the run (exit 1) and logs `metric migration: <unit> hit <setting> (code <code>) at the maximum split <n>; giving up`.
+A unit left started by a failed or stopped run is redone in full by the next one, which reports it among the recovered units. A copy or rebuild that hits a memory (code 241), time (159) or spill (396) limit is retried with the unit split into twice as many parts, up to `MIGRATE_METRICS_MAX_SPLIT`. A unit that still hits a limit there fails the run (exit 1) and logs `metric migration: <unit> hit <setting> (code <code>) at the maximum split <n>; giving up`.
 
-The run logs each unit as `metric migration: <i>/<n> <kind> (<from>, <to>]: <rows> rows in <duration>`, each retry as `metric migration: <unit> hit <setting> (code <code>); retrying split <n>`, each back-off as `metric migration: back-off on <signal>: <value> at threshold <threshold>, table <table>` and `metric migration: back-off resumed after <duration>`, and a statement still running every minute as `metric migration: <query id> <op> <table> running <duration>: <n> rows read`, where the duration is the time since the unit started.
+The run logs each unit as `metric migration: <i>/<n> <kind> (<from>, <to>]: <rows> rows in <duration>`, each retry as `metric migration: <unit> hit <setting> (code <code>); retrying split <n>`, each back-off as described under [Migrator settings](#migrator-settings) and its end as `metric migration: back-off resumed after <duration>`, and a statement still running every minute as `metric migration: <query id> <op> <table> running <duration>: <n> rows read`, where the duration is the time since the unit started.
 
 The run's state is kept in the `settings` table under `type = 'metric_migrate'`: `floor` and `watermark` (the previous top) in Unix milliseconds, `series` once the first series copy is done, `lease` as `<instance>:<unix seconds>`, and one record per unit, `raw:<end>` or `15s:<end>` in Unix milliseconds, valued `started` or `done`. To inspect it:
 
@@ -198,6 +210,9 @@ FROM settings WHERE type = 'metric_migrate' GROUP BY fingerprint ORDER BY name
 - A sample that lands in a unit's range between its two raw counts is reported as migrated.
 - History in `metrics_15s` beyond `SAMPLES_DAYS` is approximate: each 15-second row becomes one sample at its start, carrying its last value, aggregated into the tiers. That is exact at a 15-second scrape interval; a faster scrape undercounts samples and sums.
 - A series with no `time_series` labels left has its 15s history in the tiers but cannot be queried.
+- With `METRICS_RAW_DAYS` above `SAMPLES_DAYS`, a non-aligned read inside the raw lifetime over a 15s hour finds nothing until the floor ages past the raw lifetime. Aligned reads use the 5m tier and see the history.
+- The tier check misses a late live sample lost in the two race windows above.
+- On a merged day partition a raw unit reads the whole partition per statement; `FINAL PREWHERE` halves it and the range split divides it.
 
 ## Mode
 
