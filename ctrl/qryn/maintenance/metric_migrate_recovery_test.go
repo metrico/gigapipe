@@ -46,6 +46,8 @@ func TestAStartedUnitRebuildsWithAZeroDifferenceAndCountsAsRecovered(t *testing.
 		"rebuild metrics_5m",
 		"count metrics_1h",
 		"rebuild metrics_1h",
+		"check metrics_5m",
+		"check metrics_1h",
 		"record " + name + "=done",
 	})
 	if report.Recovered != 1 || report.RawSamples != 0 || report.NoNewData() {
@@ -290,6 +292,8 @@ func TestAStarted15sUnitRedoesItsCountDeleteAndRebuild(t *testing.T) {
 		"count metrics_1h",
 		"delete metrics_1h",
 		"rebuild metrics_1h",
+		"check metrics_5m",
+		"check metrics_1h",
 		"record " + name + "=done",
 	})
 	if report.Recovered != 1 || report.Rollup15sSamples != 240 {

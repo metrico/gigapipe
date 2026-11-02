@@ -15,6 +15,7 @@ const (
 	opExists    = "exists"
 	op15sHours  = "15s_hours"
 	opCount     = "count"
+	opCheck     = "check"
 	opCopy      = "copy"
 	opDelete    = "delete"
 	opRebuild   = "rebuild"
@@ -34,6 +35,9 @@ const (
 	msNs             = int64(time.Millisecond)
 )
 
+// nonStale holds for a sample whose value is not the stale marker.
+const nonStale = "reinterpretAsUInt64(value) != 0x7ff0000000000002"
+
 const tierColumns = "fingerprint, bucket, first, last, count, sum, var, min, max, resets, reset_drop, changes, stale_at"
 
 // msBounds selects the timestamps in (from, to].
@@ -42,9 +46,9 @@ func msBounds(column string, from, to time.Time) string {
 		column, from.UnixMilli(), column, to.UnixMilli())
 }
 
-// countRawSQL counts the raw samples of the unit's hour.
+// countRawSQL counts the raw samples of the unit's hour, then its non-stale ones.
 func countRawSQL(u migrationUnit) string {
-	return fmt.Sprintf("SELECT count() FROM %s FINAL PREWHERE %s", rawSamples, msBounds("timestamp", u.from, u.to))
+	return fmt.Sprintf("SELECT count(), countIf(%s) FROM %s FINAL PREWHERE %s", nonStale, rawSamples, msBounds("timestamp", u.from, u.to))
 }
 
 // splitWhere selects the series of part of a split into parts, or every series when parts ≤ 1.
@@ -86,9 +90,9 @@ func source15sSQL(u migrationUnit, floor time.Time, parts, part int) string {
 		splitWhere(parts, part))
 }
 
-// count15sSQL counts the 15s unit's source samples.
+// count15sSQL counts the 15s unit's source samples, then its non-stale ones.
 func count15sSQL(u migrationUnit, floor time.Time) string {
-	return fmt.Sprintf("SELECT count() FROM (%s)", source15sSQL(u, floor, 1, 0))
+	return fmt.Sprintf("SELECT count(), countIf(%s) FROM (%s)", nonStale, source15sSQL(u, floor, 1, 0))
 }
 
 // rollup15sHoursSQL lists, newest first, the hours (H − 1h, H] holding metrics_15s metric rows
@@ -105,6 +109,11 @@ func rollup15sHoursSQL(lifetime, floor time.Time) string {
 // countTierSQL counts the tier's buckets of the unit's hour.
 func countTierSQL(tier metricTier, u migrationUnit) string {
 	return fmt.Sprintf("SELECT count() FROM %s WHERE %s", tier.Table, msBounds("bucket", u.from, u.to))
+}
+
+// checkTierSQL sums the samples counted in the tier's buckets of the unit's hour.
+func checkTierSQL(tier metricTier, u migrationUnit) string {
+	return fmt.Sprintf("SELECT sum(count) FROM %s WHERE %s", tier.Table, msBounds("bucket", u.from, u.to))
 }
 
 // deleteTierSQL deletes the tier's buckets of the unit's hour.
@@ -128,7 +137,7 @@ func tierRebuildSQL(tier metricTier, from string) string {
 	input := "(SELECT fingerprint, timestamp, value, " +
 		"prev.1 AS prev_timestamp, prev.2 AS prev_value, 1 AS aggregate " +
 		"FROM (SELECT fingerprint, timestamp, value, " +
-		"argMaxIf((timestamp, value), timestamp, reinterpretAsUInt64(value) != 0x7ff0000000000002) " +
+		"argMaxIf((timestamp, value), timestamp, " + nonStale + ") " +
 		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev " +
 		"FROM " + from + "))"
 	return fmt.Sprintf("INSERT INTO %s (%s) %s", tier.Table, tierColumns, tierAggregation(tier, input))

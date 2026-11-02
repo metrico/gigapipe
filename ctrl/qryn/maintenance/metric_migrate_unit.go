@@ -57,7 +57,7 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 		rows, err := m.unit(ctx, u)
 		if err != nil {
 			m.kill(ctx, unitQueryID(m.opts.Database, u), unitLabel(u))
-			return report, m.failed(unitLabel(u), err)
+			return report, m.failed(fmt.Sprintf("unit %d/%d %s", i+1, len(plan.units), unitLabel(u)), err)
 		}
 		report.Units++
 		if u.kind == unit15s {
@@ -180,11 +180,11 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	return rows, nil
 }
 
-// rawUnit copies the unit's samples into raw and rebuilds each tier's buckets of the hour from
-// raw. It returns the raw samples the copy added; when it added none and u is not a recovery
-// unit, the rebuild is skipped.
+// rawUnit copies the unit's samples into raw, rebuilds each tier's buckets of the hour from raw
+// and checks them. It returns the raw samples the copy added; when it added none and u is not a
+// recovery unit, the rebuild and check are skipped.
 func (m *migration) rawUnit(ctx context.Context, u migrationUnit) (uint64, error) {
-	before, err := m.countRaw(ctx, u)
+	before, _, err := m.countRaw(ctx, u)
 	if err != nil {
 		return 0, err
 	}
@@ -192,7 +192,7 @@ func (m *migration) rawUnit(ctx context.Context, u migrationUnit) (uint64, error
 	if err = m.copy(ctx, u, &split); err != nil {
 		return 0, err
 	}
-	after, err := m.countRaw(ctx, u)
+	after, expected, err := m.countRaw(ctx, u)
 	if err != nil {
 		return 0, err
 	}
@@ -204,22 +204,28 @@ func (m *migration) rawUnit(ctx context.Context, u migrationUnit) (uint64, error
 		if err = m.tiers(ctx, u, &split); err != nil {
 			return 0, err
 		}
+		if err = m.check(ctx, u, "raw", expected); err != nil {
+			return 0, err
+		}
 	}
 	return rows, nil
 }
 
-// unit15s rebuilds each tier's buckets of the hour from the unit's metrics_15s source samples,
-// skipping the rebuild when there are none. It returns the source samples.
+// unit15s rebuilds each tier's buckets of the hour from the unit's metrics_15s source samples
+// and checks them, skipping both when there are none. It returns the source samples.
 func (m *migration) unit15s(ctx context.Context, u migrationUnit) (uint64, error) {
-	var rows uint64
-	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, legacyRollup, count15sSQL(u, m.floor)), &rows); err != nil {
+	var rows, expected uint64
+	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, legacyRollup, count15sSQL(u, m.floor)), &rows, &expected); err != nil {
 		return 0, err
 	}
 	if rows == 0 {
 		return 0, nil
 	}
 	split := m.opts.Split
-	return rows, m.tiers(ctx, u, &split)
+	if err := m.tiers(ctx, u, &split); err != nil {
+		return 0, err
+	}
+	return rows, m.check(ctx, u, legacyRollup, expected)
 }
 
 // tiers rebuilds each tier's buckets of the unit's hour, carrying the split from tier to tier.
@@ -232,10 +238,26 @@ func (m *migration) tiers(ctx context.Context, u migrationUnit, split *int) erro
 	return nil
 }
 
-func (m *migration) countRaw(ctx context.Context, u migrationUnit) (uint64, error) {
-	var n uint64
-	err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, rawSamples, countRawSQL(u)), &n)
-	return n, err
+// check fails unless each tier counts at least expected samples in the unit's hour, the
+// non-stale samples of source.
+func (m *migration) check(ctx context.Context, u migrationUnit, source string, expected uint64) error {
+	for _, tier := range metricTiers {
+		var sum uint64
+		if err := m.exec.Scalar(ctx, m.unitStatement(u, opCheck, tier.Table, checkTierSQL(tier, u)), &sum); err != nil {
+			return err
+		}
+		if sum < expected {
+			return fmt.Errorf("%s holds %d samples, %s holds %d; the hour stays started and the next run rebuilds it",
+				tier.Table, sum, source, expected)
+		}
+	}
+	return nil
+}
+
+// countRaw counts the raw samples of the unit's hour, then its non-stale ones.
+func (m *migration) countRaw(ctx context.Context, u migrationUnit) (n, live uint64, err error) {
+	err = m.exec.Scalar(ctx, m.unitStatement(u, opCount, rawSamples, countRawSQL(u)), &n, &live)
+	return n, live, err
 }
 
 // series copies every series, joined with metrics_15s when it exists, and records it done;

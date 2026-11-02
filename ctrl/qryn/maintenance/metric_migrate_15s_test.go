@@ -161,6 +161,8 @@ func TestA15sUnitCountsItsSourceThenRebuildsEachTier(t *testing.T) {
 		"count metrics_1h",
 		"delete metrics_1h",
 		"rebuild metrics_1h",
+		"check metrics_5m",
+		"check metrics_1h",
 		"record " + rec + "=done",
 	})
 	for _, s := range f.statements() {
@@ -299,7 +301,7 @@ func TestThe15sRebuildTakesEachRowBelowTheFloorAsOneSampleAtItsStart(t *testing.
 func TestThe15sCountReadsTheWholeHoursSource(t *testing.T) {
 	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
 	floor := at("2026-10-02 07:00")
-	want := fmt.Sprintf("SELECT count() FROM (SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, "+
+	want := fmt.Sprintf("SELECT count(), countIf(reinterpretAsUInt64(value) != 0x7ff0000000000002) FROM (SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, "+
 		"argMaxMerge(last) AS value FROM metrics_15s WHERE type IN (2, 0) AND timestamp_ns > %d AND timestamp_ns <= %d AND timestamp_ns < %d "+
 		"GROUP BY fingerprint, timestamp_ns)", u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano())
 	if sql := count15sSQL(u, floor); sql != want {
@@ -365,6 +367,8 @@ func TestA15sRebuildOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 		"delete metrics_1h",
 		"rebuild metrics_1h 0/2",
 		"rebuild metrics_1h 1/2",
+		"check metrics_5m",
+		"check metrics_1h",
 	})
 	if f.value(rollupRecord("2026-10-02 06:00")) != unitDone {
 		t.Error("15s unit not recorded done")

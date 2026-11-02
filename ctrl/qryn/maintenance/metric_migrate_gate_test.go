@@ -286,7 +286,7 @@ func TestACancelDuringABackOffStopsTheRunWithTheUnitStarted(t *testing.T) {
 	if !errors.As(err, &failed) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want a failed run cancelled", err)
 	}
-	if !strings.HasPrefix(failed.Step, "raw (") {
+	if !strings.HasPrefix(failed.Step, "unit 1/1 raw (") {
 		t.Errorf("step = %q, want the unit", failed.Step)
 	}
 	if got := r.f.value(u); got != unitStarted {
@@ -599,7 +599,7 @@ func TestEveryUnitStepSplitPartAndRunStatementPassesTheGateAndLogsItsHeartbeat(t
 		}
 		prev = s.Op
 	}
-	for _, op := range []string{opSetting, opExists, op15sHours, opCount, opCopy, "rebuild part", opDelete, opRebuild, opSeries, opMetadata} {
+	for _, op := range []string{opSetting, opExists, op15sHours, opCount, opCopy, "rebuild part", opDelete, opRebuild, opCheck, opSeries, opMetadata} {
 		if !seen[op] {
 			t.Errorf("no gated %s", op)
 		}

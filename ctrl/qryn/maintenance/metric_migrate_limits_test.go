@@ -186,6 +186,8 @@ func TestACopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 		"delete metrics_1h",
 		"rebuild metrics_1h 0/2",
 		"rebuild metrics_1h 1/2",
+		"check metrics_5m",
+		"check metrics_1h",
 	})
 	if f.value(rawRecord("2026-10-02 09:00")) != unitDone {
 		t.Error("unit not done")
@@ -219,6 +221,8 @@ func TestARebuildOverTheTimeLimitDeletesAgainBeforeItsParts(t *testing.T) {
 		"delete metrics_1h",
 		"rebuild metrics_1h 0/2",
 		"rebuild metrics_1h 1/2",
+		"check metrics_5m",
+		"check metrics_1h",
 	})
 }
 
@@ -247,6 +251,8 @@ func TestARebuildRetryDeletesTheHourEvenWhenTheTierHeldNone(t *testing.T) {
 		"count metrics_1h",
 		"rebuild metrics_1h 0/2",
 		"rebuild metrics_1h 1/2",
+		"check metrics_5m",
+		"check metrics_1h",
 	})
 }
 

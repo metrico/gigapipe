@@ -67,6 +67,8 @@ func TestAUnitCopiesThenRebuildsEachTierBetweenItsRecords(t *testing.T) {
 		"count metrics_1h",
 		"delete metrics_1h",
 		"rebuild metrics_1h",
+		"check metrics_5m",
+		"check metrics_1h",
 		"record " + name + "=done",
 	})
 }
@@ -262,7 +264,7 @@ func TestALeaseTakenBetweenUnitsFailsTheRunBeforeTheNext(t *testing.T) {
 	if !errors.As(err, &failed) || !errors.Is(err, errLeaseLost) {
 		t.Fatalf("err = %v", err)
 	}
-	if failed.Step != "raw (2026-10-02T07:00:00Z, 2026-10-02T08:00:00Z]" {
+	if failed.Step != "unit 2/2 raw (2026-10-02T07:00:00Z, 2026-10-02T08:00:00Z]" {
 		t.Errorf("step = %q", failed.Step)
 	}
 	if got := unitSteps(f, "2026-10-02 08:00"); len(got) != 0 {
@@ -337,7 +339,7 @@ func TestAFailingStatementFailsTheRunAtItsUnitLeavingItStarted(t *testing.T) {
 	if !errors.As(err, &failed) || !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)
 	}
-	if failed.Step != "raw (2026-10-02T07:00:00Z, 2026-10-02T08:00:00Z]" || failed.Database != "cloki" {
+	if failed.Step != "unit 2/2 raw (2026-10-02T07:00:00Z, 2026-10-02T08:00:00Z]" || failed.Database != "cloki" {
 		t.Errorf("failed = %+v", failed)
 	}
 	if f.value(rawRecord("2026-10-02 09:00")) != unitDone || f.value(rawRecord("2026-10-02 08:00")) != unitStarted {
