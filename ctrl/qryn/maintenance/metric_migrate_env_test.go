@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
 )
 
@@ -31,18 +30,17 @@ func TestEnvUnsetGivesTheSpecDefaults(t *testing.T) {
 		{"LOOKBACK", got.Lookback, time.Hour},
 		{"MARGIN", got.Margin, 5 * time.Minute},
 		{"SPLIT", got.Split, 1},
-		{"MAX_SPLIT", got.MaxSplit, 64},
+		{"MAX_SPLIT", got.MaxSplit, 16},
 		{"MAX_THREADS", got.MaxThreads, 2},
 		{"MAX_MEMORY", got.MaxMemory, uint64(2 << 30)},
-		{"MAX_EXECUTION_TIME", got.MaxExecutionTime, 30 * time.Minute},
+		{"MAX_EXECUTION_TIME", got.MaxExecutionTime, 5 * time.Minute},
 		{"EXTERNAL_SORT", got.ExternalSort, uint64(512 << 20)},
 		{"EXTERNAL_GROUP_BY", got.ExternalGroupBy, uint64(512 << 20)},
 		{"MAX_SPILL", got.MaxSpill, uint64(20 << 30)},
 		{"PAUSE", got.Pause, time.Second},
 		{"BACKOFF_PARTS", got.BackoffParts, 0.5},
-		{"BACKOFF_MERGES", got.BackoffMerges, 16},
+		{"BACKOFF_MERGES", got.BackoffMerges, 8},
 		{"BACKOFF_MEMORY", got.BackoffMemory, 0.8},
-		{"DSN", got.DSN == nil, true},
 	}
 	for _, w := range want {
 		if w.got != w.want {
@@ -67,7 +65,6 @@ func TestEnvReadsEveryVariableWithUnits(t *testing.T) {
 		"MIGRATE_METRICS_BACKOFF_PARTS":      "0.25",
 		"MIGRATE_METRICS_BACKOFF_MERGES":     "4",
 		"MIGRATE_METRICS_BACKOFF_MEMORY":     "1",
-		"MIGRATE_METRICS_DSN":                "clickhouse://mig:secret@ch:9000",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +73,7 @@ func TestEnvReadsEveryVariableWithUnits(t *testing.T) {
 		Lookback: 2 * time.Hour, Margin: 10 * time.Minute, Split: 4, MaxSplit: 32, MaxThreads: 8,
 		MaxMemory: 4 << 30, MaxExecutionTime: 90 * time.Minute, ExternalSort: 256_000_000,
 		ExternalGroupBy: 1 << 20, MaxSpill: 1 << 40, Pause: 250 * time.Millisecond,
-		BackoffParts: 0.25, BackoffMerges: 4, BackoffMemory: 1, DSN: mustParseDSN(t, "clickhouse://mig:secret@ch:9000"),
+		BackoffParts: 0.25, BackoffMerges: 4, BackoffMemory: 1,
 	}
 	if !reflect.DeepEqual(opts, want) {
 		t.Fatalf("got %+v\nwant %+v", opts, want)
@@ -119,7 +116,6 @@ func TestEnvRefusesMalformedValuesNamingTheVariable(t *testing.T) {
 		{"MIGRATE_METRICS_BACKOFF_PARTS", "half", "fraction"},
 		{"MIGRATE_METRICS_BACKOFF_MEMORY", "1.2", "fraction"},
 		{"MIGRATE_METRICS_BACKOFF_PARTS", "0", "fraction"},
-		{"MIGRATE_METRICS_DSN", "clickhouse://mig:secret@", "ClickHouse DSN"},
 		{"GIGAPIPE_MIGRATE_METRICS_MAX_MEMORY", "2 gigs", "byte size"},
 	}
 	for _, c := range cases {
@@ -141,7 +137,7 @@ func TestEnvRefusesMaxSplitBelowSplit(t *testing.T) {
 		want string
 	}{
 		{map[string]string{"MIGRATE_METRICS_SPLIT": "128"},
-			"MIGRATE_METRICS_MAX_SPLIT=64 (default): expected at least MIGRATE_METRICS_SPLIT=128"},
+			"MIGRATE_METRICS_MAX_SPLIT=16 (default): expected at least MIGRATE_METRICS_SPLIT=128"},
 		{map[string]string{"GIGAPIPE_MIGRATE_METRICS_MAX_SPLIT": "4", "MIGRATE_METRICS_SPLIT": "8"},
 			"GIGAPIPE_MIGRATE_METRICS_MAX_SPLIT=4: expected at least MIGRATE_METRICS_SPLIT=8"},
 	}
@@ -150,43 +146,6 @@ func TestEnvRefusesMaxSplitBelowSplit(t *testing.T) {
 		var refused *MigrationRefusedError
 		if !errors.As(err, &refused) || refused.Reason != c.want {
 			t.Errorf("%v: err %v, want %q", c.vars, err, c.want)
-		}
-	}
-}
-
-func TestEnvRefusalNeverEchoesTheDSN(t *testing.T) {
-	for _, dsn := range []string{"clickhouse://mig:s3cr3t@ch:notaport/db", "clickhouse://mig:s3cr3t%zz@ch:9000/db", "clickhouse://mig:s3cr3t@ch:9000/db?read_timeout=soon"} {
-		_, err := MetricMigrationOptionsFromEnv(envLookup(map[string]string{"MIGRATE_METRICS_DSN": dsn}))
-		if err == nil {
-			t.Errorf("%s: accepted", dsn)
-			continue
-		}
-		if strings.Contains(err.Error(), "s3cr3t") {
-			t.Errorf("reason echoes the password: %v", err)
-		}
-	}
-}
-
-func TestEnvRefusalNeverEchoesAnyPartOfTheUserInfo(t *testing.T) {
-	const userinfo = "uZk:Pq7%zzWx"
-	for _, dsn := range []string{
-		"clickhouse://" + userinfo + "@ch:9000/db",
-		"clickhouse://uZk:Pq7/zzWx@ch:9000/db",
-		"clickhouse://uZk:Pq7zzWx@ch:9000/db?read_timeout=Pq7zzWx",
-		"clickhouse://uZk:Pq7zzWx@[ch:9000/db",
-		"clickhouse://mig:pw@ch:9000?http_proxy=http%3A%2F%2FuZk%3APq7zzWx%40%5Bproxy",
-	} {
-		_, err := MetricMigrationOptionsFromEnv(envLookup(map[string]string{"MIGRATE_METRICS_DSN": dsn}))
-		if err == nil {
-			t.Errorf("%s: accepted", dsn)
-			continue
-		}
-		for _, secret := range []string{userinfo, "uZk:Pq7/zzWx", "uZk:Pq7zzWx"} {
-			for i := 0; i+3 <= len(secret); i++ {
-				if frag := secret[i : i+3]; strings.Contains(err.Error(), frag) {
-					t.Errorf("%s: reason %q echoes %q", dsn, err, frag)
-				}
-			}
 		}
 	}
 }
@@ -200,13 +159,12 @@ func TestPrepareMetricMigrationRefusesABadEnv(t *testing.T) {
 	}
 }
 
-func TestPrepareMetricMigrationRefusesADSNNamingAnotherDatabase(t *testing.T) {
-	t.Setenv("MIGRATE_METRICS_DSN", "clickhouse://mig@127.0.0.1:1/other")
-	_, err := PrepareMetricMigration([]config.ClokiBaseDataBase{{Name: "db", Host: "127.0.0.1", Port: 1}})
-	var refused *MigrationRefusedError
-	if !errors.As(err, &refused) || !strings.Contains(refused.Reason, "MIGRATE_METRICS_DSN") ||
-		!strings.Contains(refused.Reason, "other") {
-		t.Fatalf("err %v", err)
+func TestEnvHasNoMigratorDSN(t *testing.T) {
+	opts, err := MetricMigrationOptionsFromEnv(envLookup(map[string]string{
+		"MIGRATE_METRICS_DSN": "clickhouse://mig:secret@",
+	}))
+	if err != nil || !reflect.DeepEqual(opts, MetricMigrationOptions{}) {
+		t.Fatalf("opts %+v, err %v", opts, err)
 	}
 }
 
@@ -216,42 +174,6 @@ func TestMigratorReadTimeoutCoversTheExecutionLimit(t *testing.T) {
 	}
 	if got := migratorReadTimeout(MetricMigrationOptions{MaxExecutionTime: 2 * time.Hour}); got <= 2*time.Hour {
 		t.Errorf("2h: %s", got)
-	}
-}
-
-func mustParseDSN(t *testing.T, dsn string) *clickhouse.Options {
-	t.Helper()
-	opt, err := clickhouse.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return opt
-}
-
-func TestMigratorDSNConnectsToTheMigratedDatabase(t *testing.T) {
-	opt := migratorDSNOptions(mustParseDSN(t, "clickhouse://mig:pw@ch:9000"), "db", time.Hour)
-	if opt.Auth.Database != "db" || opt.Auth.Username != "mig" || opt.ReadTimeout != time.Hour {
-		t.Fatalf("%+v", opt)
-	}
-	opt = migratorDSNOptions(mustParseDSN(t, "clickhouse://mig@ch:9000/db?read_timeout=3h"), "db", time.Hour)
-	if opt.ReadTimeout != 3*time.Hour {
-		t.Fatalf("read_timeout from the DSN overridden: %s", opt.ReadTimeout)
-	}
-}
-
-func TestMigratorDSNRunsWithTheMaintenanceSessionSettings(t *testing.T) {
-	dsn := mustParseDSN(t, "clickhouse://mig@ch:9000?max_threads=2")
-	opt := migratorDSNOptions(dsn, "db", time.Hour)
-	want := clickhouse.Settings{"allow_experimental_database_replicated": "1", "materialize_ttl_after_modify": "0", "max_threads": 2}
-	if !reflect.DeepEqual(opt.Settings, want) {
-		t.Fatalf("settings %v, want %v", opt.Settings, want)
-	}
-	if len(dsn.Settings) != 1 {
-		t.Fatalf("parsed DSN settings modified: %v", dsn.Settings)
-	}
-	opt = migratorDSNOptions(mustParseDSN(t, "clickhouse://mig@ch:9000?materialize_ttl_after_modify=1"), "db", time.Hour)
-	if opt.Settings["materialize_ttl_after_modify"] != 1 {
-		t.Fatalf("DSN setting overridden: %v", opt.Settings)
 	}
 }
 

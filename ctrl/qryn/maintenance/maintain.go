@@ -171,9 +171,6 @@ func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, 
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMigratorDSN(opts.DSN, base); err != nil {
-		return nil, err
-	}
 	m := &MetricMigration{base: base, opts: opts}
 	for _, dbObject := range base {
 		if dbObject.ClusterName != "" {

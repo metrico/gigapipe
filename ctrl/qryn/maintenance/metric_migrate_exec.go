@@ -9,7 +9,7 @@ import (
 
 // Statement is one migrator statement. Op and Table identify its step; QueryID and Settings
 // travel with the query, and Progress receives the rows read and written so far. Part of Parts
-// names a fingerprint-hash split part; Parts ≤ 1 is the whole step.
+// names a fingerprint-range split part; Parts ≤ 1 is the whole step.
 type Statement struct {
 	Op       string
 	Table    string

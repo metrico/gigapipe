@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -36,7 +35,6 @@ func MetricMigrationOptionsFromEnv(lookup func(string) (string, bool)) (MetricMi
 	r.fraction("BACKOFF_PARTS", &o.BackoffParts)
 	r.integer("BACKOFF_MERGES", &o.BackoffMerges)
 	r.fraction("BACKOFF_MEMORY", &o.BackoffMemory)
-	r.dsn("DSN", &o.DSN)
 	if r.err != nil {
 		return MetricMigrationOptions{}, r.err
 	}
@@ -131,20 +129,6 @@ func (r *envReader) fraction(name string, dst *float64) {
 	*dst = f
 }
 
-func (r *envReader) dsn(name string, dst **clickhouse.Options) {
-	v, n, ok := r.value(name)
-	if !ok {
-		return
-	}
-	// Any parse failure gets the one fixed reason; no parse error text is passed through.
-	opt, err := clickhouse.ParseDSN(v)
-	if err != nil {
-		r.err = &MigrationRefusedError{Reason: n + "=<redacted>: expected a ClickHouse DSN such as clickhouse://user:password@host:9000"}
-		return
-	}
-	*dst = opt
-}
-
 var byteUnits = []struct {
 	suffix string
 	size   uint64
@@ -178,38 +162,7 @@ func migratorReadTimeout(o MetricMigrationOptions) time.Duration {
 	return max(time.Hour, o.withDefaults().MaxExecutionTime+5*time.Minute)
 }
 
-// checkMigratorDSN refuses a DSN that names a database other than the one migrated.
-func checkMigratorDSN(dsn *clickhouse.Options, base []config.ClokiBaseDataBase) error {
-	if dsn == nil || dsn.Auth.Database == "" {
-		return nil
-	}
-	for _, db := range base {
-		if dsn.Auth.Database != db.Name {
-			return &MigrationRefusedError{Reason: fmt.Sprintf(
-				"%sDSN names database %s; expected none or %s, the database migrated", migrateMetricsEnv, dsn.Auth.Database, db.Name)}
-		}
-	}
-	return nil
-}
-
-// migratorDSNOptions are a copy of dsn on database, with readTimeout unless the DSN sets
-// read_timeout, and the maintenance session settings the DSN does not set.
-func migratorDSNOptions(dsn *clickhouse.Options, database string, readTimeout time.Duration) *clickhouse.Options {
-	opt := *dsn
-	opt.Auth.Database = database
-	opt.Settings = maintenance.SessionSettings()
-	maps.Copy(opt.Settings, dsn.Settings)
-	if opt.ReadTimeout == 0 {
-		opt.ReadTimeout = readTimeout
-	}
-	return &opt
-}
-
-// openMigratorConn connects with the migrator's DSN, else with the instance's settings.
+// openMigratorConn connects with the instance's settings and the migrator's read timeout.
 func openMigratorConn(dbObject *config.ClokiBaseDataBase, o MetricMigrationOptions) (clickhouse.Conn, error) {
-	timeout := migratorReadTimeout(o)
-	if o.DSN == nil {
-		return maintenance.ConnectV2ReadTimeout(dbObject, true, timeout)
-	}
-	return clickhouse.Open(migratorDSNOptions(o.DSN, dbObject.Name, timeout))
+	return maintenance.ConnectV2ReadTimeout(dbObject, true, migratorReadTimeout(o))
 }

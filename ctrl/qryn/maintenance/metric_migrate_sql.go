@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"fmt"
+	"math/bits"
 	"strings"
 	"time"
 )
@@ -43,15 +44,26 @@ func msBounds(column string, from, to time.Time) string {
 
 // countRawSQL counts the raw samples of the unit's hour.
 func countRawSQL(u migrationUnit) string {
-	return fmt.Sprintf("SELECT count() FROM %s FINAL WHERE %s", rawSamples, msBounds("timestamp", u.from, u.to))
+	return fmt.Sprintf("SELECT count() FROM %s FINAL PREWHERE %s", rawSamples, msBounds("timestamp", u.from, u.to))
 }
 
 // splitWhere selects the series of part of a split into parts, or every series when parts ≤ 1.
+// Part p holds the fingerprints in [⌊p·2⁶⁴/parts⌋, ⌊(p+1)·2⁶⁴/parts⌋); the last part is open-ended.
 func splitWhere(parts, part int) string {
 	if parts <= 1 {
 		return ""
 	}
-	return fmt.Sprintf(" AND cityHash64(fingerprint) %% %d = %d", parts, part)
+	where := fmt.Sprintf(" AND fingerprint >= %d", splitBound(parts, part))
+	if part < parts-1 {
+		where += fmt.Sprintf(" AND fingerprint < %d", splitBound(parts, part+1))
+	}
+	return where
+}
+
+// splitBound is ⌊k·2⁶⁴/parts⌋ for 0 ≤ k < parts.
+func splitBound(parts, k int) uint64 {
+	q, _ := bits.Div64(uint64(k), 0, uint64(parts))
+	return q
 }
 
 // copyRawSQL copies the samples_v3 metric rows of split part whose ms lies in the unit's hour
@@ -113,7 +125,7 @@ func rebuildTierSQL(tier metricTier, u migrationUnit, parts, part int) string {
 		"FROM (SELECT fingerprint, timestamp, value, "+
 		"argMaxIf((timestamp, value), timestamp, reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
 		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev "+
-		"FROM %s FINAL WHERE %s%s))", rawSamples, msBounds("timestamp", u.from, u.to), splitWhere(parts, part))
+		"FROM %s FINAL PREWHERE %s%s))", rawSamples, msBounds("timestamp", u.from, u.to), splitWhere(parts, part))
 	return fmt.Sprintf("INSERT INTO %s (%s) %s", tier.Table, tierColumns, tierAggregation(tier, input))
 }
 

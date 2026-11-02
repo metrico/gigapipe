@@ -58,7 +58,7 @@ func wholeSeconds(d time.Duration) int {
 var limitSettingOf = map[int32]string{
 	241: "max_memory_usage",
 	159: "max_execution_time",
-	307: "max_temporary_data_on_disk_size_for_query",
+	396: "max_temporary_data_on_disk_size_for_query",
 }
 
 // limitError reports the code and setting of a ClickHouse limit error.

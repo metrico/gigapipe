@@ -124,7 +124,7 @@ followed by `metric migration: no new data to migrate` when it copied no raw or 
 | `2` | `metric migration refused: <reason>` | Nothing was written, and the schema step did not run. Fix the variable or setting the reason names and re-run. |
 | `3` | `metric migration lease held by <instance>, renewed <time>, taken over in <duration>` | Another run holds the lease. Wait for it to finish, or for the lease to expire after the `taken over in` time if that run died, and re-run. |
 
-Refusals (exit 2) name the variable and what it expects, for example `MIGRATE_METRICS_PAUSE="soon": expected a positive duration such as 30s, 5m or 1h`. A run is also refused for a `MIGRATE_METRICS_MAX_SPLIT` below `MIGRATE_METRICS_SPLIT`, a `MIGRATE_METRICS_DSN` naming another database than the one migrated, a `METRICS_15S_TTL_DAYS` that is not a positive number of days, or a database with `CLUSTER_NAME` set.
+Refusals (exit 2) name the variable and what it expects, for example `MIGRATE_METRICS_PAUSE="soon": expected a positive duration such as 30s, 5m or 1h`. A run is also refused for a `MIGRATE_METRICS_MAX_SPLIT` below `MIGRATE_METRICS_SPLIT`, a `METRICS_15S_TTL_DAYS` that is not a positive number of days, or a database with `CLUSTER_NAME` set.
 
 `OMIT_CREATE_TABLES` skips the schema step in this mode as in the others.
 
@@ -136,25 +136,24 @@ Every variable is also accepted with the `GIGAPIPE_` prefix, which wins when bot
 |---|---|---|
 | `MIGRATE_METRICS_LOOKBACK` | `1h` | How far below the previous run's top a re-run copies again |
 | `MIGRATE_METRICS_MARGIN` | `5m` | Hours ending after now − margin are left to a later run |
-| `MIGRATE_METRICS_SPLIT` | `1` | Parts a unit is first split into, by `cityHash64(fingerprint) % N` |
-| `MIGRATE_METRICS_MAX_SPLIT` | `64` | Largest split a unit is retried at after a memory (241), time (159) or spill (307) limit error; at least `MIGRATE_METRICS_SPLIT` |
+| `MIGRATE_METRICS_SPLIT` | `1` | Parts a unit is first split into: `N` equal-width fingerprint ranges |
+| `MIGRATE_METRICS_MAX_SPLIT` | `16` | Largest split a unit is retried at after a memory (241), time (159) or spill (396) limit error; at least `MIGRATE_METRICS_SPLIT` |
 | `MIGRATE_METRICS_MAX_THREADS` | `2` | `max_threads` of each statement (`max_insert_threads` is `1`) |
 | `MIGRATE_METRICS_MAX_MEMORY` | `2GiB` | `max_memory_usage` of each statement |
-| `MIGRATE_METRICS_MAX_EXECUTION_TIME` | `30m` | `max_execution_time` of each statement |
+| `MIGRATE_METRICS_MAX_EXECUTION_TIME` | `5m` | `max_execution_time` of each statement |
 | `MIGRATE_METRICS_EXTERNAL_SORT` | `512MiB` | `max_bytes_before_external_sort` |
 | `MIGRATE_METRICS_EXTERNAL_GROUP_BY` | `512MiB` | `max_bytes_before_external_group_by` |
 | `MIGRATE_METRICS_MAX_SPILL` | `20GiB` | `max_temporary_data_on_disk_size_for_query` |
 | `MIGRATE_METRICS_PAUSE` | `1s` | Wait between units |
 | `MIGRATE_METRICS_BACKOFF_PARTS` | `0.5` | Back off while the busiest partition of a written table holds at least this fraction of `parts_to_delay_insert` parts |
-| `MIGRATE_METRICS_BACKOFF_MERGES` | `16` | Back off while more merges than this are running |
+| `MIGRATE_METRICS_BACKOFF_MERGES` | `8` | Back off while more merges than this are running |
 | `MIGRATE_METRICS_BACKOFF_MEMORY` | `0.8` | Back off while server memory use is at or above this fraction of its limit |
-| `MIGRATE_METRICS_DSN` | unset | The migrator's own ClickHouse DSN, such as `clickhouse://migrator:password@host:9000`; unset, it uses the instance's connection. It may name no database or the one migrated. |
 
-Before each statement the run waits while any back-off signal is over its threshold, or while a mutation is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>, table <table>, waited <duration>`. The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes, unless the DSN sets `read_timeout`.
+Before each statement the run waits while any back-off signal is over its threshold, or while a mutation is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>, table <table>, waited <duration>`. The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes.
 
 #### A ClickHouse user for the migrator
 
-The schema step uses the instance's connection; `MIGRATE_METRICS_DSN` lets the copy run as its own user under its own quotas. That user needs a settings profile with `readonly = 0`, because every statement carries its limits as query settings, and these grants:
+The run uses the instance's `CLICKHOUSE_*` connection. For the copy, its user needs a settings profile with `readonly = 0`, because every statement carries its limits as query settings, and these grants:
 
 ```sql
 CREATE SETTINGS PROFILE migrator_profile SETTINGS readonly = 0;

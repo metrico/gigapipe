@@ -113,7 +113,7 @@ func TestTheGateWaitsWhileASignalIsOverItsThresholdAndResumesBelowIt(t *testing.
 		threshold   string
 	}{
 		{signal: "parts", over: 150, under: 149, limit: 300, threshold: "150"},
-		{signal: "merges", over: 17, under: 16, threshold: "16"},
+		{signal: "merges", over: 9, under: 8, threshold: "8"},
 		{signal: "mutations", over: 1, under: 0, threshold: "0"},
 		{signal: "delayed", over: 1, under: 0, threshold: "0"},
 		{signal: "memory", over: 8e9, under: 7.9e9, limit: 10e9, threshold: "7.5 GiB"},
@@ -162,8 +162,8 @@ func TestBackOffLinesNameWhatHoldsTheGateOnStartAndEveryMinute(t *testing.T) {
 			"metric migration: back-off on parts: 150 at threshold 150, table cloki.busy, waited 1m0s",
 		}},
 		{signal: "merges", value: 17, lines: []string{
-			"metric migration: back-off on merges: 17 at threshold 16, table cloki.busy",
-			"metric migration: back-off on merges: 17 at threshold 16, table cloki.busy, waited 1m0s",
+			"metric migration: back-off on merges: 17 at threshold 8, table cloki.busy",
+			"metric migration: back-off on merges: 17 at threshold 8, table cloki.busy, waited 1m0s",
 		}},
 		{signal: "mutations", value: 1, lines: []string{
 			"metric migration: back-off on mutations: 1 at threshold 0, table cloki.busy, mutation 0000000042",
@@ -259,10 +259,10 @@ func TestALongBackOffLogsTheCurrentValueEveryMinute(t *testing.T) {
 		t.Fatal(err)
 	}
 	sameStrings(t, "back-off lines", r.log.matching("back-off"), []string{
-		"metric migration: back-off on merges: 17 at threshold 16, table cloki.busy",
-		"metric migration: back-off on merges: 23 at threshold 16, table cloki.busy, waited 1m0s",
-		"metric migration: back-off on merges: 29 at threshold 16, table cloki.busy, waited 2m0s",
-		"metric migration: back-off on merges: 35 at threshold 16, table cloki.busy, waited 3m0s",
+		"metric migration: back-off on merges: 17 at threshold 8, table cloki.busy",
+		"metric migration: back-off on merges: 23 at threshold 8, table cloki.busy, waited 1m0s",
+		"metric migration: back-off on merges: 29 at threshold 8, table cloki.busy, waited 2m0s",
+		"metric migration: back-off on merges: 35 at threshold 8, table cloki.busy, waited 3m0s",
 		"metric migration: back-off resumed after 3m10s",
 	})
 }

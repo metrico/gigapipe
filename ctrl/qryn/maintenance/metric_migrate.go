@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/qryn/v5/ctrl/logger"
 )
 
@@ -24,7 +23,7 @@ type MetricMigrationOptions struct {
 	// hours ending after now − Margin out of the run.
 	Lookback time.Duration
 	Margin   time.Duration
-	// Split is the initial fingerprint-hash split of a unit; MaxSplit is the largest.
+	// Split is the initial fingerprint-range split of a unit; MaxSplit is the largest.
 	Split    int
 	MaxSplit int
 	// Per-statement limits.
@@ -41,8 +40,6 @@ type MetricMigrationOptions struct {
 	BackoffParts  float64
 	BackoffMerges int
 	BackoffMemory float64
-	// DSN holds the connection options parsed from the migrator's DSN; nil connects as the instance.
-	DSN *clickhouse.Options
 	// LeaseTTL is the age at which a lease is taken over; Renew is how often it is refreshed;
 	// Settle is the wait before an acquired lease is read back.
 	LeaseTTL time.Duration
@@ -84,16 +81,16 @@ func (o MetricMigrationOptions) withDefaults() MetricMigrationOptions {
 	def(&o.Lookback, time.Hour)
 	def(&o.Margin, 5*time.Minute)
 	defInt(&o.Split, 1)
-	defInt(&o.MaxSplit, 64)
+	defInt(&o.MaxSplit, 16)
 	defInt(&o.MaxThreads, 2)
 	defBytes(&o.MaxMemory, 2*gib)
-	def(&o.MaxExecutionTime, 30*time.Minute)
+	def(&o.MaxExecutionTime, 5*time.Minute)
 	defBytes(&o.ExternalSort, 512*mib)
 	defBytes(&o.ExternalGroupBy, 512*mib)
 	defBytes(&o.MaxSpill, 20*gib)
 	def(&o.Pause, time.Second)
 	defFrac(&o.BackoffParts, 0.5)
-	defInt(&o.BackoffMerges, 16)
+	defInt(&o.BackoffMerges, 8)
 	defFrac(&o.BackoffMemory, 0.8)
 	def(&o.LeaseTTL, 3*time.Minute)
 	def(&o.Renew, time.Minute)

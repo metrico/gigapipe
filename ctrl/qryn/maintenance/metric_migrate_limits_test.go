@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -282,14 +284,14 @@ func TestALimitAtTheMaximumSplitFailsTheRunLeavingTheUnitStarted(t *testing.T) {
 	opts.MaxSplit = 6
 	f.on = func(_ context.Context, s Statement) (any, error) {
 		if s.Op == opCopy && strings.HasSuffix(s.QueryID, ms(at("2026-10-02 08:00"))) {
-			return nil, limitHit(307)
+			return nil, limitHit(396)
 		}
 		return nil, nil
 	}
 	_, err := migrate(t, f, opts)
 	var failed *MigrationFailedError
 	var ex *clickhouse.Exception
-	if !errors.As(err, &failed) || !errors.As(err, &ex) || ex.Code != 307 {
+	if !errors.As(err, &failed) || !errors.As(err, &ex) || ex.Code != 396 {
 		t.Fatalf("err = %v", err)
 	}
 	if got := fmt.Sprint(copySplits(f, "2026-10-02 08:00")); got != "[1 2 4 6]" {
@@ -306,6 +308,7 @@ func TestALimitAtTheMaximumSplitFailsTheRunLeavingTheUnitStarted(t *testing.T) {
 func TestOtherErrorsFailTheRunWithoutRetrying(t *testing.T) {
 	for name, fail := range map[string]error{
 		"other code":  limitHit(60),
+		"rows limit":  limitHit(307),
 		"plain error": errors.New("connection reset"),
 	} {
 		f, opts := newRun("2026-10-02 08:00")
@@ -360,12 +363,71 @@ func TestASplitPartSelectsItsShareOfTheSeries(t *testing.T) {
 		"copy":    copyRawSQL(u, 4, 3),
 		"rebuild": rebuildTierSQL(metricTiers[0], u, 4, 3),
 	} {
-		if !strings.Contains(sql, "cityHash64(fingerprint) % 4 = 3") {
+		if !strings.Contains(sql, "fingerprint >= 13835058055282163712") {
 			t.Errorf("%s: %s", name, sql)
 		}
 	}
-	if strings.Contains(copyRawSQL(u, 1, 0), "cityHash64") {
+	if strings.Contains(copyRawSQL(u, 1, 0), "fingerprint >=") {
 		t.Error("whole copy is split")
+	}
+}
+
+func TestSplitPartsAreContiguousFingerprintRangesCoveringTheSpace(t *testing.T) {
+	re := regexp.MustCompile(`^ AND fingerprint >= (\d+)(?: AND fingerprint < (\d+))?$`)
+	space := new(big.Int).Lsh(big.NewInt(1), 64)
+	for _, n := range []int{1, 2, 6, 16} {
+		next := new(big.Int)
+		for p := 0; p < n; p++ {
+			w := splitWhere(n, p)
+			if n == 1 {
+				if w != "" {
+					t.Errorf("n=1: %q", w)
+				}
+				next.Set(space)
+				break
+			}
+			m := re.FindStringSubmatch(w)
+			if m == nil {
+				t.Fatalf("n=%d part %d: %q", n, p, w)
+			}
+			lo, _ := new(big.Int).SetString(m[1], 10)
+			if lo.Cmp(next) != 0 {
+				t.Errorf("n=%d part %d starts at %s, want %s", n, p, lo, next)
+			}
+			if m[2] == "" {
+				if p != n-1 {
+					t.Errorf("n=%d part %d is open-ended", n, p)
+				}
+				next.Set(space)
+				continue
+			}
+			hi, _ := new(big.Int).SetString(m[2], 10)
+			if hi.Cmp(lo) <= 0 || hi.Cmp(space) >= 0 {
+				t.Errorf("n=%d part %d: [%s, %s)", n, p, lo, hi)
+			}
+			next = hi
+		}
+		if next.Cmp(space) != 0 {
+			t.Errorf("n=%d covers up to %s", n, next)
+		}
+	}
+	if got := splitWhere(2, 1); got != " AND fingerprint >= 9223372036854775808" {
+		t.Errorf("upper half = %q", got)
+	}
+}
+
+func TestRawFinalReadsFilterTheHourInPrewhere(t *testing.T) {
+	u := migrationUnit{kind: unitRaw, from: at("2026-10-02 08:00"), to: at("2026-10-02 09:00")}
+	for name, sql := range map[string]string{
+		"count":   countRawSQL(u),
+		"rebuild": rebuildTierSQL(metricTiers[0], u, 2, 1),
+	} {
+		if !strings.Contains(sql, "FINAL PREWHERE timestamp > ") || strings.Contains(sql, "FINAL WHERE") {
+			t.Errorf("%s: %s", name, sql)
+		}
+	}
+	if !strings.Contains(rebuildTierSQL(metricTiers[0], u, 2, 1), "AND fingerprint >= 9223372036854775808))") {
+		t.Error("split part is outside the rebuild's PREWHERE")
 	}
 }
 
