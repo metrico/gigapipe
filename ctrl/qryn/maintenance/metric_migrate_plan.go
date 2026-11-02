@@ -12,21 +12,28 @@ const (
 	unit15s = "15s"
 )
 
-// migrationUnit is one hour (from, to] of a kind; recovery marks one recorded started.
+// migrationUnit is one hour (from, to] of a kind; recovery marks one recorded started, and
+// rawRecord a 15s unit recorded under the hour's raw record.
 type migrationUnit struct {
-	kind     string
-	from, to time.Time
-	recovery bool
+	kind      string
+	from, to  time.Time
+	recovery  bool
+	rawRecord bool
 }
 
 // name is the unit's record name in settings.
 func (u migrationUnit) name() string {
-	return u.kind + ":" + strconv.FormatInt(u.to.UnixMilli(), 10)
+	kind := u.kind
+	if u.rawRecord {
+		kind = unitRaw
+	}
+	return kind + ":" + strconv.FormatInt(u.to.UnixMilli(), 10)
 }
 
-// migrationPlan is one run's units, newest first, between floor and top.
+// migrationPlan is one run's units, newest first, between floor and top; the raw units end
+// above edge.
 type migrationPlan struct {
-	floor, top time.Time
+	floor, edge, top time.Time
 	// watermark is the recorded top of an earlier run, zero on the first run.
 	watermark time.Time
 	units     []migrationUnit
@@ -40,8 +47,8 @@ func recordedTime(records map[string]string, name string) (time.Time, bool) {
 	return time.UnixMilli(v).UTC(), true
 }
 
-// rollupHistory is metrics_15s's metric-row hours below the floor, by their ends; lifetime is
-// the hour the table's rows start after, zero for none.
+// rollupHistory is metrics_15s's metric-row hours below the raw edge, by their ends; lifetime is
+// the hour the table's rows start at or after, zero for none.
 type rollupHistory struct {
 	lifetime time.Time
 	ends     []time.Time
@@ -60,12 +67,21 @@ func planFloor(now time.Time, samplesDays int, records map[string]string) time.T
 	return hourBefore(now, samplesDays)
 }
 
-// planMigration plans the raw hours (H, H+1h] from the last hour boundary at or before
-// now − margin down to the floor, then the 15s hours of rollup and those recorded started,
-// at or below the floor and ending after rollup.lifetime. Of each kind it plans every hour
-// not recorded done and every hour ending after watermark − lookback, newest first.
-func planMigration(now time.Time, samplesDays int, margin, lookback time.Duration, records map[string]string, rollup *rollupHistory) migrationPlan {
+// planEdge is the hour 25h above now − rawDays, at least floor.
+func planEdge(now time.Time, rawDays int, floor time.Time) time.Time {
+	edge := hourBefore(now, rawDays).Add(25 * time.Hour)
+	if edge.Before(floor) {
+		return floor
+	}
+	return edge
+}
+
+// planMigration plans the hours (H, H+1h] newest first from now − margin down to the floor: raw
+// above the edge; below it, 15s where rollup lists the hour or a 15s unit was started, else raw,
+// skipping hours done of either kind; then the 15s hours of rollup at or below the floor.
+func planMigration(now time.Time, samplesDays, rawDays int, margin, lookback time.Duration, records map[string]string, rollup *rollupHistory) migrationPlan {
 	p := migrationPlan{top: now.UTC().Add(-margin).Truncate(time.Hour), floor: planFloor(now, samplesDays, records)}
+	p.edge = planEdge(now, rawDays, p.floor)
 	watermark, rerun := recordedTime(records, watermarkRecord)
 	if rerun {
 		p.watermark = watermark
@@ -78,8 +94,30 @@ func planMigration(now time.Time, samplesDays int, margin, lookback time.Duratio
 		u.recovery = state == unitStarted
 		p.units = append(p.units, u)
 	}
+	listed := map[int64]bool{}
+	if rollup != nil {
+		for _, to := range rollup.ends {
+			listed[to.UnixMilli()] = true
+		}
+	}
 	for to := p.top; to.After(p.floor); to = to.Add(-time.Hour) {
-		add(migrationUnit{kind: unitRaw, from: to.Add(-time.Hour), to: to})
+		u := migrationUnit{kind: unitRaw, from: to.Add(-time.Hour), to: to}
+		if to.After(p.edge) {
+			add(u)
+			continue
+		}
+		raw, r15s := records[u.name()], records[migrationUnit{kind: unit15s, to: to}.name()]
+		switch {
+		case raw == unitDone || r15s == unitDone:
+			continue
+		case rollup != nil && r15s == unitStarted, listed[to.UnixMilli()]:
+			u.kind = unit15s
+			u.recovery = r15s == unitStarted || raw == unitStarted
+			u.rawRecord = r15s != unitStarted && raw == unitStarted
+		default:
+			u.recovery = raw == unitStarted
+		}
+		p.units = append(p.units, u)
 	}
 	if rollup == nil {
 		return p

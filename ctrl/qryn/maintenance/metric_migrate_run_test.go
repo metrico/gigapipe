@@ -16,6 +16,7 @@ func testOptions(clock *testClock) MetricMigrationOptions {
 		Database:    "cloki",
 		Instance:    "me",
 		SamplesDays: 1,
+		RawDays:     30,
 		Logger:      quietLogger(),
 		now:         clock.now,
 		sleep:       func(context.Context, time.Duration) error { return nil },

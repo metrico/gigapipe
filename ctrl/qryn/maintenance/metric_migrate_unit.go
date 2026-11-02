@@ -20,8 +20,6 @@ type migration struct {
 	opts    MetricMigrationOptions
 	// ratioKnown is whether the server lists max_bytes_ratio_before_external_sort.
 	ratioKnown bool
-	// floor is the run's floor, set once planned.
-	floor time.Time
 }
 
 func (m *migration) failed(step string, err error) error {
@@ -41,12 +39,11 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 	}
 	now := m.opts.now()
 	floor := planFloor(now, m.opts.SamplesDays, recs)
-	rollup, err := m.rollupHistory(ctx, now, floor)
+	rollup, err := m.rollupHistory(ctx, now, planEdge(now, m.opts.RawDays, floor))
 	if err != nil {
 		return report, m.failed("plan", err)
 	}
-	plan := planMigration(now, m.opts.SamplesDays, m.opts.Margin, m.opts.Lookback, recs, rollup)
-	m.floor = plan.floor
+	plan := planMigration(now, m.opts.SamplesDays, m.opts.RawDays, m.opts.Margin, m.opts.Lookback, recs, rollup)
 	if _, ok := recordedTime(recs, floorRecord); !ok {
 		if err = m.records.put(ctx, floorRecord, strconv.FormatInt(plan.floor.UnixMilli(), 10)); err != nil {
 			return report, m.failed("plan", err)
@@ -90,9 +87,9 @@ func (m *migration) run(ctx context.Context) (MetricMigrationReport, error) {
 	return report, nil
 }
 
-// rollupHistory reads the hours below floor holding metrics_15s metric rows within its
+// rollupHistory reads the hours below edge holding metrics_15s metric rows within its
 // lifetime as of now, or nil when metrics_15s does not exist.
-func (m *migration) rollupHistory(ctx context.Context, now, floor time.Time) (*rollupHistory, error) {
+func (m *migration) rollupHistory(ctx context.Context, now, edge time.Time) (*rollupHistory, error) {
 	var exists uint8
 	if err := m.exec.Scalar(ctx, m.statement(opExists, legacyRollup, existsSQL(legacyRollup)), &exists); err != nil {
 		return nil, err
@@ -104,7 +101,7 @@ func (m *migration) rollupHistory(ctx context.Context, now, floor time.Time) (*r
 	if m.opts.RollupDays > 0 {
 		h.lifetime = hourBefore(now, m.opts.RollupDays)
 	}
-	err := m.exec.Rows(ctx, m.statement(op15sHours, legacyRollup, rollup15sHoursSQL(h.lifetime, floor)),
+	err := m.exec.Rows(ctx, m.statement(op15sHours, legacyRollup, rollup15sHoursSQL(h.lifetime, edge)),
 		func(scan func(dest ...any) error) error {
 			var hour int64
 			if err := scan(&hour); err != nil {
@@ -174,6 +171,12 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// A 15s unit under a raw record also records its 15s name done, before the raw one.
+	if u.rawRecord {
+		if err = m.records.put(ctx, migrationUnit{kind: unit15s, to: u.to}.name(), unitDone); err != nil {
+			return 0, err
+		}
+	}
 	if err = m.records.put(ctx, u.name(), unitDone); err != nil {
 		return 0, err
 	}
@@ -212,13 +215,17 @@ func (m *migration) rawUnit(ctx context.Context, u migrationUnit) (uint64, error
 }
 
 // unit15s rebuilds each tier's buckets of the hour from the unit's metrics_15s source samples
-// and checks them, skipping both when there are none. It returns the source samples.
+// and checks them. With no source samples it skips both, clearing the tiers of a unit under a
+// started raw record. It returns the source samples.
 func (m *migration) unit15s(ctx context.Context, u migrationUnit) (uint64, error) {
 	var rows, expected uint64
-	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, legacyRollup, count15sSQL(u, m.floor)), &rows, &expected); err != nil {
+	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, legacyRollup, count15sSQL(u)), &rows, &expected); err != nil {
 		return 0, err
 	}
 	if rows == 0 {
+		if u.rawRecord {
+			return 0, m.clearTiers(ctx, u)
+		}
 		return 0, nil
 	}
 	split := m.opts.Split

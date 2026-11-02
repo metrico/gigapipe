@@ -122,16 +122,14 @@ func (m *migration) copy(ctx context.Context, u migrationUnit, n *int) error {
 // The first attempt deletes only when the tier holds buckets of the hour; each retry deletes
 // the hour again.
 func (m *migration) tier(ctx context.Context, u migrationUnit, tier metricTier, n *int) error {
-	var buckets uint64
-	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, tier.Table, countTierSQL(tier, u)), &buckets); err != nil {
+	buckets, err := m.tierBuckets(ctx, u, tier)
+	if err != nil {
 		return err
 	}
 	retry := false
 	return m.splitting(u, n, func(parts int) error {
 		if buckets > 0 || retry {
-			del := m.unitStatement(u, opDelete, tier.Table, deleteTierSQL(tier, u))
-			del.Settings["mutations_sync"] = 2
-			if _, err := m.exec.Exec(ctx, del); err != nil {
+			if err := m.deleteTier(ctx, u, tier); err != nil {
 				return err
 			}
 		}
@@ -140,10 +138,42 @@ func (m *migration) tier(ctx context.Context, u migrationUnit, tier metricTier, 
 	})
 }
 
+// clearTiers deletes each tier's buckets of the unit's hour where it holds any.
+func (m *migration) clearTiers(ctx context.Context, u migrationUnit) error {
+	for _, tier := range metricTiers {
+		buckets, err := m.tierBuckets(ctx, u, tier)
+		if err != nil {
+			return err
+		}
+		if buckets == 0 {
+			continue
+		}
+		if err := m.deleteTier(ctx, u, tier); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tierBuckets counts the tier's buckets of the unit's hour.
+func (m *migration) tierBuckets(ctx context.Context, u migrationUnit, tier metricTier) (uint64, error) {
+	var buckets uint64
+	err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, tier.Table, countTierSQL(tier, u)), &buckets)
+	return buckets, err
+}
+
+// deleteTier deletes the tier's buckets of the unit's hour, waiting for the mutation.
+func (m *migration) deleteTier(ctx context.Context, u migrationUnit, tier metricTier) error {
+	del := m.unitStatement(u, opDelete, tier.Table, deleteTierSQL(tier, u))
+	del.Settings["mutations_sync"] = 2
+	_, err := m.exec.Exec(ctx, del)
+	return err
+}
+
 // rebuildSQL rebuilds the tier from raw for a raw unit and from metrics_15s for a 15s unit.
 func (m *migration) rebuildSQL(tier metricTier, u migrationUnit, parts, part int) string {
 	if u.kind == unit15s {
-		return rebuild15sTierSQL(tier, u, m.floor, parts, part)
+		return rebuild15sTierSQL(tier, u, parts, part)
 	}
 	return rebuildTierSQL(tier, u, parts, part)
 }

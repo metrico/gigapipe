@@ -33,7 +33,7 @@ func unitKinds15s(units []migrationUnit) []string {
 func TestThe15sHoursBelowTheFloorFollowTheRawUnitsNewestFirst(t *testing.T) {
 	records := map[string]string{floorRecord: ms(at("2026-10-02 07:00"))}
 	rollup := &rollupHistory{lifetime: at("2026-09-02 09:00"), ends: ends15s("2026-10-01 12:00", "2026-10-02 07:00", "2026-10-02 03:00")}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, rollup)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 30, 5*time.Minute, time.Hour, records, rollup)
 	sameStrings(t, "units", bounds(plan.units), []string{
 		"10-02 08:00 10-02 09:00",
 		"10-02 07:00 10-02 08:00",
@@ -52,7 +52,7 @@ func TestNo15sUnitsWithoutMetrics15s(t *testing.T) {
 		floorRecord:                      ms(at("2026-10-02 07:00")),
 		rollupRecord("2026-10-02 06:00"): unitStarted,
 	}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, nil)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 30, 5*time.Minute, time.Hour, records, nil)
 	sameStrings(t, "kinds", unitKinds15s(plan.units), []string{unitRaw, unitRaw})
 }
 
@@ -60,7 +60,7 @@ func TestThe15sUnitsStayAtOrBelowTheFloorAndAboveTheLifetime(t *testing.T) {
 	records := map[string]string{floorRecord: ms(at("2026-10-02 07:00"))}
 	rollup := &rollupHistory{lifetime: at("2026-09-30 09:00"), ends: ends15s(
 		"2026-10-02 08:00", "2026-10-02 07:00", "2026-09-30 10:00", "2026-09-30 09:00")}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, rollup)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 30, 5*time.Minute, time.Hour, records, rollup)
 	sameStrings(t, "units", bounds(plan.units[2:]), []string{
 		"10-02 06:00 10-02 07:00",
 		"09-30 09:00 09-30 10:00",
@@ -70,7 +70,7 @@ func TestThe15sUnitsStayAtOrBelowTheFloorAndAboveTheLifetime(t *testing.T) {
 func TestWithoutARollupLifetimeThe15sUnitsReachTheOldestHour(t *testing.T) {
 	records := map[string]string{floorRecord: ms(at("2026-10-02 07:00"))}
 	rollup := &rollupHistory{ends: ends15s("2025-01-01 01:00")}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, rollup)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 30, 5*time.Minute, time.Hour, records, rollup)
 	sameStrings(t, "units", bounds(plan.units[2:]), []string{"01-01 00:00 01-01 01:00"})
 }
 
@@ -86,7 +86,7 @@ func TestALaterRunSkipsThe15sHoursDoneAndRecoversTheStartedOnes(t *testing.T) {
 		rollupRecord("2026-10-02 04:00"): unitStarted,
 	}
 	rollup := &rollupHistory{lifetime: at("2026-09-02 09:00"), ends: ends15s("2026-10-02 07:00", "2026-10-02 06:00", "2026-10-02 05:00")}
-	plan := planMigration(at("2026-10-02 09:10"), 1, 5*time.Minute, time.Hour, records, rollup)
+	plan := planMigration(at("2026-10-02 09:10"), 1, 30, 5*time.Minute, time.Hour, records, rollup)
 	sameStrings(t, "units", bounds(plan.units), []string{
 		"10-02 08:00 10-02 09:00",
 		"10-02 05:00 10-02 06:00",
@@ -277,17 +277,17 @@ func TestAFirstRunPlansFromOneReadingOfTheClock(t *testing.T) {
 	}
 }
 
-func TestThe15sRebuildTakesEachRowBelowTheFloorAsOneSampleAtItsStart(t *testing.T) {
+func TestThe15sRebuildTakesEachRowOfItsHourAsOneSample1msAfterItsStart(t *testing.T) {
 	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
-	sql := rebuild15sTierSQL(metricTiers[0], u, at("2026-10-02 07:00"), 1, 0)
+	sql := rebuild15sTierSQL(metricTiers[0], u, 1, 0)
 	for _, want := range []string{
 		"INSERT INTO metrics_5m (" + tierColumns + ")",
+		"fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000) + 1) AS timestamp",
 		"prev.1 AS prev_timestamp, prev.2 AS prev_value, 1 AS aggregate",
 		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev",
-		"FROM (SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, argMaxMerge(last) AS value",
 		"FROM " + legacyRollup + " WHERE " + legacyMetricRows,
-		fmt.Sprintf("timestamp_ns > %d AND timestamp_ns <= %d", at("2026-10-02 05:00").UnixNano(), at("2026-10-02 06:00").UnixNano()),
-		fmt.Sprintf("timestamp_ns < %d GROUP BY fingerprint, timestamp_ns)))", at("2026-10-02 07:00").UnixNano()),
+		fmt.Sprintf("timestamp_ns >= %d AND timestamp_ns < %d GROUP BY fingerprint, timestamp_ns)))",
+			at("2026-10-02 05:00").UnixNano(), at("2026-10-02 06:00").UnixNano()),
 	} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("rebuild lacks %q: %s", want, sql)
@@ -298,25 +298,27 @@ func TestThe15sRebuildTakesEachRowBelowTheFloorAsOneSampleAtItsStart(t *testing.
 	}
 }
 
-func TestThe15sCountReadsTheWholeHoursSource(t *testing.T) {
+func TestThe15sCountReadsTheRowsStartingInTheHour(t *testing.T) {
 	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
-	floor := at("2026-10-02 07:00")
-	want := fmt.Sprintf("SELECT count(), countIf(reinterpretAsUInt64(value) != 0x7ff0000000000002) FROM (SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, "+
-		"argMaxMerge(last) AS value FROM metrics_15s WHERE type IN (2, 0) AND timestamp_ns > %d AND timestamp_ns <= %d AND timestamp_ns < %d "+
-		"GROUP BY fingerprint, timestamp_ns)", u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano())
-	if sql := count15sSQL(u, floor); sql != want {
+	// Each row becomes a sample 1 ms after its start, in the bucket its start opens.
+	want := fmt.Sprintf("SELECT count(), countIf(reinterpretAsUInt64(value) != 0x7ff0000000000002) FROM (SELECT fingerprint, "+
+		"fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000) + 1) AS timestamp, "+
+		"argMaxMerge(last) AS value FROM metrics_15s WHERE type IN (2, 0) AND timestamp_ns >= %d AND timestamp_ns < %d "+
+		"GROUP BY fingerprint, timestamp_ns)", u.from.UnixNano(), u.to.UnixNano())
+	if sql := count15sSQL(u); sql != want {
 		t.Errorf("count = %s", sql)
 	}
 }
 
-func TestThe15sHoursQueryBoundsTheRowsByFloorAndLifetime(t *testing.T) {
-	floor, lifetime := at("2026-10-02 07:00"), at("2026-09-02 09:00")
-	below := fmt.Sprintf("%s AND timestamp_ns < %d", legacyMetricRows, floor.UnixNano())
-	after := fmt.Sprintf("timestamp_ns > %d", lifetime.UnixNano())
-	if sql := rollup15sHoursSQL(lifetime, floor); !strings.Contains(sql, below) || !strings.Contains(sql, after) {
+func TestThe15sHoursQueryListsEachRowUnderTheHourItStartsIn(t *testing.T) {
+	edge, lifetime := at("2026-10-02 07:00"), at("2026-09-02 09:00")
+	hour := fmt.Sprintf("intDiv(timestamp_ns, %d) + 1", int64(time.Hour))
+	below := fmt.Sprintf("%s AND timestamp_ns < %d", legacyMetricRows, edge.UnixNano())
+	after := fmt.Sprintf("timestamp_ns >= %d", lifetime.UnixNano())
+	if sql := rollup15sHoursSQL(lifetime, edge); !strings.Contains(sql, hour) || !strings.Contains(sql, below) || !strings.Contains(sql, after) {
 		t.Errorf("with lifetime: %s", sql)
 	}
-	if sql := rollup15sHoursSQL(time.Time{}, floor); !strings.Contains(sql, below) || strings.Contains(sql, "timestamp_ns >") {
+	if sql := rollup15sHoursSQL(time.Time{}, edge); !strings.Contains(sql, below) || strings.Contains(sql, "timestamp_ns >") {
 		t.Errorf("without lifetime: %s", sql)
 	}
 }

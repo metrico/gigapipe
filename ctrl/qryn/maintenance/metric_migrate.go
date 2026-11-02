@@ -16,8 +16,10 @@ type MetricMigrationOptions struct {
 	Database string
 	// Instance names this instance in the lease.
 	Instance string
-	// SamplesDays and RollupDays are the lifetimes of samples_v3 and metrics_15s.
+	// SamplesDays, RawDays and RollupDays are the lifetimes of samples_v3, metric_samples
+	// and metrics_15s.
 	SamplesDays int
+	RawDays     int
 	RollupDays  int
 	// Lookback is how far below the watermark a later run copies again; Margin keeps the
 	// hours ending after now − Margin out of the run.

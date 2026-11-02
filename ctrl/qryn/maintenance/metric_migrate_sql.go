@@ -80,29 +80,28 @@ func copyRawSQL(u migrationUnit, parts, part int) string {
 		splitWhere(parts, part))
 }
 
-// source15sSQL turns each metrics_15s metric row of split part in the unit's hour starting
-// before the floor into one sample at its start, carrying its last value.
-func source15sSQL(u migrationUnit, floor time.Time, parts, part int) string {
-	return fmt.Sprintf("SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, argMaxMerge(last) AS value "+
-		"FROM %s WHERE %s AND timestamp_ns > %d AND timestamp_ns <= %d AND timestamp_ns < %d%s "+
+// source15sSQL turns each metrics_15s metric row of split part starting in [from, to) into one
+// sample 1 ms after its start, carrying its last value.
+func source15sSQL(u migrationUnit, parts, part int) string {
+	return fmt.Sprintf("SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000) + 1) AS timestamp, "+
+		"argMaxMerge(last) AS value FROM %s WHERE %s AND timestamp_ns >= %d AND timestamp_ns < %d%s "+
 		"GROUP BY fingerprint, timestamp_ns",
-		legacyRollup, legacyMetricRows, u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano(),
-		splitWhere(parts, part))
+		legacyRollup, legacyMetricRows, u.from.UnixNano(), u.to.UnixNano(), splitWhere(parts, part))
 }
 
 // count15sSQL counts the 15s unit's source samples, then its non-stale ones.
-func count15sSQL(u migrationUnit, floor time.Time) string {
-	return fmt.Sprintf("SELECT count(), countIf(%s) FROM (%s)", nonStale, source15sSQL(u, floor, 1, 0))
+func count15sSQL(u migrationUnit) string {
+	return fmt.Sprintf("SELECT count(), countIf(%s) FROM (%s)", nonStale, source15sSQL(u, 1, 0))
 }
 
-// rollup15sHoursSQL lists, newest first, the hours (H − 1h, H] holding metrics_15s metric rows
-// that start before the floor and, with lifetime set, after it; each as H in whole hours.
-func rollup15sHoursSQL(lifetime, floor time.Time) string {
-	where := fmt.Sprintf("%s AND timestamp_ns < %d", legacyMetricRows, floor.UnixNano())
+// rollup15sHoursSQL lists, newest first, the hours [H − 1h, H) holding metrics_15s metric rows
+// that start before edge and, with lifetime set, at or after it; each as H in whole hours.
+func rollup15sHoursSQL(lifetime, edge time.Time) string {
+	where := fmt.Sprintf("%s AND timestamp_ns < %d", legacyMetricRows, edge.UnixNano())
 	if !lifetime.IsZero() {
-		where += fmt.Sprintf(" AND timestamp_ns > %d", lifetime.UnixNano())
+		where += fmt.Sprintf(" AND timestamp_ns >= %d", lifetime.UnixNano())
 	}
-	return fmt.Sprintf("SELECT DISTINCT toInt64(intDiv(timestamp_ns - 1, %d) + 1) AS hour FROM %s WHERE %s ORDER BY hour DESC",
+	return fmt.Sprintf("SELECT DISTINCT toInt64(intDiv(timestamp_ns, %d) + 1) AS hour FROM %s WHERE %s ORDER BY hour DESC",
 		int64(time.Hour), legacyRollup, where)
 }
 
@@ -127,8 +126,8 @@ func rebuildTierSQL(tier metricTier, u migrationUnit, parts, part int) string {
 }
 
 // rebuild15sTierSQL aggregates the 15s unit's source samples of split part into the tier.
-func rebuild15sTierSQL(tier metricTier, u migrationUnit, floor time.Time, parts, part int) string {
-	return tierRebuildSQL(tier, "("+source15sSQL(u, floor, parts, part)+")")
+func rebuild15sTierSQL(tier metricTier, u migrationUnit, parts, part int) string {
+	return tierRebuildSQL(tier, "("+source15sSQL(u, parts, part)+")")
 }
 
 // tierRebuildSQL aggregates the samples of from into the tier. Each sample's predecessor is the

@@ -160,6 +160,7 @@ func rollupTTLDays(dbObject *config.ClokiBaseDataBase) (int, error) {
 // MetricMigration is a checked metric migration of each database in turn.
 type MetricMigration struct {
 	base       []config.ClokiBaseDataBase
+	rawDays    []int
 	rollupDays []int
 	opts       MetricMigrationOptions
 }
@@ -182,6 +183,11 @@ func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, 
 		if err != nil {
 			return nil, &MigrationRefusedError{Reason: err.Error()}
 		}
+		tiers, err := metricretention.FromEnv(dbObject.TTLDays, os.Getenv)
+		if err != nil {
+			return nil, &MigrationRefusedError{Reason: fmt.Sprintf("database %s: %v", dbObject.Name, err)}
+		}
+		m.rawDays = append(m.rawDays, tiers.RawDays)
 		m.rollupDays = append(m.rollupDays, rollupDays)
 	}
 	return m, nil
@@ -191,7 +197,7 @@ func PrepareMetricMigration(base []config.ClokiBaseDataBase) (*MetricMigration, 
 func (m *MetricMigration) Run(ctx context.Context, logger logger.ILogger) ([]MetricMigrationReport, error) {
 	var reports []MetricMigrationReport
 	for i := range m.base {
-		report, err := migrateMetrics(ctx, &m.base[i], m.rollupDays[i], m.opts, logger)
+		report, err := migrateMetrics(ctx, &m.base[i], m.rawDays[i], m.rollupDays[i], m.opts, logger)
 		if err != nil {
 			return reports, err
 		}
@@ -200,13 +206,14 @@ func (m *MetricMigration) Run(ctx context.Context, logger logger.ILogger) ([]Met
 	return reports, nil
 }
 
-func migrateMetrics(ctx context.Context, dbObject *config.ClokiBaseDataBase, rollupDays int, opts MetricMigrationOptions, logger logger.ILogger) (MetricMigrationReport, error) {
+func migrateMetrics(ctx context.Context, dbObject *config.ClokiBaseDataBase, rawDays, rollupDays int, opts MetricMigrationOptions, logger logger.ILogger) (MetricMigrationReport, error) {
 	conn, err := openMigratorConn(dbObject, opts)
 	if err != nil {
 		return MetricMigrationReport{}, &MigrationFailedError{Database: dbObject.Name, Step: "connect", Err: err}
 	}
 	defer conn.Close()
-	opts.Database, opts.SamplesDays, opts.RollupDays, opts.Logger = dbObject.Name, dbObject.TTLDays, rollupDays, logger
+	opts.Database, opts.SamplesDays, opts.Logger = dbObject.Name, dbObject.TTLDays, logger
+	opts.RawDays, opts.RollupDays = rawDays, rollupDays
 	return RunMetricMigration(ctx, NewClickhouseExecutor(conn), opts)
 }
 
