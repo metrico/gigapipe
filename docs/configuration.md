@@ -154,30 +154,51 @@ With `CLUSTER_NAME` set, run `MODE=migrate_metrics` from any one node, with the 
 - **Distributed reads and writes.** It reads `samples_v3_dist`, `time_series_dist` and `metrics_15s_dist`, and writes through `metric_samples_dist`, `metrics_5m_dist`, `metrics_1h_dist`, `metric_series_dist` and `metric_metadata_dist`. Its reads and writes, run-state records included, carry `insert_distributed_sync = 1` and `skip_unavailable_shards = 0`, so it waits for each shard's write and fails rather than skip a shard, and `load_balancing = 'in_order'` with `use_hedged_requests = 0`, so a unit writes to and reads from the same replica of each shard: the starting node itself for its own shard, otherwise the first in configuration order among those with the fewest errors.
 - **One run state.** The lease and the run's records live in `settings_dist`, so the whole cluster has one run state and one lease, whichever node a run starts from. Query it through `settings_dist` in place of `settings`.
 - **`ON CLUSTER` deletes and kills.** A unit deletes the tier buckets of its hour with `DELETE FROM metrics_5m ON CLUSTER` and `DELETE FROM metrics_1h ON CLUSTER` on the local tables, waiting for the mutation on every node. A stopped run kills its queries on the node it runs on, then with `KILL QUERY ON CLUSTER` on every node.
-- **Every node is checked.** The back-off gate reads the signals of every node through `clusterAllReplicas` and waits while any one node is over its own threshold. `max_bytes_ratio_before_external_sort` is set only when every node lists it.
-- **Legacy cluster refusal.** Before migrating any database, the run reads the cluster each database's legacy `_dist` tables name, expanding macros from `system.macros`. It refuses with exit code 2, naming the database and the table, when `samples_v3_dist` or `time_series_dist` does not exist (`metrics_15s_dist` is optional), a table is not `Distributed`, a macro is not in `system.macros`, or the cluster is not in `system.clusters`, for example `metric migration refused: database cloki: samples_v3_dist names cluster 'old', which is not in system.clusters` or `metric migration refused: database cloki: time_series_dist does not exist; a run on cluster 'c1' reads it`. Create or recreate the table over a defined cluster and re-run. The schema step has run by then; it only adds tables and views.
-- **Cluster totals.** The summary counts the whole cluster: raw and 15s samples from `count()` through `metric_samples_dist` before and after each unit, series and metadata from `count()` through `metric_series_dist` and `metric_metadata_dist` with `FINAL` before and after each copy. There are no per-shard lines. On a cluster, `series` and `metadata` therefore count the series and metric families the copy added, including any live ingest added meanwhile, so a re-run prints about 0. On a single node they count the rows the copy wrote, existing ones included.
+- **Every node is checked.** The back-off gate reads the signals of every node through `clusterAllReplicas` and waits while any one node is over its own threshold. Failing mutations are skipped on every node, and the back-off line names the table and the oldest unfinished mutation's id as on a single node. Without `GRANT SHOW TABLES ON *.*`, the back-off signals see only the granted tables (see [migrator user](#a-clickhouse-user-for-the-migrator)), on the starting node with a user and password per replica, and on every node with `<secret>`. `max_bytes_ratio_before_external_sort` is set only when every node lists it.
+- **Legacy cluster refusal.** Before migrating any database, the run reads the cluster each database's legacy `_dist` tables name, expanding macros from `system.macros`. It refuses with exit code 2, naming the database and the table, when `samples_v3_dist` or `time_series_dist` does not exist, `metrics_15s` exists but `metrics_15s_dist` does not, a table is not `Distributed`, a macro is not in `system.macros`, or the cluster is not in `system.clusters`, for example `metric migration refused: database cloki: samples_v3_dist names cluster 'old', which is not in system.clusters` or `metric migration refused: database cloki: time_series_dist does not exist; a run on cluster 'c1' reads it`. A legacy `_dist` table the migrator user has no `SELECT` on is refused the same way, as one that does not exist: `metric migration refused: database cloki: metrics_15s_dist does not exist or is not visible to the migrator user; a run on cluster 'c1' reads metrics_15s through it`, or, when `metrics_15s` is not visible either, `metrics_15s_dist is not visible to the migrator user; grant it SELECT on metrics_15s_dist`. With `GRANT SHOW TABLES ON *.*`, a missing `SELECT` fails the first read instead (exit 1). Create or recreate the table over a defined cluster, or grant it, and re-run. Unless `OMIT_CREATE_TABLES` is set, the schema step has run by then; it only adds tables and views. Only an undefined legacy cluster is refused: legacy tables over a defined cluster other than `CLUSTER_NAME` are copied through as the old release reads them, and the run logs `metric migration: legacy cluster: '<cluster>' (CLUSTER_NAME '<name>')` before migrating.
+- **Cluster totals.** The summary counts the whole cluster: raw samples from `count()` of `metric_samples_dist FINAL` on the hour before and after each unit, 15s samples from the unit's source count through `metrics_15s_dist`, series and metadata from `count()` through `metric_series_dist` and `metric_metadata_dist` with `FINAL` before and after each copy. There are no per-shard lines. On a cluster, `series` and `metadata` therefore count the series and metric families the copy added, including any live ingest added meanwhile, so a re-run prints about 0. On a single node they count the rows the copy wrote, existing ones included.
 - **Partial writes.** A unit's `_dist` insert that fails after some shards wrote leaves the unit started, and the next run recovers it like any other started unit.
 
-The [migrator user](#a-clickhouse-user-for-the-migrator) keeps its single-node grants on the local tables, on every node, and needs these as well:
+The [migrator user](#a-clickhouse-user-for-the-migrator) is created with its profile and grants `ON CLUSTER`, with `c1` replaced by `CLUSTER_NAME`:
 
 ```sql
-GRANT SELECT ON cloki.samples_v3_dist TO migrator;
-GRANT SELECT ON cloki.time_series_dist TO migrator;
-GRANT SELECT ON cloki.metrics_15s_dist TO migrator;
-GRANT SELECT, INSERT ON cloki.metric_samples_dist TO migrator;
-GRANT SELECT, INSERT ON cloki.metrics_5m_dist TO migrator;
-GRANT SELECT, INSERT ON cloki.metrics_1h_dist TO migrator;
-GRANT SELECT, INSERT ON cloki.metric_series_dist TO migrator;
-GRANT SELECT, INSERT ON cloki.metric_metadata_dist TO migrator;
-GRANT SELECT, INSERT ON cloki.settings_dist TO migrator;
-GRANT SELECT ON cloki.metric_series TO migrator;
-GRANT SELECT ON cloki.metric_metadata TO migrator;
-GRANT REMOTE ON *.* TO migrator;
-GRANT CLUSTER ON *.* TO migrator;
+CREATE SETTINGS PROFILE migrator_profile ON CLUSTER c1 SETTINGS readonly = 0;
+CREATE USER migrator ON CLUSTER c1 IDENTIFIED BY '...' SETTINGS PROFILE 'migrator_profile';
+GRANT ON CLUSTER c1 SELECT ON cloki.samples_v3 TO migrator;
+GRANT ON CLUSTER c1 SELECT ON cloki.time_series TO migrator;
+GRANT ON CLUSTER c1 SELECT ON cloki.metrics_15s TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metric_samples TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT, ALTER DELETE, ALTER UPDATE(_row_exists) ON cloki.metrics_5m TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT, ALTER DELETE, ALTER UPDATE(_row_exists) ON cloki.metrics_1h TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metric_series TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metric_metadata TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.settings TO migrator;
+GRANT ON CLUSTER c1 SELECT ON cloki.samples_v3_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT ON cloki.time_series_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT ON cloki.metrics_15s_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metric_samples_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metrics_5m_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metrics_1h_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metric_series_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.metric_metadata_dist TO migrator;
+GRANT ON CLUSTER c1 SELECT, INSERT ON cloki.settings_dist TO migrator;
+GRANT ON CLUSTER c1 REMOTE, CLUSTER, KILL QUERY ON *.* TO migrator;
+GRANT ON CLUSTER c1 SELECT(metric, value) ON system.asynchronous_metrics TO migrator;
+GRANT ON CLUSTER c1 SELECT(metric, value) ON system.metrics TO migrator;
+GRANT ON CLUSTER c1 SELECT(name, value) ON system.merge_tree_settings TO migrator;
+GRANT ON CLUSTER c1 SELECT(name, value) ON system.server_settings TO migrator;
+GRANT ON CLUSTER c1 SELECT(database, table) ON system.merges TO migrator;
+GRANT ON CLUSTER c1 SELECT(database, table, is_done, latest_fail_reason, mutation_id, create_time) ON system.mutations TO migrator;
+GRANT ON CLUSTER c1 SELECT(database, table, active, partition_id) ON system.parts TO migrator;
+GRANT ON CLUSTER c1 SELECT(query_id, user, query) ON system.processes TO migrator;
+GRANT ON CLUSTER c1 SELECT(macro, substitution) ON system.macros TO migrator;
+GRANT ON CLUSTER c1 SELECT(cluster) ON system.clusters TO migrator;
 ```
 
-`SELECT` on `metric_series` and `metric_metadata` serves the cluster totals. `REMOTE` serves the `clusterAllReplicas` reads of the gate and the settings check. `CLUSTER` serves the `ON CLUSTER` deletes and kills. The run also reads `system.tables`, `system.macros` and `system.clusters`.
+`SELECT` on `metric_series` and `metric_metadata` serves the cluster totals, and `INSERT` on them the `_dist` writes that land on the starting node's shard. `REMOTE` serves the `clusterAllReplicas` reads of the gate and the settings check, `CLUSTER` the `ON CLUSTER` deletes and kills, and `KILL QUERY` the `KILL QUERY ON CLUSTER`. `system.macros` and `system.clusters` serve the legacy cluster check. `ON CLUSTER` statements run under the DDL worker's settings, never the migrator's profile. Which nodes need the user and its grants depends on how the cluster authenticates its nodes:
+
+- **User and password per replica.** The remote parts of `_dist` reads and inserts and of `clusterAllReplicas` run as the cluster-config user (`<user>` in `remote_servers`), which must hold `SELECT` and `INSERT` on the local tables above and the same `system.*` columns; the writers' user normally does. The migrator user is needed only on the node a run starts from; `ON CLUSTER` lets any node start one.
+- **`<secret>`.** Every node runs the remote parts as the migrator user, so the profile, the user and every grant must be created `ON CLUSTER`. A user missing on a node fails the run with code 516, and a node whose `migrator_profile` is `readonly = 1` or `2` with code 164. A node that never starts a run needs only `SELECT, INSERT` on `settings`, `metric_samples`, `metric_series`, `metric_metadata`, `metrics_5m` and `metrics_1h`, `SELECT` on `samples_v3`, `time_series` and `metrics_15s`, and the `system.*` grants above other than `system.processes`, `system.macros` and `system.clusters`.
 
 #### Migrator settings
 
@@ -229,6 +250,8 @@ GRANT SELECT(query_id, user, query) ON system.processes TO migrator;
 ```
 
 with `cloki` replaced by the database migrated. `system.settings` and `system.tables` need no grant. The run kills only its own queries.
+
+Without a grant on `metrics_15s` the run is refused (exit 2) after the schema step, before migrating any database, with `metric migration refused: database cloki: metrics_15s is not visible to the migrator user; grant it SELECT on metrics_15s`. With `GRANT SHOW TABLES ON *.*`, a missing `SELECT` fails the first read instead (exit 1).
 
 The run turns off insert deduplication for its own statements; live writers' tables and settings are unchanged. A profile constraint that pins `insert_deduplicate` fails the run (exit 1) at its first statement, the settings check.
 
