@@ -150,7 +150,7 @@ Every variable is also accepted with the `GIGAPIPE_` prefix, which wins when bot
 | `MIGRATE_METRICS_BACKOFF_MEMORY` | `0.8` | Back off while server memory use is at or above this fraction of its limit |
 | `MIGRATE_METRICS_DSN` | unset | The migrator's own ClickHouse DSN, such as `clickhouse://migrator:password@host:9000`; unset, it uses the instance's connection. It may name no database or the one migrated. |
 
-Before each statement the run waits while any back-off signal is over its threshold, or while a mutation is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>, waited <duration>`. The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes, unless the DSN sets `read_timeout`.
+Before each statement the run waits while any back-off signal is over its threshold, or while a mutation is unfinished or inserts are being delayed, reading the signals again every 10 seconds; every minute of waiting it logs `metric migration: back-off on <signal>: <value> at threshold <threshold>, table <table>, waited <duration>`. The client read timeout is the larger of `1h` and `MIGRATE_METRICS_MAX_EXECUTION_TIME` + 5 minutes, unless the DSN sets `read_timeout`.
 
 #### A ClickHouse user for the migrator
 

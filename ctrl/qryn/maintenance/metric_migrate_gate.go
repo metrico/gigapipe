@@ -21,21 +21,24 @@ const (
 	progressEvery = 60 * time.Second
 )
 
-// gateSQL reads each back-off signal as (signal, value, limit, table): limit is the
-// setting a fraction applies to, table the signal's busiest table where one is known.
+// gateSQL reads each back-off signal as (signal, value, limit, table, mutation): limit is the
+// setting a fraction applies to, table the signal's busiest table (mutations: the oldest mutation's
+// table) where one is known, mutation the oldest unfinished mutation's id.
 func gateSQL() string {
 	return `SELECT 'parts' AS signal,
   (SELECT toFloat64(maxIf(value, metric = 'MaxPartCountForPartition')) FROM system.asynchronous_metrics) AS value,
   (SELECT toFloat64OrZero(any(value)) FROM system.merge_tree_settings WHERE name = 'parts_to_delay_insert') AS lim,
-  '' AS tbl
+  '' AS tbl,
+  '' AS mid
 UNION ALL
-SELECT 'merges', toFloat64(count()), toFloat64(0), toString(ifNull(topK(1)(concat(database, '.', table))[1], ''))
+SELECT 'merges', toFloat64(count()), toFloat64(0), toString(ifNull(topK(1)(concat(database, '.', table))[1], '')), ''
   FROM system.merges
 UNION ALL
-SELECT 'mutations', toFloat64(count()), toFloat64(0), toString(ifNull(any(concat(database, '.', table)), ''))
-  FROM system.mutations WHERE NOT is_done
+SELECT 'mutations', toFloat64(count()), toFloat64(0),
+  argMin(concat(database, '.', table), create_time), argMin(mutation_id, create_time)
+  FROM system.mutations WHERE NOT is_done AND latest_fail_reason = ''
 UNION ALL
-SELECT 'delayed', toFloat64(sum(value)), toFloat64(0), ''
+SELECT 'delayed', toFloat64(sum(value)), toFloat64(0), '', ''
   FROM system.metrics WHERE metric = 'DelayedInserts'
 UNION ALL
 SELECT 'memory',
@@ -47,13 +50,15 @@ SELECT 'memory',
     (SELECT toFloat64(maxIf(value, metric = 'CGroupMemoryTotal')) FROM system.asynchronous_metrics) AS cgroup,
     if(cgroup > 0 AND cgroup < total, cgroup, total) AS ram
   SELECT if(fixed > 0, fixed, ratio * ram)),
+  '',
   ''`
 }
 
-// gatePartsTableSQL reads the table holding the partition with the most active parts.
+// gatePartsTableSQL reads the table holding the visible partition with the most active parts
+// and that partition's part count; an empty table and 0 when no part is visible.
 func gatePartsTableSQL() string {
-	return `SELECT ifNull((SELECT concat(database, '.', table) FROM system.parts WHERE active
-  GROUP BY database, table, partition_id ORDER BY count() DESC LIMIT 1), '')`
+	return `SELECT argMax(tbl, n), toFloat64(max(n)) FROM (SELECT concat(database, '.', table) AS tbl, count() AS n
+  FROM system.parts WHERE active GROUP BY database, table, partition_id)`
 }
 
 // gateSignals is the order in which over-threshold signals are reported.
@@ -91,7 +96,7 @@ func formatBytes(n float64) string {
 type pressure struct {
 	signal           string
 	value, threshold float64
-	table            string
+	table, mutation  string
 }
 
 // gatedExecutor waits at the back-off gate before each statement and logs a running unit's
@@ -110,21 +115,21 @@ func newGatedExecutor(exec Executor, opts MetricMigrationOptions) Executor {
 }
 
 func (g *gatedExecutor) Exec(ctx context.Context, s Statement) (uint64, error) {
-	if err := g.wait(ctx, s); err != nil {
+	if err := g.wait(ctx); err != nil {
 		return 0, err
 	}
 	return g.exec.Exec(ctx, g.watch(s))
 }
 
 func (g *gatedExecutor) Scalar(ctx context.Context, s Statement, dest ...any) error {
-	if err := g.wait(ctx, s); err != nil {
+	if err := g.wait(ctx); err != nil {
 		return err
 	}
 	return g.exec.Scalar(ctx, g.watch(s), dest...)
 }
 
 func (g *gatedExecutor) Rows(ctx context.Context, s Statement, row func(scan func(dest ...any) error) error) error {
-	if err := g.wait(ctx, s); err != nil {
+	if err := g.wait(ctx); err != nil {
 		return err
 	}
 	return g.exec.Rows(ctx, g.watch(s), row)
@@ -133,7 +138,7 @@ func (g *gatedExecutor) Rows(ctx context.Context, s Statement, row func(scan fun
 func (g *gatedExecutor) log() logger.ILogger { return g.opts.Logger }
 
 // wait polls the signals every gatePoll until none is over its threshold.
-func (g *gatedExecutor) wait(ctx context.Context, s Statement) error {
+func (g *gatedExecutor) wait(ctx context.Context) error {
 	var since, shown time.Time
 	for {
 		p, err := g.pressure(ctx)
@@ -149,18 +154,19 @@ func (g *gatedExecutor) wait(ctx context.Context, s Statement) error {
 			return nil
 		case since.IsZero():
 			since, shown = now, now
-			table, err := g.table(ctx, p)
+			holder, err := g.holder(ctx, p)
 			if err != nil {
 				return err
 			}
-			if table == "" {
-				table = s.Table
-			}
-			g.log().Info(fmt.Sprintf("metric migration: back-off on %s, table %s", p, table))
+			g.log().Info(fmt.Sprintf("metric migration: back-off on %s%s", p, holder))
 		case now.Sub(shown) >= progressEvery:
 			shown = now
-			g.log().Info(fmt.Sprintf("metric migration: back-off on %s, waited %s",
-				p, now.Sub(since).Round(time.Second)))
+			holder, err := g.holder(ctx, p)
+			if err != nil {
+				return err
+			}
+			g.log().Info(fmt.Sprintf("metric migration: back-off on %s%s, waited %s",
+				p, holder, now.Sub(since).Round(time.Second)))
 		}
 		if err = g.opts.sleep(ctx, gatePoll); err != nil {
 			return err
@@ -168,14 +174,34 @@ func (g *gatedExecutor) wait(ctx context.Context, s Statement) error {
 	}
 }
 
+// holder is the back-off line's segment naming p's table and, for mutations, its mutation id;
+// empty for a signal with no table.
+func (g *gatedExecutor) holder(ctx context.Context, p *pressure) (string, error) {
+	table, err := g.table(ctx, p)
+	switch {
+	case err != nil || table == "":
+		return "", err
+	case p.mutation != "":
+		return fmt.Sprintf(", table %s, mutation %s", table, p.mutation), nil
+	}
+	return ", table " + table, nil
+}
+
 // table is the busiest table of p's signal, read from system.parts for the parts signal.
+// A parts table holding fewer parts than p's value is reported as not visible.
 func (g *gatedExecutor) table(ctx context.Context, p *pressure) (string, error) {
 	if p.signal != "parts" {
 		return p.table, nil
 	}
 	var table string
-	err := g.exec.Scalar(ctx, Statement{Op: opGateTable, SQL: gatePartsTableSQL()}, &table)
-	return table, err
+	var count float64
+	if err := g.exec.Scalar(ctx, Statement{Op: opGateTable, SQL: gatePartsTableSQL()}, &table, &count); err != nil {
+		return "", err
+	}
+	if count < p.value {
+		return "not visible to this user", nil
+	}
+	return table, nil
 }
 
 // pressure returns the over-threshold signal first in gateSignals, nil when none is.
@@ -184,7 +210,7 @@ func (g *gatedExecutor) pressure(ctx context.Context) (*pressure, error) {
 	err := g.exec.Rows(ctx, Statement{Op: opGate, SQL: gateSQL()}, func(scan func(dest ...any) error) error {
 		var p pressure
 		var limit float64
-		if err := scan(&p.signal, &p.value, &limit, &p.table); err != nil {
+		if err := scan(&p.signal, &p.value, &limit, &p.table, &p.mutation); err != nil {
 			return err
 		}
 		if g.over(&p, limit) && (found == nil || rank(p.signal) < rank(found.signal)) {

@@ -70,18 +70,25 @@ func newGateRun(floor string) *gateRun {
 	return r
 }
 
-// gateRows is one gate answer: every signal at rest except over, which reads value against limit.
+// gateRows is one gate answer: every signal at rest except over, which reads value against
+// limit and names cloki.busy (and mutation 0000000042) where its signal carries a table.
 func gateRows(over string, value, limit float64) [][]any {
 	rows := [][]any{
-		{"parts", 10.0, 300.0, ""},
-		{"merges", 2.0, 0.0, ""},
-		{"mutations", 0.0, 0.0, ""},
-		{"delayed", 0.0, 0.0, ""},
-		{"memory", 1e9, 8e9, ""},
+		{"parts", 10.0, 300.0, "", ""},
+		{"merges", 2.0, 0.0, "", ""},
+		{"mutations", 0.0, 0.0, "", ""},
+		{"delayed", 0.0, 0.0, "", ""},
+		{"memory", 1e9, 8e9, "", ""},
 	}
 	for _, r := range rows {
 		if r[0] == over {
-			r[1], r[2], r[3] = value, limit, "cloki.busy"
+			r[1], r[2] = value, limit
+		}
+		if r[0] == over && (over == "merges" || over == "mutations") {
+			r[3] = "cloki.busy"
+		}
+		if r[0] == over && over == "mutations" {
+			r[4] = "0000000042"
 		}
 	}
 	return rows
@@ -116,7 +123,7 @@ func TestTheGateWaitsWhileASignalIsOverItsThresholdAndResumesBelowIt(t *testing.
 			polls := 0
 			r.f.on = func(_ context.Context, s Statement) (any, error) {
 				if s.Op == opGateTable {
-					return "cloki.busy", nil
+					return []any{"cloki.busy", 200.0}, nil
 				}
 				if s.Op != opGate {
 					return nil, nil
@@ -133,13 +140,105 @@ func TestTheGateWaitsWhileASignalIsOverItsThresholdAndResumesBelowIt(t *testing.
 			if got := r.gateSleeps(); got != 3 {
 				t.Errorf("gate polls slept %d times, want 3", got)
 			}
-			if got := r.log.matching("metric migration:", "back-off", c.signal, c.threshold, "cloki.busy"); len(got) != 1 {
+			if got := r.log.matching("metric migration:", "back-off on", c.signal, c.threshold); len(got) != 1 {
 				t.Errorf("start lines = %q", got)
 			}
 			if got := r.log.matching("metric migration:", "resumed after 30s"); len(got) != 1 {
 				t.Errorf("resume lines = %q", got)
 			}
 		})
+	}
+}
+
+func TestBackOffLinesNameWhatHoldsTheGateOnStartAndEveryMinute(t *testing.T) {
+	for _, c := range []struct {
+		signal string
+		value  float64
+		limit  float64
+		lines  []string
+	}{
+		{signal: "parts", value: 150, limit: 300, lines: []string{
+			"metric migration: back-off on parts: 150 at threshold 150, table cloki.busy",
+			"metric migration: back-off on parts: 150 at threshold 150, table cloki.busy, waited 1m0s",
+		}},
+		{signal: "merges", value: 17, lines: []string{
+			"metric migration: back-off on merges: 17 at threshold 16, table cloki.busy",
+			"metric migration: back-off on merges: 17 at threshold 16, table cloki.busy, waited 1m0s",
+		}},
+		{signal: "mutations", value: 1, lines: []string{
+			"metric migration: back-off on mutations: 1 at threshold 0, table cloki.busy, mutation 0000000042",
+			"metric migration: back-off on mutations: 1 at threshold 0, table cloki.busy, mutation 0000000042, waited 1m0s",
+		}},
+		{signal: "delayed", value: 1, lines: []string{
+			"metric migration: back-off on delayed: 1 at threshold 0",
+			"metric migration: back-off on delayed: 1 at threshold 0, waited 1m0s",
+		}},
+		{signal: "memory", value: 8e9, limit: 10e9, lines: []string{
+			"metric migration: back-off on memory: 7.5 GiB at threshold 7.5 GiB",
+			"metric migration: back-off on memory: 7.5 GiB at threshold 7.5 GiB, waited 1m0s",
+		}},
+	} {
+		t.Run(c.signal, func(t *testing.T) {
+			r := newGateRun("2026-10-02 08:00")
+			polls := 0
+			r.f.on = func(_ context.Context, s Statement) (any, error) {
+				if s.Op == opGateTable {
+					return []any{"cloki.busy", 200.0}, nil
+				}
+				if s.Op != opGate {
+					return nil, nil
+				}
+				polls++
+				if polls <= 7 {
+					return gateRows(c.signal, c.value, c.limit), nil
+				}
+				return gateRows("", 0, 0), nil
+			}
+			if _, err := migrate(t, r.f, r.opts); err != nil {
+				t.Fatal(err)
+			}
+			sameStrings(t, "back-off lines", r.log.matching("back-off"),
+				append(c.lines, "metric migration: back-off resumed after 1m10s"))
+		})
+	}
+}
+
+func TestAPartsTableHoldingFewerPartsThanTheSignalIsNotVisible(t *testing.T) {
+	for _, answer := range [][]any{{"cloki.small", 3.0}, {"", 0.0}} {
+		t.Run(fmt.Sprint(answer), func(t *testing.T) {
+			r := newGateRun("2026-10-02 08:00")
+			polls := 0
+			r.f.on = func(_ context.Context, s Statement) (any, error) {
+				if s.Op == opGateTable {
+					return answer, nil
+				}
+				if s.Op != opGate {
+					return nil, nil
+				}
+				polls++
+				if polls <= 1 {
+					return gateRows("parts", 150, 300), nil
+				}
+				return gateRows("", 0, 0), nil
+			}
+			if _, err := migrate(t, r.f, r.opts); err != nil {
+				t.Fatal(err)
+			}
+			sameStrings(t, "back-off lines", r.log.matching("back-off on"), []string{
+				"metric migration: back-off on parts: 150 at threshold 150, table not visible to this user",
+			})
+		})
+	}
+}
+
+func TestAFailingMutationDoesNotHoldTheGate(t *testing.T) {
+	sql := gateSQL()
+	row := sql[strings.Index(sql, "'mutations'"):]
+	row = row[:strings.Index(row, "UNION ALL")]
+	for _, want := range []string{"NOT is_done", "latest_fail_reason = ''", "argMin(", "mutation_id", "create_time"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("mutations signal %q lacks %q", row, want)
+		}
 	}
 }
 
@@ -161,9 +260,9 @@ func TestALongBackOffLogsTheCurrentValueEveryMinute(t *testing.T) {
 	}
 	sameStrings(t, "back-off lines", r.log.matching("back-off"), []string{
 		"metric migration: back-off on merges: 17 at threshold 16, table cloki.busy",
-		"metric migration: back-off on merges: 23 at threshold 16, waited 1m0s",
-		"metric migration: back-off on merges: 29 at threshold 16, waited 2m0s",
-		"metric migration: back-off on merges: 35 at threshold 16, waited 3m0s",
+		"metric migration: back-off on merges: 23 at threshold 16, table cloki.busy, waited 1m0s",
+		"metric migration: back-off on merges: 29 at threshold 16, table cloki.busy, waited 2m0s",
+		"metric migration: back-off on merges: 35 at threshold 16, table cloki.busy, waited 3m0s",
 		"metric migration: back-off resumed after 3m10s",
 	})
 }
@@ -305,7 +404,7 @@ func TestTheGateReportsSignalsInAFixedOrder(t *testing.T) {
 			return gateRows("", 0, 0), nil
 		}
 		rows := gateRows("merges", 20, 0)
-		rows[0] = []any{"parts", 200.0, 300.0, ""}
+		rows[0] = []any{"parts", 200.0, 300.0, "", ""}
 		if polls%2 == 1 {
 			rows[0], rows[1] = rows[1], rows[0]
 		}
@@ -328,7 +427,7 @@ func TestTheGateLooksUpTheBusiestPartsTableOnlyWhenPartsHoldIt(t *testing.T) {
 	r.f.on = func(_ context.Context, s Statement) (any, error) {
 		switch s.Op {
 		case opGateTable:
-			return "cloki.busy", nil
+			return []any{"cloki.busy", 200.0}, nil
 		case opGate:
 			polls++
 			if polls > 2 && polls <= 4 {

@@ -84,7 +84,13 @@ func (f *fakeExec) Scalar(ctx context.Context, s Statement, dest ...any) error {
 	if err != nil || v == nil {
 		return err
 	}
-	reflect.ValueOf(dest[0]).Elem().Set(reflect.ValueOf(v).Convert(reflect.TypeOf(dest[0]).Elem()))
+	values, ok := v.([]any)
+	if !ok {
+		values = []any{v}
+	}
+	for i, value := range values {
+		reflect.ValueOf(dest[i]).Elem().Set(reflect.ValueOf(value).Convert(reflect.TypeOf(dest[i]).Elem()))
+	}
 	return nil
 }
 
