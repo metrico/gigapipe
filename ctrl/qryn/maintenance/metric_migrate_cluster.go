@@ -38,13 +38,14 @@ func distributedCluster(engine string) (string, bool) {
 // requiredDistTables are the legacy _dist tables a run on a cluster refuses without.
 var requiredDistTables = []string{legacySamples + distSuffix, legacySeries + distSuffix}
 
-// checkLegacyClusters refuses a run on runCluster when a required legacy _dist table is missing, or
-// when a legacy _dist table names a cluster, after expanding its macros from system.macros, that
-// system.clusters does not list.
-func checkLegacyClusters(ctx context.Context, exec Executor, runCluster string) error {
-	quoted := make([]string, len(legacyDistTables))
-	for i, t := range legacyDistTables {
-		quoted[i] = quoteString(t)
+// otherLegacyClusters returns the clusters the legacy _dist tables name, after expanding their
+// macros from system.macros, other than runCluster, sorted and distinct. It refuses a run on
+// runCluster when a required legacy _dist table is missing, when metrics_15s is visible but
+// metrics_15s_dist is not, or when a named cluster is not listed in system.clusters.
+func otherLegacyClusters(ctx context.Context, exec Executor, runCluster string) ([]string, error) {
+	quoted := []string{quoteString(legacyRollup)}
+	for _, t := range legacyDistTables {
+		quoted = append(quoted, quoteString(t))
 	}
 	type distTable struct{ name, engine string }
 	var tables []distTable
@@ -61,13 +62,22 @@ func checkLegacyClusters(ctx context.Context, exec Executor, runCluster string) 
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
+	}
+	visible := func(name string) bool {
+		return slices.ContainsFunc(tables, func(t distTable) bool { return t.name == name })
 	}
 	for _, name := range requiredDistTables {
-		if !slices.ContainsFunc(tables, func(t distTable) bool { return t.name == name }) {
-			return &MigrationRefusedError{Reason: fmt.Sprintf("%s does not exist; a run on cluster '%s' reads it", name, runCluster)}
+		if !visible(name) {
+			return nil, &MigrationRefusedError{Reason: fmt.Sprintf("%s does not exist; a run on cluster '%s' reads it", name, runCluster)}
 		}
 	}
+	if visible(legacyRollup) && !visible(legacyRollup+distSuffix) {
+		return nil, &MigrationRefusedError{Reason: fmt.Sprintf(
+			"%s does not exist or is not visible to the migrator user; a run on cluster '%s' reads %s through it",
+			legacyRollup+distSuffix, runCluster, legacyRollup)}
+	}
+	tables = slices.DeleteFunc(tables, func(t distTable) bool { return t.name == legacyRollup })
 	macros := map[string]string{}
 	err = exec.Rows(ctx, Statement{Op: opMacros, SQL: "SELECT macro, substitution FROM system.macros"},
 		func(scan func(dest ...any) error) error {
@@ -79,7 +89,7 @@ func checkLegacyClusters(ctx context.Context, exec Executor, runCluster string) 
 			return nil
 		})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	clusters := map[string]bool{}
 	err = exec.Rows(ctx, Statement{Op: opClusters, SQL: "SELECT DISTINCT cluster FROM system.clusters"},
@@ -92,12 +102,13 @@ func checkLegacyClusters(ctx context.Context, exec Executor, runCluster string) 
 			return nil
 		})
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var others []string
 	for _, t := range tables {
 		named, ok := distributedCluster(t.engine)
 		if !ok {
-			return &MigrationRefusedError{Reason: fmt.Sprintf("%s is not a Distributed table: %s", t.name, t.engine)}
+			return nil, &MigrationRefusedError{Reason: fmt.Sprintf("%s is not a Distributed table: %s", t.name, t.engine)}
 		}
 		var missing []string
 		cluster := clusterMacro.ReplaceAllStringFunc(named, func(m string) string {
@@ -108,16 +119,20 @@ func checkLegacyClusters(ctx context.Context, exec Executor, runCluster string) 
 			return v
 		})
 		if len(missing) > 0 {
-			return &MigrationRefusedError{Reason: fmt.Sprintf("%s names cluster '%s', whose macro %s is not in system.macros",
+			return nil, &MigrationRefusedError{Reason: fmt.Sprintf("%s names cluster '%s', whose macro %s is not in system.macros",
 				t.name, named, strings.Join(missing, ", "))}
 		}
 		if !clusters[cluster] {
 			if cluster != named {
-				return &MigrationRefusedError{Reason: fmt.Sprintf("%s names cluster '%s' ('%s'), which is not in system.clusters",
+				return nil, &MigrationRefusedError{Reason: fmt.Sprintf("%s names cluster '%s' ('%s'), which is not in system.clusters",
 					t.name, named, cluster)}
 			}
-			return &MigrationRefusedError{Reason: fmt.Sprintf("%s names cluster '%s', which is not in system.clusters", t.name, cluster)}
+			return nil, &MigrationRefusedError{Reason: fmt.Sprintf("%s names cluster '%s', which is not in system.clusters", t.name, cluster)}
+		}
+		if cluster != runCluster {
+			others = append(others, cluster)
 		}
 	}
-	return nil
+	slices.Sort(others)
+	return slices.Compact(others), nil
 }

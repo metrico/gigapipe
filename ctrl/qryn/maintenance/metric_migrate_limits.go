@@ -100,6 +100,12 @@ func limitError(err error) (int32, string, bool) {
 	return ex.Code, setting, ok
 }
 
+// accessDenied reports a ClickHouse ACCESS_DENIED error.
+func accessDenied(err error) bool {
+	var ex *clickhouse.Exception
+	return errors.As(err, &ex) && ex.Code == 497
+}
+
 // partError is the error of a split part; only these retry smaller.
 type partError struct{ err error }
 

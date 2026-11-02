@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/metrico/cloki-config/config"
 )
 
@@ -386,9 +388,9 @@ func clusterCatalog(engines map[string]string, macros map[string]string, cluster
 		var rows [][]any
 		switch s.Op {
 		case opDistTables:
-			for _, name := range []string{"metrics_15s_dist", "samples_v3_dist", "time_series_dist"} {
-				if e, ok := engines[name]; ok {
-					rows = append(rows, []any{name, e})
+			for _, name := range slices.Sorted(maps.Keys(engines)) {
+				if strings.Contains(s.SQL, "'"+name+"'") {
+					rows = append(rows, []any{name, engines[name]})
 				}
 			}
 		case opMacros:
@@ -470,6 +472,33 @@ func TestAClusterRunIsRefusedWithoutSamplesOrSeriesDistAndPassesWithoutRollupDis
 	})
 }
 
+func TestAClusterRunIsRefusedWhenMetrics15sIsVisibleButMetrics15sDistIsNot(t *testing.T) {
+	engines := map[string]string{
+		"samples_v3_dist":  distEngine("c1", "samples_v3"),
+		"time_series_dist": distEngine("c1", "time_series"),
+		"metrics_15s":      "ReplicatedMergeTree('/clickhouse/{shard}/metrics_15s', '{replica}')",
+	}
+	f, opts := newClusterRun("2026-10-02 08:00")
+	f.on = clusterCatalog(engines, nil, "c1")
+	_, err := checkThenMigrate(t, f, opts)
+	var refused *MigrationRefusedError
+	want := "database cloki: metrics_15s_dist does not exist or is not visible to the migrator user; " +
+		"a run on cluster 'c1' reads metrics_15s through it"
+	if !errors.As(err, &refused) || refused.Reason != want {
+		t.Fatalf("err = %v, want reason %q", err, want)
+	}
+	if f.value(leaseRecord) != "" {
+		t.Error("lease taken")
+	}
+
+	engines["metrics_15s_dist"] = distEngine("c1", "metrics_15s")
+	f, opts = newClusterRun("2026-10-02 08:00")
+	f.on = clusterCatalog(engines, nil, "c1")
+	if err := CheckMetricMigration(context.Background(), f, opts); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAClusterMacroInALegacyDistTableIsExpandedBeforeTheCheck(t *testing.T) {
 	engines := map[string]string{
 		"samples_v3_dist":  distEngine("{cluster}", "samples_v3"),
@@ -504,7 +533,7 @@ func TestAClusterMacroInALegacyDistTableIsExpandedBeforeTheCheck(t *testing.T) {
 	})
 }
 
-func TestAClusterCheckReadsTheLegacyDistTablesAndASingleNodeCheckReadsNothing(t *testing.T) {
+func TestAClusterCheckReadsTheLegacyDistTablesAndASingleNodeCheckOnlyProbesMetrics15s(t *testing.T) {
 	f, opts := newClusterRun("2026-10-02 08:00")
 	f.on = clusterCatalog(map[string]string{
 		"samples_v3_dist":  distEngine("c1", "samples_v3"),
@@ -514,15 +543,52 @@ func TestAClusterCheckReadsTheLegacyDistTablesAndASingleNodeCheckReadsNothing(t 
 		t.Fatal(err)
 	}
 	ss := f.statements()
-	if len(ss) != 3 || ss[0].Op != opDistTables || ss[1].Op != opMacros || ss[2].Op != opClusters {
+	if len(ss) != 4 || ss[0].Op != opDistTables || ss[1].Op != opMacros || ss[2].Op != opClusters || ss[3].SQL != "EXISTS TABLE metrics_15s_dist" {
 		t.Fatalf("statements = %v", ss)
 	}
 	if !strings.Contains(ss[0].SQL, "samples_v3_dist") || !strings.Contains(ss[0].SQL, "time_series_dist") || !strings.Contains(ss[0].SQL, "metrics_15s_dist") {
 		t.Errorf("tables read = %s", ss[0].SQL)
 	}
 	f, opts = newRun("2026-10-02 08:00")
-	if err := CheckMetricMigration(context.Background(), f, opts); err != nil || len(f.statements()) != 0 {
+	if err := CheckMetricMigration(context.Background(), f, opts); err != nil || len(f.statements()) != 1 || f.statements()[0].SQL != "EXISTS TABLE metrics_15s" {
 		t.Fatalf("err = %v, statements = %v", err, f.statements())
+	}
+}
+
+func TestARunIsRefusedWhenItsUserMayNotSeeMetrics15s(t *testing.T) {
+	denied := func(_ context.Context, s Statement) (any, error) {
+		if s.Op == opExists {
+			return nil, &clickhouse.Exception{Code: 497, Message: "Not enough privileges"}
+		}
+		return nil, nil
+	}
+	f, opts := newRun("2026-10-02 08:00")
+	f.on = denied
+	_, err := checkThenMigrate(t, f, opts)
+	var refused *MigrationRefusedError
+	want := "database cloki: metrics_15s is not visible to the migrator user; grant it SELECT on metrics_15s"
+	if !errors.As(err, &refused) || refused.Reason != want {
+		t.Fatalf("err = %v, want reason %q", err, want)
+	}
+	if len(f.statements()) != 1 || f.value(leaseRecord) != "" {
+		t.Errorf("statements = %v, lease %q", f.statements(), f.value(leaseRecord))
+	}
+
+	f, opts = newClusterRun("2026-10-02 08:00")
+	catalog := clusterCatalog(map[string]string{
+		"samples_v3_dist":  distEngine("c1", "samples_v3"),
+		"time_series_dist": distEngine("c1", "time_series"),
+	}, nil, "c1")
+	f.on = func(ctx context.Context, s Statement) (any, error) {
+		if s.Op == opExists {
+			return denied(ctx, s)
+		}
+		return catalog(ctx, s)
+	}
+	_, err = checkThenMigrate(t, f, opts)
+	want = "database cloki: metrics_15s_dist is not visible to the migrator user; grant it SELECT on metrics_15s_dist"
+	if !errors.As(err, &refused) || refused.Reason != want {
+		t.Fatalf("err = %v, want reason %q", err, want)
 	}
 }
 
@@ -559,7 +625,7 @@ func TestEveryClusterDatabaseIsCheckedBeforeAnyIsMigrated(t *testing.T) {
 		t.Fatalf("reports %v, err = %v, want reason %q", reports, err, want)
 	}
 	for _, s := range ok.statements() {
-		if s.Op != opDistTables && s.Op != opMacros && s.Op != opClusters {
+		if s.Op != opDistTables && s.Op != opMacros && s.Op != opClusters && s.Op != opExists {
 			t.Errorf("first database ran %s", step(s))
 		}
 	}
@@ -967,5 +1033,43 @@ func TestA15sClusterUnitCountsAndRebuildsThroughDist(t *testing.T) {
 				t.Errorf("15s delete = %s", s.SQL)
 			}
 		}
+	}
+}
+
+func TestAClusterRunNamesEachLegacyClusterThatDiffersFromClusterNameOnce(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		engines map[string]string
+		lines   []string
+	}{
+		{name: "same cluster", engines: map[string]string{
+			"samples_v3_dist":  distEngine("{cluster}", "samples_v3"),
+			"time_series_dist": distEngine("c1", "time_series"),
+			"metrics_15s_dist": distEngine("c1", "metrics_15s"),
+		}},
+		{name: "one other cluster", engines: map[string]string{
+			"samples_v3_dist":  distEngine("{legacy}", "samples_v3"),
+			"time_series_dist": distEngine("old", "time_series"),
+			"metrics_15s_dist": distEngine("old", "metrics_15s"),
+		}, lines: []string{"metric migration: legacy cluster: 'old' (CLUSTER_NAME 'c1')"}},
+		{name: "two other clusters", engines: map[string]string{
+			"samples_v3_dist":  distEngine("old", "samples_v3"),
+			"time_series_dist": distEngine("c1", "time_series"),
+			"metrics_15s_dist": distEngine("older", "metrics_15s"),
+		}, lines: []string{
+			"metric migration: legacy cluster: 'old' (CLUSTER_NAME 'c1')",
+			"metric migration: legacy cluster: 'older' (CLUSTER_NAME 'c1')",
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f, opts := newClusterRun("2026-10-02 08:00")
+			log := &gateLogger{}
+			opts.Logger = log
+			f.on = clusterCatalog(c.engines, map[string]string{"cluster": "c1", "legacy": "old"}, "c1", "old", "older")
+			if _, err := checkThenMigrate(t, f, opts); err != nil {
+				t.Fatal(err)
+			}
+			sameStrings(t, "legacy cluster lines", log.matching("legacy cluster"), c.lines)
+		})
 	}
 }

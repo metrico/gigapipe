@@ -182,20 +182,37 @@ var errLeaseLost = errors.New("the metric migration lease passed to another inst
 // errLeaseRenew wraps an error renewing the lease.
 var errLeaseRenew = errors.New("renew the metric migration lease")
 
-// CheckMetricMigration refuses a run on a cluster that lacks samples_v3_dist or time_series_dist,
-// or whose legacy _dist tables name a cluster the server does not define; a single-node run
-// passes unread.
+// CheckMetricMigration refuses a run whose user may not see metrics_15s (metrics_15s_dist on a
+// cluster), and a run on a cluster that lacks samples_v3_dist or time_series_dist, that sees
+// metrics_15s but not metrics_15s_dist, or whose legacy _dist tables name a cluster the server
+// does not define. It logs each defined legacy cluster other than CLUSTER_NAME.
 func CheckMetricMigration(ctx context.Context, exec Executor, opts MetricMigrationOptions) error {
-	if opts.Cluster == "" {
-		return nil
-	}
-	err := checkLegacyClusters(ctx, exec, opts.Cluster)
-	var refused *MigrationRefusedError
-	if errors.As(err, &refused) {
-		return &MigrationRefusedError{Reason: fmt.Sprintf("database %s: %s", opts.Database, refused.Reason)}
-	}
-	if err != nil {
+	refuse := func(err error) error {
+		var refused *MigrationRefusedError
+		if errors.As(err, &refused) {
+			return &MigrationRefusedError{Reason: fmt.Sprintf("database %s: %s", opts.Database, refused.Reason)}
+		}
 		return &MigrationFailedError{Database: opts.Database, Step: opClusters, Err: err}
+	}
+	var others []string
+	if opts.Cluster != "" {
+		var err error
+		if others, err = otherLegacyClusters(ctx, exec, opts.Cluster); err != nil {
+			return refuse(err)
+		}
+	}
+	rollup := tablesFor(opts.Cluster).rollup
+	var exists uint8
+	if err := exec.Scalar(ctx, Statement{Op: opExists, Table: rollup, SQL: existsSQL(rollup)}, &exists); err != nil {
+		if accessDenied(err) {
+			return refuse(&MigrationRefusedError{Reason: fmt.Sprintf(
+				"%s is not visible to the migrator user; grant it SELECT on %s", rollup, rollup)})
+		}
+		return &MigrationFailedError{Database: opts.Database, Step: opExists, Err: err}
+	}
+	log := opts.withDefaults().Logger
+	for _, c := range others {
+		log.Info(fmt.Sprintf("metric migration: legacy cluster: '%s' (CLUSTER_NAME '%s')", c, opts.Cluster))
 	}
 	return nil
 }
