@@ -566,10 +566,10 @@ func TestEveryUnitStepSplitPartAndRunStatementPassesTheGateAndLogsItsHeartbeat(t
 	failed := false
 	r.f.on = recoveryRawGrowth(10, 17, 3, func(ctx context.Context, s Statement) (any, error) {
 		switch {
-		case s.Op == opCopy && s.QueryID == id && !failed:
+		case s.Op == opRebuild && s.QueryID == id && !failed:
 			failed = true
 			return nil, limitHit(241)
-		case s.Op == opCopy && s.QueryID == id && s.Parts == 2 && s.Part == 1,
+		case s.Op == opRebuild && s.QueryID == id && s.Table == metricTiers[0].Table && s.Parts == 2 && s.Part == 1,
 			s.Op == opSeries:
 			r.clock.t = r.clock.t.Add(61 * time.Second)
 			s.Progress(500, 0)
@@ -599,12 +599,12 @@ func TestEveryUnitStepSplitPartAndRunStatementPassesTheGateAndLogsItsHeartbeat(t
 		}
 		prev = s.Op
 	}
-	for _, op := range []string{opSetting, opExists, op15sHours, opCount, opCopy, "copy part", "rebuild part", opDelete, opRebuild, opSeries, opMetadata} {
+	for _, op := range []string{opSetting, opExists, op15sHours, opCount, opCopy, "rebuild part", opDelete, opRebuild, opSeries, opMetadata} {
 		if !seen[op] {
 			t.Errorf("no gated %s", op)
 		}
 	}
-	if got := r.log.matching(id+" copy ", "running 1m1s: 500 rows read"); len(got) != 1 {
+	if got := r.log.matching(id+" rebuild ", "running 1m1s: 500 rows read"); len(got) != 1 {
 		t.Errorf("split part heartbeat = %q", r.log.matching("rows read"))
 	}
 	if got := r.log.matching(runQueryID("cloki", opSeries)+" series ", "500 rows read"); len(got) != 1 {

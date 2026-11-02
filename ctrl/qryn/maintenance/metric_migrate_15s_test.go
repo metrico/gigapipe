@@ -96,8 +96,9 @@ func TestALaterRunSkipsThe15sHoursDoneAndRecoversTheStartedOnes(t *testing.T) {
 	sameStrings(t, "recoveries", recoveries(plan.units), []string{"10-02 05:00", "10-02 04:00"})
 }
 
-// with15s answers metrics_15s as present with metric rows in the hours ending at ends, and
-// each unit's raw count with 0 before its copy and rows after it.
+// with15s answers metrics_15s as present with metric rows in the hours ending at ends, each
+// 15s source count and tier count with rows, and each unit's raw count with 0 before its copy
+// and rows after it.
 func with15s(f *fakeExec, rows uint64, ends ...string) {
 	var mu sync.Mutex
 	counted := map[string]bool{}
@@ -112,6 +113,9 @@ func with15s(f *fakeExec, rows uint64, ends ...string) {
 			}
 			return out, nil
 		case opCount:
+			if s.Table != rawSamples {
+				return rows, nil
+			}
 			mu.Lock()
 			defer mu.Unlock()
 			if counted[s.QueryID] {
@@ -136,7 +140,7 @@ func steps15sOf(f *fakeExec, kind, to string) []string {
 	return out
 }
 
-func TestA15sUnitGoesThroughTheRawUnitSequence(t *testing.T) {
+func TestA15sUnitCountsItsSourceThenRebuildsEachTier(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	with15s(f, 240, "2026-10-02 08:00", "2026-10-02 06:00")
 	opts.RollupDays = 30
@@ -147,19 +151,44 @@ func TestA15sUnitGoesThroughTheRawUnitSequence(t *testing.T) {
 	if report.Units != 3 {
 		t.Fatalf("units = %d", report.Units)
 	}
-	raw := steps15sOf(f, unitRaw, "2026-10-02 09:00")
-	for i, s := range raw {
-		raw[i] = strings.Replace(s, rawRecord("2026-10-02 09:00"), rollupRecord("2026-10-02 06:00"), 1)
-	}
-	sameStrings(t, "15s steps", steps15sOf(f, unit15s, "2026-10-02 06:00"), raw)
+	rec := rollupRecord("2026-10-02 06:00")
+	sameStrings(t, "15s steps", steps15sOf(f, unit15s, "2026-10-02 06:00"), []string{
+		"record " + rec + "=started",
+		"count metrics_15s",
+		"count metrics_5m",
+		"delete metrics_5m",
+		"rebuild metrics_5m",
+		"count metrics_1h",
+		"delete metrics_1h",
+		"rebuild metrics_1h",
+		"record " + rec + "=done",
+	})
 	for _, s := range f.statements() {
-		if s.Op == opCopy && s.QueryID == unitQueryID("cloki", migrationUnit{kind: unit15s, to: at("2026-10-02 08:00")}) &&
-			!strings.Contains(s.SQL, legacyRollup) {
-			t.Errorf("15s copy reads %s", s.SQL)
+		if s.QueryID == unitQueryID("cloki", migrationUnit{kind: unit15s, to: at("2026-10-02 08:00")}) && s.Table == rawSamples {
+			t.Errorf("15s unit touches raw: %s", step(s))
 		}
 	}
 	if f.value(rollupRecord("2026-10-02 08:00")) != unitDone {
 		t.Error("15s unit not recorded done")
+	}
+}
+
+func TestA15sUnitWithNoSourceRowsIsDoneWithoutTouchingTheTiers(t *testing.T) {
+	f, opts := newRun("2026-10-02 08:00")
+	with15s(f, 0, "2026-10-02 06:00")
+	opts.RollupDays = 30
+	report, err := migrate(t, f, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := rollupRecord("2026-10-02 06:00")
+	sameStrings(t, "15s steps", steps15sOf(f, unit15s, "2026-10-02 06:00"), []string{
+		"record " + rec + "=started",
+		"count metrics_15s",
+		"record " + rec + "=done",
+	})
+	if report.Rollup15sSamples != 0 {
+		t.Errorf("15s = %d", report.Rollup15sSamples)
 	}
 }
 
@@ -246,20 +275,35 @@ func TestAFirstRunPlansFromOneReadingOfTheClock(t *testing.T) {
 	}
 }
 
-func TestThe15sCopyTakesEachRowBelowTheFloorAsOneSampleAtItsStart(t *testing.T) {
+func TestThe15sRebuildTakesEachRowBelowTheFloorAsOneSampleAtItsStart(t *testing.T) {
 	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
-	sql := copy15sSQL(u, at("2026-10-02 07:00"), 1, 0)
+	sql := rebuild15sTierSQL(metricTiers[0], u, at("2026-10-02 07:00"), 1, 0)
 	for _, want := range []string{
+		"INSERT INTO metrics_5m (" + tierColumns + ")",
+		"prev.1 AS prev_timestamp, prev.2 AS prev_value, 1 AS aggregate",
+		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev",
+		"FROM (SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, argMaxMerge(last) AS value",
 		"FROM " + legacyRollup + " WHERE " + legacyMetricRows,
 		fmt.Sprintf("timestamp_ns > %d AND timestamp_ns <= %d", at("2026-10-02 05:00").UnixNano(), at("2026-10-02 06:00").UnixNano()),
-		fmt.Sprintf("timestamp_ns < %d", at("2026-10-02 07:00").UnixNano()),
-		"fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp",
-		"argMaxMerge(last) AS value",
-		"GROUP BY fingerprint, timestamp_ns",
+		fmt.Sprintf("timestamp_ns < %d GROUP BY fingerprint, timestamp_ns)))", at("2026-10-02 07:00").UnixNano()),
 	} {
 		if !strings.Contains(sql, want) {
-			t.Errorf("copy lacks %q: %s", want, sql)
+			t.Errorf("rebuild lacks %q: %s", want, sql)
 		}
+	}
+	if strings.Contains(sql, rawSamples) {
+		t.Errorf("15s rebuild reads raw: %s", sql)
+	}
+}
+
+func TestThe15sCountReadsTheWholeHoursSource(t *testing.T) {
+	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
+	floor := at("2026-10-02 07:00")
+	want := fmt.Sprintf("SELECT count() FROM (SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, "+
+		"argMaxMerge(last) AS value FROM metrics_15s WHERE type IN (2, 0) AND timestamp_ns > %d AND timestamp_ns <= %d AND timestamp_ns < %d "+
+		"GROUP BY fingerprint, timestamp_ns)", u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano())
+	if sql := count15sSQL(u, floor); sql != want {
+		t.Errorf("count = %s", sql)
 	}
 }
 
@@ -275,7 +319,7 @@ func TestThe15sHoursQueryBoundsTheRowsByFloorAndLifetime(t *testing.T) {
 	}
 }
 
-func TestA15sCopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
+func TestA15sRebuildOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	with15s(f, 240, "2026-10-02 06:00")
 	opts.RollupDays = 30
@@ -283,7 +327,7 @@ func TestA15sCopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 	id := unitQueryID("cloki", u)
 	base, failed := f.on, false
 	f.on = func(ctx context.Context, s Statement) (any, error) {
-		if s.Op == opCopy && s.QueryID == id && !failed {
+		if s.Op == opRebuild && s.QueryID == id && !failed {
 			failed = true
 			return nil, limitHit(241)
 		}
@@ -299,23 +343,21 @@ func TestA15sCopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 		}
 		if s.Parts > 1 {
 			steps = append(steps, fmt.Sprintf("%s %d/%d", step(s), s.Part, s.Parts))
-			if !strings.Contains(s.SQL, splitWhere(s.Parts, s.Part)) {
-				t.Errorf("part %d/%d lacks its share: %s", s.Part, s.Parts, s.SQL)
+			if !strings.Contains(s.SQL, splitWhere(s.Parts, s.Part)+" GROUP BY") {
+				t.Errorf("part %d/%d lacks its share before grouping: %s", s.Part, s.Parts, s.SQL)
 			}
-			if s.Op == opCopy && !strings.Contains(s.SQL, "FROM "+legacyRollup) {
-				t.Errorf("15s copy part reads %s", s.SQL)
+			if !strings.Contains(s.SQL, "FROM "+legacyRollup) {
+				t.Errorf("15s rebuild part reads %s", s.SQL)
 			}
 		} else {
 			steps = append(steps, step(s))
 		}
 	}
 	sameStrings(t, "15s split steps", steps, []string{
-		"count metric_samples",
-		"copy metric_samples",
-		"copy metric_samples 0/2",
-		"copy metric_samples 1/2",
-		"count metric_samples",
+		"count metrics_15s",
 		"count metrics_5m",
+		"delete metrics_5m",
+		"rebuild metrics_5m",
 		"delete metrics_5m",
 		"rebuild metrics_5m 0/2",
 		"rebuild metrics_5m 1/2",
@@ -326,13 +368,5 @@ func TestA15sCopyOverTheMemoryLimitRetriesInTwoParts(t *testing.T) {
 	})
 	if f.value(rollupRecord("2026-10-02 06:00")) != unitDone {
 		t.Error("15s unit not recorded done")
-	}
-}
-
-func TestA15sCopyPartSelectsItsShareBeforeGrouping(t *testing.T) {
-	u := migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")}
-	sql := copySQL(u, at("2026-10-02 07:00"), 4, 3)
-	if !strings.Contains(sql, splitWhere(4, 3)+" GROUP BY") {
-		t.Errorf("15s copy part: %s", sql)
 	}
 }

@@ -235,7 +235,7 @@ func recoveryRawGrowth(before, after, buckets uint64, next func(context.Context,
 	}
 }
 
-func TestA15sUnitWithAZeroDifferenceIsRecordedDoneWithoutTouchingTheTiers(t *testing.T) {
+func TestA15sUnitWithNoSourceRowsIsNoNewData(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	with15s(f, 0, "2026-10-02 06:00")
 	report, err := migrate(t, f, opts)
@@ -245,9 +245,7 @@ func TestA15sUnitWithAZeroDifferenceIsRecordedDoneWithoutTouchingTheTiers(t *tes
 	name := rollupRecord("2026-10-02 06:00")
 	sameStrings(t, "15s steps", steps15sOf(f, unit15s, "2026-10-02 06:00"), []string{
 		"record " + name + "=started",
-		"count metric_samples",
-		"copy metric_samples",
-		"count metric_samples",
+		"count metrics_15s",
 		"record " + name + "=done",
 	})
 	if report.Rollup15sSamples != 0 || report.Recovered != 0 || !report.NoNewData() {
@@ -255,7 +253,7 @@ func TestA15sUnitWithAZeroDifferenceIsRecordedDoneWithoutTouchingTheTiers(t *tes
 	}
 }
 
-func TestAStarted15sUnitRebuildsWithAZeroDifferenceAndCountsAsRecovered(t *testing.T) {
+func TestAStarted15sUnitWithNoSourceRowsIsDoneAndCountsAsRecovered(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	with15s(f, 0, "2026-10-02 06:00")
 	name := rollupRecord("2026-10-02 06:00")
@@ -266,13 +264,7 @@ func TestAStarted15sUnitRebuildsWithAZeroDifferenceAndCountsAsRecovered(t *testi
 	}
 	sameStrings(t, "15s steps", steps15sOf(f, unit15s, "2026-10-02 06:00"), []string{
 		"record " + name + "=started",
-		"count metric_samples",
-		"copy metric_samples",
-		"count metric_samples",
-		"count metrics_5m",
-		"rebuild metrics_5m",
-		"count metrics_1h",
-		"rebuild metrics_1h",
+		"count metrics_15s",
 		"record " + name + "=done",
 	})
 	if report.Recovered != 1 || report.Rollup15sSamples != 0 || report.NoNewData() {
@@ -280,19 +272,39 @@ func TestAStarted15sUnitRebuildsWithAZeroDifferenceAndCountsAsRecovered(t *testi
 	}
 }
 
-func TestA15sUnitsDifferenceAloneIsNewData(t *testing.T) {
+func TestAStarted15sUnitRedoesItsCountDeleteAndRebuild(t *testing.T) {
+	f, opts := newRun("2026-10-02 08:00")
+	with15s(f, 240, "2026-10-02 06:00")
+	name := rollupRecord("2026-10-02 06:00")
+	f.record(name, unitStarted)
+	report, err := migrate(t, f, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameStrings(t, "15s steps", steps15sOf(f, unit15s, "2026-10-02 06:00"), []string{
+		"record " + name + "=started",
+		"count metrics_15s",
+		"count metrics_5m",
+		"delete metrics_5m",
+		"rebuild metrics_5m",
+		"count metrics_1h",
+		"delete metrics_1h",
+		"rebuild metrics_1h",
+		"record " + name + "=done",
+	})
+	if report.Recovered != 1 || report.Rollup15sSamples != 240 {
+		t.Errorf("report = %+v", report)
+	}
+}
+
+func TestA15sUnitsSourceCountAloneIsNewData(t *testing.T) {
 	f, opts := newRun("2026-10-02 08:00")
 	with15s(f, 0, "2026-10-02 06:00")
 	base := f.on
 	id := unitQueryID("cloki", migrationUnit{kind: unit15s, from: at("2026-10-02 05:00"), to: at("2026-10-02 06:00")})
-	counted := false
 	f.on = func(ctx context.Context, s Statement) (any, error) {
-		if s.Op == opCount && s.Table == rawSamples && s.QueryID == id {
-			if counted {
-				return uint64(240), nil
-			}
-			counted = true
-			return uint64(0), nil
+		if s.Op == opCount && s.Table == legacyRollup && s.QueryID == id {
+			return uint64(240), nil
 		}
 		return base(ctx, s)
 	}

@@ -153,9 +153,8 @@ func (m *migration) unitStatement(u migrationUnit, op, table, sql string) Statem
 	return s
 }
 
-// unit records u started, copies its samples into raw, rebuilds each tier's buckets of the hour
-// from raw and records it done. It returns the raw samples the copy added; when it added none
-// and u is not a recovery unit, the rebuild is skipped.
+// unit records u started, fills its hour and records it done. It returns the samples it
+// filled the hour with.
 func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	held, err := m.lease.held(ctx)
 	if err != nil {
@@ -167,6 +166,24 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 	if err = m.records.put(ctx, u.name(), unitStarted); err != nil {
 		return 0, err
 	}
+	fill := m.rawUnit
+	if u.kind == unit15s {
+		fill = m.unit15s
+	}
+	rows, err := fill(ctx, u)
+	if err != nil {
+		return 0, err
+	}
+	if err = m.records.put(ctx, u.name(), unitDone); err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
+// rawUnit copies the unit's samples into raw and rebuilds each tier's buckets of the hour from
+// raw. It returns the raw samples the copy added; when it added none and u is not a recovery
+// unit, the rebuild is skipped.
+func (m *migration) rawUnit(ctx context.Context, u migrationUnit) (uint64, error) {
 	before, err := m.countRaw(ctx, u)
 	if err != nil {
 		return 0, err
@@ -184,16 +201,35 @@ func (m *migration) unit(ctx context.Context, u migrationUnit) (uint64, error) {
 		rows = after - before
 	}
 	if rows > 0 || u.recovery {
-		for _, tier := range metricTiers {
-			if err = m.tier(ctx, u, tier, &split); err != nil {
-				return 0, err
-			}
+		if err = m.tiers(ctx, u, &split); err != nil {
+			return 0, err
 		}
 	}
-	if err = m.records.put(ctx, u.name(), unitDone); err != nil {
+	return rows, nil
+}
+
+// unit15s rebuilds each tier's buckets of the hour from the unit's metrics_15s source samples,
+// skipping the rebuild when there are none. It returns the source samples.
+func (m *migration) unit15s(ctx context.Context, u migrationUnit) (uint64, error) {
+	var rows uint64
+	if err := m.exec.Scalar(ctx, m.unitStatement(u, opCount, legacyRollup, count15sSQL(u, m.floor)), &rows); err != nil {
 		return 0, err
 	}
-	return rows, nil
+	if rows == 0 {
+		return 0, nil
+	}
+	split := m.opts.Split
+	return rows, m.tiers(ctx, u, &split)
+}
+
+// tiers rebuilds each tier's buckets of the unit's hour, carrying the split from tier to tier.
+func (m *migration) tiers(ctx context.Context, u migrationUnit, split *int) error {
+	for _, tier := range metricTiers {
+		if err := m.tier(ctx, u, tier, split); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *migration) countRaw(ctx context.Context, u migrationUnit) (uint64, error) {

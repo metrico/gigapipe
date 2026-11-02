@@ -116,7 +116,7 @@ type MetricMigrationReport struct {
 	Database   string
 	Units      int
 	RawSamples uint64
-	// Rollup15sSamples are the approximate samples copied from metrics_15s.
+	// Rollup15sSamples are the approximate samples read from metrics_15s into the tiers.
 	Rollup15sSamples uint64
 	Series           uint64
 	Metadata         uint64
@@ -131,7 +131,7 @@ func (r MetricMigrationReport) Summary() string {
 		r.Database, r.RawSamples, r.Rollup15sSamples, r.Series, r.Metadata, r.Recovered, r.Duration.Round(time.Millisecond))
 }
 
-// NoNewData reports a run that copied no raw or 15s samples and recovered no unit.
+// NoNewData reports a run that migrated no raw or 15s samples and recovered no unit.
 func (r MetricMigrationReport) NoNewData() bool {
 	return r.RawSamples == 0 && r.Rollup15sSamples == 0 && r.Recovered == 0
 }

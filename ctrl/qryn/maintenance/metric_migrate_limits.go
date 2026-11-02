@@ -111,10 +111,10 @@ func (m *migration) parts(ctx context.Context, u migrationUnit, op, table string
 	return nil
 }
 
-// copy copies the unit's samples into raw, split into *n parts.
+// copy copies the raw unit's samples into raw, split into *n parts.
 func (m *migration) copy(ctx context.Context, u migrationUnit, n *int) error {
 	return m.splitting(u, n, func(parts int) error {
-		return m.parts(ctx, u, opCopy, rawSamples, parts, func(p int) string { return copySQL(u, m.floor, parts, p) })
+		return m.parts(ctx, u, opCopy, rawSamples, parts, func(p int) string { return copyRawSQL(u, parts, p) })
 	})
 }
 
@@ -136,8 +136,16 @@ func (m *migration) tier(ctx context.Context, u migrationUnit, tier metricTier, 
 			}
 		}
 		retry = true
-		return m.parts(ctx, u, opRebuild, tier.Table, parts, func(p int) string { return rebuildTierSQL(tier, u, parts, p) })
+		return m.parts(ctx, u, opRebuild, tier.Table, parts, func(p int) string { return m.rebuildSQL(tier, u, parts, p) })
 	})
+}
+
+// rebuildSQL rebuilds the tier from raw for a raw unit and from metrics_15s for a 15s unit.
+func (m *migration) rebuildSQL(tier metricTier, u migrationUnit, parts, part int) string {
+	if u.kind == unit15s {
+		return rebuild15sTierSQL(tier, u, m.floor, parts, part)
+	}
+	return rebuildTierSQL(tier, u, parts, part)
 }
 
 // warn logs msg at warning level when the logger has one.

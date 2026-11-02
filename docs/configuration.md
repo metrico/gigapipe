@@ -99,7 +99,7 @@ A PromQL query is served whole from one tier. While its earliest read (the query
 
 ### Upgrading a deployment with metric history
 
-`MODE=migrate_metrics` copies the metric history of the legacy tables into the metric tables: metric rows of `samples_v3` into `metric_samples` and both tiers (`metrics_5m`, `metrics_1h`), `time_series` into `metric_series` and `metric_metadata`, and `metrics_15s` history older than `SAMPLES_DAYS` as approximate samples. Each run is incremental: it copies what earlier runs have not, prints a summary and exits. The legacy tables are only read; their rows age out by their TTL.
+`MODE=migrate_metrics` copies the metric history of the legacy tables into the metric tables: metric rows of `samples_v3` into `metric_samples` and both tiers (`metrics_5m`, `metrics_1h`), `time_series` into `metric_series` and `metric_metadata`, and `metrics_15s` history older than `SAMPLES_DAYS` as approximate samples into both tiers only, never into `metric_samples`. Each run is incremental: it copies what earlier runs have not, prints a summary and exits. The legacy tables are only read; their rows age out by their TTL.
 
 The steps below are for a single ClickHouse server. A database with `CLUSTER_NAME` set is refused with exit code 2.
 
@@ -115,7 +115,7 @@ A run prints one summary line per database to stdout:
 metric migration: <database>: <n> raw samples, <n> approximate 15s samples, <n> series, <n> metadata, <n> recovered units in <duration>
 ```
 
-followed by `metric migration: no new data to migrate` when it copied no raw or 15s samples and recovered no unit. Its exit code says what to do next:
+followed by `metric migration: no new data to migrate` when it migrated no raw or 15s samples and recovered no unit. Its exit code says what to do next:
 
 | Exit | Printed | What to do |
 |---|---|---|
@@ -196,8 +196,8 @@ FROM settings WHERE type = 'metric_migrate' GROUP BY fingerprint ORDER BY name
 - A legacy row that arrives below `watermark − MIGRATE_METRICS_LOOKBACK` after its hour was copied is not migrated. To cover a slow swap, raise `MIGRATE_METRICS_LOOKBACK` for the re-runs.
 - A late live sample at or before now − `MIGRATE_METRICS_MARGIN` that arrives between a unit's tier delete and its rebuild is counted twice in the tiers.
 - A sample that lands in a unit's range between its two raw counts is reported as migrated.
-- History in `metrics_15s` beyond `SAMPLES_DAYS` is approximate: each 15-second row becomes one sample at its start, carrying its last value. That is exact at a 15-second scrape interval; a faster scrape undercounts samples and sums.
-- A series with no `time_series` labels left has its 15s history copied but cannot be queried.
+- History in `metrics_15s` beyond `SAMPLES_DAYS` is approximate: each 15-second row becomes one sample at its start, carrying its last value, aggregated into the tiers. That is exact at a 15-second scrape interval; a faster scrape undercounts samples and sums.
+- A series with no `time_series` labels left has its 15s history in the tiers but cannot be queried.
 
 ## Mode
 

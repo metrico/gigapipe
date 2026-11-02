@@ -76,24 +76,19 @@ func copyRawSQL(u migrationUnit, parts, part int) string {
 		splitWhere(parts, part))
 }
 
-// copySQL copies split part of the unit's samples into raw: samples_v3 rows for a raw unit,
-// metrics_15s rows lying wholly below the floor for a 15s unit.
-func copySQL(u migrationUnit, floor time.Time, parts, part int) string {
-	if u.kind == unit15s {
-		return copy15sSQL(u, floor, parts, part)
-	}
-	return copyRawSQL(u, parts, part)
-}
-
-// copy15sSQL turns each metrics_15s metric row of split part in the unit's hour starting
+// source15sSQL turns each metrics_15s metric row of split part in the unit's hour starting
 // before the floor into one sample at its start, carrying its last value.
-func copy15sSQL(u migrationUnit, floor time.Time, parts, part int) string {
-	return fmt.Sprintf("INSERT INTO %s (fingerprint, timestamp, value) "+
-		"SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, argMaxMerge(last) AS value "+
+func source15sSQL(u migrationUnit, floor time.Time, parts, part int) string {
+	return fmt.Sprintf("SELECT fingerprint, fromUnixTimestamp64Milli(intDiv(timestamp_ns, 1000000)) AS timestamp, argMaxMerge(last) AS value "+
 		"FROM %s WHERE %s AND timestamp_ns > %d AND timestamp_ns <= %d AND timestamp_ns < %d%s "+
 		"GROUP BY fingerprint, timestamp_ns",
-		rawSamples, legacyRollup, legacyMetricRows, u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano(),
+		legacyRollup, legacyMetricRows, u.from.UnixNano(), u.to.UnixNano(), floor.UnixNano(),
 		splitWhere(parts, part))
+}
+
+// count15sSQL counts the 15s unit's source samples.
+func count15sSQL(u migrationUnit, floor time.Time) string {
+	return fmt.Sprintf("SELECT count() FROM (%s)", source15sSQL(u, floor, 1, 0))
 }
 
 // rollup15sHoursSQL lists, newest first, the hours (H − 1h, H] holding metrics_15s metric rows
@@ -117,15 +112,25 @@ func deleteTierSQL(tier metricTier, u migrationUnit) string {
 	return fmt.Sprintf("DELETE FROM %s WHERE %s", tier.Table, msBounds("bucket", u.from, u.to))
 }
 
-// rebuildTierSQL aggregates the raw samples of split part in the unit's hour into the tier. Each
-// sample's predecessor is the latest earlier non-stale sample of its series within the hour.
+// rebuildTierSQL aggregates the raw samples of split part in the unit's hour into the tier.
 func rebuildTierSQL(tier metricTier, u migrationUnit, parts, part int) string {
-	input := fmt.Sprintf("(SELECT fingerprint, timestamp, value, "+
-		"prev.1 AS prev_timestamp, prev.2 AS prev_value, 1 AS aggregate "+
-		"FROM (SELECT fingerprint, timestamp, value, "+
-		"argMaxIf((timestamp, value), timestamp, reinterpretAsUInt64(value) != 0x7ff0000000000002) "+
-		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev "+
-		"FROM %s FINAL PREWHERE %s%s))", rawSamples, msBounds("timestamp", u.from, u.to), splitWhere(parts, part))
+	return tierRebuildSQL(tier, fmt.Sprintf("%s FINAL PREWHERE %s%s", rawSamples, msBounds("timestamp", u.from, u.to), splitWhere(parts, part)))
+}
+
+// rebuild15sTierSQL aggregates the 15s unit's source samples of split part into the tier.
+func rebuild15sTierSQL(tier metricTier, u migrationUnit, floor time.Time, parts, part int) string {
+	return tierRebuildSQL(tier, "("+source15sSQL(u, floor, parts, part)+")")
+}
+
+// tierRebuildSQL aggregates the samples of from into the tier. Each sample's predecessor is the
+// latest earlier non-stale sample of its series in from.
+func tierRebuildSQL(tier metricTier, from string) string {
+	input := "(SELECT fingerprint, timestamp, value, " +
+		"prev.1 AS prev_timestamp, prev.2 AS prev_value, 1 AS aggregate " +
+		"FROM (SELECT fingerprint, timestamp, value, " +
+		"argMaxIf((timestamp, value), timestamp, reinterpretAsUInt64(value) != 0x7ff0000000000002) " +
+		"OVER (PARTITION BY fingerprint ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev " +
+		"FROM " + from + "))"
 	return fmt.Sprintf("INSERT INTO %s (%s) %s", tier.Table, tierColumns, tierAggregation(tier, input))
 }
 
