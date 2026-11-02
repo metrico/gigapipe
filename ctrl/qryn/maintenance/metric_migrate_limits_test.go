@@ -18,11 +18,16 @@ import (
 func limitedStatements(f *fakeExec) []Statement {
 	var out []Statement
 	for _, s := range f.statements() {
-		if s.Op != opRecord && s.Op != opRecords && s.Op != opRecordAge && s.Op != opGate && s.Op != opGateTable {
+		if !bookkeeping(s) {
 			out = append(out, s)
 		}
 	}
 	return out
+}
+
+// bookkeeping reports whether s is one of the run-state records and the back-off gate's reads.
+func bookkeeping(s Statement) bool {
+	return s.Op == opRecord || s.Op == opRecords || s.Op == opRecordAge || s.Op == opGate || s.Op == opGateTable
 }
 
 // requireTierSteps fails t unless each tier saw a count, a delete and a rebuild.
@@ -61,9 +66,19 @@ func TestEveryStatementCarriesTheLimitsAndNoPriority(t *testing.T) {
 		"max_bytes_before_external_sort":            100 * mib,
 		"max_bytes_before_external_group_by":        200 * mib,
 		"max_temporary_data_on_disk_size_for_query": 7 * gib,
+		"insert_deduplicate":                        0,
 	}
 	ss := limitedStatements(f)
 	requireTierSteps(t, ss)
+	seen := map[string]bool{}
+	for _, s := range ss {
+		seen[s.Op] = true
+	}
+	for _, op := range []string{opCopy, opSeries, opMetadata} {
+		if !seen[op] {
+			t.Fatalf("no %s statement", op)
+		}
+	}
 	for _, s := range ss {
 		for k, v := range want {
 			if s.Settings[k] != v {
@@ -73,8 +88,16 @@ func TestEveryStatementCarriesTheLimitsAndNoPriority(t *testing.T) {
 		if _, ok := s.Settings["priority"]; ok {
 			t.Errorf("%s sends priority", step(s))
 		}
+		if _, ok := s.Settings["insert_deduplication_token"]; ok {
+			t.Errorf("%s sends a deduplication token", step(s))
+		}
 		if s.Op == opDelete && s.Settings["mutations_sync"] != 2 {
 			t.Errorf("%s: mutations_sync = %v", step(s), s.Settings["mutations_sync"])
+		}
+	}
+	for _, s := range f.statements() {
+		if _, ok := s.Settings["insert_deduplicate"]; ok && bookkeeping(s) {
+			t.Errorf("%s: run-state or gate statement carries insert_deduplicate", step(s))
 		}
 	}
 }

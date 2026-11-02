@@ -30,7 +30,7 @@ func (m *migration) probeLimits(ctx context.Context) error {
 	return nil
 }
 
-// limitSettings are the per-query limits every unit and run statement carries.
+// limitSettings are the per-query limits every unit and run statement carries, with insert deduplication off.
 func (m *migration) limitSettings() map[string]any {
 	o := m.opts
 	s := map[string]any{
@@ -41,6 +41,7 @@ func (m *migration) limitSettings() map[string]any {
 		"max_bytes_before_external_sort":            o.ExternalSort,
 		"max_bytes_before_external_group_by":        o.ExternalGroupBy,
 		"max_temporary_data_on_disk_size_for_query": o.MaxSpill,
+		"insert_deduplicate":                        0,
 	}
 	if m.ratioKnown {
 		s[externalSortRatio] = 0
