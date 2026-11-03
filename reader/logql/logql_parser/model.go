@@ -229,8 +229,10 @@ func (l *LabelFilter) String() string {
 	}
 	bld.WriteString(" ")
 	bld.WriteString(l.Op)
-	bld.WriteString(" ")
-	bld.WriteString(l.Tail.String())
+	if l.Tail != nil {
+		bld.WriteString(" ")
+		bld.WriteString(l.Tail.String())
+	}
 	return bld.String()
 }
 
