@@ -51,6 +51,13 @@ func (e *ExemplarsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 	// The exemplar-bearing samples. `string != ''` is the whole selectivity of
 	// this query: exemplars are a tiny fraction of metric samples, so this
 	// runs before any label resolution rather than after it.
+	//
+	// The sample's own type has to be checked as well: the series type below
+	// cannot tell a trace id from a log line. An entry carrying both a line and
+	// a value is stored as type 0, which a metric series query admits, and a
+	// log line sharing its labels with a metric series shares its fingerprint.
+	// Every writer but OTLP metrics leaves the string column of a type 2 sample
+	// empty, so type 2 with a string is exactly an exemplar.
 	samples := sql.NewSelect().
 		With(withFP).
 		Select(
@@ -63,7 +70,8 @@ func (e *ExemplarsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 			fingerprintIn(sql.NewRawObject("fingerprint"), withFP),
 			sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
 			sql.Lt(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
-			sql.Neq(sql.NewRawObject("string"), sql.NewStringVal("")))
+			sql.Neq(sql.NewRawObject("string"), sql.NewStringVal("")),
+			sql.Eq(sql.NewRawObject("type"), sql.NewIntVal(shared.SAMPLES_TYPE_METRICS)))
 	withMain := sql.NewWith(samples, "main")
 
 	timeSeries := sql.NewSelect().

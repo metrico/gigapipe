@@ -128,3 +128,17 @@ func TestExemplarsPlannerRestrictsToMetricSeries(t *testing.T) {
 		t.Errorf("no sample-type filter in:\n%s", got)
 	}
 }
+
+// time_series.type cannot tell an exemplar from a log line by itself. An entry
+// carrying both a line and a value is stored as type 0, which a metric series
+// query admits, and a log line sharing its labels with a metric series keeps
+// that series' fingerprint. Only the sample's own type separates them, and only
+// OTLP metric samples -- type 2 -- put a trace id in the string column.
+func TestExemplarsPlannerReadsOnlyMetricSamples(t *testing.T) {
+	for _, cluster := range []bool{false, true} {
+		got := exemplarsSQL(t, cluster)
+		if !strings.Contains(got, "(type) == (2)") {
+			t.Errorf("cluster=%v: samples are not restricted to type 2:\n%s", cluster, got)
+		}
+	}
+}
