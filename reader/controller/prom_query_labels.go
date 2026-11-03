@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"math"
 	"net/http"
 	"strconv"
@@ -207,8 +208,14 @@ func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *htt
 
 	res, err := p.ExemplarsService.QueryExemplars(internalCtx, query, start, end)
 	if err != nil {
-		// A rejected selector is the caller's error, not the server's.
-		PromError(400, err.Error(), w)
+		// A rejected selector is the caller's error; anything else, such as the
+		// database being unavailable, is the server's.
+		code := http.StatusInternalServerError
+		var invalid *service.InvalidExemplarsQueryError
+		if errors.As(err, &invalid) {
+			code = http.StatusBadRequest
+		}
+		PromError(code, err.Error(), w)
 		return
 	}
 	SmartBufferServeStrings(w, res)

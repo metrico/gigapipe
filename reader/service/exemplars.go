@@ -32,6 +32,15 @@ func NewExemplarsService(sd *model.ServiceData) *ExemplarsService {
 	return &ExemplarsService{ServiceData: *sd}
 }
 
+// InvalidExemplarsQueryError is a query that can never succeed, as opposed to
+// one that failed on the way through the database.
+type InvalidExemplarsQueryError struct {
+	Err error
+}
+
+func (e *InvalidExemplarsQueryError) Error() string { return e.Err.Error() }
+func (e *InvalidExemplarsQueryError) Unwrap() error { return e.Err }
+
 // exemplarTraceIDLabel is the label Grafana reads a trace id from. It matches
 // the OpenTelemetry spelling, which is also what the OTLP ingest path that
 // produced these ids uses elsewhere.
@@ -133,14 +142,14 @@ func (e *ExemplarsService) QueryExemplars(ctx context.Context, query string,
 	start time.Time, end time.Time) (chan string, error) {
 	selectors, err := selectorsOf(query)
 	if err != nil {
-		return nil, err
+		return nil, &InvalidExemplarsQueryError{Err: err}
 	}
 
 	fpPlanners := make([]shared.SQLRequestPlanner, len(selectors))
 	for i, matchers := range selectors {
 		fpPlanners[i], err = fingerprintPlanner(matchers)
 		if err != nil {
-			return nil, err
+			return nil, &InvalidExemplarsQueryError{Err: err}
 		}
 	}
 
