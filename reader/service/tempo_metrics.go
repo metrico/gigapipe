@@ -196,6 +196,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		StepNS:      req.Step.Nanoseconds(),
 		TracesTable: tracesTable,
 		AttrsTable:  attrsTable,
+		Distributed: distributed,
 		FilterKeys:  filterKeys,
 		FilterOps:   filterOps,
 		FilterVals:  filterVals,
@@ -495,6 +496,7 @@ func (t *TempoService) executeHistogramRange(
 		StepNS:      req.Step.Nanoseconds(),
 		TracesTable: tracesTable,
 		AttrsTable:  attrsTable,
+		Distributed: conn.Config.ClusterName != "",
 		Attr:        metricsFn.Attr,
 		FilterKeys:  filterKeys,
 		FilterOps:   filterOps,
@@ -657,7 +659,7 @@ func (t *TempoService) executeCompareRange(
 	conn *model.DataDatabasesMap,
 	tracesTable, attrsTable string,
 ) (*model.MetricsQueryRangeResponse, error) {
-	compareReq := t.metricsCompareRequest(script, metricsFn, req, tracesTable, attrsTable)
+	compareReq := t.metricsCompareRequest(script, metricsFn, req, tracesTable, attrsTable, conn.Config.ClusterName != "")
 
 	compareQuery, err := tempo.BuildCompareQuery(compareReq)
 	if err != nil {
@@ -722,7 +724,7 @@ func (t *TempoService) executeCompareInstant(
 	conn *model.DataDatabasesMap,
 	tracesTable, attrsTable string,
 ) (*model.MetricsQueryInstantResponse, error) {
-	compareReq := t.metricsCompareRequest(script, metricsFn, req, tracesTable, attrsTable)
+	compareReq := t.metricsCompareRequest(script, metricsFn, req, tracesTable, attrsTable, conn.Config.ClusterName != "")
 
 	compareQuery, err := tempo.BuildCompareQuery(compareReq)
 	if err != nil {
@@ -780,7 +782,7 @@ func (t *TempoService) metricsCompareRequest(
 	script *traceql_parser.TraceQLScript,
 	metricsFn *traceql_parser.MetricsPipelineStage,
 	req *model.MetricsQueryRequest,
-	tracesTable, attrsTable string,
+	tracesTable, attrsTable string, distributed bool,
 ) *tempo.CompareRequest {
 	outerKeys, outerOps, outerVals := metricsExtractAllFilters(script)
 
@@ -810,6 +812,7 @@ func (t *TempoService) metricsCompareRequest(
 		BaselineToNS:   baselineToNS,
 		TracesTable:    tracesTable,
 		AttrsTable:     attrsTable,
+		Distributed:    distributed,
 		OuterKeys:      outerKeys,
 		OuterOps:       outerOps,
 		OuterVals:      outerVals,
