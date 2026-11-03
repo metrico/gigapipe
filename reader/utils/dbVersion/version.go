@@ -3,6 +3,7 @@ package dbversion
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,21 @@ func (v VersionInfo) Metrics15sAvailable(fromNS int64) bool {
 	}
 	t, ok := v[MarkerMetrics15s]
 	return !ok || fromNS >= t*1000000000
+}
+
+// MarkerMetrics15sStartCount is the settings marker holding the unix time of
+// the first metrics_15s cell whose start_count the MV fills on every node; its
+// largest value across rows counts.
+const MarkerMetrics15sStartCount = "metrics_15s_start_count"
+
+// Metrics15sStartCountFrom returns the first metrics_15s cell (epoch ns) whose
+// start_count is filled, or math.MaxInt64 when no cell's is.
+func (v VersionInfo) Metrics15sStartCountFrom() int64 {
+	t, ok := v[MarkerMetrics15sStartCount]
+	if !ok || t > math.MaxInt64/1000000000 {
+		return math.MaxInt64
+	}
+	return t * 1000000000
 }
 
 // CapStaleness is the server capability key for ORDER BY ... WITH FILL STALENESS,
@@ -109,8 +125,10 @@ func GetVersionInfo(ctx context.Context, dist bool, db model.ISqlxDB) (VersionIn
 		tableName += distconfig.Suffix()
 	}
 	_versions := map[string]int64{}
-	rows, err := db.QueryCtx(ctx, fmt.Sprintf(`SELECT argMax(name, inserted_at) as _name , argMax(value, inserted_at) as _value 
-FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, tableName))
+	// The start_count marker takes the largest cutoff over its rows.
+	rows, err := db.QueryCtx(ctx, fmt.Sprintf(`SELECT argMax(name, inserted_at) as _name ,
+if(_name = '%s', toString(max(toInt64OrZero(value))), argMax(value, inserted_at)) as _value 
+FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, MarkerMetrics15sStartCount, tableName))
 	if err != nil {
 		return nil, err
 	}

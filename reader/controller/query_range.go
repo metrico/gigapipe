@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-faster/jx"
 	"github.com/gorilla/websocket"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
@@ -38,13 +38,28 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	start, err := getRequiredFloat(r, "start", "", nil)
-	end, err := getRequiredFloat(r, "end", "", err)
-	step, err := getRequiredDuration(r, "step", "1", err)
+	startRaw := r.URL.Query().Get("start")
+	if startRaw == "" {
+		PromError(400, "start parameter is required", w)
+		return
+	}
+	startTime, err := ParseTimeSecOrRFC(startRaw, time.Time{})
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	endRaw := r.URL.Query().Get("end")
+	if endRaw == "" {
+		PromError(400, "end parameter is required", w)
+		return
+	}
+	endTime, err := ParseTimeSecOrRFC(endRaw, time.Time{})
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	step, err := getRequiredDuration(r, "step", "1", nil)
 	direction := r.URL.Query().Get("direction")
-	//if direction == "" {
-	//	direction = "backward"
-	//}
 	_limit := r.URL.Query().Get("limit")
 	limit := queryDefaultLimit
 	if _limit != "" {
@@ -54,7 +69,7 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		PromError(400, err.Error(), w)
 		return
 	}
-	ch, err := q.QueryRangeService.QueryRange(internalCtx, query, int64(start), int64(end), int64(step*1000),
+	ch, err := q.QueryRangeService.QueryRange(internalCtx, query, startTime.UnixNano(), endTime.UnixNano(), int64(step*1000),
 		limit, direction == "forward")
 	if err != nil {
 		PromError(500, err.Error(), w)
@@ -77,60 +92,62 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 	}
 	if query == "vector(1)+vector(1)" {
 		w.Header().Set("Content-Type", "application/json")
-		json := jsoniter.ConfigFastest
-		stream := json.BorrowStream(nil)
-		defer json.ReturnStream(stream)
+		stream := &jx.Writer{}
 
-		stream.WriteObjectStart()
-		stream.WriteObjectField("status")
-		stream.WriteString("success")
-		stream.WriteMore()
+		stream.ObjStart()
+		stream.FieldStart("status")
+		stream.Str("success")
+		stream.Comma()
 
-		stream.WriteObjectField("data")
-		stream.WriteObjectStart()
+		stream.FieldStart("data")
+		stream.ObjStart()
 
-		stream.WriteObjectField("resultType")
-		stream.WriteString("vector")
-		stream.WriteMore()
+		stream.FieldStart("resultType")
+		stream.Str("vector")
+		stream.Comma()
 
-		stream.WriteObjectField("result")
-		stream.WriteArrayStart()
+		stream.FieldStart("result")
+		stream.ArrStart()
 
-		stream.WriteObjectStart()
-		stream.WriteObjectField("metric")
-		stream.WriteEmptyObject()
-		stream.WriteMore()
+		stream.ObjStart()
+		stream.FieldStart("metric")
+		stream.RawStr("{}")
+		stream.Comma()
 
-		stream.WriteObjectField("value")
-		stream.WriteArrayStart()
-		stream.WriteInt64(time.Now().Unix()) // Unix timestamp
-		stream.WriteMore()
-		stream.WriteString("2")
-		stream.WriteArrayEnd()
+		stream.FieldStart("value")
+		stream.ArrStart()
+		stream.Int64(time.Now().Unix()) // Unix timestamp
+		stream.Comma()
+		stream.Str("2")
+		stream.ArrEnd()
 
-		stream.WriteObjectEnd() // End of result object
-		stream.WriteArrayEnd()  // End of result array
+		stream.ObjEnd() // End of result object
+		stream.ArrEnd() // End of result array
 
-		stream.WriteObjectEnd() // End of data object
-		stream.WriteObjectEnd() // End of main object
+		stream.ObjEnd() // End of data object
+		stream.ObjEnd() // End of main object
 
-		w.Write(stream.Buffer())
+		w.Write(stream.Buf)
 		//w.Write([]byte(fmt.Sprintf(`{"status": "success", "data": {"resultType": "vector", "result": [{
 		// "metric": {},
 		// "value": [%d, "2"]
 		//}]}}`, time.Now().Unix())))
 		return
 	}
-	iTime, err := getRequiredI64(r, "time", "0", nil)
-	if err != nil {
-		PromError(500, err.Error(), w)
-		return
-	}
-	if iTime == 0 {
+	var iTime int64
+	timeRaw := r.URL.Query().Get("time")
+	if timeRaw == "" || timeRaw == "0" {
 		iTime = time.Now().UnixNano()
+	} else {
+		queryTime, err := ParseTimeSecOrRFC(timeRaw, time.Now())
+		if err != nil {
+			PromError(400, err.Error(), w)
+			return
+		}
+		iTime = queryTime.UnixNano()
 	}
 
-	step, err := getRequiredDuration(r, "step", "1", err)
+	step, err := getRequiredDuration(r, "step", "1", nil)
 	_limit := r.URL.Query().Get("limit")
 	limit := queryDefaultLimit
 	if _limit != "" {
@@ -181,8 +198,8 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 
 	var startNs int64
 	if _s := r.URL.Query().Get("start"); _s != "" {
-		if parsed, parseErr := strconv.ParseInt(_s, 10, 64); parseErr == nil && parsed > 0 {
-			startNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(_s, time.Time{}); parseErr == nil && t.UnixNano() > 0 {
+			startNs = t.UnixNano()
 		}
 	}
 
@@ -259,13 +276,13 @@ func (q *QueryRangeController) IndexStats(w http.ResponseWriter, r *http.Request
 
 	var fromNs, toNs int64
 	if startStr != "" {
-		if parsed, parseErr := strconv.ParseInt(startStr, 10, 64); parseErr == nil {
-			fromNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(startStr, time.Time{}); parseErr == nil {
+			fromNs = t.UnixNano()
 		}
 	}
 	if endStr != "" {
-		if parsed, parseErr := strconv.ParseInt(endStr, 10, 64); parseErr == nil {
-			toNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(endStr, time.Time{}); parseErr == nil {
+			toNs = t.UnixNano()
 		}
 	}
 	if toNs == 0 {

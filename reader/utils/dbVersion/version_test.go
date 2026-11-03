@@ -1,6 +1,9 @@
 package dbversion
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestSupportsStaleness(t *testing.T) {
 	for _, c := range []struct {
@@ -55,6 +58,24 @@ func TestMetrics15sAvailable(t *testing.T) {
 	for _, c := range cases {
 		if got := c.v.Metrics15sAvailable(c.fromNS); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestMetrics15sStartCountFrom(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		v    VersionInfo
+		want int64
+	}{
+		{"no version info", nil, math.MaxInt64},
+		{"no marker", VersionInfo{CapMetrics15s: 0}, math.MaxInt64},
+		{"fresh install", VersionInfo{MarkerMetrics15sStartCount: 0}, 0},
+		{"upgrade", VersionInfo{MarkerMetrics15sStartCount: 1_700_000_015}, 1_700_000_015_000_000_000},
+		{"past int64 ns", VersionInfo{MarkerMetrics15sStartCount: math.MaxInt64 / 1000}, math.MaxInt64},
+	} {
+		if got := c.v.Metrics15sStartCountFrom(); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
 		}
 	}
 }

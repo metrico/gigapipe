@@ -18,19 +18,17 @@ import (
 // 	   - application/json
 //
 //	   Security:
-//	   - JWT
-//     - ApiKeyAuth
+//	   - BasicAuth
 //
 //
 // SecurityDefinitions:
-// JWT:
-//      type: apiKey
-//      name: Authorization
-//      in: header
-// ApiKeyAuth:
-//      type: apiKey
-//      in: header
-//      name: Auth-Token
+// BasicAuth:
+//      type: basic
+//      description: >
+//        HTTP Basic, enabled only when the server is configured with both a
+//        username and a password (auth_settings.basic in the config file, or
+//        QRYN_LOGIN and QRYN_PASSWORD). A server without both set accepts
+//        unauthenticated requests.
 ///
 //  Responses:
 //    201: body:TableUserList

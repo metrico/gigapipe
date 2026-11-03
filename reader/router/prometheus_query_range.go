@@ -2,20 +2,17 @@ package router
 
 import (
 	"log/slog"
+	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/reader/config"
 	controllerv1 "github.com/metrico/qryn/v5/reader/controller"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler"
 	"github.com/metrico/qryn/v5/reader/service"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/prometheus/prometheus/promql"
 )
-
-// defaultSubqueryInterval is used as the resolution step for subqueries that
-// omit one (e.g. `up[1h:]`). It matches Prometheus' default evaluation interval.
-const defaultSubqueryInterval = time.Minute
 
 // NewPromEngine builds the PromQL engine used to serve /api/v1/query and
 // /api/v1/query_range requests.
@@ -33,15 +30,13 @@ func NewPromEngine(maxSamples int) *promql.Engine {
 		// A non-nil function is required: the engine calls it for subqueries
 		// that omit a resolution step (e.g. `up[1h:]`). Leaving it nil panics
 		// with a nil pointer dereference in getLastSubqueryInterval.
-		NoStepSubqueryIntervalFn: func(int64) int64 {
-			return defaultSubqueryInterval.Milliseconds()
-		},
-		EnableAtModifier:     true,
-		EnableNegativeOffset: false,
+		NoStepSubqueryIntervalFn: promql_transpiler.DefaultSubqueryIntervalMs,
+		EnableAtModifier:         true,
+		EnableNegativeOffset:     false,
 	})
 }
 
-func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
+func RoutePrometheusQueryRange(app *http.ServeMux, dataSession model.IDBRegistry,
 	stats bool,
 ) {
 	eng := NewPromEngine(config.Cloki.Setting.SYSTEM_SETTINGS.MetricsMaxSamples)
@@ -54,6 +49,8 @@ func RoutePrometheusQueryRange(app *mux.Router, dataSession model.IDBRegistry,
 		Storage:    &svc,
 		Stats:      stats,
 	}
-	app.HandleFunc("/api/v1/query_range", ctrl.QueryRange).Methods("GET", "POST", "OPTIONS")
-	app.HandleFunc("/api/v1/query", ctrl.QueryInstant).Methods("GET", "POST", "OPTIONS")
+	app.HandleFunc("GET /api/v1/query_range", ctrl.QueryRange)
+	app.HandleFunc("POST /api/v1/query_range", ctrl.QueryRange)
+	app.HandleFunc("GET /api/v1/query", ctrl.QueryInstant)
+	app.HandleFunc("POST /api/v1/query", ctrl.QueryInstant)
 }

@@ -7,7 +7,6 @@ import (
 	"runtime"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/gorilla/mux"
 	clconfig "github.com/metrico/cloki-config"
 	"github.com/metrico/qryn/v5/reader/config"
 	"github.com/metrico/qryn/v5/reader/model"
@@ -18,9 +17,10 @@ import (
 	"github.com/metrico/qryn/v5/reader/watchdog"
 )
 
-var ownHttpServer bool = false
-
-func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
+// Init registers the reader routes on app. With a nil app the reader builds
+// its own mux, wraps it in the server middleware chain and serves it on the
+// configured host and port; out-of-tree binaries rely on that.
+func Init(cnf *clconfig.ClokiConfig, app *http.ServeMux) {
 	config.Cloki = cnf
 
 	// Set to max cpu if the value is equals 0
@@ -34,14 +34,15 @@ func Init(cnf *clconfig.ClokiConfig, app *mux.Router) {
 	//
 	logger.InitLogger()
 
-	if app == nil {
-		app = mux.NewRouter()
-		ownHttpServer = true
+	if app != nil {
+		performV1APIRouting(app)
+		return
 	}
 
-	// Api
-	// configure to serve WebServices
-	configureAsHTTPServer(app)
+	app = http.NewServeMux()
+	performV1APIRouting(app)
+	httpURL := fmt.Sprintf("%s:%d", config.Cloki.Setting.HTTP_SETTINGS.Host, config.Cloki.Setting.HTTP_SETTINGS.Port)
+	httpStart(middleware.WrapServer(config.Cloki, app), httpURL)
 }
 
 func Stop() {
@@ -53,38 +54,7 @@ func Stop() {
 	logger.Info("Reader module stopped.")
 }
 
-func configureAsHTTPServer(acc *mux.Router) {
-	httpURL := fmt.Sprintf("%s:%d", config.Cloki.Setting.HTTP_SETTINGS.Host, config.Cloki.Setting.HTTP_SETTINGS.Port)
-	applyMiddlewares(acc)
-
-	performV1APIRouting(acc)
-
-	if ownHttpServer {
-		httpStart(acc, httpURL)
-	}
-}
-
-func applyMiddlewares(acc *mux.Router) {
-	if !ownHttpServer {
-		return
-	}
-	// gorilla/mux applies Use entries outermost-first; keep the same order as
-	// cmd/gigapipe/main.go (Logging → Cors → AcceptEncoding → BasicAuth): the
-	// gzip wrapper depends on the logging writer's Flush/Unwrap sitting
-	// between it and the transport.
-	acc.Use(middleware.LoggingMiddleware("[{{.status}}] {{.method}} {{.url}} - LAT:{{.latency}}"))
-	if config.Cloki.Setting.HTTP_SETTINGS.Cors.Enable {
-		acc.Use(middleware.CorsMiddleware(config.Cloki.Setting.HTTP_SETTINGS.Cors.Origin))
-	}
-	acc.Use(middleware.AcceptEncodingMiddleware)
-	if config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username != "" &&
-		config.Cloki.Setting.AUTH_SETTINGS.BASIC.Password != "" {
-		acc.Use(middleware.BasicAuthMiddleware(config.Cloki.Setting.AUTH_SETTINGS.BASIC.Username,
-			config.Cloki.Setting.AUTH_SETTINGS.BASIC.Password))
-	}
-}
-
-func httpStart(server *mux.Router, httpURL string) {
+func httpStart(server http.Handler, httpURL string) {
 	logger.Info("Starting service")
 	http.Handle("/", server)
 	listener, err := net.Listen("tcp", httpURL)
@@ -99,7 +69,7 @@ func httpStart(server *mux.Router, httpURL string) {
 	}
 }
 
-func performV1APIRouting(acc *mux.Router) {
+func performV1APIRouting(acc *http.ServeMux) {
 	registry.Init()
 	watchdog.Init(&model.ServiceData{Session: registry.Registry})
 

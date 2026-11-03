@@ -66,7 +66,11 @@ type Selector struct {
 }
 
 func (s Selector) String() string {
-	res := "{" + s.AttrSelector.String() + "}"
+	sel := ""
+	if s.AttrSelector != nil {
+		sel = s.AttrSelector.String()
+	}
+	res := "{" + sel + "}"
 	if s.Aggregator != nil {
 		res += " " + s.Aggregator.String()
 	}
@@ -96,7 +100,10 @@ func (a AttrSelectorExp) String() string {
 		res += "(" + a.ComplexHead.String() + ")"
 	}
 	if a.AndOr != "" {
-		res += " " + a.AndOr + " " + a.Tail.String()
+		res += " " + a.AndOr
+		if a.Tail != nil {
+			res += " " + a.Tail.String()
+		}
 	}
 	return res
 }

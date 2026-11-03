@@ -35,6 +35,9 @@ type ByWithoutPlanner struct {
 	UseTimeSeriesTable bool
 	LabelsCache        **sql.With
 	FPCache            **sql.With
+	// WindowFingerprints, when set, bounds the label lookup instead of Main,
+	// whose window would otherwise be computed a second time for it.
+	WindowFingerprints shared.SQLRequestPlanner
 }
 
 func (b *ByWithoutPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -86,7 +89,7 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 		if !b.NoStreamSelect {
 			fpCache = *b.FPCache
 		}
-		from, err := labelsFromScratch(ctx, fpCache, withMain)
+		from, err := b.labelsFromScratch(ctx, fpCache, withMain)
 		if err != nil {
 			return nil, err
 		}
@@ -131,6 +134,25 @@ func (b *ByWithoutPlanner) processTSTable(ctx *shared.PlannerContext,
 				sql.NewRawObject(withMain.GetAlias()+".fingerprint"),
 				sql.NewRawObject(withLabels.GetAlias()+".fingerprint"),
 			))), nil
+}
+
+// labelsFromScratch resolves labels bounded to WindowFingerprints when set,
+// else to the fingerprints of withMain.
+func (b *ByWithoutPlanner) labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With,
+	withMain *sql.With) (sql.ISelect, error) {
+	if b.WindowFingerprints == nil {
+		return labelsFromScratch(ctx, fpCache, withMain)
+	}
+	from, err := labelsFromScratch(ctx, fpCache, nil)
+	if err != nil {
+		return nil, err
+	}
+	fps, err := b.WindowFingerprints.Process(ctx)
+	if err != nil {
+		return nil, err
+	}
+	boundTimeSeriesToFingerprints(ctx, from, fps)
+	return from, nil
 }
 
 type byWithoutFilterCol struct {
