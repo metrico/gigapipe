@@ -48,7 +48,9 @@ func TestRAMChunk_StopsAtChunkSize(t *testing.T) {
 // shared by every test in the package, and a parallel test can take the
 // released blocks first. sync.Pool may also drop any item it is given (the race
 // detector drops one Put in four on purpose), so a few release/reuse rounds are
-// allowed before concluding the pool never hands a block back.
+// allowed before concluding the pool never hands a block back. Block sizes are
+// checked in every round, because a retry starts from the blocks the previous
+// round returned and could otherwise pass by chance on mixed-up sizes.
 func TestRAMChunk_ReleaseReusesBlocks(t *testing.T) {
 	const attempts = 10
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -64,6 +66,11 @@ func TestRAMChunk_ReleaseReusesBlocks(t *testing.T) {
 
 		r2 := newRAMChunk()
 		writeChunks(t, r2, 64*1024, 4096)
+		for i, block := range r2.blocks {
+			if want := min(initialBlockSize<<i, maxBlockSize); cap(block) != want {
+				t.Fatalf("block %d has capacity %d, want %d", i, cap(block), want)
+			}
+		}
 		for i, block := range r2.blocks {
 			if i < len(first) && &block[:1][0] == &first[i][:1][0] {
 				return
