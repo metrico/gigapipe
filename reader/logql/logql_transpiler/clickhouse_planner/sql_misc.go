@@ -176,7 +176,7 @@ func getCol(req sql.ISelect, alias string) sql.SQLObject {
 // matched it, causing the OOM in issue #702.
 func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With, windowMain *sql.With) (sql.ISelect, error) {
 	//TODO: offset?
-	_from, err := NewTimeSeriesInitPlanner(nil).Process(ctx)
+	_from, err := NewTimeSeriesInitPlanner().Process(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -199,9 +199,14 @@ func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With, windowMain
 // 'deny', error 288). GLOBAL IN resolves the (small) window fingerprint set on
 // the initiator and broadcasts it.
 func boundTimeSeriesToWindow(ctx *shared.PlannerContext, tsReq sql.ISelect, windowMain *sql.With) {
-	fpSub := sql.NewSelect().
+	boundTimeSeriesToFingerprints(ctx, tsReq, sql.NewSelect().
 		Select(sql.NewSimpleCol("fingerprint", "")).
-		From(sql.NewWithRef(windowMain))
+		From(sql.NewWithRef(windowMain)))
+}
+
+// boundTimeSeriesToFingerprints restricts tsReq to the fingerprints fpSub
+// selects, with GLOBAL IN on a cluster for the reason above.
+func boundTimeSeriesToFingerprints(ctx *shared.PlannerContext, tsReq sql.ISelect, fpSub sql.ISelect) {
 	col := sql.NewRawObject("time_series.fingerprint")
 	if ctx.IsCluster {
 		tsReq.AndWhere(&globalInCondition{left: col, right: fpSub})

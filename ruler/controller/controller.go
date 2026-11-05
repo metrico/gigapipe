@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/ruler"
 	"gopkg.in/yaml.v3"
 )
@@ -36,7 +35,7 @@ func writeSuccessJSON(w http.ResponseWriter, status int) {
 // SetRuleGroup handles POST /rules/{namespace}: it parses a YAML rule group and
 // stores it.
 func (c *Controller) SetRuleGroup(w http.ResponseWriter, r *http.Request) {
-	namespace := mux.Vars(r)["namespace"]
+	namespace := r.PathValue("namespace")
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeYAML(w, http.StatusBadRequest, []byte("error: failed to read request body"))
@@ -56,8 +55,8 @@ func (c *Controller) SetRuleGroup(w http.ResponseWriter, r *http.Request) {
 
 // GetRuleGroup handles GET /rules/{namespace}/{group}: it returns one group as YAML.
 func (c *Controller) GetRuleGroup(w http.ResponseWriter, r *http.Request) {
-	namespace := mux.Vars(r)["namespace"]
-	groupName := mux.Vars(r)["group"]
+	namespace := r.PathValue("namespace")
+	groupName := r.PathValue("group")
 	group, err := c.Store.GetRuleGroup(r.Context(), namespace, groupName)
 	if err != nil {
 		writeYAML(w, http.StatusNotFound, fmt.Appendf(nil,
@@ -74,7 +73,7 @@ func (c *Controller) GetRuleGroup(w http.ResponseWriter, r *http.Request) {
 
 // RulesByNamespace handles GET /rules/{namespace}: all groups in a namespace as YAML.
 func (c *Controller) RulesByNamespace(w http.ResponseWriter, r *http.Request) {
-	namespace := mux.Vars(r)["namespace"]
+	namespace := r.PathValue("namespace")
 	groups, err := c.Store.ListRuleGroups(r.Context(), namespace)
 	if err != nil {
 		writeYAML(w, http.StatusInternalServerError, []byte(`message: "failed to fetch rules"`))
@@ -113,8 +112,8 @@ func (c *Controller) AllRules(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRuleGroup handles DELETE /rules/{namespace}/{group}.
 func (c *Controller) DeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
-	namespace := mux.Vars(r)["namespace"]
-	groupName := mux.Vars(r)["group"]
+	namespace := r.PathValue("namespace")
+	groupName := r.PathValue("group")
 	if err := c.Store.DeleteRuleGroup(r.Context(), namespace, groupName); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -126,7 +125,7 @@ func (c *Controller) DeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
 
 // DeleteNamespace handles DELETE /rules/{namespace}.
 func (c *Controller) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
-	namespace := mux.Vars(r)["namespace"]
+	namespace := r.PathValue("namespace")
 	if err := c.Store.DeleteNamespace(r.Context(), namespace); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

@@ -22,3 +22,13 @@ func TamePanic(out chan []LogEntry) {
 		recover()
 	}
 }
+
+// Drain discards whatever is left in ch in the background, so the goroutine
+// feeding it can finish and release what it holds (e.g. a ClickHouse
+// connection) once its consumer stops reading early.
+func Drain(ch chan []LogEntry) {
+	go func() {
+		for range ch {
+		}
+	}()
+}

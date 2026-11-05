@@ -211,3 +211,59 @@ func TestParserBinary(t *testing.T) {
 		}
 	}
 }
+
+// An empty label list is valid grouping: `by ()` aggregates every label away
+// and `without ()` removes none. Both must parse wherever a grouping clause is
+// accepted, as a prefix or a suffix, and survive a String() round trip.
+func TestParserEmptyGrouping(t *testing.T) {
+	tests := []struct {
+		query string
+		fn    string
+	}{
+		{`max by () (count_over_time({app="x"}[5m]))`, "by"},
+		{`sum without () (rate({app="x"}[5m]))`, "without"},
+		{`sum (rate({app="x"}[5m])) by ()`, "by"},
+		{`sum (rate({app="x"}[5m])) without ()`, "without"},
+		{`sum by() (rate({app="x"}[5m]))`, "by"},
+		{`sum by ( ) (rate({app="x"}[5m]))`, "by"},
+		{`sum_over_time({app="x"} | unwrap n [5m]) by ()`, "by"},
+		{`quantile_over_time(0.99, {app="x"} | unwrap n [5m]) by ()`, "by"},
+		{`topk(3, sum by () (rate({app="x"}[5m])))`, "by"},
+		{`sum by () (rate({app="x"}[5m])) > 10`, "by"},
+	}
+	for _, tc := range tests {
+		ast, err := Parse(tc.query)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", tc.query, err)
+		}
+		grouping := FindFirst[ByOrWithout](ast)
+		if grouping == nil {
+			t.Fatalf("Parse(%q): no grouping clause in the AST", tc.query)
+		}
+		if grouping.Fn != tc.fn {
+			t.Errorf("Parse(%q): grouping fn = %q, want %q", tc.query, grouping.Fn, tc.fn)
+		}
+		if len(grouping.Labels) != 0 {
+			t.Errorf("Parse(%q): grouping labels = %v, want none", tc.query, grouping.LabelNames())
+		}
+		if _, err := Parse(ast.String()); err != nil {
+			t.Errorf("Parse(%q): re-parsing String() output %q: %v", tc.query, ast.String(), err)
+		}
+	}
+}
+
+// Making the label list optional must not relax the list itself: a comma
+// still needs a label on both sides, and the parentheses must still close.
+func TestParserMalformedGrouping(t *testing.T) {
+	for _, query := range []string{
+		`sum by (,) (rate({app="x"}[5m]))`,
+		`sum by (app,) (rate({app="x"}[5m]))`,
+		`sum by (,app) (rate({app="x"}[5m]))`,
+		`sum by ( (rate({app="x"}[5m]))`,
+		`sum by (rate({app="x"}[5m]))`,
+	} {
+		if _, err := Parse(query); err == nil {
+			t.Errorf("Parse(%q): expected an error", query)
+		}
+	}
+}

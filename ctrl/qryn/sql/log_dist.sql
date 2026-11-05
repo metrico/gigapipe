@@ -82,3 +82,6 @@ ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
 
 ALTER TABLE {{.DB}}.time_series_dist {{.OnCluster}}
     ADD COLUMN IF NOT EXISTS updated_at_ns Int64 DEFAULT toUnixTimestamp64Nano(now64(9));
+
+ALTER TABLE {{.DB}}.metrics_15s_dist {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS start_count SimpleAggregateFunction(sum, UInt64);
