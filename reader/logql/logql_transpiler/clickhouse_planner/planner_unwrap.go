@@ -113,32 +113,37 @@ func (u *UnwrapPlanner) processTimeSeries(ctx *shared.PlannerContext, main sql.I
 func unwrapConvSQL(strLabel string, convFunc string) string {
 	switch convFunc {
 	case "duration", "duration_seconds":
-		// Parse multi-part Go duration strings. The regex lists multi-char
-		// units (ms, us, µs, ns) before single-char ones (h, m, s) so RE2's
-		// leftmost-first alternation disambiguates correctly.
-		// Returns NULL when no unit groups match (empty, garbage, "1d").
+		// Parse multi-part Go duration strings. Only a value that is a whole
+		// valid duration (the same grammar as time.ParseDuration) is converted,
+		// so partial matches such as "3d4h" or "5m30" return NULL like the Go
+		// path instead of a wrong number. The extraction regex lists
+		// multi-char units (ms, us, µs, μs, ns) before single-char ones
+		// (h, m, s) so RE2's leftmost-first alternation disambiguates
+		// correctly. Both micro signs are accepted: U+00B5 and U+03BC.
 		// Handles leading minus sign by checking startsWith and negating.
-		re := "'([0-9]*\\\\.?[0-9]+)(ms|us|µs|ns|h|m|s)'"
+		valid := "'^[-+]?(0|(([0-9]+\\\\.?[0-9]*|\\\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+)$'"
+		re := "'([0-9]+\\\\.?[0-9]*|\\\\.[0-9]+)(ms|us|µs|μs|ns|h|m|s)'"
 		return fmt.Sprintf(
-			"if(length(extractAllGroupsHorizontal(%[1]s, %[2]s)[1]) > 0, "+
+			"if(match(%[1]s, %[3]s), "+
 				"if(startsWith(%[1]s, '-'), -1, 1) * "+
 				"arraySum((v, u) -> toFloat64OrZero(v) * multiIf("+
 				"u = 'h', 3600, u = 'm', 60, u = 's', 1, "+
 				"u = 'ms', 0.001, u = 'us', 0.000001, u = 'µs', 0.000001, "+
-				"u = 'ns', 0.000000001, 0), "+
+				"u = 'μs', 0.000001, u = 'ns', 0.000000001, 0), "+
 				"extractAllGroupsHorizontal(%[1]s, %[2]s)[1], "+
 				"extractAllGroupsHorizontal(%[1]s, %[2]s)[2]), "+
 				"NULL)",
-			strLabel, re)
+			strLabel, re, valid)
 	case "bytes":
-		// Strip commas (go-humanize accepts "1,024 KB"), extract the leading
-		// number and the unit suffix separately. Returns NULL when no number
-		// is found or the unit is unrecognised.
+		// Strip commas (go-humanize accepts "1,024 KB"), extract the number at
+		// the start of the value and the unit suffix after it, like the Go
+		// path. Returns NULL when no number is found, the number is malformed
+		// ("1.2.3") or the unit is unrecognised ("1 2").
 		stripped := fmt.Sprintf("replaceAll(lower(%s), ',', '')", strLabel)
-		num := fmt.Sprintf("extract(%s, '([0-9]*\\\\.?[0-9]+)')", stripped)
-		unit := fmt.Sprintf("trimBoth(replaceRegexpOne(%s, '^[ 0-9.,]+', ''))", stripped)
+		num := fmt.Sprintf("extract(%s, '^ *([0-9.]+)')", stripped)
+		unit := fmt.Sprintf("trimBoth(replaceRegexpOne(%s, '^ *[0-9.]+', ''))", stripped)
 		return fmt.Sprintf(
-			"if(%[1]s = '', NULL, toFloat64OrZero(%[1]s) * multiIf("+
+			"if(%[1]s = '', NULL, toFloat64OrNull(%[1]s) * multiIf("+
 				"%[2]s = 'eib', 1152921504606846976, "+
 				"%[2]s = 'pib', 1125899906842624, "+
 				"%[2]s = 'tib', 1099511627776, "+
