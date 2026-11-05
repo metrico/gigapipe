@@ -22,7 +22,7 @@ Native histograms aren't sent (remote write here carries classic float samples),
 
 ## Settings
 
-- `GIGAPIPE_URL`: the gigapipe to test (default `http://localhost:3100`). To test an already running gigapipe, call `go test` directly with `GIGAPIPE_URL` and `PROMETHEUS_BINARY` set.
+- `GIGAPIPE_URL`: where the test sends data and queries. `run.sh` always starts its own gigapipe on `http://localhost:3100`, so leave `GIGAPIPE_URL` unset when using it. To test a gigapipe that is already running elsewhere, skip `run.sh` and run `go test -v ./...` in this folder with `GIGAPIPE_URL` and `PROMETHEUS_BINARY` set.
 - `PARITY_KEEP_SERVICE_NAME=1`: also compare the `service_name` label, which gigapipe adds to every series and Prometheus doesn't. Left out by default.
 
 ## Why a separate module
