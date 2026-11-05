@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       qryn_tag:
-        description: 'Build/Tag for qryn (latest)'
+        description: 'Tag of a published ghcr.io/metrico/qryn image to test (empty: build this commit)'
         required: false
       clickhouse_tag:
         description: 'BuildTag for ClickHouse (latest)'
@@ -42,19 +42,36 @@ jobs:
           PORT: 8123
           CLICKHOUSE_USER: qryn
           CLICKHOUSE_PASSWORD: qryn
-      qryn:
-        image:  "ghcr.io/metrico/qryn:${{ github.event.inputs.qryn_tag || 'latest' }}"
-        ports:
-          - 3100:3100
-        env:
-          CLICKHOUSE_SERVER: clickhouse
-          CLICKHOUSE_AUTH: "qryn:qryn"    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           repository: metrico/qryn-bench
           path: .
+      # The k6 scripts above fill the workspace; gigapipe's own tree goes in a
+      # subdirectory so the image under test is built from this commit.
+      - name: Checkout gigapipe
+        uses: actions/checkout@v4
+        with:
+          path: gigapipe
+      - name: Start gigapipe
+        env:
+          QRYN_TAG: ${{ github.event.inputs.qryn_tag }}
+          CLICKHOUSE_NETWORK: ${{ job.services.clickhouse.network }}
+        run: |
+          # A tag typed into a manual run tests that published image; otherwise
+          # the image is built from this commit.
+          if [ -n "$QRYN_TAG" ]; then
+            image="ghcr.io/metrico/qryn:$QRYN_TAG"
+            tested="$image"
+          else
+            image=gigapipe:k6
+            tested="built from ${GITHUB_SHA}"
+            docker build -f gigapipe/Dockerfile -t "$image" gigapipe
+          fi
+          docker run -d --name gigapipe --network "$CLICKHOUSE_NETWORK" -p 3100:3100 \
+            -e CLICKHOUSE_SERVER=clickhouse -e CLICKHOUSE_AUTH=qryn:qryn "$image"
+          echo "GIGAPIPE_TESTED=$tested" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
@@ -94,7 +111,7 @@ jobs:
       - name: Wait for Prom API
         uses: mydea/action-wait-for-api@v1
         with:
-          url: "http://localhost:3100/api/v1/query"
+          url: "http://localhost:3100/api/v1/query?query=1"
           expected-response-field: "status"
           expected-response-field-value: "success"
           timeout: 30
@@ -142,8 +159,8 @@ jobs:
              runner_resources.txt
       - name: Summary Report
         run: |
-          echo "### qryn image" >> $GITHUB_STEP_SUMMARY
-          echo "qxip/qryn:${{ github.event.inputs.qryn_tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "### gigapipe image" >> $GITHUB_STEP_SUMMARY
+          echo "$GIGAPIPE_TESTED" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### clickhouse image" >> $GITHUB_STEP_SUMMARY
           echo "${{ github.event.inputs.clickhouse_image || 'clickhouse/clickhouse-server' }}:${{ github.event.inputs.clickhouse_tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
@@ -159,4 +176,4 @@ jobs:
       - name: Pull Docker logs
         run: |
          docker logs "${{ job.services.clickhouse.id }}"
-         docker logs "${{ job.services.qryn.id }}"
+         docker logs gigapipe
