@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
@@ -20,11 +21,18 @@ const (
 	PortionSpansEnv = "GIGAPIPE_TRACEQL_PORTION_SPANS"
 	// DefaultPortionSpans applies when PortionSpansEnv is unset.
 	DefaultPortionSpans = 2500000
+
+	// SearchMaxDurationEnv sets the longest range of a TraceQL search or tag
+	// autocomplete; 0 means no limit.
+	SearchMaxDurationEnv = "GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION"
+	// DefaultSearchMaxDuration applies when SearchMaxDurationEnv is unset.
+	DefaultSearchMaxDuration = 168 * time.Hour
 )
 
 var (
-	ancestryRounds       = DefaultAncestryRounds
-	portionSpans   int64 = DefaultPortionSpans
+	ancestryRounds          = DefaultAncestryRounds
+	portionSpans      int64 = DefaultPortionSpans
+	searchMaxDuration       = DefaultSearchMaxDuration
 )
 
 // Init reads the settings from the environment. Call it at startup.
@@ -32,7 +40,10 @@ func Init() error {
 	if err := initAncestryRounds(); err != nil {
 		return err
 	}
-	return initPortionSpans()
+	if err := initPortionSpans(); err != nil {
+		return err
+	}
+	return initSearchMaxDuration()
 }
 
 func initAncestryRounds() error {
@@ -63,6 +74,20 @@ func initPortionSpans() error {
 	return nil
 }
 
+func initSearchMaxDuration() error {
+	searchMaxDuration = DefaultSearchMaxDuration
+	v := os.Getenv(SearchMaxDurationEnv)
+	if v == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return fmt.Errorf("%s=%q: want a non-negative duration such as 168h, or 0 for no limit", SearchMaxDurationEnv, v)
+	}
+	searchMaxDuration = d
+	return nil
+}
+
 // AncestryRounds returns the configured pointer-jumping rounds.
 func AncestryRounds() int {
 	return ancestryRounds
@@ -71,4 +96,9 @@ func AncestryRounds() int {
 // PortionSpans returns the span budget of one portion.
 func PortionSpans() int64 {
 	return portionSpans
+}
+
+// SearchMaxDuration returns the longest search range, 0 meaning no limit.
+func SearchMaxDuration() time.Duration {
+	return searchMaxDuration
 }

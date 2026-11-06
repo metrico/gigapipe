@@ -2,6 +2,7 @@ package traceqlconfig
 
 import (
 	"testing"
+	"time"
 )
 
 func TestAncestryRoundsDefaultTo20(t *testing.T) {
@@ -66,17 +67,52 @@ func TestPortionSpansRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestSearchMaxDurationDefaultsTo168h(t *testing.T) {
+	t.Setenv(SearchMaxDurationEnv, "")
+	if err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	if got := SearchMaxDuration(); got != 168*time.Hour {
+		t.Errorf("SearchMaxDuration() = %s, want 168h", got)
+	}
+}
+
+func TestSearchMaxDurationFromTheEnvironment(t *testing.T) {
+	t.Cleanup(func() { searchMaxDuration = DefaultSearchMaxDuration })
+	for v, want := range map[string]time.Duration{"24h": 24 * time.Hour, "0": 0, "0s": 0} {
+		t.Setenv(SearchMaxDurationEnv, v)
+		if err := Init(); err != nil {
+			t.Fatalf("%s=%s: %v", SearchMaxDurationEnv, v, err)
+		}
+		if got := SearchMaxDuration(); got != want {
+			t.Errorf("%s=%s: SearchMaxDuration() = %s, want %s", SearchMaxDurationEnv, v, got, want)
+		}
+	}
+}
+
+func TestSearchMaxDurationRejectsInvalidValues(t *testing.T) {
+	for _, v := range []string{"-1h", "x", "7", "1.5"} {
+		t.Setenv(SearchMaxDurationEnv, v)
+		if err := Init(); err == nil {
+			t.Errorf("%s=%s: no error", SearchMaxDurationEnv, v)
+		}
+	}
+}
+
 func TestAllSettingsAreRead(t *testing.T) {
 	t.Setenv(AncestryRoundsEnv, "3")
 	t.Setenv(PortionSpansEnv, "7")
+	t.Setenv(SearchMaxDurationEnv, "24h")
 	t.Cleanup(func() {
 		ancestryRounds = DefaultAncestryRounds
 		portionSpans = DefaultPortionSpans
+		searchMaxDuration = DefaultSearchMaxDuration
 	})
 	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	if AncestryRounds() != 3 || PortionSpans() != 7 {
-		t.Errorf("AncestryRounds() = %d, PortionSpans() = %d, want 3 and 7", AncestryRounds(), PortionSpans())
+	if AncestryRounds() != 3 || PortionSpans() != 7 || SearchMaxDuration() != 24*time.Hour {
+		t.Errorf("AncestryRounds() = %d, PortionSpans() = %d, SearchMaxDuration() = %s, want 3, 7 and 24h",
+			AncestryRounds(), PortionSpans(), SearchMaxDuration())
 	}
 }
