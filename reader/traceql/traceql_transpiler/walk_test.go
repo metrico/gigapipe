@@ -13,6 +13,8 @@ import (
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 var walkTo = time.Unix(100000, 0).UTC()
@@ -41,7 +43,8 @@ type scriptedWalk struct {
 func newScriptedWalk(parts ...[]model.TraceInfo) *scriptedWalk {
 	s := &scriptedWalk{parts: parts}
 	s.walkProcessor = &walkProcessor{
-		main: &clickhouse_transpiler.SearchPlan{}, first: time.Minute, next: nextSlice,
+		main: &clickhouse_transpiler.SearchPlan{}, first: time.Minute,
+		next: func(d time.Duration, _, _ int64) time.Duration { return 2 * d },
 		extent: func(*shared.PlannerContext) ([]clickhouse_transpiler.ShardExtent, error) {
 			return []clickhouse_transpiler.ShardExtent{sliceOnly}, nil
 		},
@@ -438,5 +441,212 @@ func TestOnlySearchWalks(t *testing.T) {
 	}
 	if _, ok := tags.(*TraceQLComplexityEvaluator); !ok {
 		t.Errorf("tags are %T", tags)
+	}
+}
+
+// row is one shard's extent that widens no slice.
+func row(spans, traces int64) clickhouse_transpiler.ShardExtent {
+	return clickhouse_transpiler.ShardExtent{Lo: math.MaxInt64, Spans: spans, Traces: traces}
+}
+
+// withExtents gives the walk budget and answers its extent reads with attempts
+// in turn, then with one row within budget. calls counts the reads.
+func (s *scriptedWalk) withExtents(budget int64, attempts ...[]clickhouse_transpiler.ShardExtent) (calls *int) {
+	calls = new(int)
+	s.budget = budget
+	s.extent = func(*shared.PlannerContext) ([]clickhouse_transpiler.ShardExtent, error) {
+		*calls++
+		if *calls <= len(attempts) {
+			return attempts[*calls-1], nil
+		}
+		return []clickhouse_transpiler.ShardExtent{row(1, 1)}, nil
+	}
+	return calls
+}
+
+// checkReads compares each read's range with its (from, to] before walkTo.
+func checkReads(t *testing.T, reads []shared.PlannerContext, want ...[2]time.Duration) {
+	t.Helper()
+	if len(reads) != len(want) {
+		t.Fatalf("%d reads, want %d", len(reads), len(want))
+	}
+	for i, read := range reads {
+		if from, to := walkTo.Sub(read.From), walkTo.Sub(read.To); from != want[i][0] || to != want[i][1] {
+			t.Errorf("read %d: from %v to %v before the end, want %v", i, from, to, want[i])
+		}
+	}
+}
+
+// A slice with a shard over budget halves, keeping its newest half; shards are
+// never summed, and a shard at the budget is within it.
+func TestWalkBudget(t *testing.T) {
+	type rows = []clickhouse_transpiler.ShardExtent
+	for _, tc := range []struct {
+		name   string
+		budget int64
+		first  rows
+		calls  int
+		want   time.Duration
+	}{
+		{"one shard of two over", 10, rows{row(5, 2), row(11, 2)}, 2, 30 * time.Second},
+		{"at the budget", 10, rows{row(10, 2)}, 1, time.Minute},
+		{"not summed across shards", 10, rows{row(6, 2), row(6, 2)}, 1, time.Minute},
+		{"budget 0 is no budget", 0, rows{row(1<<40, 2)}, 1, time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk([]model.TraceInfo{ranked("aa", walkTo.UnixNano(), 1)})
+			calls := walk.withExtents(tc.budget, tc.first)
+			_, ctx := walk.run(t, 1)
+			if *calls != tc.calls {
+				t.Errorf("%d extent reads, want %d", *calls, tc.calls)
+			}
+			checkReads(t, walk.reads, [2]time.Duration{tc.want, 0})
+			if ctx.TotalJobs() != 1 || len(ctx.TracesSlices) != 1 {
+				t.Errorf("TotalJobs %d, %d evaluated slices, want 1", ctx.TotalJobs(), len(ctx.TracesSlices))
+			}
+		})
+	}
+}
+
+// The slice after a halved one starts at the halved boundary.
+func TestWalkContinuesFromTheHalvedSlice(t *testing.T) {
+	walk := newScriptedWalk()
+	walk.withExtents(10, []clickhouse_transpiler.ShardExtent{row(11, 2)})
+	walk.run(t, 0)
+	if len(walk.reads) < 2 {
+		t.Fatalf("%d reads", len(walk.reads))
+	}
+	checkReads(t, walk.reads[:2], [2]time.Duration{30 * time.Second, 0}, [2]time.Duration{90 * time.Second, 30 * time.Second})
+}
+
+// windowLeaf records the range of each candidates read.
+type windowLeaf struct{ windows [][2]time.Duration }
+
+func (l *windowLeaf) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	l.windows = append(l.windows, [2]time.Duration{walkTo.Sub(ctx.From), walkTo.Sub(ctx.To)})
+	return sql.NewSelect(), nil
+}
+
+// Each extent read counts the candidates of its attempt's window, over the
+// request's range, and the slice is evaluated with the last attempt's.
+func TestWalkRecountsTheHalvedWindow(t *testing.T) {
+	leaf := &windowLeaf{}
+	walk := newScriptedWalk([]model.TraceInfo{ranked("aa", walkTo.UnixNano(), 1)})
+	walk.main.Leaves = []shared.SQLRequestPlanner{leaf}
+	over := []clickhouse_transpiler.ShardExtent{row(11, 2)}
+	walk.withExtents(10, over, over)
+	scripted := walk.extent
+	walk.extent = func(ctx *shared.PlannerContext) ([]clickhouse_transpiler.ShardExtent, error) {
+		if !ctx.From.Equal(walkTo.Add(-15*time.Minute)) || !ctx.To.Equal(walkTo) {
+			t.Errorf("extent over (%v, %v]", ctx.From, ctx.To)
+		}
+		if _, err := ctx.TracesCandidates.Process(ctx); err != nil {
+			return nil, err
+		}
+		return scripted(ctx)
+	}
+	walk.run(t, 1)
+	want := [][2]time.Duration{{time.Minute, 0}, {30 * time.Second, 0}, {15 * time.Second, 0}}
+	if !slices.Equal(leaf.windows, want) {
+		t.Errorf("attempts counted %v, want %v", leaf.windows, want)
+	}
+	leaf.windows = nil
+	if _, err := walk.reads[0].TracesCandidates.Process(&walk.reads[0]); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(leaf.windows, want[2:]) {
+		t.Errorf("evaluated %v, want %v", leaf.windows, want[2:])
+	}
+}
+
+// The stop rule uses the halved boundary: a rank between it and the planned
+// boundary doesn't stop the walk.
+func TestWalkStopsOnTheHalvedBoundary(t *testing.T) {
+	walk := newScriptedWalk(
+		[]model.TraceInfo{ranked("aa", nanosBefore(45*time.Second), 1)},
+		[]model.TraceInfo{ranked("bb", nanosBefore(40*time.Second), 2)},
+	)
+	walk.withExtents(10, []clickhouse_transpiler.ShardExtent{row(11, 2)})
+	got, ctx := walk.run(t, 1)
+	if !slices.Equal(got, []string{"bb"}) || ctx.TotalJobs() != 2 {
+		t.Errorf("got %v in %d slices, want bb in 2", got, ctx.TotalJobs())
+	}
+}
+
+// A halved attempt without candidates ends the slice with no read.
+func TestWalkHalvedSliceWithoutCandidates(t *testing.T) {
+	walk := newScriptedWalk()
+	walk.withExtents(10, []clickhouse_transpiler.ShardExtent{row(11, 2)}, nil)
+	_, ctx := walk.run(t, 1)
+	if ctx.TotalJobs() < 2 {
+		t.Fatalf("TotalJobs %d", ctx.TotalJobs())
+	}
+	if !walk.reads[0].To.Equal(walkTo.Add(-30 * time.Second)) {
+		t.Errorf("first read ends %v before the end, want 30s", walkTo.Sub(walk.reads[0].To))
+	}
+	if int64(len(walk.reads)) != ctx.TotalJobs()-1 {
+		t.Errorf("%d reads, TotalJobs %d", len(walk.reads), ctx.TotalJobs())
+	}
+}
+
+// A lone {} has no budget; every other search has the setting.
+func TestPlanSetsTheBudget(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  int64
+	}{
+		{`{}`, 0},
+		{`{} | select(.a)`, 0},
+		{`{.a = "1"}`, traceqlconfig.PortionSpans()},
+		{`{} | count() > 2`, traceqlconfig.PortionSpans()},
+		{`{.a = "1"} >> {.b = "1"}`, traceqlconfig.PortionSpans()},
+	} {
+		if walk, _ := planWalk(t, tc.query); walk.budget != tc.want {
+			t.Errorf("%s: budget %d, want %d", tc.query, walk.budget, tc.want)
+		}
+	}
+}
+
+// A slice over budget halves down to 1 s, or to a shard's one trace, then runs.
+func TestWalkFloors(t *testing.T) {
+	type rows = []clickhouse_transpiler.ShardExtent
+	over := func(n int, r ...clickhouse_transpiler.ShardExtent) []rows {
+		res := make([]rows, n)
+		for i := range res {
+			res[i] = r
+		}
+		return res
+	}
+	for _, tc := range []struct {
+		name     string
+		span     time.Duration
+		attempts []rows
+		calls    int
+		want     time.Duration
+	}{
+		{"stops at 1 s still over budget", time.Hour, over(100, row(11, 2)), 7, time.Second},
+		{"one trace runs at once", time.Hour, over(100, row(11, 1)), 1, time.Minute},
+		{"two traces keep halving", time.Hour, append(over(1, row(11, 2)), over(1, row(11, 1))...), 2, 30 * time.Second},
+		{"a many-trace shard within budget doesn't halve", time.Hour, over(100, row(11, 1), row(9, 5)), 1, time.Minute},
+		{"halves the clipped slice", 3 * time.Second, over(1, row(11, 2)), 2, 1500 * time.Millisecond},
+		{"a clipped slice stops at 1 s", 3 * time.Second, over(100, row(11, 2)), 3, time.Second},
+		{"a range at 1 s isn't halved", time.Second, over(100, row(11, 2)), 1, time.Second},
+		{"a range under 1 s isn't halved", 500 * time.Millisecond, over(100, row(11, 2)), 1, 500 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk([]model.TraceInfo{ranked("aa", walkTo.UnixNano(), 1)})
+			calls := walk.withExtents(10, tc.attempts...)
+			ctx := &shared.PlannerContext{From: walkTo.Add(-tc.span), To: walkTo, Limit: 1}
+			if _, err := walk.Process(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if *calls != tc.calls {
+				t.Errorf("%d extent reads, want %d", *calls, tc.calls)
+			}
+			checkReads(t, walk.reads, [2]time.Duration{tc.want, 0})
+			if ctx.TotalJobs() != 1 {
+				t.Errorf("TotalJobs %d", ctx.TotalJobs())
+			}
+		})
 	}
 }

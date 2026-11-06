@@ -7,14 +7,19 @@ import (
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 )
 
-// Plan plans a search for query as a newest-first walk.
+// Plan plans a search for query as a newest-first walk. A query that selects
+// every span loads limit traces per slice and has no span budget.
 func Plan(query *traceql_ir.Query) (shared.TraceRequestProcessor, error) {
 	sqlPlanner, err := clickhouse_transpiler.Plan(query)
 	if err != nil {
 		return nil, err
 	}
 
-	return newWalkProcessor(sqlPlanner), nil
+	budget := traceqlconfig.PortionSpans()
+	if clickhouse_transpiler.AllSpans(query) {
+		budget = 0
+	}
+	return newWalkProcessor(sqlPlanner, budget), nil
 }
 
 // PlanTagsV2 plans the attribute keys of the spans a search for query returns.
