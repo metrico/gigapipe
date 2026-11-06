@@ -166,3 +166,24 @@ func TestQuotedNameStaysOneStringLiteralInTagValues(t *testing.T) {
 	require.NoError(t, err)
 	requireOneLiteral(t, values)
 }
+
+func TestMetricsByQuotedNameReadsItsKey(t *testing.T) {
+	for query, key := range map[string]string{
+		`{} | rate() by (.foo)`:       `foo`,
+		`{} | rate() by (."5xx")`:     `5xx`,
+		`{} | rate() by (span."a b")`: `a b`,
+		`{} | rate() by (."foo")`:     `foo`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			q, err := traceql_ir.Parse(query)
+			require.NoError(t, err)
+			mreq := metricsRequest(q.Metrics, &model.MetricsQueryRequest{Step: time.Second}, hostileContext())
+			mreq.Spans = sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("s")), "metrics_spans")
+			build, _, err := tempo.BuildMetricsRangeQuery(&mreq)
+			require.NoError(t, err)
+			res, err := build.String(sql.DefaultCtx())
+			require.NoError(t, err)
+			require.Contains(t, res, "anyIf(val, key = '"+key+"')")
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	model "github.com/metrico/qryn/v5/reader/model"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -196,13 +197,10 @@ func resolveAttrColumn(label string) string {
 	return ""
 }
 
-// stripAttrPrefix removes "span.", "resource." prefixes from attribute names for GIN lookup.
+// stripAttrPrefix returns the storage key of a by label, without its scope.
 func stripAttrPrefix(label string) string {
-	if strings.HasPrefix(label, "span.") {
-		return label[5:]
-	}
-	if strings.HasPrefix(label, "resource.") {
-		return label[9:]
+	if key, ok := traceql_ir.AttributeKey(label); ok {
+		return key
 	}
 	return label
 }
