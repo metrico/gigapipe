@@ -4,6 +4,11 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: read
+
+# Every lane runs through a Makefile recipe, so CI and local runs are the same
+# commands.
 jobs:
 
   build:
@@ -17,13 +22,48 @@ jobs:
         go-version-file: go.mod
 
     - name: gofmt
-      run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      run: make fmt-check
 
     - name: Build Gigapipe
-      run: |
-        go mod tidy
-        CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
+      run: make build
 
     - name: Unit tests
-      run: go test ./...
+      run: make test-unit
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # --new-from-rev needs the pull request's base commit in the history.
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    # Only issues introduced by this pull request fail the job, so adoption
+    # doesn't require cleaning up pre-existing findings first.
+    - name: golangci-lint
+      run: make lint LINT_NEW_FROM_REV=${{ github.event.pull_request.base.sha }}
+
+  arch-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache-dependency-path: |
+          go.sum
+          tools/archlint/go.sum
+
+    # Report-only: baselines current package coupling against
+    # .go-arch-lint.yml without gating the merge. continue-on-error keeps
+    # this from blocking a PR while still surfacing the report.
+    - name: go-arch-lint check (report-only)
+      continue-on-error: true
+      run: make arch-lint
