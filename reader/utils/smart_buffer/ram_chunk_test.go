@@ -44,30 +44,34 @@ func TestRAMChunk_StopsAtChunkSize(t *testing.T) {
 	}
 }
 
+// TestRAMChunk_ReleaseReusesBlocks is deliberately not parallel: blockPools is
+// shared by every test in the package, and a parallel test can take the
+// released blocks first. sync.Pool may also drop any item it is given (the race
+// detector drops one Put in four on purpose), so a few release/reuse rounds are
+// allowed before concluding the pool never hands a block back.
 func TestRAMChunk_ReleaseReusesBlocks(t *testing.T) {
-	t.Parallel()
+	const attempts = 10
+	for attempt := 1; attempt <= attempts; attempt++ {
+		r := newRAMChunk()
+		writeChunks(t, r, 64*1024, 4096)
+		first := make([][]byte, len(r.blocks))
+		copy(first, r.blocks)
+		r.Release()
 
-	r := newRAMChunk()
-	writeChunks(t, r, 64*1024, 4096)
-	first := make([][]byte, len(r.blocks))
-	copy(first, r.blocks)
-	r.Release()
-
-	if r.Size() != 0 {
-		t.Errorf("Size() after Release = %d, want 0", r.Size())
-	}
-
-	r2 := newRAMChunk()
-	writeChunks(t, r2, 64*1024, 4096)
-	reused := 0
-	for i, block := range r2.blocks {
-		if i < len(first) && &block[:1][0] == &first[i][:1][0] {
-			reused++
+		if r.Size() != 0 {
+			t.Fatalf("Size() after Release = %d, want 0", r.Size())
 		}
+
+		r2 := newRAMChunk()
+		writeChunks(t, r2, 64*1024, 4096)
+		for i, block := range r2.blocks {
+			if i < len(first) && &block[:1][0] == &first[i][:1][0] {
+				return
+			}
+		}
+		r2.Release()
 	}
-	if reused == 0 {
-		t.Error("no block was taken from the pool")
-	}
+	t.Errorf("no block was taken from the pool in %d attempts", attempts)
 }
 
 func TestRAMChunk_ReusesBlocksAfterFlush(t *testing.T) {

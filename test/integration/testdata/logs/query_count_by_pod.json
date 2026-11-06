@@ -1,0 +1,48 @@
+{
+  "data": {
+    "result": [
+      {
+        "metric": {
+          "app": "checkout",
+          "pod": "p1"
+        },
+        "value": [
+          "+300s",
+          "4"
+        ]
+      },
+      {
+        "metric": {
+          "app": "checkout",
+          "pod": "p2"
+        },
+        "value": [
+          "+300s",
+          "7"
+        ]
+      },
+      {
+        "metric": {
+          "app": "checkout",
+          "pod": "p3"
+        },
+        "value": [
+          "+300s",
+          "1"
+        ]
+      },
+      {
+        "metric": {
+          "app": "payments",
+          "pod": "p1"
+        },
+        "value": [
+          "+300s",
+          "5"
+        ]
+      }
+    ],
+    "resultType": "vector"
+  },
+  "status": "success"
+}
