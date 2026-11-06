@@ -19,6 +19,8 @@ func TestClusterIsTheOneTheReadTablesSpan(t *testing.T) {
 		{"", "reads", "_dist_reads", false, "", false},
 		{"home", "", "_dist", false, "home", false},
 		{"home", "", "_dist", true, "home", true},
+		{"home", "", "_dist_reads", false, "home", false},
+		{"home", "", "_dist_reads", true, "home", true},
 		{"home", "home", "_dist_reads", false, "home", false},
 		{"home", "reads", "_dist", false, "home", false},
 		{"home", "reads", "_dist_reads", false, "reads", true},
