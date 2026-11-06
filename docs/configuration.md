@@ -28,7 +28,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`CLUSTER_NAME`** - Enables clustered mode and sets the cluster name. When set, gigapipe operates in distributed mode.
 - **`CLICKHOUSE_READ_DIST_SUFFIX`** - Suffix for read-path distributed tables (default: `_dist`). Used for cross-cluster reads in multi-cluster deployments. See [Cross-Cluster Deployment](#cross-cluster-deployment) below.
-- **`CLICKHOUSE_READ_CLUSTER`** - Cluster the read-path distributed tables span. It applies only when it differs from `CLUSTER_NAME` and `CLICKHOUSE_READ_DIST_SUFFIX` is set to a suffix other than `_dist`. Set it on readers too: TraceQL metrics over one selector, structural queries and `compare()` then run on each shard of this cluster, else of `CLUSTER_NAME` (see [TraceQL](traceql.md#requirements)).
+- **`CLICKHOUSE_READ_CLUSTER`** - Cluster the read-path distributed tables span. It applies only when it differs from `CLUSTER_NAME` and `CLICKHOUSE_READ_DIST_SUFFIX` is set to a suffix other than `_dist`. Set it on readers too: structural queries, `compare()` and TraceQL metrics with no spanset operator (`&&`, `||`, structural), scalar filter or `by()` stage then run on each shard of this cluster, else of `CLUSTER_NAME` (see [TraceQL](traceql.md#requirements)).
 
 ## Environment variable names
 
@@ -125,11 +125,19 @@ ones, provided **a trace's spans and attribute rows live on one shard**.
 Writers inserting through the `_dist` tables place them so: the sharding key is
 `sipHash64(oid, trace_id)`, and a trace has one `oid`.
 
-TraceQL metrics over one selector, structural queries and `compare()` run on
-each shard of the cluster with `prefer_localhost_replica=0` in their `SETTINGS`.
-A `readonly=1` ClickHouse user fails on them with code 164 unless its profile
-sets `prefer_localhost_replica = 0`. With a read suffix other than `_dist` and
+Structural queries, `compare()` and TraceQL metrics with no spanset operator
+(`&&`, `||`, structural), scalar filter or `by()` stage run on each shard of the
+cluster, so the same placement holds for them. In those metrics, a span whose
+attribute rows sit on another shard is lost, and a span stored on two shards
+counts twice. With a read suffix other than `_dist` and
 `CLICKHOUSE_READ_CLUSTER` unset, they read only the local cluster.
+
+A metrics or `compare()` query with a structural operator sets
+`prefer_localhost_replica=0` in its `SETTINGS`. A `readonly=1` ClickHouse user
+fails on it with code 164 unless its profile sets `prefer_localhost_replica = 0`.
+Where the read tables skip unavailable shards, those queries, structural
+searches and every `compare()` also need `skip_unavailable_shards = 1` on the
+user. Other metrics need no setting on the user.
 
 The nested-set intrinsics read values that a background numberer stores, which
 needs ClickHouse 24.9 or newer; see [The numberer](#the-numberer).
