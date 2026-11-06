@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,21 +16,17 @@ import (
 type portionRead struct {
 	from   time.Time
 	filter shared.RandomFilter
-	ids    []string
 }
 
 // fakeTracesRead records each portion's context and answers the portion with
-// traceCount traces that start an hour before the portion's from.
+// traceCount traces.
 func fakeTracesRead(traceCount int, reads *[]portionRead) func(*shared.PlannerContext, shared.SQLRequestPlanner) ([]model.TraceInfo, error) {
 	return func(ctx *shared.PlannerContext, _ shared.SQLRequestPlanner) ([]model.TraceInfo, error) {
 		i := len(*reads)
-		*reads = append(*reads, portionRead{ctx.From, ctx.RandomFilter, slices.Clone(ctx.CachedTraceIds)})
+		*reads = append(*reads, portionRead{ctx.From, ctx.RandomFilter})
 		res := make([]model.TraceInfo, traceCount)
 		for j := range res {
-			res[j] = model.TraceInfo{
-				TraceID:           fmt.Sprintf("p%dt%d", i, j),
-				StartTimeUnixNano: strconv.FormatInt(ctx.From.Add(-time.Hour).UnixNano(), 10),
-			}
+			res[j] = model.TraceInfo{TraceID: fmt.Sprintf("p%dt%d", i, j), StartTimeUnixNano: "1"}
 		}
 		return res, nil
 	}
@@ -53,20 +50,11 @@ func TestPortionsQueryTheRequestedFrom(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var got []model.TraceInfo
-			for traces := range ch {
-				got = append(got, traces...)
+			for range ch {
 			}
 
 			if len(reads) != 3 {
 				t.Fatalf("got %d portions, want 3", len(reads))
-			}
-			wantIDs := func(portion int) []string {
-				var ids []string
-				for j := range traceCount {
-					ids = append(ids, fmt.Sprintf("p%dt%d", portion, j))
-				}
-				return ids
 			}
 			for i, read := range reads {
 				if !read.from.Equal(requested) {
@@ -75,25 +63,146 @@ func TestPortionsQueryTheRequestedFrom(t *testing.T) {
 				if want := (shared.RandomFilter{Max: 3, I: i}); read.filter != want {
 					t.Errorf("portion %d: filter %+v, want %+v", i, read.filter, want)
 				}
-				var want []string
-				if i > 0 {
-					want = wantIDs(i - 1)
-				}
-				if !slices.Equal(read.ids, want) {
-					t.Errorf("portion %d: carried ids %v, want %v", i, read.ids, want)
-				}
-			}
-			var gotIDs []string
-			for _, trace := range got {
-				gotIDs = append(gotIDs, trace.TraceID)
-			}
-			if !slices.Equal(gotIDs, wantIDs(2)) {
-				t.Errorf("result %v, want the last portion's %v", gotIDs, wantIDs(2))
 			}
 			if !ctx.From.Equal(requested) {
 				t.Errorf("context from %v, want %v", ctx.From, requested)
 			}
 		})
+	}
+}
+
+// ranked is a trace with a search rank and a start.
+func ranked(id string, newest, start int64) model.TraceInfo {
+	return model.TraceInfo{TraceID: id, Newest: newest, StartTimeUnixNano: strconv.FormatInt(start, 10)}
+}
+
+// mergedPortions runs a request whose portions answer with parts: its trace ids.
+func mergedPortions(t *testing.T, limit int64, parts ...[]model.TraceInfo) []string {
+	t.Helper()
+	read := func(ctx *shared.PlannerContext, _ shared.SQLRequestPlanner) ([]model.TraceInfo, error) {
+		return parts[ctx.RandomFilter.I], nil
+	}
+	ctx := &shared.PlannerContext{Limit: limit}
+	ch, err := portionedTraces(read).ProcessComplexReq(ctx, int64(len(parts))*10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.TotalJobs() != int64(len(parts)) {
+		t.Errorf("TotalJobs %d, want %d", ctx.TotalJobs(), len(parts))
+	}
+	ids := []string{}
+	for traces := range ch {
+		for _, trace := range traces {
+			ids = append(ids, trace.TraceID)
+		}
+	}
+	return ids
+}
+
+func TestPortionsMergeByRank(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit int64
+		parts [][]model.TraceInfo
+		want  []string
+	}{
+		{
+			name:  "the newer match wins over the later start",
+			limit: 1,
+			parts: [][]model.TraceInfo{{ranked("aa", 5, 1)}, {ranked("bb", 4, 9)}},
+			want:  []string{"aa"},
+		},
+		{
+			name:  "a later portion displaces a lower rank",
+			limit: 1,
+			parts: [][]model.TraceInfo{{ranked("aa", 4, 1)}, {ranked("bb", 5, 1)}},
+			want:  []string{"bb"},
+		},
+		{
+			name:  "equal ranks keep the higher trace id",
+			limit: 1,
+			parts: [][]model.TraceInfo{{ranked("bb", 5, 1)}, {ranked("aa", 5, 1)}, {ranked("cc", 5, 1)}},
+			want:  []string{"cc"},
+		},
+		{
+			name:  "returns the top limit across portions",
+			limit: 2,
+			parts: [][]model.TraceInfo{
+				{ranked("aa", 9, 1), ranked("bb", 3, 2)},
+				{ranked("cc", 8, 3), ranked("dd", 2, 4)},
+				{ranked("ee", 1, 5), ranked("ff", 7, 6)},
+			},
+			want: []string{"cc", "aa"},
+		},
+		{
+			name:  "limit 0 keeps every trace",
+			limit: 0,
+			parts: [][]model.TraceInfo{{ranked("aa", 1, 1), ranked("bb", 2, 2)}, {ranked("cc", 3, 3)}},
+			want:  []string{"cc", "bb", "aa"},
+		},
+		{
+			name:  "the result is by start, newest first",
+			limit: 3,
+			parts: [][]model.TraceInfo{{ranked("aa", 9, 1), ranked("bb", 8, 3)}, {ranked("cc", 7, 2)}},
+			want:  []string{"bb", "cc", "aa"},
+		},
+		{
+			name:  "the start compares as a number",
+			limit: 2,
+			parts: [][]model.TraceInfo{{ranked("aa", 2, 9)}, {ranked("bb", 1, 10)}},
+			want:  []string{"bb", "aa"},
+		},
+		{
+			name:  "an empty portion adds nothing",
+			limit: 2,
+			parts: [][]model.TraceInfo{{}, {ranked("aa", 1, 1)}, nil},
+			want:  []string{"aa"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mergedPortions(t, tc.limit, tc.parts...); !slices.Equal(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestKeepTop(t *testing.T) {
+	traces := func() []model.TraceInfo {
+		return []model.TraceInfo{ranked("aa", 1, 9), ranked("bb", 3, 8), ranked("cc", 2, 7), ranked("dd", 3, 6)}
+	}
+	for _, tc := range []struct {
+		limit int64
+		want  []string
+	}{
+		{0, []string{"dd", "bb", "cc", "aa"}},
+		{4, []string{"dd", "bb", "cc", "aa"}},
+		{9, []string{"dd", "bb", "cc", "aa"}},
+		{3, []string{"dd", "bb", "cc"}},
+		{1, []string{"dd"}},
+	} {
+		ids := []string{}
+		for _, trace := range keepTop(traces(), tc.limit) {
+			ids = append(ids, trace.TraceID)
+		}
+		if !slices.Equal(ids, tc.want) {
+			t.Errorf("limit %d: got %v, want %v", tc.limit, ids, tc.want)
+		}
+	}
+}
+
+// Traces with one start sort by trace id, whatever their rank and portion.
+func TestPortionsWithEqualStartsSortByTraceID(t *testing.T) {
+	const traces = 200
+	var parts [3][]model.TraceInfo
+	want := make([]string, traces)
+	for i := range traces {
+		id := fmt.Sprintf("t%03d", i)
+		want[traces-1-i] = id
+		parts[i%3] = append(parts[i%3], ranked(id, int64(traces-i), 1))
+	}
+	if got := mergedPortions(t, traces, parts[:]...); !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
@@ -143,5 +252,92 @@ func TestComplexRequestRecordsPortions(t *testing.T) {
 	}
 	if ctx.Portions != 3 || len(reads) != 3 {
 		t.Errorf("Portions = %d, reads = %d, want 3", ctx.Portions, len(reads))
+	}
+}
+
+type simpleRequestRecorder struct {
+	calls int
+}
+
+func (s *simpleRequestRecorder) Process(*shared.PlannerContext) (chan []string, error) {
+	s.calls++
+	return nil, nil
+}
+
+func (s *simpleRequestRecorder) SetMain(shared.SQLRequestPlanner) {}
+
+func TestRequestPortionsOnlyOverTheBudget(t *testing.T) {
+	for _, tc := range []struct {
+		estimate, portions, totalJobs int64
+		simpleCalls                   int
+	}{{9, 0, 1, 1}, {10, 0, 1, 1}, {11, 2, 2, 0}, {20, 2, 2, 0}, {21, 3, 3, 0}} {
+		simple, portioned := &simpleRequestRecorder{}, &portionCountRecorder{}
+		evaluator := &TraceQLComplexityEvaluator[string]{
+			threshold: 10, simpleRequestProcessor: simple, complexRequestProcessor: portioned,
+		}
+		ctx := &shared.PlannerContext{}
+		if _, err := evaluator.processEstimated(ctx, tc.estimate); err != nil {
+			t.Fatal(err)
+		}
+		if simple.calls != tc.simpleCalls || portioned.portions != tc.portions || ctx.Portions != tc.portions {
+			t.Errorf("estimate %d: simple calls %d, read in %d portions, ctx.Portions %d; want %d, %d, %d",
+				tc.estimate, simple.calls, portioned.portions, ctx.Portions, tc.simpleCalls, tc.portions, tc.portions)
+		}
+		if ctx.TotalJobs() != tc.totalJobs {
+			t.Errorf("estimate %d: TotalJobs %d, want %d", tc.estimate, ctx.TotalJobs(), tc.totalJobs)
+		}
+	}
+}
+
+func recordPortionedLines(t *testing.T) *[]string {
+	t.Helper()
+	var lines []string
+	original := logPortioned
+	logPortioned = func(line string) { lines = append(lines, line) }
+	t.Cleanup(func() { logPortioned = original })
+	return &lines
+}
+
+func TestPortionedRequestLogsOneLine(t *testing.T) {
+	lines := recordPortionedLines(t)
+	var reads []portionRead
+	ctx := &shared.PlannerContext{
+		Limit: 2, TraceQL: `{.a = "1"} >> {.b}`,
+		From: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), To: time.Date(2026, 1, 2, 4, 4, 5, 0, time.UTC),
+	}
+	ch, err := portionedTraces(fakeTracesRead(0, &reads)).processEstimated(ctx, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	want := `traceql portioned query="{.a = \"1\"} >> {.b}" from=2026-01-02T03:04:05Z to=2026-01-02T04:04:05Z ` +
+		`estimate=25 portion_spans=10 portions=3`
+	if len(*lines) != 1 || (*lines)[0] != want {
+		t.Errorf("got %q, want one line %q", *lines, want)
+	}
+}
+
+func TestPortionedAutocompleteLogsOneLine(t *testing.T) {
+	lines := recordPortionedLines(t)
+	evaluator := &TraceQLComplexityEvaluator[string]{threshold: 10, complexRequestProcessor: &portionCountRecorder{}}
+	if _, err := evaluator.processEstimated(&shared.PlannerContext{}, 11); err != nil {
+		t.Fatal(err)
+	}
+	if len(*lines) != 1 || !strings.Contains((*lines)[0], "portions=2") {
+		t.Errorf("got %q, want one line with 2 portions", *lines)
+	}
+}
+
+func TestRequestWithinTheBudgetLogsNothing(t *testing.T) {
+	lines := recordPortionedLines(t)
+	evaluator := &TraceQLComplexityEvaluator[string]{threshold: 10, simpleRequestProcessor: &simpleRequestRecorder{}}
+	for _, estimate := range []int64{9, 10} {
+		if _, err := evaluator.processEstimated(&shared.PlannerContext{}, estimate); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(*lines) != 0 {
+		t.Errorf("got %q, want no line", *lines)
 	}
 }

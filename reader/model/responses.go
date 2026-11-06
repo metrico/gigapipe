@@ -44,6 +44,8 @@ type TraceInfo struct {
 	DurationMs        int64     `json:"durationMs"`
 	SpanSet           SpanSet   `json:"spanSet"`
 	SpanSets          []SpanSet `json:"spanSets"`
+	// Newest is the newest matched span's start: the search rank.
+	Newest int64 `json:"-"`
 }
 
 type SpanInfo struct {

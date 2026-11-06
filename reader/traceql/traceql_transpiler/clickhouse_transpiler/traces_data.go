@@ -101,6 +101,7 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.4, s.4), any(index_grouped.spansets))", "attr_texts"),
 			sql.NewSimpleCol(keysCol, "span_attr_keys"),
 			sql.NewSimpleCol(valsCol, "span_attr_vals"),
+			sql.NewSimpleCol("any(index_grouped.trace_newest)", "trace_newest"),
 		).
 		From(sql.NewSimpleCol(table, "traces")).
 		Join(sql.NewJoin(
@@ -116,7 +117,9 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			inSubquery(ctx, sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
 			inSubquery(ctx, sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
 		GroupBy(sql.NewRawObject("traces.trace_id")).
-		OrderBy(sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC))
+		OrderBy(
+			sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC),
+			sql.NewOrderBy(sql.NewRawObject("trace_id"), sql.ORDER_BY_DIRECTION_DESC))
 	if withSelected != nil {
 		res.AddWith(withValues, withSelected)
 		res.AddJoin(sql.NewJoin(join, sql.NewWithRef(withSelected), sql.And(

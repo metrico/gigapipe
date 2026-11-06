@@ -386,7 +386,7 @@ func (t *TempoService) metricsPlannerContext(ctx context.Context, req *model.Met
 	if tq.Metrics == nil {
 		return nil, nil, fmt.Errorf("query must contain a metrics function (e.g. | rate())")
 	}
-	planCtx, err := traceQLPlannerContext(ctx, conn, req.From, req.To, 0)
+	planCtx, err := traceQLPlannerContext(ctx, conn, req.Query, req.From, req.To, 0)
 	if err != nil {
 		return nil, nil, err
 	}
