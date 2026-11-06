@@ -31,13 +31,14 @@ func TestStringEmptySelector(t *testing.T) {
 	}
 }
 
-// TestStringDanglingAndOr checks that rendering does not panic when the parser
-// accepts && or || with nothing after it. Such input is not valid TraceQL; this
-// only guards String(), it does not decide whether the parser should accept it.
-func TestStringDanglingAndOr(t *testing.T) {
+// TestParseRejectsDanglingAndOr checks that && or || with nothing after it
+// does not parse.
+func TestParseRejectsDanglingAndOr(t *testing.T) {
 	for _, query := range []string{`{ .a = 1 && }`, `{ .a = 1 || }`} {
 		t.Run(query, func(t *testing.T) {
-			renderQuery(t, query)
+			if _, err := Parse(query); err == nil {
+				t.Fatalf("Parse(%q) succeeded, want an error", query)
+			}
 		})
 	}
 }
