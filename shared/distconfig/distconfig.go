@@ -1,6 +1,7 @@
 package distconfig
 
 import (
+	"fmt"
 	"os"
 	"sync"
 )
@@ -32,4 +33,16 @@ func Suffix() string {
 // it is set apart from the home cluster; empty otherwise.
 func ReadCluster() string {
 	return readCluster
+}
+
+// CrossClusterWarning returns the start-up warning for a custom read suffix
+// with no read cluster, or "" when none applies. An empty suffix means Init
+// has not run.
+func CrossClusterWarning(suffix, readCluster string) string {
+	if suffix == "" || suffix == "_dist" || readCluster != "" {
+		return ""
+	}
+	return fmt.Sprintf("CLICKHOUSE_READ_DIST_SUFFIX=%q is set without CLICKHOUSE_READ_CLUSTER: "+
+		"TraceQL structural queries and compare() will read only the local cluster (CLUSTER_NAME). "+
+		"Set CLICKHOUSE_READ_CLUSTER to the cluster the read tables span.", suffix)
 }
