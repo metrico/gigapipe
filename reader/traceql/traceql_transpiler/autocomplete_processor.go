@@ -32,8 +32,7 @@ type complexAutocompleteRequestProcessor struct {
 }
 
 func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext,
-	complexity int64) (chan []string, error) {
-	portions := (complexity + COMPLEXITY_THRESHOLD - 1) / COMPLEXITY_THRESHOLD
+	portions int64) (chan []string, error) {
 	parts := make([][]string, 0, portions)
 	for i := range portions {
 		portionCtx := *ctx
