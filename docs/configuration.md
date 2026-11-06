@@ -28,7 +28,7 @@ The container image is published to `ghcr.io/metrico/gigapipe:latest` with multi
 
 - **`CLUSTER_NAME`** - Enables clustered mode and sets the cluster name. When set, gigapipe operates in distributed mode.
 - **`CLICKHOUSE_READ_DIST_SUFFIX`** - Suffix for read-path distributed tables (default: `_dist`). Used for cross-cluster reads in multi-cluster deployments. See [Cross-Cluster Deployment](#cross-cluster-deployment) below.
-- **`CLICKHOUSE_READ_CLUSTER`** - Cluster the read-path distributed tables span. It applies only when it differs from `CLUSTER_NAME` and `CLICKHOUSE_READ_DIST_SUFFIX` is set to a suffix other than `_dist`. Set it on readers too: TraceQL structural queries and `compare()` then run on each shard of this cluster, else of `CLUSTER_NAME` (see [TraceQL](traceql.md#requirements)).
+- **`CLICKHOUSE_READ_CLUSTER`** - Cluster the read-path distributed tables span. It applies only when it differs from `CLUSTER_NAME` and `CLICKHOUSE_READ_DIST_SUFFIX` is set to a suffix other than `_dist`. Set it on readers too: TraceQL structural queries and `compare()` then run on each shard of this cluster, else of `CLUSTER_NAME` (see [Requirements](#requirements)).
 
 ## Environment variable names
 
@@ -123,7 +123,19 @@ span tree is resolved at query time from the `parent_id` of the stored spans.
 Clustered (Distributed) deployments return the same results as single-node
 ones, provided **a trace's spans and attribute rows live on one shard**.
 Writers inserting through the `_dist` tables place them so: the sharding key is
-`sipHash64(oid, trace_id)`, and a trace has one `oid`.
+`sipHash64(oid, trace_id)`, and a trace has one `oid`. A structural query
+(search, metrics, `compare()`, tag autocomplete) resolves relations on each
+shard over that shard's spans; a split trace loses the relations between its
+shards' spans. Search keeps the newest traces of the shards' results and lists
+a split trace once, with one shard's spansets. `compare()`, structural or not,
+counts attribute values on each shard over that shard's traces, and the
+connected ClickHouse node sums the shards' counts. The nested-set numberer has
+the same requirement.
+For the ClickHouse memory setting, see [ClickHouse memory](#clickhouse-memory).
+
+On a cluster, TraceQL queries need the ClickHouse analyzer: keep
+`enable_analyzer` at its default of 1 for the reader's user, including through
+`compatibility`.
 
 The nested-set intrinsics read values that a background numberer stores, which
 needs ClickHouse 24.9 or newer; see [The numberer](#the-numberer).
@@ -141,8 +153,9 @@ The span tree is built at query time from stored `parent_id`s:
   ancestor arrives.
 - When a trace has several roots, they are all siblings under `~`.
 
-Ancestry is resolved in a fixed number of rounds, set by
-`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`. With `R` rounds, traces up to `2^R` spans
+Ancestry is resolved in up to `R` rounds, set by
+`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`. Each trace takes one round per doubling of
+its spans found so far. With `R` rounds, traces up to `2^R` spans
 deep resolve. The default of 20 covers traces about a million spans deep.
 
 A span whose ancestry is still unresolved after the last round is either in
@@ -176,7 +189,7 @@ The nested-set numberer computes `nestedSetLeft`, `nestedSetRight` and `nestedSe
 
 - **`GIGAPIPE_NESTED_SET_NUMBERER_IDLE`** - How long a trace must receive no spans before it is numbered, as a Go duration (default: `10s`).
 - **`GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`** - Time between numbering passes, as a Go duration (default: `5s`).
-- **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster each shard numbers its own traces and the cap applies per shard.
+- **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster each shard numbers its own traces and the cap applies per shard, so a trace's spans must live on one shard (see [Requirements](#requirements)).
 
 - **Who takes part.** Every instance in `all` or `writer` mode takes part, and ClickHouse elects one of them to run the passes through a lease in the `tempo_traces_nested_set_lease` table. If the leader stops, or its passes keep failing, another takes over within 4 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`, so values can lag that much longer. `reader` instances never take part.
 - **Clocks.** Each instance judges the lease by the clock of the ClickHouse node it connects to, so on a cluster node clocks must agree to well within 3 × the interval. On a replicated cluster they must also agree within 2s and well within the idle period. NTP is enough.
@@ -246,7 +259,30 @@ MALLOC_CONF=background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0
 
 It makes ClickHouse return freed memory to the OS within about a second, so repeated large queries start from a low RSS instead of tripping the server memory limit (code 241).
 
-Sizing for 24h structural TraceQL queries (search including Grafana Traces Drilldown, metrics, `compare()`, autocomplete) on a two-shard cluster, measured on aarch64: with the variable set, each node uses up to ~3.8 GB of tracked memory and ~5.1 GiB RSS, so 7 GiB per node is enough. Without it, plan about 2.5 GiB more per node.
+It matters most for 24h structural TraceQL queries (search including Grafana Traces Drilldown, metrics, `compare()`, autocomplete). Without it, plan more memory per node.
+
+The reader holds the IDs of a TraceQL metrics, `compare()` or filtered tag autocomplete request in memory (`readIds`): `24 + 8 x spans` bytes per trace, uncapped, for the whole request, or for each portion of a portioned autocomplete. `compare()` holds its baseline and selection tables at once. Reading and sending them allocates more on top.
+
+`max_result_rows` on the reader's ClickHouse user caps the IDs statement, and it counts traces, not span IDs. With `result_overflow_mode=throw` (the default) a request over the cap gets a 500. **Don't use `break`:** it truncates the IDs silently, so the request returns 200 with wrong results: wrong counts from `compare()` and metrics, missing suggestions from autocomplete.
+
+### ClickHouse access
+
+On a cluster, the reader's ClickHouse user needs `SELECT` on the database, including the local tables, not only `_dist`, plus `REMOTE ON *.*`:
+
+```sql
+GRANT SELECT ON <db>.* TO <user>;
+GRANT REMOTE ON *.* TO <user>;
+```
+
+Without a `<secret>` in `remote_servers`, shards run the query as that cluster's `<user>`. With `<secret>`, the initial user runs on every shard, so it must exist on every shard with `SELECT`.
+
+For a `readonly=1` user on a cluster:
+
+Structural TraceQL metrics, autocomplete and `compare()` fail with code 164 (`Cannot modify 'prefer_localhost_replica' setting in readonly mode`), and where the read tables skip unavailable shards, so do structural searches and every `compare()`.
+
+Without `prefer_localhost_replica=0`, a structural search that succeeds logs no [unresolved-trace warning](#depth-limit): the warning's probe changes that setting, and its failure is logged at debug level only.
+
+Set `prefer_localhost_replica=0`, and `skip_unavailable_shards=1` if the read tables skip unavailable shards, in the user's settings, or allow them with `CHANGEABLE_IN_READONLY`, or use `readonly=2`. Setting them on the user applies to all of that user's Distributed reads.
 
 ## Recording Rules (Ruler)
 
