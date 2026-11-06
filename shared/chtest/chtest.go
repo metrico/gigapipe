@@ -87,3 +87,27 @@ func open(t *testing.T, cluster string) (clickhouse.Conn, string) {
 	})
 	return conn, db
 }
+
+// ReaderUser creates a user on conn's node with the access docs/configuration.md
+// asks of a reader, SELECT on db and REMOTE, and a profile holding settings. It
+// is dropped when the test ends.
+func ReaderUser(t *testing.T, conn clickhouse.Conn, db, settings string) string {
+	t.Helper()
+	ctx := context.Background()
+	user := fmt.Sprintf("chtest_reader_%d", rand.Uint64())
+	t.Cleanup(func() {
+		_ = conn.Exec(ctx, "DROP USER IF EXISTS "+user)
+		_ = conn.Exec(ctx, "DROP SETTINGS PROFILE IF EXISTS "+user)
+	})
+	for _, stmt := range []string{
+		"CREATE SETTINGS PROFILE " + user + " SETTINGS " + settings,
+		"CREATE USER " + user + " IDENTIFIED WITH no_password SETTINGS PROFILE '" + user + "'",
+		"GRANT SELECT ON " + db + ".* TO " + user,
+		"GRANT REMOTE ON *.* TO " + user,
+	} {
+		if err := conn.Exec(ctx, stmt); err != nil {
+			t.Fatalf("%v\n%s", err, stmt)
+		}
+	}
+	return user
+}

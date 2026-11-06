@@ -99,7 +99,7 @@ func (s *searchStore) suggest(t *testing.T, kind, query string, run searchRun) [
 	}
 	distconfig.Init()
 	tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
-		Name: s.name, ClusterName: s.cluster,
+		Name: s.name, ClusterName: s.cluster, SkipUnavailableShards: s.skipUnavailable,
 	}})
 	var ch chan []string
 	if run.portions == 0 {

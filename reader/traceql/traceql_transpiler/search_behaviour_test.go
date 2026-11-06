@@ -51,6 +51,10 @@ type searchStore struct {
 	name    string
 	cluster string
 	golden  map[string][]string
+	// skipUnavailable is the reader's SkipUnavailableShards.
+	skipUnavailable bool
+	// user is the ClickHouse user reading s, when it is not the admin.
+	user string
 }
 
 var goldenMu sync.Mutex
@@ -179,7 +183,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 	}
 	distconfig.Init()
 	tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
-		Name: s.name, ClusterName: s.cluster,
+		Name: s.name, ClusterName: s.cluster, SkipUnavailableShards: s.skipUnavailable,
 	}})
 	var ch chan []model.TraceInfo
 	if run.portions == 0 {
