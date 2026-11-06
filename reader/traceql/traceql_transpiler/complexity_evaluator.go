@@ -60,7 +60,14 @@ func (t *TraceQLComplexityEvaluator[T]) Process(ctx *shared.PlannerContext) (cha
 			complexity = _complexity
 		}
 	}
-	if complexity < t.threshold {
+	return t.processEstimated(ctx, complexity)
+}
+
+// processEstimated reads the request at once when the estimate fits the budget,
+// and in portions otherwise.
+func (t *TraceQLComplexityEvaluator[T]) processEstimated(ctx *shared.PlannerContext,
+	complexity int64) (chan []T, error) {
+	if complexity <= t.threshold {
 		return t.ProcessSimpleReq(ctx)
 	}
 	return t.ProcessComplexReq(ctx, complexity)

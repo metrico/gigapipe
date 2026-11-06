@@ -89,7 +89,7 @@ type PlannerContext struct {
 	RandomFilter   RandomFilter
 	CachedTraceIds []string
 	// Portions is the number of complexity portions the request was read in,
-	// or 0 when it was read at once.
+	// or 0 when it was read at once. It is final when the planner's Process returns.
 	Portions    int64
 	VersionInfo dbversion.VersionInfo
 
