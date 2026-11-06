@@ -30,7 +30,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	reqCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 
-	sqlCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
+	sqlCtx, err := traceQLPlannerContext(ctx, conn, q, from, to, limit)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -58,7 +58,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 // traceQLPlannerContext builds the planner context shared by TraceQL search,
 // autocomplete and metrics, with the server's version info resolved.
 func traceQLPlannerContext(ctx context.Context, conn *model.DataDatabasesMap,
-	from time.Time, to time.Time, limit int) (*shared.PlannerContext, error) {
+	query string, from time.Time, to time.Time, limit int) (*shared.PlannerContext, error) {
 	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
@@ -71,6 +71,7 @@ func traceQLPlannerContext(ctx context.Context, conn *model.DataDatabasesMap,
 		Ctx:         ctx,
 		CHDb:        conn.Session,
 		VersionInfo: versionInfo,
+		TraceQL:     query,
 
 		AncestryRounds: traceqlconfig.AncestryRounds(),
 	}

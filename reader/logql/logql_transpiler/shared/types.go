@@ -90,7 +90,9 @@ type PlannerContext struct {
 	CachedTraceIds []string
 	// Portions is the number of complexity portions the request was read in,
 	// or 0 when it was read at once. It is final when the planner's Process returns.
-	Portions    int64
+	Portions int64
+	// TraceQL is the request's query text, for its log lines.
+	TraceQL     string
 	VersionInfo dbversion.VersionInfo
 
 	// TracesIntrinsicWhere holds extra WHERE conditions for the tempo_traces table

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,5 +175,58 @@ func TestRequestPortionsOnlyOverTheBudget(t *testing.T) {
 			t.Errorf("estimate %d: simple calls %d, read in %d portions, ctx.Portions %d; want %d, %d, %d",
 				tc.estimate, simple.calls, portioned.portions, ctx.Portions, tc.simpleCalls, tc.portions, tc.portions)
 		}
+	}
+}
+
+func recordPortionedLines(t *testing.T) *[]string {
+	t.Helper()
+	var lines []string
+	original := logPortioned
+	logPortioned = func(line string) { lines = append(lines, line) }
+	t.Cleanup(func() { logPortioned = original })
+	return &lines
+}
+
+func TestPortionedRequestLogsOneLine(t *testing.T) {
+	lines := recordPortionedLines(t)
+	var reads []portionRead
+	ctx := &shared.PlannerContext{
+		Limit: 2, TraceQL: `{.a = "1"} >> {.b}`,
+		From: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), To: time.Date(2026, 1, 2, 4, 4, 5, 0, time.UTC),
+	}
+	ch, err := portionedTraces(fakeTracesRead(0, &reads)).processEstimated(ctx, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	want := `traceql portioned query="{.a = \"1\"} >> {.b}" from=2026-01-02T03:04:05Z to=2026-01-02T04:04:05Z ` +
+		`estimate=25 portion_spans=10 portions=3`
+	if len(*lines) != 1 || (*lines)[0] != want {
+		t.Errorf("got %q, want one line %q", *lines, want)
+	}
+}
+
+func TestPortionedAutocompleteLogsOneLine(t *testing.T) {
+	lines := recordPortionedLines(t)
+	evaluator := &TraceQLComplexityEvaluator[string]{threshold: 10, complexRequestProcessor: &portionCountRecorder{}}
+	if _, err := evaluator.processEstimated(&shared.PlannerContext{}, 11); err != nil {
+		t.Fatal(err)
+	}
+	if len(*lines) != 1 || !strings.Contains((*lines)[0], "portions=2") {
+		t.Errorf("got %q, want one line with 2 portions", *lines)
+	}
+}
+
+func TestRequestWithinTheBudgetLogsNothing(t *testing.T) {
+	lines := recordPortionedLines(t)
+	evaluator := &TraceQLComplexityEvaluator[string]{threshold: 10, simpleRequestProcessor: &simpleRequestRecorder{}}
+	for _, estimate := range []int64{9, 10} {
+		if _, err := evaluator.processEstimated(&shared.PlannerContext{}, estimate); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(*lines) != 0 {
+		t.Errorf("got %q, want no line", *lines)
 	}
 }

@@ -2,13 +2,24 @@ package traceql_transpiler
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
+
+var logPortioned = func(line string) { logger.Info(line) }
+
+// portionedLine reports why a request was read in portions.
+func portionedLine(ctx *shared.PlannerContext, estimate, portionSpans, portions int64) string {
+	return fmt.Sprintf("traceql portioned query=%q from=%s to=%s estimate=%d portion_spans=%d portions=%d",
+		ctx.TraceQL, ctx.From.Format(time.RFC3339), ctx.To.Format(time.RFC3339), estimate, portionSpans, portions)
+}
 
 type simpleRequestProcessor[T any] interface {
 	Process(ctx *shared.PlannerContext) (chan []T, error)
@@ -82,6 +93,7 @@ func (t *TraceQLComplexityEvaluator[T]) ProcessComplexReq(ctx *shared.PlannerCon
 	complexity int64) (chan []T, error) {
 	t.complexRequestProcessor.SetMain(t.initSqlPlanner)
 	ctx.Portions = (complexity + t.threshold - 1) / t.threshold
+	logPortioned(portionedLine(ctx, complexity, t.threshold, ctx.Portions))
 	return t.complexRequestProcessor.Process(ctx, ctx.Portions)
 }
 
