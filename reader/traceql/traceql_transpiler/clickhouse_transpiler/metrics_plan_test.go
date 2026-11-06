@@ -215,7 +215,7 @@ func TestMetricsReadDistributedTablesOnClusters(t *testing.T) {
 			ctx.IsCluster = true
 			plan := planMetrics(t, query)
 			if len(plan.Ids) == 0 {
-				t.Skip("TestOnePassMetricsRunOnEachShard covers it")
+				t.Skip("TestMetricsWithoutWholeTraceReadTracesOnce covers it")
 			}
 			res := renderPlan(t, plan.Ids[0].Statement, ctx)
 			if m := local.FindString(res); m != "" {

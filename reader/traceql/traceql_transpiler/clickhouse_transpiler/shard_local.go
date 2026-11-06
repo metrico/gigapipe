@@ -82,7 +82,7 @@ func onEachShard(ctx *shared.PlannerContext, shard sql.ISelect, cols ...string) 
 	return sql.NewSelect().Select(sel...).From(view).SetSetting("prefer_localhost_replica", "0"), nil
 }
 
-// clusterSettings sets stmt's statement-level settings for ctx's cluster:
+// clusterSettings sets stmt's settings for ctx's cluster:
 // unavailable shards are skipped when the read tables skip them.
 func clusterSettings(ctx *shared.PlannerContext, stmt sql.ISelect) sql.ISelect {
 	if ctx.IsCluster && ctx.SkipUnavailableShards {
