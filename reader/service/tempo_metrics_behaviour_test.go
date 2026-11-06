@@ -348,6 +348,50 @@ var exemplarQueries = []string{
 	`{.a = "1"} >> {.b = "1"} | count_over_time() by (name) with(sample=0.3)`,
 }
 
+// onePassQueries are metrics queries that don't relate spans across a trace:
+// nested-set fields, root filters, pipelines, samples and every metric function.
+var onePassQueries = []string{
+	`{nestedSetParent < 0} | rate()`,
+	`{nestedSetLeft > 2} | count_over_time() by (name)`,
+	`{nestedSetParent < 0 && .a = "1"} | count_over_time()`,
+	`{nestedSetParent < 0 && .a = "1"} | avg_over_time(nestedSetRight)`,
+	`{nestedSetParent < 0 && nestedSetLeft > 0 && .a = "1"} | rate()`,
+	`{nestedSetParent < 0 || .a = "1"} | count_over_time() by (name)`,
+	`{nestedSetParent < 0 && duration > 1ms && .a = "1"} | rate()`,
+	`{nestedSetParent < 0 && .a = "1"} | rate() with(sample=0.5)`,
+	`{nestedSetRight - nestedSetLeft = 1 && .a = "1"} | rate()`,
+	`{duration * 2 > 1ms} | rate()`,
+	`{duration > 1ms} | rate()`,
+	`{.a = "1"} | select(.b) | rate()`,
+	`{} | select(.b) | rate()`,
+	`{nestedSetParent < 0} | select(.b) | rate()`,
+	`{.a = "1"} | {.b = "1"} | rate()`,
+	`select(.b) | {.a = "1"} | rate()`,
+	`{} | {.a = "1"} | rate()`,
+	`{.a = "1"} | coalesce() | rate()`,
+	`({.a = "1"}) | rate()`,
+	`{} | rate() with(sample=0.5)`,
+	`{nestedSetParent < 0} | rate() with(sample=0.5)`,
+	`{.a = "1"} | quantile_over_time(duration, .5, .9) by (name)`,
+	`{} | quantile_over_time(duration, .5, .9)`,
+	`{} | histogram_over_time(duration)`,
+	`{.b = "1"} | avg_over_time(nestedSetRight) by (nestedSetLeft)`,
+	`{nestedSetLeft > 2} | avg_over_time(nestedSetRight)`,
+	`{.a = "1"} | count_over_time() by (.b)`,
+}
+
+// onePassCompareQueries compare selections and baselines of those kinds.
+var onePassCompareQueries = []string{
+	`{nestedSetParent < 0} | compare({.a = "1"})`,
+	`{nestedSetParent < 0 && .a = "1"} | compare({.b = "1"})`,
+	`{} | compare({nestedSetParent < 0})`,
+	`{} | compare({nestedSetParent < 0 && .a = "1"})`,
+	`{.a = "1"} >> {.b = "1"} | compare({nestedSetLeft > 2})`,
+	`{} | compare({.b = "1"}) with(sample=0.5)`,
+	`{.a = "1"} | compare({.b = "1"}) with(sample=0.7)`,
+	`{.a = "1"} >> {.b = "1"} | compare({.b = "1"}) with(sample=0.5)`,
+}
+
 // metricsRequestRange is the request of query over the seeded spans in 30 s steps.
 func metricsRequestRange(query string) *model.MetricsQueryRequest {
 	return &model.MetricsQueryRequest{
@@ -529,6 +573,9 @@ func testMetricsAndCompare(t *testing.T, cluster bool) {
 	s.assertResults(t, "metrics", metricsQueries())
 	s.assertResults(t, "compare", compareQueries())
 	s.assertResults(t, "exemplars", exemplarQueries)
+	s.assertResults(t, "metrics", onePassQueries)
+	s.assertResults(t, "compare", onePassCompareQueries)
+	s.assertResults(t, "exemplars", onePassQueries)
 	s.assertSampleDrops(t)
 }
 
