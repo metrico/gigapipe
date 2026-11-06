@@ -280,9 +280,9 @@ For a `readonly=1` user on a cluster:
 
 Structural TraceQL metrics, autocomplete and `compare()` fail with code 164 (`Cannot modify 'prefer_localhost_replica' setting in readonly mode`), and where the read tables skip unavailable shards, so do structural searches and every `compare()`.
 
-Without `prefer_localhost_replica=0`, a structural search that succeeds logs no [unresolved-trace warning](#depth-limit): the warning's probe changes that setting, and its failure is logged at debug level only.
+Without `prefer_localhost_replica=0`, a structural search that succeeds logs no [unresolved-trace warning](#depth-limit): the warning's probe changes that setting. Each refused probe prints the code 164 error to stdout and resets the reader's connection pool, at most once a minute.
 
-Set `prefer_localhost_replica=0`, and `skip_unavailable_shards=1` if the read tables skip unavailable shards, in the user's settings, or allow them with `CHANGEABLE_IN_READONLY`, or use `readonly=2`. Setting them on the user applies to all of that user's Distributed reads.
+Set `prefer_localhost_replica=0`, and `skip_unavailable_shards=1` if the read tables skip unavailable shards, in the user's settings, or allow them with `CHANGEABLE_IN_READONLY`, or use `readonly=2`. Setting them on the user applies to all of that user's Distributed reads. Over HTTP, also set `cancel_http_readonly_queries_on_client_close=1` on the user, so the server stops a read when the reader stops waiting.
 
 ## Recording Rules (Ruler)
 
