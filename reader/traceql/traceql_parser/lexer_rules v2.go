@@ -4,6 +4,13 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
+// A quoted name part may run unclosed to the end of the input: the parser
+// rejects it with its own error.
+const (
+	nameRune       = `[.:a-zA-Z0-9_-]`
+	quotedNamePart = `"([^"\\]|\\(?s:.))*("|\\?\z)`
+)
+
 var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Ocb", `\{`},
 	{"Ccb", `\}`},
@@ -48,7 +55,9 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 
 	// Label_name supports dotted names and colon intrinsics (span:duration).
 	// Keywords like true/false/nil are matched as Label_name and handled in the grammar.
-	{"Label_name", `(\.[a-zA-Z_][.:a-zA-Z0-9_-]*|[a-zA-Z_][.:a-zA-Z0-9_-]*)`},
+	// After a dot scope a name mixes bare runes and quoted parts.
+	{"Label_name", `(\.|span\.|resource\.)` + nameRune + `*` + quotedNamePart + `(` + nameRune + `|` + quotedNamePart + `)*` +
+		`|\.[a-zA-Z_]` + nameRune + `*|[a-zA-Z_]` + nameRune + `*`},
 	{"Dot", `\.`},
 
 	{"And", `&&`},

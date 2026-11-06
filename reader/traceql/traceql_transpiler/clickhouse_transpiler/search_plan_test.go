@@ -261,3 +261,35 @@ func TestSearchRendersNumberLiterals(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchReadsTheKeyOfAQuotedName(t *testing.T) {
+	for query, want := range map[string]string{
+		`{ ."5xx" = 1 }`:             `(key) == ('5xx')`,
+		`{ span."http status" = 1 }`: `(key) == ('http status')`,
+		`{ ."a'b" = 1 }`:             `(key) == ('a\'b')`,
+		`{ ."" = 1 }`:                `(key) == ('')`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if res := renderPlan(t, planSearch(t, query), testPlannerContext(7)); !strings.Contains(res, want) {
+				t.Errorf("want %s in %s", want, res)
+			}
+		})
+	}
+}
+
+// Result attributes are named by the plain name.
+func TestSearchNamesResultsByThePlainName(t *testing.T) {
+	for query, want := range map[string][]string{
+		`{} | by(."http status")`:  {`'by(.http status)'`, `'http status'`},
+		`{} | avg(span."a b") > 1`: {`'avg(span.a b)'`, `'a b'`},
+	} {
+		t.Run(query, func(t *testing.T) {
+			res := renderPlan(t, planSearch(t, query), testPlannerContext(7))
+			for _, w := range want {
+				if !strings.Contains(res, w) {
+					t.Errorf("want %s in %s", w, res)
+				}
+			}
+		})
+	}
+}

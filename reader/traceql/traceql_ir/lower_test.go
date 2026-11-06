@@ -387,3 +387,65 @@ func TestNumberLiteralTypes(t *testing.T) {
 		require.Equal(t, want, TypeOf(&Static{Kind: ValueNumber, Text: text}), text)
 	}
 }
+
+func TestLowerQuotedAttributeNames(t *testing.T) {
+	for q, want := range map[string]string{
+		`{ ."5xx" = 1 }`:                 `.5xx`,
+		`{ span."http status" = 1 }`:     `span.http status`,
+		`{ resource."http status" = 1 }`: `resource.http status`,
+		`{ ."foo".baz."bar" = 1 }`:       `.foo.baz.bar`,
+		`{ ."foo.bar" = 1 }`:             `.foo.bar`,
+		`{ .foo."bar \" baz" = 1 }`:      `.foo.bar " baz`,
+		`{ .foo."baz \\".bar = 1 }`:      `.foo.baz \.bar`,
+		`{ .foo"bar" = 1 }`:              `.foobar`,
+		`{ ."foo"bar = 1 }`:              `.foobar`,
+		`{ ."a""b" = 1 }`:                `.ab`,
+		`{ .foo-"x" = 1 }`:               `.foo-x`,
+		`{ .-"x" = 1 }`:                  `.-x`,
+		`{ ."" = 1 }`:                    `.`,
+		`{ span."" = 1 }`:                `span.`,
+		`{ ."é" = 1 }`:                   `.é`,
+		"{ .\"a\nb\" = 1 }":              ".a\nb",
+		`{ ."a'b" = 1 }`:                 `.a'b`,
+		`{ ."a\\'b" = 1 }`:               `.a\'b`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			got := mustParse(t, q).Pipeline.Elements[0].(*Selector).Filter
+			require.Equal(t, cmp(want, "=", ValueNumber, "1"), got)
+		})
+	}
+}
+
+func TestQuotedAndBareAttributeNamesLowerEqually(t *testing.T) {
+	for quoted, bare := range map[string]string{
+		`{ ."foo" = 1 }`:                      `{ .foo = 1 }`,
+		`{ span."foo" = 1 }`:                  `{ span.foo = 1 }`,
+		`{ resource."service.name" = "a" }`:   `{ resource.service.name = "a" }`,
+		`{ .a = ."b" }`:                       `{ .a = .b }`,
+		`{} | select(."foo", span."bar")`:     `{} | select(.foo, span.bar)`,
+		`{} | by(."foo")`:                     `{} | by(.foo)`,
+		`{} | avg(."foo") > 1`:                `{} | avg(.foo) > 1`,
+		`{} | rate() by (."foo", span."bar")`: `{} | rate() by (.foo, span.bar)`,
+		`{} | quantile_over_time(."foo", .5)`: `{} | quantile_over_time(.foo, .5)`,
+		`{} | compare({ ."foo" = 1 })`:        `{} | compare({ .foo = 1 })`,
+	} {
+		t.Run(quoted, func(t *testing.T) {
+			require.Equal(t, mustParse(t, bare), mustParse(t, quoted))
+		})
+	}
+}
+
+// Quoted names that spell a keyword or a scope stay attributes.
+func TestQuotedNamesKeepTheirScope(t *testing.T) {
+	for q, want := range map[string]string{
+		`{ ."duration" = 1 }`: `.duration`,
+		`{ ."true" = 1 }`:     `.true`,
+		`{ ."span.foo" = 1 }`: `.span.foo`,
+		`{ span."name" = 1 }`: `span.name`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			got := mustParse(t, q).Pipeline.Elements[0].(*Selector).Filter
+			require.Equal(t, cmp(want, "=", ValueNumber, "1"), got)
+		})
+	}
+}

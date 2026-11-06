@@ -633,3 +633,57 @@ func TestParseConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestParseRejectsQuotedAttributeNames(t *testing.T) {
+	for q, want := range map[string]string{
+		`{ ."5xx`:                 `1:3: unexpected EOF, expecting "`,
+		`{ ."5xx = 1 }`:           `1:3: unexpected EOF, expecting "`,
+		`{ span."5xx`:             `1:3: unexpected EOF, expecting "`,
+		`{ .foo."5xx`:             `1:3: unexpected EOF, expecting "`,
+		`."5xx`:                   `1:1: unexpected EOF, expecting "`,
+		`{ ."a\b" = 1 }`:          `1:3: invalid escape sequence`,
+		`{ ."a\n" = 1 }`:          `1:3: invalid escape sequence`,
+		`{ ."a\`:                  `1:3: invalid escape sequence`,
+		"{ .\"a\\\nb\" = 1 }":     `1:3: invalid escape sequence`,
+		`{} | rate() by (."a\b")`: `1:17: invalid escape sequence`,
+		`{ span:"name" = 1 }`:     `syntax error: unexpected STRING`,
+		`{ span: "name" = 1 }`:    `syntax error: unexpected STRING`,
+		"{ span:`name` = 1 }":     `syntax error: unexpected STRING`,
+		`{ resource:"x" = 1 }`:    `syntax error: unexpected STRING`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			_, err := Parse(q)
+			require.EqualError(t, err, want)
+		})
+	}
+}
+
+// Only the scopes Gigapipe parses take a quoted name.
+func TestParseRejectsQuotedNamesOutsideDotScopes(t *testing.T) {
+	for _, q := range []string{
+		`{ parent."x" = 1 }`,
+		`{ parent.span."x" = 1 }`,
+		`{ event."x" = 1 }`,
+		`{ link."x" = 1 }`,
+		`{ instrumentation."x" = 1 }`,
+		`{ foo."x" = 1 }`,
+		`{ name"x" = 1 }`,
+		`{ .foo "x" = 1 }`,
+		`{ . "x" = 1 }`,
+		`{ .foo. "x" = 1 }`,
+		`{ ."x" "y" = 1 }`,
+		`{ 1."x" = 1 }`,
+		`{ .5"x" = 1 }`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			_, err := Parse(q)
+			require.Error(t, err)
+		})
+	}
+}
+
+// A number directly followed by a quoted name is named by its raw spelling.
+func TestParseNamesNumberFollowedByQuotedName(t *testing.T) {
+	_, err := Parse(`{ 1.5."x" = 1 }`)
+	require.ErrorContains(t, err, `invalid literal "1.5.\"x\""`)
+}

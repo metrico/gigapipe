@@ -73,3 +73,31 @@ func TestLexNumbersAndAttributes(t *testing.T) {
 		})
 	}
 }
+
+// Quoted parts stay raw in the token; a name is one token whatever its parts hold.
+func TestLexQuotedAttributeNames(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{`."5xx"`, []string{`Label_name:."5xx"`}},
+		{`span."http status"`, []string{`Label_name:span."http status"`}},
+		{`resource."a"`, []string{`Label_name:resource."a"`}},
+		{`."foo".baz."bar"`, []string{`Label_name:."foo".baz."bar"`}},
+		{`.foo"bar"`, []string{`Label_name:.foo"bar"`}},
+		{`."a""b"`, []string{`Label_name:."a""b"`}},
+		{`.foo."bar \" baz"`, []string{`Label_name:.foo."bar \" baz"`}},
+		{`."a <<& b"`, []string{`Label_name:."a <<& b"`}},
+		{`."a b`, []string{`Label_name:."a b`}},
+		{`."a\`, []string{`Label_name:."a\`}},
+		{`.a = "b"`, []string{`Label_name:.a`, `Eq:=`, `Quoted_string:"b"`}},
+		{`span:"name"`, []string{`Label_name:span:`, `Quoted_string:"name"`}},
+		{`name"x"`, []string{`Label_name:name`, `Quoted_string:"x"`}},
+		{`foo."x"`, []string{`Label_name:foo.`, `Quoted_string:"x"`}},
+		{`parent."x"`, []string{`Label_name:parent.`, `Quoted_string:"x"`}},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			require.Equal(t, tc.want, lexTokens(t, tc.query))
+		})
+	}
+}
