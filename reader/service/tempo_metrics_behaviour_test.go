@@ -381,6 +381,32 @@ var onePassQueries = []string{
 	`{.a = "1"} | count_over_time() by (.b)`,
 }
 
+// everySpanQueries read every span of a lone `{}`: each function, by-label kind and sample.
+var everySpanQueries = []string{
+	`{} | count_over_time()`,
+	`({}) | count_over_time()`,
+	`{} | select(.b) | count_over_time()`,
+	`{} | rate() by (name)`,
+	`{} | count_over_time() by (resource.service.name)`,
+	`{} | count_over_time() with(sample=0.5)`,
+	`{} | rate() by (name) with(sample=0.5)`,
+	`{} | rate() by (.a)`,
+	`{} | rate() by (.a, name)`,
+	`{} | count_over_time() by (.a) with(sample=0.5)`,
+	`{} | histogram_over_time(duration) with(sample=0.5)`,
+	`{} | avg_over_time(duration)`,
+	`{} | avg_over_time(duration) by (name)`,
+	`{} | avg_over_time(duration) by (.a)`,
+	`{} | sum_over_time(duration)`,
+	`{} | sum_over_time(duration) with(sample=0.5)`,
+	`{} | min_over_time(duration)`,
+	`{} | min_over_time(duration) by (name) with(sample=0.5)`,
+	`{} | max_over_time(duration) by (name)`,
+	`{} | max_over_time(duration) by (.a)`,
+	`{} | quantile_over_time(duration, .5) by (name)`,
+	`{} | quantile_over_time(duration, .5) by (.a)`,
+}
+
 // onePassCompareQueries compare selections and baselines of those kinds.
 var onePassCompareQueries = []string{
 	`{nestedSetParent < 0} | compare({.a = "1"})`,
@@ -577,6 +603,8 @@ func testMetricsAndCompare(t *testing.T, cluster bool) {
 	s.assertResults(t, "metrics", onePassQueries)
 	s.assertResults(t, "compare", onePassCompareQueries)
 	s.assertResults(t, "exemplars", onePassQueries)
+	s.assertResults(t, "metrics", everySpanQueries)
+	s.assertResults(t, "exemplars", everySpanQueries)
 	s.assertSampleDrops(t)
 }
 
