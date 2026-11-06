@@ -756,3 +756,43 @@ func TestWalkClampsALongSlice(t *testing.T) {
 		t.Errorf("walk ends at %v, want %v", last.From, ctx.From)
 	}
 }
+
+// A walk of several slices logs one line: its slices, the setting, and the
+// largest shard load of a slice that ran, attempts given up aside.
+func TestWalkLogsItsSlices(t *testing.T) {
+	lines := recordPortionedLines(t)
+	walk := newScriptedWalk()
+	walk.withExtents(10,
+		[]clickhouse_transpiler.ShardExtent{row(1000, 2)},
+		[]clickhouse_transpiler.ShardExtent{row(7, 2), row(9, 2)},
+		[]clickhouse_transpiler.ShardExtent{row(5, 2)},
+	)
+	ctx := &shared.PlannerContext{
+		From: time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC), To: time.Date(2026, 1, 2, 3, 5, 0, 0, time.UTC),
+		TraceQL: `{.a = "1"}`,
+	}
+	if _, err := walk.Process(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.TotalJobs() != 2 {
+		t.Fatalf("TotalJobs %d", ctx.TotalJobs())
+	}
+	want := fmt.Sprintf(`traceql portioned query="{.a = \"1\"}" from=2026-01-02T03:04:00Z to=2026-01-02T03:05:00Z `+
+		`estimate=9 portion_spans=%d portions=2`, traceqlconfig.PortionSpans())
+	if len(*lines) != 1 || (*lines)[0] != want {
+		t.Errorf("got %q, want one line %q", *lines, want)
+	}
+}
+
+// A search read in one slice logs nothing, even after halving.
+func TestWalkOfOneSliceLogsNothing(t *testing.T) {
+	lines := recordPortionedLines(t)
+	walk := newScriptedWalk([]model.TraceInfo{ranked("aa", walkTo.UnixNano(), 1)})
+	walk.withExtents(10, []clickhouse_transpiler.ShardExtent{row(11, 2)})
+	if _, ctx := walk.run(t, 1); ctx.TotalJobs() != 1 {
+		t.Fatalf("TotalJobs %d", ctx.TotalJobs())
+	}
+	if len(*lines) != 0 {
+		t.Errorf("logged %q", *lines)
+	}
+}

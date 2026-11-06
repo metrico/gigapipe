@@ -16,7 +16,7 @@ import (
 
 var logPortioned = func(line string) { logger.Info(line) }
 
-// portionedLine reports why a request was read in portions.
+// portionedLine reports a request read in portions or slices.
 func portionedLine(ctx *shared.PlannerContext, estimate, portionSpans, portions int64) string {
 	return fmt.Sprintf("traceql portioned query=%q from=%s to=%s estimate=%d portion_spans=%d portions=%d",
 		ctx.TraceQL, ctx.From.Format(time.RFC3339), ctx.To.Format(time.RFC3339), estimate, portionSpans, portions)

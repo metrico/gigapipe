@@ -10,6 +10,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 )
 
 const (
@@ -80,6 +81,7 @@ func (w *walkProcessor) Process(ctx *shared.PlannerContext) (chan []model.TraceI
 // Limit 0 reads every slice.
 func (w *walkProcessor) walk(ctx *shared.PlannerContext) ([]model.TraceInfo, error) {
 	var found []model.TraceInfo
+	var largest int64
 	ctx.TracesSlices = []shared.TracesSlice{}
 	for to, size := ctx.To, w.first; to.After(ctx.From); {
 		from := to.Add(-size)
@@ -87,10 +89,11 @@ func (w *walkProcessor) walk(ctx *shared.PlannerContext) ([]model.TraceInfo, err
 			from = ctx.From
 		}
 		ctx.Portions++
-		part, from, err := w.readSlice(ctx, from, to)
+		part, from, spans, err := w.readSlice(ctx, from, to)
 		if err != nil {
 			return nil, err
 		}
+		largest = max(largest, spans)
 		found = mergeSlice(found, part, ctx.Limit)
 		above := ranksAbove(found, from)
 		if ctx.Limit > 0 && above >= ctx.Limit {
@@ -99,21 +102,22 @@ func (w *walkProcessor) walk(ctx *shared.PlannerContext) ([]model.TraceInfo, err
 		size = w.next(to.Sub(from), ctx.Limit, above)
 		to = from
 	}
+	if ctx.Portions > 1 {
+		logPortioned(portionedLine(ctx, largest, traceqlconfig.PortionSpans(), ctx.Portions))
+	}
 	return found, nil
 }
 
-// readSlice evaluates the traces with a leaf match in (from, to] over every
-// span they have in the request's range, and over the slice itself, halving
-// the slice to fit the budget. It returns the lower boundary of the slice that
-// ran, and reads nothing when that slice has no candidates.
-func (w *walkProcessor) readSlice(ctx *shared.PlannerContext, from, to time.Time) ([]model.TraceInfo, time.Time, error) {
+// readSlice halves (from, to] to fit the budget, then evaluates its candidates, if
+// any. It returns their traces, the slice's lower boundary and its largest shard load.
+func (w *walkProcessor) readSlice(ctx *shared.PlannerContext, from, to time.Time) ([]model.TraceInfo, time.Time, int64, error) {
 	sliceCtx := *ctx
 	var extents []clickhouse_transpiler.ShardExtent
 	for {
 		sliceCtx.TracesCandidates = w.main.Candidates(from, to)
 		var err error
 		if extents, err = w.extent(&sliceCtx); err != nil {
-			return nil, from, err
+			return nil, from, 0, err
 		}
 		d := to.Sub(from)
 		if d <= minSlice || !w.overBudget(extents) {
@@ -122,14 +126,14 @@ func (w *walkProcessor) readSlice(ctx *shared.PlannerContext, from, to time.Time
 		from = to.Add(-max(d/2, minSlice))
 	}
 	if len(extents) == 0 {
-		return nil, from, nil
+		return nil, from, 0, nil
 	}
 	sliceCtx.From, sliceCtx.To = evaluatedRange(extents, from, to)
 	ctx.TracesSlices = append(ctx.TracesSlices, shared.TracesSlice{
 		From: sliceCtx.From, To: sliceCtx.To, Candidates: sliceCtx.TracesCandidates,
 	})
 	part, err := w.read(&sliceCtx, w.main)
-	return part, from, err
+	return part, from, largestLoad(extents), err
 }
 
 // overBudget reports whether a shard loads more candidate spans than the budget
@@ -141,6 +145,15 @@ func (w *walkProcessor) overBudget(extents []clickhouse_transpiler.ShardExtent) 
 	return slices.ContainsFunc(extents, func(e clickhouse_transpiler.ShardExtent) bool {
 		return e.Spans > w.budget && e.Traces > 1
 	})
+}
+
+// largestLoad is the most candidate spans of any shard.
+func largestLoad(extents []clickhouse_transpiler.ShardExtent) int64 {
+	var res int64
+	for _, e := range extents {
+		res = max(res, e.Spans)
+	}
+	return res
 }
 
 // evaluatedRange is the range holding (from, to] and every extent. A range
