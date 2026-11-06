@@ -1,0 +1,344 @@
+package traceql_transpiler
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/jmoiron/sqlx"
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/ctrl/logger"
+	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
+	"github.com/metrico/qryn/v5/reader/utils/dsn"
+	"github.com/metrico/qryn/v5/reader/utils/tables"
+	"github.com/metrico/qryn/v5/shared/chtest"
+	"github.com/metrico/qryn/v5/shared/distconfig"
+)
+
+// httpAddrEnv names the HTTP address (host:port) of the chtest.AddrEnv server.
+const httpAddrEnv = "GIGAPIPE_TEST_CLICKHOUSE_HTTP"
+
+// searchLimit is the trace limit of a search that the limit does not cut.
+const searchLimit = 50
+
+// spanStart is the start of every seeded span.
+var spanStart = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+// execSQL runs q or fails the test.
+func execSQL(t *testing.T, conn clickhouse.Conn, q string) {
+	t.Helper()
+	if err := conn.Exec(context.Background(), q); err != nil {
+		t.Fatalf("%v\n%s", err, q)
+	}
+}
+
+// searchStore is a migrated database: single node, or Distributed tables
+// over the shards of a cluster.
+type searchStore struct {
+	conn    clickhouse.Conn
+	db      model.ISqlxDB
+	name    string
+	cluster string
+}
+
+// openSearchStore migrates a database, on every shard of the
+// chtest.ClusterEnv cluster when cluster is set. Searches read it over HTTP
+// when http is set.
+func openSearchStore(t *testing.T, cluster, http bool) *searchStore {
+	t.Helper()
+	opts := &clickhouse.Options{Addr: []string{os.Getenv(chtest.AddrEnv)}}
+	if http {
+		addr := os.Getenv(httpAddrEnv)
+		if addr == "" {
+			t.Skipf("%s is not set", httpAddrEnv)
+		}
+		opts = &clickhouse.Options{Addr: []string{addr}, Protocol: clickhouse.HTTP}
+	}
+	s := &searchStore{}
+	mode := maintenance.CLUST_MODE_SINGLE
+	if cluster {
+		s.conn, s.name, s.cluster = chtest.OpenCluster(t)
+		mode |= maintenance.CLUST_MODE_DISTRIBUTED
+	} else {
+		s.conn, s.name = chtest.Open(t)
+	}
+	if err := maintenance.Update(s.conn, s.name, s.cluster, mode, 7, "", "", false, logger.Logger); err != nil {
+		t.Fatal(err)
+	}
+	opts.Auth.Database = s.name
+	var opened []*sqlx.DB
+	open := func() *sqlx.DB {
+		d := sqlx.NewDb(clickhouse.OpenDB(opts), "clickhouse")
+		opened = append(opened, d)
+		return d
+	}
+	t.Cleanup(func() {
+		for _, d := range opened {
+			_ = d.Close()
+		}
+	})
+	s.db = &dsn.StableSqlxDBWrapper{DB: open(), GetDB: open}
+	return s
+}
+
+// span is a seeded span: trace, id, parent (0 for a root) and attributes.
+type span struct {
+	trace, id, parent int
+	attrs             []string
+}
+
+// seed inserts spans, attribute "k" = "1" for each k in attrs. On a cluster
+// the spans go through Distributed tables, sharded by trace.
+func (s *searchStore) seed(t *testing.T, spans []span) {
+	t.Helper()
+	var rows []string
+	for i, sp := range spans {
+		parent := ""
+		if sp.parent != 0 {
+			parent = fmt.Sprintf("%016x", sp.parent)
+		}
+		tags := []string{fmt.Sprintf("('name', 's%d')", sp.id)}
+		for _, a := range sp.attrs {
+			tags = append(tags, fmt.Sprintf("('%s', '1')", a))
+		}
+		rows = append(rows, fmt.Sprintf("('%032x', '%016x', '%s', 's%d', %d, 10, [%s])",
+			sp.trace, sp.id, parent, sp.id, spanStart.UnixNano()+int64(i), strings.Join(tags, ", ")))
+	}
+	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
+	if s.cluster == "" {
+		execSQL(t, s.conn, "INSERT INTO traces_input "+cols+" VALUES "+strings.Join(rows, ", "))
+		return
+	}
+	traces, attrs := "tempo_traces_dist", "tempo_traces_attrs_gin_dist"
+	execSQL(t, s.conn, "CREATE TABLE IF NOT EXISTS seed_input AS traces_input ENGINE = Memory")
+	execSQL(t, s.conn, "TRUNCATE TABLE seed_input")
+	execSQL(t, s.conn, "INSERT INTO seed_input "+cols+" VALUES "+strings.Join(rows, ", "))
+	execSQL(t, s.conn, `INSERT INTO `+traces+` (oid, trace_id, span_id, parent_id, name, timestamp_ns, duration_ns)
+		SELECT oid, unhex(trace_id)::FixedString(16), unhex(span_id)::FixedString(8), unhex(parent_id), name,
+		       timestamp_ns, duration_ns
+		FROM seed_input`)
+	execSQL(t, s.conn, `INSERT INTO `+attrs+` (oid, date, key, val, trace_id, span_id, timestamp_ns, duration)
+		SELECT oid, toDate(intDiv(timestamp_ns, 1000000000)), tags.1, tags.2, unhex(trace_id)::FixedString(16),
+		       unhex(span_id)::FixedString(8), timestamp_ns, duration_ns
+		FROM seed_input ARRAY JOIN tags`)
+	execSQL(t, s.conn, "SYSTEM FLUSH DISTRIBUTED "+traces)
+	execSQL(t, s.conn, "SYSTEM FLUSH DISTRIBUTED "+attrs)
+}
+
+// searchRun is how a search runs: ancestry rounds, trace limit, and the
+// number of complexity portions (0 for the complexity evaluator's choice).
+type searchRun struct {
+	rounds, limit, portions int
+}
+
+// result runs query: the summary of its traces, or the error.
+func (s *searchStore) result(t *testing.T, query string, run searchRun) []string {
+	t.Helper()
+	q, err := traceql_ir.Parse(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planner, err := Plan(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &shared.PlannerContext{
+		Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
+		From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+		Limit: int64(run.limit), SpansPerSpanSet: 100, AncestryRounds: run.rounds,
+		VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
+	}
+	distconfig.Init()
+	tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
+		Name: s.name, ClusterName: s.cluster,
+	}})
+	var ch chan []model.TraceInfo
+	if run.portions == 0 {
+		ch, err = planner.Process(ctx)
+	} else {
+		portioned := planner.(interface {
+			ProcessComplexReq(*shared.PlannerContext, int64) (chan []model.TraceInfo, error)
+		})
+		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*COMPLEXITY_THRESHOLD)
+	}
+	if err != nil {
+		return []string{"error: " + err.Error()}
+	}
+	var res []model.TraceInfo
+	for traces := range ch {
+		res = append(res, traces...)
+	}
+	return summary(t, res)
+}
+
+// summary is a comparable form of traces: a line per trace with its id, start
+// after spanStart, duration and root, then a line per spanset.
+func summary(t *testing.T, traces []model.TraceInfo) []string {
+	t.Helper()
+	res := []string{}
+	trim := func(id string) string { return strings.TrimLeft(id, "0") }
+	for _, tr := range traces {
+		start, err := strconv.ParseInt(tr.StartTimeUnixNano, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res = append(res, fmt.Sprintf("trace %s start=+%d ms=%d root=%s/%s",
+			trim(tr.TraceID), start-spanStart.UnixNano(), tr.DurationMs, tr.RootServiceName, tr.RootTraceName))
+		if len(tr.SpanSets) > 0 && !reflect.DeepEqual(tr.SpanSet, tr.SpanSets[0]) {
+			t.Errorf("trace %s: spanSet is not the first of spanSets", tr.TraceID)
+		}
+		for _, set := range tr.SpanSets {
+			line := []string{fmt.Sprintf("  set matched=%d", set.Matched)}
+			for _, a := range set.Attributes {
+				line = append(line, fmt.Sprintf("%s=%s", a.Key, anyValue(a.Value)))
+			}
+			for _, sp := range set.Spans {
+				start, err := strconv.ParseInt(sp.StartTimeUnixNano, 10, 64)
+				if err != nil {
+					t.Fatal(err)
+				}
+				item := fmt.Sprintf("span %s@+%d/%s", trim(sp.SpanID), start-spanStart.UnixNano(), sp.DurationNanos)
+				if sp.Name != "" {
+					item += " name=" + sp.Name
+				}
+				for _, a := range sp.Attributes {
+					item += fmt.Sprintf(" %s=%s", a.Key, strconv.Quote(a.Value.StringValue))
+				}
+				line = append(line, "["+item+"]")
+			}
+			res = append(res, strings.Join(line, " "))
+		}
+	}
+	return res
+}
+
+// anyValue is v's set field: a quoted string, or a typed number or bool.
+func anyValue(v model.AnyValue) string {
+	switch {
+	case v.StringValue != nil:
+		return strconv.Quote(*v.StringValue)
+	case v.IntValue != nil:
+		return "int:" + *v.IntValue
+	case v.DoubleValue != nil:
+		return fmt.Sprintf("double:%v", float64(*v.DoubleValue))
+	case v.BoolValue != nil:
+		return fmt.Sprintf("bool:%t", *v.BoolValue)
+	}
+	return "none"
+}
+
+// structuralTraces are well formed, dangling, rootless, deep, duplicated,
+// sibling and one-sided traces.
+func structuralTraces() []span {
+	var spans []span
+	// 10: a tree of 15 spans.
+	for i := 1; i <= 15; i++ {
+		s := span{trace: 10, id: i, parent: i / 2}
+		switch i {
+		case 1, 3:
+			s.attrs = []string{"a"}
+		case 6:
+			s.attrs = []string{"a", "b"}
+		case 2, 7, 12, 15:
+			s.attrs = []string{"b"}
+		}
+		spans = append(spans, s)
+	}
+	spans = append(spans,
+		// 16: a root and a subtree under a missing parent.
+		span{16, 1, 0, []string{"a"}}, span{16, 2, 1, []string{"b"}},
+		span{16, 3, 99, []string{"a"}}, span{16, 4, 3, []string{"b"}}, span{16, 5, 4, []string{"b"}},
+		// 12: no root.
+		span{12, 1, 77, []string{"a"}}, span{12, 2, 1, []string{"b"}},
+		// 14: a span stored twice.
+		span{14, 1, 0, []string{"a"}}, span{14, 2, 1, []string{"b"}}, span{14, 2, 1, []string{"b"}},
+		// 18: siblings.
+		span{18, 1, 0, nil}, span{18, 2, 1, []string{"a"}}, span{18, 3, 1, []string{"b"}}, span{18, 4, 1, []string{"b"}},
+		span{18, 5, 2, []string{"b"}})
+	// 17: a chain 40 deep.
+	for i := 1; i <= 40; i++ {
+		s := span{trace: 17, id: i, parent: i - 1}
+		switch i {
+		case 1, 21:
+			s.attrs = []string{"a"}
+		case 11, 40:
+			s.attrs = []string{"b"}
+		}
+		spans = append(spans, s)
+	}
+	// 40: a root, siblings under the root and under a missing parent, and a
+	// chain 13 deep below the missing parent.
+	spans = append(spans,
+		span{40, 1, 0, []string{"a"}}, span{40, 20, 1, []string{"b"}}, span{40, 21, 1, []string{"a"}},
+		span{40, 2, 50, []string{"a"}}, span{40, 3, 50, []string{"b"}})
+	prev := 3
+	for _, id := range []int{4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16} {
+		s := span{trace: 40, id: id, parent: prev}
+		switch id {
+		case 8, 13:
+			s.attrs = []string{"a"}
+		case 4, 9, 14, 16:
+			s.attrs = []string{"b"}
+		}
+		spans = append(spans, s)
+		prev = id
+	}
+	return append(spans,
+		// 41: only b spans, one under a missing parent.
+		span{41, 1, 0, []string{"b"}}, span{41, 2, 1, []string{"b"}},
+		span{41, 3, 99, []string{"b"}}, span{41, 4, 3, []string{"b"}},
+		// 42: only a spans.
+		span{42, 1, 0, []string{"a"}}, span{42, 2, 1, []string{"a"}}, span{42, 3, 1, nil})
+}
+
+// seedStructural seeds structuralTraces; on a cluster each trace's spans sit
+// on one shard, and the traces span every shard.
+func (s *searchStore) seedStructural(t *testing.T) {
+	t.Helper()
+	s.seed(t, structuralTraces())
+	if s.cluster == "" {
+		return
+	}
+	var perTrace, shards uint64
+	if err := s.conn.QueryRow(context.Background(), `SELECT max(c), uniqExact(shard) FROM
+		(SELECT trace_id, uniqExact(_shard_num) c, any(_shard_num) shard FROM tempo_traces_dist GROUP BY trace_id)`).
+		Scan(&perTrace, &shards); err != nil {
+		t.Fatal(err)
+	}
+	if perTrace != 1 || shards < 2 {
+		t.Fatalf("traces on %d shards with up to %d shards per trace, want 2 and 1", shards, perTrace)
+	}
+}
+
+// testSearchSmoke checks trace ids and order, whatever the portion count.
+func testSearchSmoke(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.seedStructural(t)
+	want := []string{"28", "11", "12", "e", "10", "a"}
+	for _, portions := range []int{0, 1, 3} {
+		var got []string
+		for _, line := range s.result(t, `{.a = "1"} >> {.b = "1"}`, searchRun{limit: searchLimit, portions: portions}) {
+			if id, ok := strings.CutPrefix(line, "trace "); ok {
+				got = append(got, strings.Fields(id)[0])
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("portions %d: got %q, want %q", portions, got, want)
+		}
+	}
+}
+
+func TestSearchSmoke(t *testing.T) { testSearchSmoke(t, false) }
+
+func TestSearchSmokeOnCluster(t *testing.T) { testSearchSmoke(t, true) }
