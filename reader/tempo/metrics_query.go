@@ -220,12 +220,9 @@ func buildByPivotCTE(labels []string, fromDate string, toDate string, attrsTable
 	for i, label := range labels {
 		ginKeys[i] = stripAttrPrefix(label)
 		aliases[i] = fmt.Sprintf("by_lbl_%d", i)
+		key, _ := sql.NewStringVal(ginKeys[i]).String(nil)
 		selectCols = append(selectCols,
-			sql.NewCol(
-				sql.NewRawObject(fmt.Sprintf("anyIf(val, key = '%s')",
-					strings.ReplaceAll(ginKeys[i], "'", "\\'"))),
-				aliases[i],
-			),
+			sql.NewCol(sql.NewRawObject("anyIf(val, key = "+key+")"), aliases[i]),
 		)
 	}
 

@@ -94,6 +94,20 @@ func TestByLabelsComeInColumnOrder(t *testing.T) {
 	}
 }
 
+// A by key holding a backslash and a quote stays one string literal.
+func TestByKeyRendersAsOneStringLiteral(t *testing.T) {
+	r := &MetricsRequest{Spans: testSpans(), Fn: "rate", By: []string{`span.a\' OR 1=1 --`},
+		FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "attrs"}
+	q, _, err := BuildMetricsRangeQuery(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := render(t, q)
+	if want := `anyIf(val, key = 'a\\\' OR 1=1 --')`; !strings.Contains(res, want) {
+		t.Errorf("want %s in:\n%s", want, res)
+	}
+}
+
 func TestCompareReadsBaselineAndSelection(t *testing.T) {
 	baseline := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("b")), "baseline_spans")
 	selection := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("s")), "selection_spans")
