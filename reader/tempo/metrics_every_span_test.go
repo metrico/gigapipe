@@ -88,7 +88,7 @@ func renderEverySpan(t *testing.T, query string, cluster, skip bool) everySpanSt
 
 var (
 	spanCount     = regexp.MustCompile(`uniqExact\(cityHash64\(main\.trace_id, main\.span_id\)\) as n`)
-	shardCounts   = regexp.MustCompile(`span_counts as \( SELECT \* FROM cluster\('c', view\(.*FROM tempo_traces as main.*\)\)`)
+	countOnShards = regexp.MustCompile(`shard_rows as \( SELECT \* FROM cluster\('c', view\(.*FROM tempo_traces as main.*\)\)`)
 	groupedByPair = regexp.MustCompile(`GROUP BY traces\.trace_id, traces\.span_id`)
 )
 
@@ -105,7 +105,7 @@ func TestEverySpanCountsOnEachShardThenSums(t *testing.T) {
 	} {
 		got := renderEverySpan(t, tc.query, true, false).series
 		require.Regexp(t, spanCount, got, tc.query)
-		require.Regexp(t, shardCounts, got, tc.query)
+		require.Regexp(t, countOnShards, got, tc.query)
 		require.Contains(t, got, tc.value, tc.query)
 		require.Contains(t, got, tc.group, tc.query)
 		require.NotContains(t, got, "SETTINGS", tc.query)
@@ -150,5 +150,83 @@ func TestSelectorsKeepTheGroupedRead(t *testing.T) {
 		got := renderEverySpan(t, query, true, false).series
 		require.NotRegexp(t, spanCount, got, query)
 		require.Contains(t, got, "metrics_spans", query)
+	}
+}
+
+// A lone `{}` takes exemplars straight from the rows, with no setting.
+func TestEverySpanExemplarsReadTheRows(t *testing.T) {
+	for _, query := range []string{`{} | rate()`, `{} | rate() by (name)`, `{} | quantile_over_time(duration, .5)`,
+		`{} | histogram_over_time(duration)`} {
+		got := renderEverySpan(t, query, true, true).exemplars
+		require.Contains(t, got, "FROM tempo_traces_dist as main", query)
+		require.Contains(t, got, "any((lower(hex(main.trace_id))", query)
+		require.NotContains(t, got, "metrics_spans", query)
+		require.NotContains(t, got, "SETTINGS", query)
+
+		single := renderEverySpan(t, query, false, false).exemplars
+		require.Contains(t, single, "FROM tempo_traces as main", query)
+	}
+}
+
+// min and max read the rows.
+func TestEverySpanMinMaxReadTheRows(t *testing.T) {
+	for _, query := range []string{`{} | min_over_time(duration)`, `{} | max_over_time(duration) by (name)`} {
+		got := renderEverySpan(t, query, true, true)
+		for _, stmt := range []string{got.series, got.instant} {
+			require.Contains(t, stmt, "FROM tempo_traces_dist as main", query)
+			require.NotContains(t, stmt, "cityHash64", query)
+			require.NotContains(t, stmt, "SETTINGS", query)
+		}
+	}
+}
+
+// avg, sum and quantiles read one row per span hash, listing only what they read.
+func TestEverySpanValuesReadOneRowPerSpanHash(t *testing.T) {
+	const hashGroup = "GROUP BY cityHash64(main.trace_id, main.span_id)"
+	groupRe := regexp.QuoteMeta(hashGroup)
+	for _, query := range []string{`{} | avg_over_time(duration)`, `{} | sum_over_time(duration)`,
+		`{} | quantile_over_time(duration, .5)`} {
+		got := renderEverySpan(t, query, true, false)
+		require.Regexp(t, `FROM cluster\('c', view\( SELECT any\(main\.duration_ns\) as duration_ns, any\(main\.timestamp_ns\) as timestamp_ns FROM tempo_traces as main .*`+
+			groupRe+`\)\) as main GROUP BY`, got.series, query)
+		require.NotContains(t, got.series, "SETTINGS", query)
+		require.NotContains(t, got.series, "metrics_spans", query)
+		require.NotContains(t, got.instant, "timestamp_ns) as timestamp_ns", query)
+
+		skip := renderEverySpan(t, query, true, true).series
+		require.Regexp(t, `metrics_spans as \( SELECT \* FROM cluster\('c', view\(.*`+groupRe+`\)\)\s+SETTINGS skip_unavailable_shards\s*=\s*.?1.?\s*\) SELECT`, skip, query)
+
+		single := renderEverySpan(t, query, false, false).series
+		require.Contains(t, single, hashGroup, query)
+		require.Contains(t, single, "FROM metrics_spans as main", query)
+		require.NotContains(t, single, "cluster(", query)
+	}
+	got := renderEverySpan(t, `{} | avg_over_time(duration) by (name, resource.service.name)`, true, false).series
+	require.Contains(t, got, "any(main.name) as name")
+	require.Contains(t, got, "any(main.service_name) as service_name")
+}
+
+// A custom by-label pivots on each shard over its local attributes.
+func TestEverySpanCustomByStaysOnTheShard(t *testing.T) {
+	got := renderEverySpan(t, `{} | rate() by (.a, name) with(sample=0.5)`, true, false)
+	require.Regexp(t, spanCount, got.series)
+	require.Contains(t, got.series, "FROM tempo_traces_attrs_gin FINAL")
+	require.NotContains(t, got.series, "_dist")
+	require.Contains(t, got.series, "cityHash64(main.span_id) <")
+	require.Contains(t, got.series, "toFloat64(sum(n)) / 15 as value, by_1, by_custom_0")
+
+	require.Contains(t, got.exemplars, "FROM tempo_traces_attrs_gin FINAL")
+	require.NotContains(t, got.exemplars, "_dist")
+	require.Contains(t, got.exemplars, "ts, trace_id, dur_ns, span_ts, arg_value, by_1, by_custom_0 FROM shard_rows")
+	require.Contains(t, got.exemplars, "LIMIT 1 BY ts, by_1, by_custom_0")
+	require.NotContains(t, got.exemplars, "SETTINGS")
+}
+
+// Functions that read a span's value keep the grouped read under a custom by-label.
+func TestEverySpanValuesKeepTheGroupedReadUnderCustomBy(t *testing.T) {
+	for _, query := range []string{`{} | avg_over_time(duration) by (.a)`, `{} | max_over_time(duration) by (.a)`,
+		`{} | quantile_over_time(duration, .5) by (.a)`} {
+		got := renderEverySpan(t, query, true, false).series
+		require.Regexp(t, groupedByPair, got, query)
 	}
 }

@@ -1,6 +1,8 @@
 package clickhouse_transpiler
 
 import (
+	"fmt"
+
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/traceql/timerange"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
@@ -8,6 +10,9 @@ import (
 
 // SpanRead starts a statement over span rows aliased main.
 type SpanRead func() sql.ISelect
+
+// ReadBuild builds a statement over read.
+type ReadBuild func(read SpanRead) (sql.ISelect, error)
 
 // ShardBuild builds a statement in two steps.
 type ShardBuild struct {
@@ -43,7 +48,7 @@ func (e *everySpanShards) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 		if err != nil {
 			return nil, err
 		}
-		return e.build.Result(sql.NewWith(rows, "span_counts"))
+		return e.build.Result(sql.NewWith(rows, "shard_rows"))
 	}
 	local := localContext(ctx)
 	shard, err := e.build.Shard(everySpanRead(local, e.sample), attrsTable(local))
@@ -54,7 +59,74 @@ func (e *everySpanShards) Process(ctx *shared.PlannerContext) (sql.ISelect, erro
 	if err != nil {
 		return nil, err
 	}
-	return e.build.Result(sql.NewWith(clusterSettings(ctx, rows), "span_counts"))
+	return e.build.Result(sql.NewWith(clusterSettings(ctx, rows), "shard_rows"))
+}
+
+// OverRows is a statement built by build over the traces rows, a copy of a span
+// being a row of its own; m is an EverySpan plan.
+func (m *MetricsPlan) OverRows(build ReadBuild) shared.SQLRequestPlanner {
+	return &everySpanRows{sample: m.mainSample, build: build}
+}
+
+type everySpanRows struct {
+	sample sql.SQLCondition
+	build  ReadBuild
+}
+
+func (e *everySpanRows) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	return e.build(everySpanRead(ctx, e.sample))
+}
+
+// OverDistinctSpans is a statement over one row per span hash with cols, m being
+// an EverySpan plan: on a cluster its own table function, or a CTE with skipped shards.
+func (m *MetricsPlan) OverDistinctSpans(cols []string, build ReadBuild) shared.SQLRequestPlanner {
+	return &everySpanDistinct{sample: m.mainSample, cols: cols, build: build}
+}
+
+type everySpanDistinct struct {
+	sample sql.SQLCondition
+	cols   []string
+	build  ReadBuild
+}
+
+func (e *everySpanDistinct) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if !ctx.IsCluster {
+		return e.build(overCTE(e.spans(ctx)))
+	}
+	shard := e.spans(localContext(ctx))
+	if !ctx.SkipUnavailableShards {
+		view, err := clusterView(ctx, shard)
+		if err != nil {
+			return nil, err
+		}
+		return e.build(func() sql.ISelect {
+			return sql.NewSelect().From(sql.NewCol(view, "main"))
+		})
+	}
+	rows, err := selectOnEachShard(ctx, shard, "*")
+	if err != nil {
+		return nil, err
+	}
+	return e.build(overCTE(clusterSettings(ctx, rows)))
+}
+
+// spans reads one row per span hash of ctx's traces table.
+func (e *everySpanDistinct) spans(ctx *shared.PlannerContext) sql.ISelect {
+	cols := make([]sql.SQLObject, len(e.cols))
+	for i, col := range e.cols {
+		cols[i] = sql.NewSimpleCol(fmt.Sprintf("any(main.%s)", col), col)
+	}
+	return everySpanRead(ctx, e.sample)().
+		Select(cols...).
+		GroupBy(sql.NewRawObject("cityHash64(main.trace_id, main.span_id)"))
+}
+
+// overCTE reads spans through a CTE, as main.
+func overCTE(spans sql.ISelect) SpanRead {
+	with := sql.NewWith(spans, "metrics_spans")
+	return func() sql.ISelect {
+		return sql.NewSelect().With(with).From(sql.NewCol(sql.NewWithRef(with), "main"))
+	}
 }
 
 // everySpanRead reads the rows of ctx's traces table that start in its range,

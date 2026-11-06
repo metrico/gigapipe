@@ -2,6 +2,7 @@ package tempo
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	ct "github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
@@ -59,28 +60,123 @@ func counts(req MetricsRequest, keys []everySpanKey, alias string, value func(co
 	}
 }
 
-// isSpanCount reports whether fn only counts a bucket's spans.
-func isSpanCount(fn string) bool {
-	return fn == "rate" || fn == "count_over_time"
+// everySpanShape is how a statement reads a lone `{}`.
+type everySpanShape int
+
+const (
+	// groupedSpans reads one row per span pair through the plan's CTE.
+	groupedSpans everySpanShape = iota
+	// shardCounts counts span hashes per bucket on each shard.
+	shardCounts
+	// spanRows reads the rows as stored.
+	spanRows
+	// distinctSpans reads one row per span hash.
+	distinctSpans
+)
+
+// shapeOf is the shape of req's series under plan. A custom by-label on a
+// function that reads a span's value takes the grouped read.
+func shapeOf(plan *ct.MetricsPlan, req *MetricsRequest) everySpanShape {
+	if !plan.EverySpan() {
+		return groupedSpans
+	}
+	switch req.Fn {
+	case "rate", "count_over_time":
+		return shardCounts
+	case "min_over_time", "max_over_time":
+		if !hasCustomBy(req.By) {
+			return spanRows
+		}
+	case "avg_over_time", "sum_over_time", "quantile_over_time":
+		if !hasCustomBy(req.By) {
+			return distinctSpans
+		}
+	}
+	return groupedSpans
+}
+
+// hasCustomBy reports whether a by-label needs the attributes table.
+func hasCustomBy(by []string) bool {
+	return slices.ContainsFunc(by, func(label string) bool { return resolveAttrColumn(label) == "" })
+}
+
+// byAliases are the by-label columns addByLabels adds, in column order.
+func byAliases(by []string) []sql.SQLObject {
+	res := make([]sql.SQLObject, 0, len(by))
+	for i, label := range by {
+		if resolveAttrColumn(label) != "" {
+			res = append(res, sql.NewRawObject(fmt.Sprintf("by_%d", i)))
+		}
+	}
+	custom := 0
+	for _, label := range by {
+		if resolveAttrColumn(label) == "" {
+			res = append(res, sql.NewRawObject(fmt.Sprintf("by_custom_%d", custom)))
+			custom++
+		}
+	}
+	return res
+}
+
+// spanColumns are the traces columns req's value and by-labels read.
+func spanColumns(req *MetricsRequest, bucketed bool) []string {
+	var cols []string
+	add := func(col string) {
+		if col != "" && !slices.Contains(cols, col) {
+			cols = append(cols, col)
+		}
+	}
+	add(IntrinsicAttr[req.Attr])
+	for _, label := range req.By {
+		add(resolveAttrColumn(label))
+	}
+	if bucketed {
+		add("timestamp_ns")
+	}
+	return cols
 }
 
 // RangeSeries is req's range statement under plan, and sets labels to the
 // statement's by-labels in column order when it runs.
 func RangeSeries(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (shared.SQLRequestPlanner, error) {
-	if plan.EverySpan() && isSpanCount(req.Fn) {
+	build := func(read ct.SpanRead) (sql.ISelect, error) {
+		r := req
+		r.Read = read
+		query, resolved, err := BuildMetricsRangeQuery(&r)
+		*labels = resolved
+		return query, err
+	}
+	switch shapeOf(plan, &req) {
+	case shardCounts:
 		divisor := float64(req.StepNS) / 1e9
 		return plan.OverShards(counts(req, []everySpanKey{{"ts", tsBucket(&req)}}, "value",
 			func(count string) string { return countExpr(req.Fn, count, divisor, req.Scale) }, labels)), nil
+	case spanRows:
+		return plan.OverRows(build), nil
+	case distinctSpans:
+		return plan.OverDistinctSpans(spanColumns(&req, true), build), nil
 	}
 	return plan.Metrics, nil
 }
 
 // InstantSeries is req's instant statement under plan; its window is its one bucket.
 func InstantSeries(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (shared.SQLRequestPlanner, error) {
-	if plan.EverySpan() && isSpanCount(req.Fn) {
+	build := func(read ct.SpanRead) (sql.ISelect, error) {
+		r := req
+		r.Read = read
+		query, resolved, err := BuildMetricsInstantQuery(&r)
+		*labels = resolved
+		return query, err
+	}
+	switch shapeOf(plan, &req) {
+	case shardCounts:
 		return plan.OverShards(counts(req, nil, "value", func(count string) string {
 			return countExpr(req.Fn, count, instantWindowS(&req), req.Scale)
 		}, labels)), nil
+	case spanRows:
+		return plan.OverRows(build), nil
+	case distinctSpans:
+		return plan.OverDistinctSpans(spanColumns(&req, false), build), nil
 	}
 	return plan.Metrics, nil
 }
@@ -99,18 +195,55 @@ func HistogramRange(plan *ct.MetricsPlan, req MetricsRequest) (shared.SQLRequest
 		func(count string) string { return scaledExpr(count, req.Scale) }, nil)), nil
 }
 
-// GenericExemplars is the statement of req's exemplars under plan.
+// GenericExemplars is the statement of req's exemplars under plan. A lone `{}`
+// picks a span per group from the rows; with a custom by-label each shard picks
+// one and the coordinator keeps the first per group.
 func GenericExemplars(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (shared.SQLRequestPlanner, error) {
-	return plan.Over(func(spans *sql.With) (sql.ISelect, error) {
-		req.Spans = spans
-		query, resolved, err := BuildGenericExemplarsQuery(&req)
+	if !plan.EverySpan() {
+		return plan.Over(func(spans *sql.With) (sql.ISelect, error) {
+			req.Spans = spans
+			query, resolved, err := BuildGenericExemplarsQuery(&req)
+			*labels = resolved
+			return query, err
+		})
+	}
+	if hasCustomBy(req.By) {
+		return plan.OverShards(ct.ShardBuild{
+			Shard: func(read ct.SpanRead, attrs string) (sql.ISelect, error) {
+				r := req
+				r.Read, r.AttrsTable = read, attrs
+				query, resolved, err := BuildGenericExemplarsQuery(&r)
+				*labels = resolved
+				return query, err
+			},
+			Result: func(rows *sql.With) (sql.ISelect, error) {
+				by := byAliases(req.By)
+				columns := []sql.SQLObject{sql.NewRawObject("ts"), sql.NewRawObject("trace_id"), sql.NewRawObject("dur_ns"),
+					sql.NewRawObject("span_ts"), sql.NewRawObject("arg_value")}
+				return sql.NewSelect().With(rows).Select(append(columns, by...)...).From(sql.NewWithRef(rows)).
+					OrderBy(sql.NewOrderBy(sql.NewRawObject("ts"), sql.ORDER_BY_DIRECTION_ASC)).
+					Limit(sql.NewLimitBy(sql.NewIntVal(1), append([]sql.SQLObject{sql.NewRawObject("ts")}, by...)...)), nil
+			},
+		}), nil
+	}
+	return plan.OverRows(func(read ct.SpanRead) (sql.ISelect, error) {
+		r := req
+		r.Read = read
+		query, resolved, err := BuildGenericExemplarsQuery(&r)
 		*labels = resolved
 		return query, err
-	})
+	}), nil
 }
 
 // HistogramExemplars is the statement of req's histogram exemplars under plan.
 func HistogramExemplars(plan *ct.MetricsPlan, req MetricsRequest) (shared.SQLRequestPlanner, error) {
+	if plan.EverySpan() {
+		return plan.OverRows(func(read ct.SpanRead) (sql.ISelect, error) {
+			r := req
+			r.Read = read
+			return BuildHistogramExemplarsQuery(&r)
+		}), nil
+	}
 	return plan.Over(func(spans *sql.With) (sql.ISelect, error) {
 		req.Spans = spans
 		return BuildHistogramExemplarsQuery(&req)
