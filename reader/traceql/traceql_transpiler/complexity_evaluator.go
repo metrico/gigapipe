@@ -73,6 +73,9 @@ func (t *TraceQLComplexityEvaluator[T, P]) Process(ctx *shared.PlannerContext) (
 			complexity = _complexity
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return t.processEstimated(ctx, complexity)
 }
 
