@@ -104,9 +104,65 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 
 ## TraceQL
 
-- **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve; deeper or cyclic traces make the query fail. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [TraceQL](traceql.md#depth-limit).
+- **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
 
-Structural TraceQL queries need ClickHouse 24.9 or newer; see [TraceQL](traceql.md#requirements).
+Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
+
+### Requirements
+
+Queries that use a structural operator (`>`, `>>`, `<`, `<<`, `~` and their
+`!`/`&` variants) need **ClickHouse 24.9 or newer**. On an older server they
+fail with `TraceQL structural operators need ClickHouse 24.9 or newer`. All
+other TraceQL queries keep working on older servers.
+
+Structural queries need no schema migration, writer change or backfill: the
+span tree is resolved at query time from the `parent_id` of the stored spans.
+Clustered (Distributed) deployments return the same results as single-node
+ones, provided **a trace's spans and attribute rows live on one shard**.
+Writers inserting through the `_dist` tables place them so: the sharding key is
+`sipHash64(oid, trace_id)`, and a trace has one `oid`.
+
+### Depth limit
+
+The span tree is built at query time from stored `parent_id`s:
+
+- A span takes part in a structural relation only when its parent chain
+  reaches a root span (a span without a parent).
+- A span that can't reach a root, such as one in an orphan subtree whose
+  parent was never ingested or in a trace with no root, never matches a
+  positive or `&` operator, and always matches a `!` operator.
+- A span whose ancestor hasn't been ingested yet starts matching once that
+  ancestor arrives.
+- When a trace has several roots, they are all siblings under `~`.
+
+Ancestry is resolved in a fixed number of rounds, set by
+`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`. With `R` rounds, traces up to `2^R` spans
+deep resolve. The default of 20 covers traces about a million spans deep.
+
+A span whose ancestry is still unresolved after the last round is either in
+a trace deeper than the limit or has parent links that form a cycle. The
+query doesn't fail. Instead:
+
+- Under `>>`, `!>>` and the one-hop operators (`>`, `<`, `~` and their
+  variants), unresolved spans are treated like orphans. The rest of the trace
+  is evaluated normally.
+- Under `<<`, `!<<`, `&>>` and `&<<`, the whole trace is skipped and returns
+  no spans from that operator, including under `!`.
+
+Only traces that are candidates for the operator are affected: traces with
+spans on both sides of a `>>`/`<<` operator or its variants, and, for the
+one-hop operators, traces that have a root and also a span whose parent is
+missing.
+
+At most once a minute, gigapipe logs a warning that names the affected
+traces:
+
+```
+TraceQL structural query: N trace(s) have unresolved ancestry (deeper than 2^R spans at GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS=R, or parent links form a cycle); their unresolved spans are treated as unreachable; trace_ids=[…]
+```
+
+The line lists up to 20 trace IDs. Raising the round limit helps only with
+deep traces, not cycles.
 
 ## Recording Rules (Ruler)
 
