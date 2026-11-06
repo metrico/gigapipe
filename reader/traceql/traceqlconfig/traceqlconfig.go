@@ -16,8 +16,8 @@ const (
 	DefaultAncestryRounds = 20
 	maxAncestryRounds     = 32
 
-	// PortionSpansEnv sets the most spans a TraceQL tag autocomplete reads per
-	// portion on one shard.
+	// PortionSpansEnv sets the most candidate spans a TraceQL search slice loads on
+	// one shard, and the most spans a tag autocomplete reads per portion on one shard.
 	PortionSpansEnv = "GIGAPIPE_TRACEQL_PORTION_SPANS"
 	// DefaultPortionSpans applies when PortionSpansEnv is unset.
 	DefaultPortionSpans = 7500000
@@ -93,7 +93,8 @@ func AncestryRounds() int {
 	return ancestryRounds
 }
 
-// PortionSpans returns the span budget of one portion on one shard.
+// PortionSpans returns the span budget of one search slice or autocomplete
+// portion on one shard.
 func PortionSpans() int64 {
 	return portionSpans
 }
