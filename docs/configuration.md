@@ -105,8 +105,8 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 ## TraceQL
 
 - **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
-- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per portion, a positive integer (default: `2500000`). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range; a lone `{}` estimates the search limit; others estimate the spans their selectors match. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up.
-- **`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION`** - Longest time range of a TraceQL search or tag autocomplete, a Go duration such as `168h` (default: `168h`). A longer request gets HTTP 400 with the plain-text body `range specified by start and end exceeds 168h0m0s. received start=<s> end=<e>`, as Tempo sends it. `0` turns the cap off. Applies to `/api/search` with `q`, and to `/api/v2/search/tags` and `/api/v2/search/tag/{tag}/values` with a non-zero `start`. Metrics queries, `/api/search` with `tags`, and tag lookups that read no time range are not capped. An invalid or negative value stops Gigapipe at start-up.
+- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per portion, a positive integer (default: `2500000`). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range; a lone `{}` estimates the search limit; others estimate the spans their selectors match. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up. See [Large queries](#large-queries).
+- **`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION`** - Longest time range of a TraceQL search or tag autocomplete, a Go duration such as `168h` (default: `168h`). A longer request gets HTTP 400 with the plain-text body `range specified by start and end exceeds 168h0m0s. received start=<s> end=<e>`, as Tempo sends it. `0` turns the cap off. Applies to `/api/search` with `q`, and to `/api/v2/search/tags` and `/api/v2/search/tag/{tag}/values` with a non-zero `start`. Metrics queries, `/api/search` with `tags`, and tag lookups that read no time range are not capped. An invalid or negative value stops Gigapipe at start-up. See [Large queries](#large-queries).
 
 Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
 
@@ -165,6 +165,35 @@ TraceQL structural query: N trace(s) have unresolved ancestry (deeper than 2^R s
 
 The line lists up to 20 trace IDs. Raising the round limit helps only with
 deep traces, not cycles.
+
+### Large queries
+
+A TraceQL search or tag autocomplete whose estimate exceeds
+`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each portion reads one hash
+bucket of traces over the whole requested range. For a search, each portion
+returns its bucket's top `limit` traces and Gigapipe merges them by newest
+matched span, so the result is the same at any portion count. Each portioned
+request logs one info-level `traceql portioned` line with the query, range,
+estimate, setting and portion count.
+
+A search response reports its portions in a `metrics` block after the trace
+array: `"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the portion count,
+or `1` when the search was read at once. Autocomplete responses have no such
+block.
+
+`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION` caps the range at `168h` by default. A
+longer request gets HTTP 400 instead of running.
+
+Set ClickHouse `max_memory_usage` as the backstop: a query over it fails instead
+of exhausting the node. The accepted risks are:
+
+- A huge single trace isn't split. All its spans fall in one portion, whatever
+  the setting.
+- The budget is per query. Concurrent queries each read up to it.
+- The default is sized for 7 GiB nodes. Lower it on smaller ones.
+- Cost grows with range × portions, because every portion rescans the range.
+- The reader holds up to `2 × limit` traces while it merges portions, which
+  `max_memory_usage` doesn't cover.
 
 ## Recording Rules (Ruler)
 
