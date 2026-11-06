@@ -144,10 +144,10 @@ func (p *fieldPivot) attrsWhere(ctx *shared.PlannerContext) []sql.SQLCondition {
 	for i, k := range p.keys {
 		keys[i] = sqlString(k)
 	}
+	dateFrom, dateTo := timerange.SpanDate("traces_idx.date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	return []sql.SQLCondition{
-		sql.Ge(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-		sql.Le(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+		dateFrom, dateTo,
 		tsFrom, tsTo,
 		rawCond("traces_idx.key IN (" + strings.Join(keys, ", ") + ")"),
 	}

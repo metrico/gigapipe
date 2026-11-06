@@ -2,30 +2,19 @@ package traceql_transpiler
 
 import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 )
 
+// Plan plans a search for query as a newest-first walk.
 func Plan(query *traceql_ir.Query) (shared.TraceRequestProcessor, error) {
 	sqlPlanner, err := clickhouse_transpiler.Plan(query)
 	if err != nil {
 		return nil, err
 	}
 
-	complexityPlanner, err := clickhouse_transpiler.PlanEval(query)
-	if err != nil {
-		return nil, err
-	}
-
-	return &TraceQLComplexityEvaluator[model.TraceInfo, *clickhouse_transpiler.SearchPlan]{
-		main:                      sqlPlanner,
-		simpleRequestProcessor:    &SimpleRequestProcessor{},
-		complexRequestProcessor:   &ComplexRequestProcessor{read: readTraces},
-		evaluateComplexityPlanner: complexityPlanner,
-		threshold:                 traceqlconfig.PortionSpans(),
-	}, nil
+	return newWalkProcessor(sqlPlanner), nil
 }
 
 // PlanTagsV2 plans the attribute keys of the spans a search for query returns.
@@ -58,7 +47,7 @@ func planAutocomplete(query *traceql_ir.Query, plan *clickhouse_transpiler.Searc
 	if err != nil {
 		return nil, err
 	}
-	return &TraceQLComplexityEvaluator[string, *clickhouse_transpiler.SearchPlan]{
+	return &TraceQLComplexityEvaluator{
 		main:                      plan,
 		simpleRequestProcessor:    &autocompleteRequestProcessor{},
 		complexRequestProcessor:   &complexAutocompleteRequestProcessor{},

@@ -9,6 +9,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -21,27 +22,27 @@ func portionedLine(ctx *shared.PlannerContext, estimate, portionSpans, portions 
 		ctx.TraceQL, ctx.From.Format(time.RFC3339), ctx.To.Format(time.RFC3339), estimate, portionSpans, portions)
 }
 
-type simpleRequestProcessor[T, P any] interface {
-	Process(ctx *shared.PlannerContext) (chan []T, error)
-	SetMain(main P)
+type simpleRequestProcessor interface {
+	Process(ctx *shared.PlannerContext) (chan []string, error)
+	SetMain(main *clickhouse_transpiler.SearchPlan)
 }
 
-type complexRequestProcessor[T, P any] interface {
-	Process(ctx *shared.PlannerContext, portions int64) (chan []T, error)
-	SetMain(main P)
+type complexRequestProcessor interface {
+	Process(ctx *shared.PlannerContext, portions int64) (chan []string, error)
+	SetMain(main *clickhouse_transpiler.SearchPlan)
 }
 
-// TraceQLComplexityEvaluator reads a plan P of results T, at once or by
-// complexity portions.
-type TraceQLComplexityEvaluator[T, P any] struct {
-	main                      P
-	simpleRequestProcessor    simpleRequestProcessor[T, P]
-	complexRequestProcessor   complexRequestProcessor[T, P]
+// TraceQLComplexityEvaluator reads an autocomplete plan at once or by complexity
+// portions.
+type TraceQLComplexityEvaluator struct {
+	main                      *clickhouse_transpiler.SearchPlan
+	simpleRequestProcessor    simpleRequestProcessor
+	complexRequestProcessor   complexRequestProcessor
 	evaluateComplexityPlanner shared.SQLRequestPlanner
 	threshold                 int64
 }
 
-func (t *TraceQLComplexityEvaluator[T, P]) Process(ctx *shared.PlannerContext) (chan []T, error) {
+func (t *TraceQLComplexityEvaluator) Process(ctx *shared.PlannerContext) (chan []string, error) {
 	evaluateComplexity, err := t.evaluateComplexityPlanner.Process(ctx)
 	if err != nil {
 		return nil, err
@@ -81,21 +82,21 @@ func (t *TraceQLComplexityEvaluator[T, P]) Process(ctx *shared.PlannerContext) (
 
 // processEstimated reads the request at once when the estimate fits the budget,
 // and in portions otherwise.
-func (t *TraceQLComplexityEvaluator[T, P]) processEstimated(ctx *shared.PlannerContext,
-	complexity int64) (chan []T, error) {
+func (t *TraceQLComplexityEvaluator) processEstimated(ctx *shared.PlannerContext,
+	complexity int64) (chan []string, error) {
 	if complexity <= t.threshold {
 		return t.ProcessSimpleReq(ctx)
 	}
 	return t.ProcessComplexReq(ctx, complexity)
 }
 
-func (t *TraceQLComplexityEvaluator[T, P]) ProcessSimpleReq(ctx *shared.PlannerContext) (chan []T, error) {
+func (t *TraceQLComplexityEvaluator) ProcessSimpleReq(ctx *shared.PlannerContext) (chan []string, error) {
 	t.simpleRequestProcessor.SetMain(t.main)
 	return t.simpleRequestProcessor.Process(ctx)
 }
 
-func (t *TraceQLComplexityEvaluator[T, P]) ProcessComplexReq(ctx *shared.PlannerContext,
-	complexity int64) (chan []T, error) {
+func (t *TraceQLComplexityEvaluator) ProcessComplexReq(ctx *shared.PlannerContext,
+	complexity int64) (chan []string, error) {
 	t.complexRequestProcessor.SetMain(t.main)
 	ctx.Portions = (complexity + t.threshold - 1) / t.threshold
 	logPortioned(portionedLine(ctx, complexity, t.threshold, ctx.Portions))

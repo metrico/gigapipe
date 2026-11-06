@@ -22,14 +22,14 @@ func (s *SelectTagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 func selectAttrs(ctx *shared.PlannerContext, prefix string, col string,
 	where ...sql.SQLCondition) sql.ISelect {
 	withRows, withTraceIds, withSpanIds := idsOf(SearchResultTable, prefix)
+	dateFrom, dateTo := timerange.SpanDate("date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	res := sql.NewSelect().
 		With(withRows, withTraceIds, withSpanIds).
 		Select(sql.NewSimpleCol(col, col)).
 		From(sql.NewSimpleCol(attrsTable(ctx), "traces_idx")).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+			dateFrom, dateTo,
 			tsFrom,
 			tsTo,
 			plainIn(sql.NewRawObject("traces_idx.trace_id"), sql.NewWithRef(withTraceIds)),

@@ -1,6 +1,8 @@
 package clickhouse_transpiler
 
 import (
+	"time"
+
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -13,6 +15,24 @@ const SearchResultTable = "_search_result"
 type SearchPlan struct {
 	Ids  []IdsStatement
 	Data shared.SQLRequestPlanner
+	// Leaves read the leaf selectors of a search; every result span is a row
+	// of one of them.
+	Leaves []shared.SQLRequestPlanner
+}
+
+// Candidates plans the traces with a leaf match starting in (from, to].
+func (s *SearchPlan) Candidates(from, to time.Time) shared.SQLRequestPlanner {
+	return &candidatesPlanner{leaves: s.Leaves, from: from, to: to}
+}
+
+// Check plans and renders the ids statements, returning what would fail them.
+func (s *SearchPlan) Check(ctx *shared.PlannerContext) error {
+	for _, ids := range s.Ids {
+		if _, err := render(ctx, ids.Statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // searchRowsPlanner returns Main's rows as a search's ids rows: the ids, then

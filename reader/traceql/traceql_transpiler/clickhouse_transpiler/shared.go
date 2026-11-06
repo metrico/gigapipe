@@ -94,10 +94,10 @@ func randomFilter(ctx *shared.PlannerContext) sql.SQLCondition {
 }
 
 // restrictOperand keeps the rows of sel, an operand read, in the current
-// complexity portion, among the spans of ctx.TracesOperandSpans and in the
-// sample of ctx.TracesSample.
+// complexity portion, of the traces of ctx.TracesCandidates, among the spans
+// of ctx.TracesOperandSpans and in the sample of ctx.TracesSample.
 func restrictOperand(ctx *shared.PlannerContext, sel sql.ISelect) {
-	for _, cond := range []sql.SQLCondition{randomFilter(ctx), narrowFilter(ctx), ctx.TracesSample} {
+	for _, cond := range []sql.SQLCondition{randomFilter(ctx), candidatesFilter(ctx), narrowFilter(ctx), ctx.TracesSample} {
 		if cond != nil {
 			sel.AndWhere(cond)
 		}

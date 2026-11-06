@@ -16,8 +16,8 @@ const (
 	DefaultAncestryRounds = 20
 	maxAncestryRounds     = 32
 
-	// PortionSpansEnv sets the most spans a TraceQL search or tag autocomplete
-	// reads per portion on one shard.
+	// PortionSpansEnv sets the most spans a TraceQL tag autocomplete reads per
+	// portion on one shard.
 	PortionSpansEnv = "GIGAPIPE_TRACEQL_PORTION_SPANS"
 	// DefaultPortionSpans applies when PortionSpansEnv is unset.
 	DefaultPortionSpans = 7500000

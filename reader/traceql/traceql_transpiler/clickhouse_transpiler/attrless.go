@@ -9,7 +9,7 @@ import (
 
 // AttrlessConditionPlanner plans a whole-query `{}`: every span starting in
 // range of the ctx.Limit traces with the newest such spans, or of every trace at
-// limit 0, among the traces of the current portion.
+// limit 0, among the traces of ctx.TracesCandidates.
 type AttrlessConditionPlanner struct {
 }
 
@@ -34,8 +34,8 @@ func (a *AttrlessConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISel
 	if ctx.Limit > 0 {
 		traceIds = traceIds.Limit(sql.NewIntVal(ctx.Limit))
 	}
-	if portion := randomFilter(ctx); portion != nil {
-		traceIds.AndWhere(portion)
+	if candidates := candidatesFilter(ctx); candidates != nil {
+		traceIds.AndWhere(candidates)
 	}
 	withTraceIds := sql.NewWith(traceIds, "attrless_trace_ids")
 	return sql.NewSelect().
