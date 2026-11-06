@@ -664,22 +664,41 @@
     "s9"
   ],
   "TestAutocomplete/shallow/tags/{.a = \"1\"} >> {.b = \"1\"}/5": [
-    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+    "a",
+    "b",
+    "name"
   ],
   "TestAutocomplete/shallow/tags/{.b = \"1\"} &<< {.a = \"1\"}/5": [
-    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+    "a",
+    "b",
+    "name"
   ],
   "TestAutocomplete/shallow/values a/{.a = \"1\"} >> {.b = \"1\"}/5": [
-    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+    "1"
   ],
   "TestAutocomplete/shallow/values a/{.b = \"1\"} &<< {.a = \"1\"}/5": [
-    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+    "1"
   ],
   "TestAutocomplete/shallow/values name/{.a = \"1\"} >> {.b = \"1\"}/5": [
-    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+    "s11",
+    "s12",
+    "s15",
+    "s2",
+    "s20",
+    "s5",
+    "s6",
+    "s7"
   ],
   "TestAutocomplete/shallow/values name/{.b = \"1\"} &<< {.a = \"1\"}/5": [
-    "error: TraceQL structural query: a trace is deeper than the round limit of 5 rounds (32 spans) or its parent links form a cycle; raise GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS"
+    "s1",
+    "s12",
+    "s15",
+    "s2",
+    "s20",
+    "s3",
+    "s5",
+    "s6",
+    "s7"
   ],
   "TestAutocomplete/structural/tags/({.a = \"1\"} > {}) ~ {.b = \"1\"}/0": [
     "a",

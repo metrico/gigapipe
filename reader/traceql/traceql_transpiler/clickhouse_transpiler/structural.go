@@ -234,26 +234,38 @@ func (t *TransitivePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 	flags, rhsFlag, lhsFlag := rel.direction()
 	sides := operandSides(alias, lhs, rhs)
 	nodes, jump := ancestryTree(ctx, alias, sides, flags, scopeSpans)
+	unresolved := unresolvedRow(ancestryRounds(ctx))
+	resolvedCols := []sql.SQLObject{
+		sql.NewSimpleCol("trace_id", "trace_id"),
+		sql.NewSimpleCol("node", "span_id"),
+		sql.NewSimpleCol(fmt.Sprintf("toUInt8(cut = 0 AND NOT %s)", unresolved), "reachable"),
+		sql.NewSimpleCol("up", "up"),
+		sql.NewSimpleCol("down", "down"),
+		sql.NewSimpleCol("lhs_ts", "lhs_ts"),
+		sql.NewSimpleCol("rhs_ts", "rhs_ts")}
+	final := rel.result.cond("rhs_match = 1", "lhs_match = 1")
+	matchedCols := []sql.SQLObject{
+		sql.NewSimpleCol("trace_id", "trace_id"),
+		sql.NewSimpleCol("span_id", "span_id"),
+		sql.NewSimpleCol("o.1", "timestamp_ns"),
+		sql.NewSimpleCol("o.2", "side"),
+		sql.NewSimpleCol(fmt.Sprintf("toUInt8(reachable = 1 AND %s = 1)", rhsFlag), "rhs_match"),
+		sql.NewSimpleCol(fmt.Sprintf("toUInt8(reachable = 1 AND %s = 1)", lhsFlag), "lhs_match")}
+	// Down marks spread through unresolved spans, so an operator reading them
+	// returns nothing from a trace with an unresolved span, negations included.
+	if flags.down {
+		resolvedCols = append(resolvedCols,
+			sql.NewSimpleCol(fmt.Sprintf("max(%s) OVER (PARTITION BY trace_id)", unresolved), "unresolved"))
+		matchedCols = append(matchedCols, sql.NewSimpleCol("unresolved", "unresolved"))
+		final = fmt.Sprintf("unresolved = 0 AND (%s)", final)
+	}
 	resolved := sql.NewWith(sql.NewSelect().
-		Select(
-			sql.NewSimpleCol("trace_id", "trace_id"),
-			sql.NewSimpleCol("node", "span_id"),
-			sql.NewSimpleCol("cut", "cut"),
-			sql.NewSimpleCol("up", "up"),
-			sql.NewSimpleCol("down", "down"),
-			sql.NewSimpleCol("lhs_ts", "lhs_ts"),
-			sql.NewSimpleCol("rhs_ts", "rhs_ts")).
+		Select(resolvedCols...).
 		From(sql.NewWithRef(jump)).
-		AndWhere(ancestryGuard(ctx, finalJump), rawCond(finalJump)),
+		AndWhere(rawCond(finalJump)),
 		alias+"_resolved")
 	matched := sql.NewWith(sql.NewSelect().
-		Select(
-			sql.NewSimpleCol("trace_id", "trace_id"),
-			sql.NewSimpleCol("span_id", "span_id"),
-			sql.NewSimpleCol("o.1", "timestamp_ns"),
-			sql.NewSimpleCol("o.2", "side"),
-			sql.NewSimpleCol(fmt.Sprintf("toUInt8(cut = 0 AND %s = 1)", rhsFlag), "rhs_match"),
-			sql.NewSimpleCol(fmt.Sprintf("toUInt8(cut = 0 AND %s = 1)", lhsFlag), "lhs_match")).
+		Select(matchedCols...).
 		From(sql.NewWithRef(resolved)).
 		Join(sql.NewJoin("array", sql.NewRawObject(operandRows), nil)),
 		alias+"_matched")
@@ -263,7 +275,7 @@ func (t *TransitivePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		Distinct(true).
 		Select(spanRowCols()...).
 		From(sql.NewWithRef(matched)).
-		AndWhere(rawCond(t.Keep.widen(rel.result.cond("rhs_match = 1", "lhs_match = 1")))), nil
+		AndWhere(rawCond(t.Keep.widen(final))), nil
 }
 
 // operandSides is <alias>_sides: the span rows of lhs (side 1) and rhs (side 2).
@@ -444,14 +456,6 @@ func ancestryTree(ctx *shared.PlannerContext, alias string, sides *sql.With,
 // finalJump keeps a node's row after its last jump.
 const finalJump = "jumps = rounds"
 
-// ancestryGuard fails the query on a final jump row whose chain is unresolved
-// (an ancestor pointer still set, or past the limit), when cond (SQL) holds.
-func ancestryGuard(ctx *shared.PlannerContext, cond string) sql.SQLCondition {
-	limit := ancestryRounds(ctx)
-	return rawCond(fmt.Sprintf("throwIf(%s AND %s, '%s') = 0",
-		cond, unresolvedRow(limit), unresolvedAncestryMessage(limit)))
-}
-
 // operandRows ARRAY JOINs a final jump row into its operand rows: o.1 the
 // timestamp, o.2 the side.
 const operandRows = "arrayConcat(arrayMap(t -> (t, toUInt8(1)), lhs_ts), arrayMap(t -> (t, toUInt8(2)), rhs_ts)) AS o"
@@ -473,22 +477,20 @@ func oneHopKeyed(ctx *shared.PlannerContext, alias string, lhs, rhs *sql.With, r
 			sql.NewSimpleCol("cut", "cut"),
 			sql.NewSimpleCol("lhs_ts", "lhs_ts"),
 			sql.NewSimpleCol("rhs_ts", "rhs_ts"),
-			sql.NewSimpleCol(hasRoot, "has_root"),
-			sql.NewSimpleCol("max(found = 1 AND cut = 1) OVER (PARTITION BY trace_id)", "has_dangling")).
+			sql.NewSimpleCol(hasRoot, "has_root")).
 		From(sql.NewWithRef(jump)).
 		AndWhere(rawCond(finalJump)),
 		alias+"_final")
-	// A span reaches a root when its trace has one and its chain is not cut.
+	// A span reaches a root when its trace has one and its chain is not cut or unresolved.
 	resolved := sql.NewWith(sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("trace_id", "trace_id"),
 			sql.NewSimpleCol("span_id", "span_id"),
 			sql.NewSimpleCol("parent", "parent"),
-			sql.NewSimpleCol("toUInt8(found = 1 AND has_root = 1 AND cut = 0)", "reachable"),
+			sql.NewSimpleCol(fmt.Sprintf("toUInt8(found = 1 AND has_root = 1 AND cut = 0 AND NOT %s)", unresolvedRow(ancestryRounds(ctx))), "reachable"),
 			sql.NewSimpleCol("lhs_ts", "lhs_ts"),
 			sql.NewSimpleCol("rhs_ts", "rhs_ts")).
-		From(sql.NewWithRef(final)).
-		AndWhere(ancestryGuard(ctx, "has_root = 1 AND has_dangling = 1")),
+		From(sql.NewWithRef(final)),
 		alias+"_resolved")
 	keyed = sql.NewWith(sql.NewSelect().
 		Select(
@@ -511,22 +513,6 @@ func ancestryRounds(ctx *shared.PlannerContext) int {
 		return ctx.AncestryRounds
 	}
 	return traceqlconfig.DefaultAncestryRounds
-}
-
-func unresolvedAncestryMessage(rounds int) string {
-	return fmt.Sprintf("TraceQL structural query: a trace is deeper than the round limit of %d rounds "+
-		"(%d spans) or its parent links form a cycle; raise %s",
-		rounds, 1<<rounds, traceqlconfig.AncestryRoundsEnv)
-}
-
-// unresolvedAncestryError returns the unresolved-ancestry error that err, a
-// ClickHouse error from a query planned with ctx, carries, or err itself.
-func unresolvedAncestryError(ctx *shared.PlannerContext, err error) error {
-	msg := unresolvedAncestryMessage(ancestryRounds(ctx))
-	if err != nil && strings.Contains(err.Error(), msg) {
-		return errors.New(msg)
-	}
-	return err
 }
 
 // sameSpan joins two aliased rows on trace id and the given span id columns.

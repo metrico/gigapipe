@@ -102,19 +102,3 @@ func TestQueryOnEmptyIds(t *testing.T) {
 		})
 	}
 }
-
-// An unresolved-ancestry failure of either statement is the plain message.
-func TestQueryMapsUnresolvedAncestry(t *testing.T) {
-	msg := unresolvedAncestryMessage(ancestryRounds(testPlannerContext(3)))
-	chErr := errors.New("code: 395, message: " + msg)
-	for name, s := range map[string][2]string{"ids": {"fail", "main"}, "main": {"ids", "fail"}} {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := fakeContext(t, chErr)
-			ids := []IdsStatement{{Table: SearchResultTable, Statement: rawPlanner{s[0]}}}
-			err := Query(ctx, ids, nil, rawPlanner{s[1]}, RunOnEmptyIds, func(*stdsql.Rows) error { return nil })
-			if err == nil || err.Error() != msg {
-				t.Errorf("got %v, want %q", err, msg)
-			}
-		})
-	}
-}

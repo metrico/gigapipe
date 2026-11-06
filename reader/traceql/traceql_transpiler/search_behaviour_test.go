@@ -257,10 +257,10 @@ func anyValue(v model.AnyValue) string {
 	return "none"
 }
 
-// assertResults runs each query and compares it with the golden result of
-// step, which says whether it fails. A search whose limit is below
+// assertResults runs each query, which must not fail, and compares it with the
+// golden result of step. A search whose limit is below
 // searchLimit must return limit traces.
-func (s *searchStore) assertResults(t *testing.T, step string, queries []string, run searchRun, wantError bool) {
+func (s *searchStore) assertResults(t *testing.T, step string, queries []string, run searchRun) {
 	t.Helper()
 	if run.limit == 0 {
 		run.limit = searchLimit
@@ -271,7 +271,7 @@ func (s *searchStore) assertResults(t *testing.T, step string, queries []string,
 		key := fmt.Sprintf("%s/%s/%s/%d", test, step, query, run.rounds)
 		got := s.result(t, query, run)
 		isErr := len(got) == 1 && strings.HasPrefix(got[0], "error: ")
-		if isErr != wantError {
+		if isErr {
 			t.Errorf("%s: got %.300q", key, got)
 		}
 		if traces := countTraces(got); !isErr && run.limit < searchLimit && traces != run.limit {
@@ -465,19 +465,19 @@ func testSearchStructuralOperators(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, false)
 	defer s.writeGolden(t)
 	s.seedStructural(t)
-	s.assertResults(t, "plain", plainSearches, searchRun{}, false)
-	s.assertResults(t, "structural", structuralSearches(), searchRun{}, false)
-	// 6 rounds resolve 64 deep; 5 rounds fail on the 40-deep chain.
-	s.assertResults(t, "deep", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} > {.b = "1"}`}, searchRun{rounds: 6}, false)
-	s.assertResults(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} &<< {.a = "1"}`}, searchRun{rounds: 5}, true)
+	s.assertResults(t, "plain", plainSearches, searchRun{})
+	s.assertResults(t, "structural", structuralSearches(), searchRun{})
+	// 6 rounds resolve 64 deep; 5 rounds leave the 40-deep chain unresolved.
+	s.assertResults(t, "deep", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} > {.b = "1"}`}, searchRun{rounds: 6})
+	s.assertResults(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} &<< {.a = "1"}`}, searchRun{rounds: 5})
 	for _, limit := range []int{2, 3} {
-		s.assertResults(t, fmt.Sprintf("limit-%d", limit), limitSearches, searchRun{limit: limit}, false)
+		s.assertResults(t, fmt.Sprintf("limit-%d", limit), limitSearches, searchRun{limit: limit})
 	}
 	for _, portions := range []int{2, 3} {
 		s.assertResults(t, fmt.Sprintf("portions-%d", portions), portionedSearches,
-			searchRun{portions: portions}, false)
+			searchRun{portions: portions})
 		s.assertResults(t, fmt.Sprintf("portions-%d-limit-3", portions), portionedSearches,
-			searchRun{portions: portions, limit: 3}, false)
+			searchRun{portions: portions, limit: 3})
 	}
 }
 
@@ -486,13 +486,15 @@ func testSearchStructuralOperators(t *testing.T, cluster bool) {
 func testSearchOverHTTP(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, true)
 	s.seedStructural(t)
-	s.assertResults(t, "plain", []string{`{}`, `{.b = "1"} | by(.a) | select(name)`}, searchRun{}, false)
+	s.assertResults(t, "plain", []string{`{}`, `{.b = "1"} | by(.a) | select(name)`}, searchRun{})
 	s.assertResults(t, "structural", []string{
 		`{.a = "1"} >> {.b = "1"} | select(.a)`,
 		`({nestedSetParent < 0 && .a = "1"} &>> {.b = "1"}) || ({nestedSetParent < 0 && .a = "1"}) | select(name, nestedSetParent)`,
-	}, searchRun{}, false)
-	s.assertResults(t, "limit-2", limitSearches, searchRun{limit: 2}, false)
-	s.assertResults(t, "portions-2", portionedSearches[:2], searchRun{portions: 2}, false)
+	}, searchRun{})
+	// 5 rounds leave the 40-deep chain unresolved.
+	s.assertResults(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`}, searchRun{rounds: 5})
+	s.assertResults(t, "limit-2", limitSearches, searchRun{limit: 2})
+	s.assertResults(t, "portions-2", portionedSearches[:2], searchRun{portions: 2})
 }
 
 // repeatedOperandSearches pair a search whose `||` repeats an operand of its
@@ -519,7 +521,7 @@ func repeatedOperandSearches() [][2]string {
 func testSearchRepeatedOperand(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, false)
 	s.seedStructural(t)
-	assertSame := func(pairs [][2]string, run searchRun, wantError bool) {
+	assertSame := func(pairs [][2]string, run searchRun) {
 		t.Helper()
 		if run.limit == 0 {
 			run.limit = searchLimit
@@ -527,7 +529,7 @@ func testSearchRepeatedOperand(t *testing.T, cluster bool) {
 		for _, c := range pairs {
 			got, want := s.result(t, c[0], run), s.result(t, c[1], run)
 			isErr := len(want) == 1 && strings.HasPrefix(want[0], "error: ")
-			if len(want) == 0 || isErr != wantError {
+			if len(want) == 0 || isErr {
 				t.Errorf("%s %+v: %.300q", c[1], run, want)
 			}
 			if !slices.Equal(got, want) {
@@ -536,14 +538,14 @@ func testSearchRepeatedOperand(t *testing.T, cluster bool) {
 		}
 	}
 	pairs := repeatedOperandSearches()
-	assertSame(pairs, searchRun{}, false)
-	// 5 rounds fail on the 40-deep chain.
+	assertSame(pairs, searchRun{})
+	// 5 rounds leave the 40-deep chain unresolved.
 	assertSame([][2]string{
 		{`({.a = "1"} >> {.b = "1"}) || {.a = "1"}`, `({.a = "1"} >> {.b = "1"}) || ({.a = "1"} && {.a = "1"})`},
 		{`{.a = "1"} || ({.b = "1"} &<< {.a = "1"})`, `({.a = "1"} && {.a = "1"}) || ({.b = "1"} &<< {.a = "1"})`},
-	}, searchRun{rounds: 5}, true)
-	assertSame(pairs, searchRun{limit: 2}, false)
-	assertSame(pairs, searchRun{portions: 2}, false)
+	}, searchRun{rounds: 5})
+	assertSame(pairs, searchRun{limit: 2})
+	assertSame(pairs, searchRun{portions: 2})
 }
 
 func testSearchCycles(t *testing.T, cluster bool) {
@@ -553,10 +555,10 @@ func testSearchCycles(t *testing.T, cluster bool) {
 		{20, 1, 0, []string{"a"}}, {20, 2, 1, []string{"b"}},
 		{20, 3, 4, []string{"a", "b"}}, {20, 4, 3, []string{"b"}},
 	})
-	s.assertResults(t, "one-hop", []string{`{.a = "1"} > {.b = "1"}`, `{.a = "1"} ~ {.b = "1"}`, `{.a = "1"} !< {.b = "1"}`}, searchRun{}, false)
-	s.assertResults(t, "transitive", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !<< {.b = "1"}`}, searchRun{}, true)
+	s.assertResults(t, "one-hop", []string{`{.a = "1"} > {.b = "1"}`, `{.a = "1"} ~ {.b = "1"}`, `{.a = "1"} !< {.b = "1"}`}, searchRun{})
+	s.assertResults(t, "transitive", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !<< {.b = "1"}`}, searchRun{})
 	s.seed(t, []span{{20, 5, 98, []string{"b"}}})
-	s.assertResults(t, "dangling", []string{`{.a = "1"} > {.b = "1"}`, `{.a = "1"} &~ {.b = "1"}`}, searchRun{}, true)
+	s.assertResults(t, "dangling", []string{`{.a = "1"} > {.b = "1"}`, `{.a = "1"} &~ {.b = "1"}`}, searchRun{})
 }
 
 func testSearchRoundLimit(t *testing.T, cluster bool) {
@@ -585,12 +587,12 @@ func testSearchRoundLimit(t *testing.T, cluster bool) {
 	rooted := append(chain(33, 8, 99), span{33, 20, 0, []string{"a"}},
 		span{33, 21, 20, []string{"b"}}, span{33, 22, 20, []string{"a"}}, span{33, 23, 20, []string{"b"}})
 	s.seed(t, append(append(chain(30, 8, 99), chain(32, 8, 0)...), rooted...))
-	s.assertResults(t, "resolved", queries, searchRun{rounds: 3}, false)
+	s.assertResults(t, "resolved", queries, searchRun{rounds: 3})
 	s.seed(t, chain(31, 9, 0))
-	s.assertResults(t, "unresolved", queries[:2], searchRun{rounds: 3}, true)
+	s.assertResults(t, "unresolved", queries[:2], searchRun{rounds: 3})
 	// 34: a rooted chain of 9 and a span under a missing parent.
 	s.seed(t, append(chain(34, 9, 0), span{34, 20, 98, []string{"a"}}))
-	s.assertResults(t, "unresolved-one-hop", queries[4:7], searchRun{rounds: 3}, true)
+	s.assertResults(t, "unresolved-one-hop", queries[4:7], searchRun{rounds: 3})
 }
 
 // Search returns the traces, spansets and selected values of the golden
@@ -612,8 +614,8 @@ func TestSearchRepeatedOperand(t *testing.T) { testSearchRepeatedOperand(t, fals
 
 func TestSearchRepeatedOperandOnCluster(t *testing.T) { testSearchRepeatedOperand(t, true) }
 
-// A cycle fails a transitive operator; a one-hop operator fails on it only
-// in a trace with a root and a missing parent.
+// A cycle's spans are unreachable or skip the trace, by operator; a one-hop
+// operator checks them only in a trace with a root and a missing parent.
 func TestSearchCycles(t *testing.T) { testSearchCycles(t, false) }
 
 func TestSearchCyclesOnCluster(t *testing.T) { testSearchCycles(t, true) }

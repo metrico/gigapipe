@@ -1067,5 +1067,35 @@
   "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
   "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
   "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-unresolved | instant | {.a = \"1\"} !\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 3",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1"
+ ],
+ "rounds-unresolved | instant | {.a = \"1\"} \u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 2",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1"
+ ],
+ "rounds-unresolved | instant | {.a = \"1\"} \u003e {.b = \"1\"} | count_over_time()": [
+  "[] 2"
+ ],
+ "rounds-unresolved | instant | {.a = \"1\"} ~ {.b = \"1\"} | rate()": [
+  "[] 0.016666666666666666"
+ ],
+ "rounds-unresolved | range | {.a = \"1\"} !\u003e {.b = \"1\"} | count_over_time() by (name)": [
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s8\"}}] 1790812770000=0,1790812800000=3,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1",
+  "[{\"key\":\"name\",\"value\":{\"stringValue\":\"s9\"}}] 1790812770000=0,1790812800000=1,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-unresolved | range | {.a = \"1\"} \u003e {.b = \"1\"} | compare({.a = \"1\"})": [
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"b\",\"value\":{\"stringValue\":\"1\"}}] 1790812830000=2 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s21\"}}] 1790812830000=1 exemplars=0",
+  "[{\"key\":\"__meta_type\",\"value\":{\"stringValue\":\"baseline\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"s23\"}}] 1790812830000=1 exemplars=0"
+ ],
+ "rounds-unresolved | range | {.a = \"1\"} \u003e {.b = \"1\"} | count_over_time()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"count_over_time\"}}] 1790812770000=0,1790812800000=2,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
+ ],
+ "rounds-unresolved | range | {.a = \"1\"} ~ {.b = \"1\"} | rate()": [
+  "[{\"key\":\"__name__\",\"value\":{\"stringValue\":\"rate\"}}] 1790812770000=0,1790812800000=0.06666666666666667,1790812830000=0,1790812860000=0,1790812890000=0 exemplars=1"
  ]
 }

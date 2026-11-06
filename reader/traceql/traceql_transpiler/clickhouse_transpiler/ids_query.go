@@ -48,7 +48,7 @@ func ReadIds(ctx *shared.PlannerContext, statements []IdsStatement, scan IdsScan
 	for i, s := range statements {
 		table, err := readIds(ctx, s, scan)
 		if err != nil {
-			return nil, unresolvedAncestryError(ctx, err)
+			return nil, err
 		}
 		res[i] = table
 	}
@@ -58,11 +58,6 @@ func ReadIds(ctx *shared.PlannerContext, statements []IdsStatement, scan IdsScan
 // QueryOver runs statement with ids attached as external tables, passing each
 // row to scan.
 func QueryOver(ctx *shared.PlannerContext, statement shared.SQLRequestPlanner, ids []*ext.Table,
-	scan func(*stdsql.Rows) error) error {
-	return unresolvedAncestryError(ctx, queryOver(ctx, statement, ids, scan))
-}
-
-func queryOver(ctx *shared.PlannerContext, statement shared.SQLRequestPlanner, ids []*ext.Table,
 	scan func(*stdsql.Rows) error) error {
 	str, err := render(ctx, statement)
 	if err != nil {

@@ -577,18 +577,11 @@ func testMetricsRoundLimit(t *testing.T, cluster bool) {
 	s.assertResults(t, "rounds-resolved", queries)
 	// 34: a rooted chain of 9 and a span under a missing parent.
 	s.seed(t, append(metricsChain(34, 9, 0), metricsSpan{34, 20, 98, []string{"a"}, nil}))
-	msg := "round limit of 3 rounds"
-	for _, query := range oneHop {
-		for endpoint, got := range map[string]func(*testing.T, string) []string{"range": s.rangeResult, "instant": s.instantResult} {
-			if lines := got(t, query); len(lines) != 1 || !strings.HasPrefix(lines[0], "error: ") || !strings.Contains(lines[0], msg) {
-				t.Errorf("%s %s: got %q, want the unresolved-ancestry error", endpoint, query, lines)
-			}
-		}
-	}
+	s.assertResults(t, "rounds-unresolved", oneHop)
 }
 
 // At 3 rounds, metrics and compare() resolve chains of 8 spans, also under a
-// missing parent of a rooted trace, and fail on a rooted chain of 9 with a
+// missing parent of a rooted trace, and answer over a rooted chain of 9 with a
 // span under a missing parent.
 func TestMetricsRoundLimit(t *testing.T) { testMetricsRoundLimit(t, false) }
 

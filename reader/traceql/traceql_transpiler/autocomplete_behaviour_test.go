@@ -123,10 +123,10 @@ func (s *searchStore) suggest(t *testing.T, kind, query string, run searchRun) [
 	return res
 }
 
-// assertSuggestions runs every kind for each query and compares it with the
-// golden result of step, which says whether it fails. A result under a limit
+// assertSuggestions runs every kind for each query, which must not fail, and
+// compares it with the golden result of step. A result under a limit
 // below autocompleteLimit is the first limit suggestions of the unlimited one.
-func (s *searchStore) assertSuggestions(t *testing.T, step string, queries []string, run searchRun, wantError bool) {
+func (s *searchStore) assertSuggestions(t *testing.T, step string, queries []string, run searchRun) {
 	t.Helper()
 	loadAutocompleteGolden(t)
 	checkPrefix := run.limit > 0
@@ -140,7 +140,7 @@ func (s *searchStore) assertSuggestions(t *testing.T, step string, queries []str
 			key := fmt.Sprintf("%s/%s/%s/%s/%d", test, step, kind, query, run.rounds)
 			got := s.suggest(t, kind, query, run)
 			isErr := len(got) == 1 && strings.HasPrefix(got[0], "error: ")
-			if isErr != wantError {
+			if isErr {
 				t.Errorf("%s: got %.300q", key, got)
 			}
 			if !isErr && !slices.IsSorted(got) {
@@ -218,18 +218,18 @@ func testAutocomplete(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, false)
 	defer writeAutocompleteGolden(t)
 	s.seedStructural(t)
-	s.assertSuggestions(t, "plain", plainAutocompletes, searchRun{}, false)
-	s.assertSuggestions(t, "all-spans", allSpansAutocompletes, searchRun{}, false)
-	s.assertSuggestions(t, "structural", structuralSearches(), searchRun{}, false)
-	// 6 rounds resolve 64 deep; 5 rounds fail on the 40-deep chain.
-	s.assertSuggestions(t, "deep", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} > {.b = "1"}`}, searchRun{rounds: 6}, false)
-	s.assertSuggestions(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} &<< {.a = "1"}`}, searchRun{rounds: 5}, true)
-	s.assertSuggestions(t, "limit-3", []string{`{.a = "1"}`, `{.a = "1"} >> {.b = "1"}`, `{} >> {}`}, searchRun{limit: 3}, false)
+	s.assertSuggestions(t, "plain", plainAutocompletes, searchRun{})
+	s.assertSuggestions(t, "all-spans", allSpansAutocompletes, searchRun{})
+	s.assertSuggestions(t, "structural", structuralSearches(), searchRun{})
+	// 6 rounds resolve 64 deep; 5 rounds leave the 40-deep chain unresolved.
+	s.assertSuggestions(t, "deep", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} > {.b = "1"}`}, searchRun{rounds: 6})
+	s.assertSuggestions(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} &<< {.a = "1"}`}, searchRun{rounds: 5})
+	s.assertSuggestions(t, "limit-3", []string{`{.a = "1"}`, `{.a = "1"} >> {.b = "1"}`, `{} >> {}`}, searchRun{limit: 3})
 	for _, portions := range []int{2, 3} {
 		s.assertSuggestions(t, fmt.Sprintf("portions-%d", portions), portionedAutocompletes,
-			searchRun{portions: portions}, false)
+			searchRun{portions: portions})
 		s.assertSuggestions(t, fmt.Sprintf("portions-%d-limit-3", portions), portionedAutocompletes,
-			searchRun{portions: portions, limit: 3}, false)
+			searchRun{portions: portions, limit: 3})
 	}
 }
 
@@ -237,27 +237,14 @@ func testAutocomplete(t *testing.T, cluster bool) {
 func testAutocompleteOverHTTP(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, true)
 	s.seedStructural(t)
-	s.assertSuggestions(t, "plain", []string{`{.a = "1"}`, `{.b = "1"} | by(.a) | select(name)`}, searchRun{}, false)
-	s.assertSuggestions(t, "all-spans", allSpansAutocompletes[:2], searchRun{}, false)
+	s.assertSuggestions(t, "plain", []string{`{.a = "1"}`, `{.b = "1"} | by(.a) | select(name)`}, searchRun{})
+	s.assertSuggestions(t, "all-spans", allSpansAutocompletes[:2], searchRun{})
 	s.assertSuggestions(t, "structural", []string{
 		`{.a = "1"} >> {.b = "1"}`,
 		`({nestedSetParent < 0 && .a = "1"} &>> {.b = "1"}) || ({nestedSetParent < 0 && .a = "1"}) | select(name, nestedSetParent)`,
-	}, searchRun{}, false)
-	shallow, rounds := []string{`{.a = "1"} >> {.b = "1"}`}, searchRun{rounds: 5}
-	if cluster {
-		// A shard's error can arrive mid-stream over HTTP: either error text passes.
-		for _, query := range shallow {
-			for _, kind := range autocompleteKinds {
-				if got := s.suggest(t, kind, query, rounds); len(got) != 1 ||
-					!(strings.Contains(got[0], "round limit of 5 rounds") || strings.Contains(got[0], "block decode for exception")) {
-					t.Errorf("shallow/%s/%s: got %.300q, want an error", kind, query, got)
-				}
-			}
-		}
-	} else {
-		s.assertSuggestions(t, "shallow", shallow, rounds, true)
-	}
-	s.assertSuggestions(t, "portions-2", portionedAutocompletes[:2], searchRun{portions: 2}, false)
+	}, searchRun{})
+	s.assertSuggestions(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`}, searchRun{rounds: 5})
+	s.assertSuggestions(t, "portions-2", portionedAutocompletes[:2], searchRun{portions: 2})
 }
 
 // Tag keys and values match the golden results, single node and on a two-shard
