@@ -229,11 +229,12 @@ func (s *Select) String() string {
 
 // MetricsFn is the terminal metrics function, e.g. `| rate() by (name)`.
 type MetricsFn struct {
-	Fn         string
-	Attr       string
-	Percentile *float64
-	Compare    *CompareArgs
-	By         []string
+	Fn   string
+	Attr string
+	// Quantiles holds the distinct levels of quantile_over_time, in query order.
+	Quantiles []float64
+	Compare   *CompareArgs
+	By        []string
 }
 
 // CompareArgs are the arguments of `compare({filter}, count, from, to)`.

@@ -2,6 +2,7 @@ package traceql_ir
 
 import (
 	"strings"
+	"time"
 
 	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
 )
@@ -20,10 +21,11 @@ type Attribute struct {
 }
 
 // Static is a literal as written. A number is an integer or a float; strings
-// keep their quotes.
+// keep their quotes. Duration is the parsed value of a duration literal.
 type Static struct {
-	Kind ValueKind
-	Text string
+	Kind     ValueKind
+	Text     string
+	Duration time.Duration
 }
 
 // Unquote returns the content of a quoted string literal.

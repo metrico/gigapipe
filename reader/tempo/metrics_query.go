@@ -6,6 +6,7 @@ import (
 	"time"
 
 	model "github.com/metrico/qryn/v5/reader/model"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -36,7 +37,7 @@ type MetricsRequest struct {
 	Fn         string
 	Attr       string
 	By         []string
-	Percentile *float64
+	Quantiles  []float64
 	FromNS     int64
 	ToNS       int64
 	StepNS     int64
@@ -45,21 +46,46 @@ type MetricsRequest struct {
 
 // BuildMetricsRangeQuery builds a ClickHouse SQL query for a metrics range request.
 // It returns the query and the list of by-label keys (for result grouping).
+// A quantile_over_time query also returns one query-wide row, marked by a
+// query_wide column of 1 after value: its value is the list over all the spans.
 func BuildMetricsRangeQuery(req *MetricsRequest) (sql.ISelect, []string, error) {
-	valueExpr, err := buildAggExpr(req.Fn, req.Attr, float64(req.StepNS)/1e9, req.Percentile)
+	valueExpr, err := buildAggExpr(req.Fn, req.Attr, float64(req.StepNS)/1e9, req.Quantiles)
 	if err != nil {
 		return nil, nil, err
 	}
 	tsBucket := fmt.Sprintf("intDiv(main.timestamp_ns, %d) * %d", req.StepNS, req.StepNS)
-	query := spansQuery(req.Spans).Select(
+	columns := []sql.SQLObject{
 		sql.NewCol(sql.NewRawObject(tsBucket), "ts"),
 		sql.NewCol(sql.NewRawObject(valueExpr), "value"),
-	)
+	}
+	queryWide := req.Fn == "quantile_over_time"
+	if queryWide {
+		columns = append(columns, sql.NewCol(sql.NewRawObject("grouping(ts)"), "query_wide"))
+	}
+	query := spansQuery(req.Spans).Select(columns...)
 	groupBy := []sql.SQLObject{sql.NewRawObject("ts")}
 	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable)
+	if queryWide {
+		groupBy = []sql.SQLObject{groupingWithQueryWide(groupBy)}
+	}
 	query.GroupBy(groupBy...).
 		OrderBy(sql.NewOrderBy(sql.NewRawObject("ts"), sql.ORDER_BY_DIRECTION_ASC))
 	return query, resolvedByLabels, nil
+}
+
+// groupingWithQueryWide groups by keys and over the whole query.
+func groupingWithQueryWide(keys []sql.SQLObject) sql.SQLObject {
+	return sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+		parts := make([]string, len(keys))
+		for i, key := range keys {
+			part, err := key.String(ctx, options...)
+			if err != nil {
+				return "", err
+			}
+			parts[i] = part
+		}
+		return fmt.Sprintf("GROUPING SETS ((%s), ())", strings.Join(parts, ", ")), nil
+	})
 }
 
 // BuildMetricsInstantQuery builds a ClickHouse SQL query for an instant metrics query.
@@ -68,7 +94,7 @@ func BuildMetricsInstantQuery(req *MetricsRequest) (sql.ISelect, []string, error
 	if windowS <= 0 {
 		windowS = 1
 	}
-	valueExpr, err := buildAggExpr(req.Fn, req.Attr, windowS, req.Percentile)
+	valueExpr, err := buildAggExpr(req.Fn, req.Attr, windowS, req.Quantiles)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,7 +155,7 @@ func addByLabels(query sql.ISelect, groupBy *[]sql.SQLObject, byLabels []string,
 }
 
 // buildAggExpr returns the ClickHouse aggregation expression for a metrics function.
-func buildAggExpr(fn string, attr string, divisor float64, percentile *float64) (string, error) {
+func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64) (string, error) {
 	if fn == "rate" {
 		return fmt.Sprintf("toFloat64(count(*)) / %f", divisor), nil
 	}
@@ -138,13 +164,13 @@ func buildAggExpr(fn string, attr string, divisor float64, percentile *float64) 
 		if col == "" {
 			return "", fmt.Errorf("quantile_over_time requires an attribute argument")
 		}
-		p := 0.5
-		if percentile != nil {
-			p = *percentile
+		levels := make([]string, len(quantiles))
+		for i, q := range quantiles {
+			levels[i] = fmt.Sprintf("%g", q)
 		}
-		expr := fmt.Sprintf("quantile(%g)(%s)", p, col)
+		expr := fmt.Sprintf("quantiles(%s)(%s)", strings.Join(levels, ", "), col)
 		if col == "main.duration_ns" {
-			expr += " / 1e9"
+			expr = "arrayMap(x -> x / 1e9, " + expr + ")"
 		}
 		return expr, nil
 	}
@@ -204,13 +230,10 @@ func resolveAttrColumn(label string) string {
 	return ""
 }
 
-// stripAttrPrefix removes "span.", "resource." prefixes from attribute names for GIN lookup.
+// stripAttrPrefix returns the storage key of a by label, without its scope.
 func stripAttrPrefix(label string) string {
-	if strings.HasPrefix(label, "span.") {
-		return label[5:]
-	}
-	if strings.HasPrefix(label, "resource.") {
-		return label[9:]
+	if key, ok := traceql_ir.AttributeKey(label); ok {
+		return key
 	}
 	return label
 }
@@ -228,12 +251,9 @@ func buildByPivotCTE(labels []string, fromDate string, toDate string, attrsTable
 	for i, label := range labels {
 		ginKeys[i] = stripAttrPrefix(label)
 		aliases[i] = fmt.Sprintf("by_lbl_%d", i)
+		key, _ := sql.NewStringVal(ginKeys[i]).String(nil)
 		selectCols = append(selectCols,
-			sql.NewCol(
-				sql.NewRawObject(fmt.Sprintf("anyIf(val, key = '%s')",
-					strings.ReplaceAll(ginKeys[i], "'", "\\'"))),
-				aliases[i],
-			),
+			sql.NewCol(sql.NewRawObject("anyIf(val, key = "+key+")"), aliases[i]),
 		)
 	}
 

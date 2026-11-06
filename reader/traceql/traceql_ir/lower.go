@@ -2,6 +2,8 @@ package traceql_ir
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 
 	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
 )
@@ -197,8 +199,8 @@ func lowerScalarAtom(a traceql_parser.ScalarAtom) (ScalarExpr, error) {
 	case a.Aggregate != nil:
 		return lowerAggregate(a.Aggregate)
 	case a.Literal != nil:
-		if a.Literal.Unit != "" {
-			return &Static{Kind: ValueDuration, Text: a.Literal.Num + a.Literal.Unit}, nil
+		if a.Literal.Duration != "" {
+			return newDuration(a.Literal.Duration)
 		}
 		return &Static{Kind: ValueNumber, Text: a.Literal.Num}, nil
 	}
@@ -222,7 +224,11 @@ func lowerMetricsFn(m *traceql_parser.MetricsPipelineStage) (*MetricsFn, error) 
 	if m == nil {
 		return nil, nil
 	}
-	res := &MetricsFn{Fn: m.Fn, Attr: m.Attr, Percentile: m.Percentile}
+	quantiles, err := lowerQuantiles(m)
+	if err != nil {
+		return nil, err
+	}
+	res := &MetricsFn{Fn: m.Fn, Attr: m.Attr, Quantiles: quantiles}
 	if m.By != nil {
 		res.By = m.By.Labels
 	}
@@ -236,6 +242,30 @@ func lowerMetricsFn(m *traceql_parser.MetricsPipelineStage) (*MetricsFn, error) 
 			Count:        c.Count,
 			BaselineFrom: c.BaselineFrom,
 			BaselineTo:   c.BaselineTo,
+		}
+	}
+	return res, nil
+}
+
+// lowerQuantiles checks m's quantile list: one or more levels in [0, 1] on
+// quantile_over_time, and none on any other function. Repeats are dropped.
+func lowerQuantiles(m *traceql_parser.MetricsPipelineStage) ([]float64, error) {
+	if m.Fn != "quantile_over_time" {
+		if len(m.Quantiles) > 0 {
+			return nil, fmt.Errorf("%s does not take quantiles", m.Fn)
+		}
+		return nil, nil
+	}
+	if len(m.Quantiles) == 0 {
+		return nil, errors.New("quantile_over_time requires at least one quantile")
+	}
+	res := make([]float64, 0, len(m.Quantiles))
+	for _, q := range m.Quantiles {
+		if q < 0 || q > 1 {
+			return nil, fmt.Errorf("quantile must be between 0 and 1: %g", q)
+		}
+		if !slices.Contains(res, q) {
+			res = append(res, q)
 		}
 	}
 	return res, nil
