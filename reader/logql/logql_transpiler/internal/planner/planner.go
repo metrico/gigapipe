@@ -134,9 +134,6 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 	if logql_parser.FindFirst[logql_parser.TopK](script) != nil {
 		return nil, &shared.NotSupportedError{Msg: "topk is not supported"}
 	}
-	if logql_parser.FindFirst[logql_parser.QuantileOverTime](script) != nil {
-		return nil, &shared.NotSupportedError{Msg: "quantile_over_time is not supported"}
-	}
 	maybeComparison := func(proc shared.RequestProcessor,
 		comp *logql_parser.Comparison) (shared.RequestProcessor, error) {
 		if comp == nil {
@@ -152,12 +149,32 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 			Val:            fVal,
 		}, nil
 	}
+	if q := logql_parser.FindFirst[logql_parser.QuantileOverTime](script); q != nil {
+		duration, err := shared.GetDuration(q)
+		if err != nil {
+			return nil, err
+		}
+		param, err := strconv.ParseFloat(q.Param, 64)
+		if err != nil {
+			return nil, err
+		}
+		proc := planByWithout(init, q.ByOrWithoutPrefix, q.ByOrWithoutSuffix)
+		proc = &QuantilePlanner{
+			AggregatorPlanner: AggregatorPlanner{GenericPlanner: GenericPlanner{proc}, Duration: duration},
+			Param:             param,
+		}
+		return maybeComparison(proc, q.Comparison)
+	}
 	var aggOp *logql_parser.AggOperator = logql_parser.FindFirst[logql_parser.AggOperator](script)
 	var lra *logql_parser.LRAOrUnwrap = logql_parser.FindFirst[logql_parser.LRAOrUnwrap](script)
 	if aggOp == nil && lra == nil {
 		return init, nil
 	}
 	duration, err := time.ParseDuration(lra.Time + lra.TimeUnit)
+	if err != nil {
+		return nil, err
+	}
+	offset, err := shared.GetOffset(lra)
 	if err != nil {
 		return nil, err
 	}
@@ -171,26 +188,38 @@ func planAggregators(script any, init shared.RequestProcessor) (shared.RequestPr
 				proc = planByWithout(proc, aggOp.ByOrWithoutPrefix, aggOp.ByOrWithoutSuffix)
 			}
 			proc = &LRAPlanner{
-				GenericPlanner: GenericPlanner{proc},
-				Duration:       duration,
-				Func:           lra.Fn,
+				AggregatorPlanner: AggregatorPlanner{GenericPlanner: GenericPlanner{proc}, Duration: duration},
+				Func:              lra.Fn,
+				Offset:            offset,
 			}
 			return maybeComparison(proc, aggOp.Comparison)
 		}
 	}
 
-	if len(lra.StrSel.Pipelines) > 0 && lra.StrSel.Pipelines[len(lra.StrSel.Pipelines)-1].Unwrap != nil {
+	switch {
+	case lra.Fn == "absent_over_time":
+		labels, err := absentLabels(lra.StrSel.StrSelCmds)
+		if err != nil {
+			return nil, err
+		}
+		proc = &AbsentOverTimePlanner{
+			GenericPlanner: GenericPlanner{proc},
+			Duration:       duration,
+			Offset:         offset,
+			Labels:         labels,
+		}
+	case hasUnwrap:
 		proc = planByWithout(proc, lra.ByOrWithoutPrefix, lra.ByOrWithoutSuffix)
 		proc = &UnwrapAggPlanner{
-			GenericPlanner: GenericPlanner{proc},
-			Duration:       duration,
-			Function:       lra.Fn,
+			AggregatorPlanner: AggregatorPlanner{GenericPlanner: GenericPlanner{proc}, Duration: duration},
+			Function:          lra.Fn,
+			Offset:            offset,
 		}
-	} else {
+	default:
 		proc = &LRAPlanner{
-			GenericPlanner: GenericPlanner{proc},
-			Duration:       duration,
-			Func:           lra.Fn,
+			AggregatorPlanner: AggregatorPlanner{GenericPlanner: GenericPlanner{proc}, Duration: duration},
+			Func:              lra.Fn,
+			Offset:            offset,
 		}
 	}
 	proc, err = maybeComparison(proc, lra.Comparison)

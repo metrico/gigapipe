@@ -21,6 +21,10 @@ func GetTracesDataPlugin() *TracesDataPlugin {
 	return traceDataPlugin
 }
 
+// AttrlessConditionPlannerPlugin and InitIndexPlannerPlugin replace only the
+// selector reads in attrless.go and init.go. all_spans.go, field_filter.go,
+// the traceTree edge read and selectAttrs read the tables directly, so these
+// hooks don't scope the rows of those reads.
 type AttrlessConditionPlannerPlugin func() shared.SQLRequestPlanner
 
 var attrlessConditionPlannerPlugin *AttrlessConditionPlannerPlugin
@@ -61,6 +65,7 @@ func GetLabelsGetterPlugin() *LabelsGetterPlugin {
 	return labelsGetterPlugin
 }
 
+// InitIndexPlannerPlugin: see AttrlessConditionPlannerPlugin for the reads it doesn't cover.
 type InitIndexPlannerPlugin func() shared.SQLRequestPlanner
 
 var initIndexPlannerPlugin *InitIndexPlannerPlugin

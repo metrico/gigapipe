@@ -35,6 +35,28 @@ func TestMetricsCompareRequest(t *testing.T) {
 	require.Equal(t, "attrs_dist", got.AttrsTable)
 }
 
+// compare() probes its baseline window; every other query its own range.
+func TestUnresolvedProbeWindow(t *testing.T) {
+	ctx := &shared.PlannerContext{From: time.Unix(100, 0), To: time.Unix(200, 0)}
+
+	for _, query := range []string{
+		`{.a = "1"} >> {.b = "1"} | rate()`,
+		`{.a = "1"} >> {.b = "1"} | compare({.c = "1"})`,
+	} {
+		q, err := traceql_ir.Parse(query)
+		require.NoError(t, err)
+		got := unresolvedProbeContext(q, ctx)
+		require.True(t, got.From.Equal(ctx.From) && got.To.Equal(ctx.To), query)
+	}
+
+	q, err := traceql_ir.Parse(`{.a = "1"} >> {.b = "1"} | compare({.c = "1"}, 2, 50000000000, 150000000000)`)
+	require.NoError(t, err)
+	got := unresolvedProbeContext(q, ctx)
+	require.True(t, got.From.Equal(time.Unix(50, 0)), got.From)
+	require.True(t, got.To.Equal(time.Unix(150, 0)), got.To)
+	require.True(t, ctx.From.Equal(time.Unix(100, 0)), "planner context changed")
+}
+
 // exemplars=N keeps N exemplars per series, evenly spread over those in
 // time order; false and N < 1 keep none; no hint keeps all.
 func TestCapExemplars(t *testing.T) {

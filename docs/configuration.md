@@ -79,6 +79,9 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
   > **Warning:** disabling deletes the stored metric rollups permanently, and the delete cannot be undone by re-enabling. Metric history survives only where `samples_v3` still holds it, so check the raw retention first: if `samples_v3` has been given a shorter TTL than `metrics_15s` (`METRICS_15S_TTL_DAYS`, or a hand-edited TTL), the rollup is the only remaining copy of the older metric data and disabling destroys it.
 
 - **`METRICS_15S_TTL_DAYS`** - TTL in days for the `metrics_15s` rollup table (default: the database's samples TTL). This sets when rollup rows are dropped; any move-to-disk rules from the samples retention policy still apply to the table unchanged, so a longer rollup TTL keeps rows past the point where the policy has already moved them to colder storage.
+  - LogQL `rate` and `count_over_time` with no parser, `keep`, `drop`, `unwrap` or non-empty line filter read `metrics_15s` when every evaluation time, the range and the offset are multiples of 15 seconds, so that the window at `T` counts Loki's `(T-R, T]`; otherwise they read every raw line.
+  - The schema upgrade records a cutoff: a 15-second cell boundary at least a minute after the later of the upgrade and the newest stored cell (on a fresh install, the start of time). For lines before the cutoff, these queries also read the raw lines exactly on a window edge, so those windows need the raw retention too. Keep both TTLs equal while such windows are queried: where one table holds lines the other lacks (past either TTL, or before `metrics_15s` was enabled), these counts are wrong. From the cutoff on, `metrics_15s` alone serves them.
+  - Unless the query is a `sum` over them, these read `metrics_15s` per stream and hold one value per stream and evaluation time while they run (`max`, `min`, `count`, `avg`, `stddev` or `stdvar` by, `topk`, or no aggregation). Operators cap that in the ClickHouse server profile: `max_memory_usage` limits a query, and `max_bytes_before_external_group_by` and `max_bytes_before_external_sort` let its aggregations and sorts spill to disk.
 
 ## Mode
 
@@ -101,9 +104,65 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 
 ## TraceQL
 
-- **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve; deeper or cyclic traces make the query fail. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [TraceQL](traceql.md#depth-limit).
+- **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
 
-Structural TraceQL queries need ClickHouse 24.9 or newer; see [TraceQL](traceql.md#requirements).
+Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
+
+### Requirements
+
+Queries that use a structural operator (`>`, `>>`, `<`, `<<`, `~` and their
+`!`/`&` variants) need **ClickHouse 24.9 or newer**. On an older server they
+fail with `TraceQL structural operators need ClickHouse 24.9 or newer`. All
+other TraceQL queries keep working on older servers.
+
+Structural queries need no schema migration, writer change or backfill: the
+span tree is resolved at query time from the `parent_id` of the stored spans.
+Clustered (Distributed) deployments return the same results as single-node
+ones, provided **a trace's spans and attribute rows live on one shard**.
+Writers inserting through the `_dist` tables place them so: the sharding key is
+`sipHash64(oid, trace_id)`, and a trace has one `oid`.
+
+### Depth limit
+
+The span tree is built at query time from stored `parent_id`s:
+
+- A span takes part in a structural relation only when its parent chain
+  reaches a root span (a span without a parent).
+- A span that can't reach a root, such as one in an orphan subtree whose
+  parent was never ingested or in a trace with no root, never matches a
+  positive or `&` operator, and always matches a `!` operator.
+- A span whose ancestor hasn't been ingested yet starts matching once that
+  ancestor arrives.
+- When a trace has several roots, they are all siblings under `~`.
+
+Ancestry is resolved in a fixed number of rounds, set by
+`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`. With `R` rounds, traces up to `2^R` spans
+deep resolve. The default of 20 covers traces about a million spans deep.
+
+A span whose ancestry is still unresolved after the last round is either in
+a trace deeper than the limit or has parent links that form a cycle. The
+query doesn't fail. Instead:
+
+- Under `>>`, `!>>` and the one-hop operators (`>`, `<`, `~` and their
+  variants), unresolved spans are treated like orphans. The rest of the trace
+  is evaluated normally.
+- Under `<<`, `!<<`, `&>>` and `&<<`, the whole trace is skipped and returns
+  no spans from that operator, including under `!`.
+
+Only traces that are candidates for the operator are affected: traces with
+spans on both sides of a `>>`/`<<` operator or its variants, and, for the
+one-hop operators, traces that have a root and also a span whose parent is
+missing.
+
+At most once a minute, gigapipe logs a warning that names the affected
+traces:
+
+```
+TraceQL structural query: N trace(s) have unresolved ancestry (deeper than 2^R spans at GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS=R, or parent links form a cycle); their unresolved spans are treated as unreachable; trace_ids=[…]
+```
+
+The line lists up to 20 trace IDs. Raising the round limit helps only with
+deep traces, not cycles.
 
 The nested-set numberer stores `nestedSetLeft`, `nestedSetRight` and `nestedSetParent` for each span; see [TraceQL](traceql.md#the-numberer). Every instance in `all` or `writer` mode takes part, and ClickHouse elects one of them to run the passes; if it stops, another takes over within 4 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. It needs ClickHouse 24.9 or newer; on an older server it logs an error and doesn't start, and every span reads `0`/`0`/`0`. With the defaults, values appear about 15s after a trace's last span. In `all` or `writer` mode an invalid value of the settings below stops Gigapipe at start-up; a `reader` ignores them.
 

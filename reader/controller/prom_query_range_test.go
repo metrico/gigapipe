@@ -1,71 +1,85 @@
 package controller
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/metrico/cloki-config/config"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/service"
+	"github.com/prometheus/prometheus/promql"
 )
 
-// snapQueryRangeToNativeResolution aligns query_range's Start/End to the
-// metrics_15s table's 15s grid before those exact values become the PromQL
-// engine's range-query Start/End. The engine emits a point at every
-// Start+k*Step <= End, so End must only ever move backward (or stay put) --
-// moving it forward, as an earlier math.Ceil-based version did, fabricated a
-// data point strictly after the timestamp the caller asked for.
-func TestSnapQueryRangeToNativeResolution_NeverExtendsEnd(t *testing.T) {
-	for offset := int64(0); offset < 30; offset++ {
-		start := time.Unix(1_700_000_000+offset, 0)
-		end := time.Unix(1_700_001_000+offset, 0)
+// noSettingsDB fails every query, so no version info resolves.
+type noSettingsDB struct{}
 
-		gotStart, gotEnd := snapQueryRangeToNativeResolution(start, end)
+func (noSettingsDB) GetName() string { return "no-settings" }
+func (noSettingsDB) QueryCtx(context.Context, string, ...any) (*sql.Rows, error) {
+	return nil, errors.New("no settings")
+}
+func (noSettingsDB) ExecCtx(context.Context, string, ...any) error { return nil }
+func (noSettingsDB) Conn(context.Context) (*sql.Conn, error)       { return nil, nil }
+func (noSettingsDB) Begin() (*sql.Tx, error)                       { return nil, nil }
+func (noSettingsDB) Close()                                        {}
 
-		if gotEnd.After(end) {
-			t.Fatalf("offset=%d: snapped end %v is after requested end %v (delta %v)",
-				offset, gotEnd, end, gotEnd.Sub(end))
+type noSettingsRegistry struct{}
+
+func (noSettingsRegistry) GetDB(context.Context) (*model.DataDatabasesMap, error) {
+	return &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{}, Session: noSettingsDB{}}, nil
+}
+func (noSettingsRegistry) Run()        {}
+func (noSettingsRegistry) Stop()       {}
+func (noSettingsRegistry) Ping() error { return nil }
+
+// A range query evaluates at the caller's start + k*step, milliseconds
+// included, and returns no point past end.
+func TestQueryRangeEvaluatesOnTheRequestedGrid(t *testing.T) {
+	c := &PromQueryRangeController{
+		Engine:  promql.NewEngine(promql.EngineOpts{MaxSamples: 1 << 20, Timeout: time.Minute}),
+		Storage: &service.CLokiQueriable{ServiceData: model.ServiceData{Session: noSettingsRegistry{}}},
+	}
+	for _, q := range []struct{ start, end, step string }{
+		{"1700000007", "1700003607", "60"},
+		{"1700000007.250", "1700003600.5", "420"},
+		{"1700001234.567", "1700087999", "3600"},
+		{"1700000000", "1700001007", "15"},
+	} {
+		rec := httptest.NewRecorder()
+		c.QueryRange(rec, httptest.NewRequest("GET",
+			"/api/v1/query_range?query=time()&start="+q.start+"&end="+q.end+"&step="+q.step, nil))
+		var body struct {
+			Status string
+			Data   struct{ Result []struct{ Values [][2]any } }
 		}
-		if gotStart.After(start) {
-			t.Fatalf("offset=%d: snapped start %v is after requested start %v", offset, gotStart, start)
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Status != "success" ||
+			len(body.Data.Result) != 1 {
+			t.Fatalf("%v: %d %s", q, rec.Code, rec.Body.String())
 		}
-		if gotEnd.Unix()%15 != 0 {
-			t.Fatalf("offset=%d: snapped end %v is not on the 15s grid", offset, gotEnd)
+		start, end, step := ms(t, q.start), ms(t, q.end), ms(t, q.step)
+		values := body.Data.Result[0].Values
+		if want := (end-start)/step + 1; int64(len(values)) != want {
+			t.Errorf("%v: %d points, want %d", q, len(values), want)
 		}
-		if gotStart.Unix()%15 != 0 {
-			t.Fatalf("offset=%d: snapped start %v is not on the 15s grid", offset, gotStart)
-		}
-		if gotStart.After(gotEnd) {
-			t.Fatalf("offset=%d: snapped start %v is after snapped end %v", offset, gotStart, gotEnd)
+		for i, v := range values {
+			ts := int64(v[0].(float64)*1000 + 0.5)
+			if ts != start+int64(i)*step || ts > end {
+				t.Fatalf("%v: point %d at %d, want %d and not past %d", q, i, ts, start+int64(i)*step, end)
+			}
 		}
 	}
 }
 
-// Bounds that already sit on the 15s grid must pass through unchanged --
-// this is the common case (dashboards querying aligned windows) and a
-// flooring implementation must not perturb it.
-func TestSnapQueryRangeToNativeResolution_AlreadyAlignedIsUnchanged(t *testing.T) {
-	start := time.Unix(1_700_000_010, 0)     // 1_700_000_010 % 15 == 0
-	end := time.Unix(1_700_000_010+15*67, 0) // also a multiple of 15
-
-	gotStart, gotEnd := snapQueryRangeToNativeResolution(start, end)
-
-	if !gotStart.Equal(start) {
-		t.Fatalf("aligned start %v was changed to %v", start, gotStart)
+func ms(t *testing.T, s string) int64 {
+	t.Helper()
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !gotEnd.Equal(end) {
-		t.Fatalf("aligned end %v was changed to %v", end, gotEnd)
-	}
-}
-
-// Regression test for the specific bug report: end = start + 1000s, neither
-// a multiple of 15, previously came back as end + (15 - end%15), i.e. one
-// extra 15s bucket past what was requested.
-func TestSnapQueryRangeToNativeResolution_RegressionExactCase(t *testing.T) {
-	start := time.Unix(1_700_000_007, 0)
-	end := time.Unix(1_700_001_007, 0) // 1_700_001_007 % 15 == 7, not aligned
-
-	_, gotEnd := snapQueryRangeToNativeResolution(start, end)
-
-	wantEnd := time.Unix(1_700_001_000, 0) // floor(1_700_001_007/15)*15
-	if !gotEnd.Equal(wantEnd) {
-		t.Fatalf("got end %v, want floored end %v (old buggy behavior ceiled to %v)",
-			gotEnd, wantEnd, time.Unix(1_700_001_015, 0))
-	}
+	return int64(f*1000 + 0.5)
 }

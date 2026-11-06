@@ -111,10 +111,11 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 
 func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	var res shared.SQLRequestPlanner
-	if selector, ok := loneSelector(&p.query.Pipeline); ok {
-		op := &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix(), operand: selector.Filter != nil}
+	if AllSpans(p.query) {
+		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
+	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
 		var err error
-		if res, err = op.planEval(); err != nil {
+		if res, err = p.operand(selector).planEval(); err != nil {
 			return nil, err
 		}
 	} else {
@@ -202,7 +203,7 @@ func planSpansetTree[T any](p *planner, expr traceql_ir.SpansetExpr,
 
 // operand plans one selector of a spanset expression.
 func (p *planner) operand(selector *traceql_ir.Selector) *simpleExpressionPlanner {
-	return &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix(), operand: true}
+	return &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix()}
 }
 
 // structuralGate wraps res in StructuralQueryPlanner when the query has

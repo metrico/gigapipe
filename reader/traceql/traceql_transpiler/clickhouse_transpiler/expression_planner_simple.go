@@ -8,8 +8,6 @@ import (
 type simpleExpressionPlanner struct {
 	selector *traceql_ir.Selector
 	prefix   string
-	// operand is unset only to estimate a whole-query `{}` as the attribute-less planner.
-	operand bool
 
 	//Analyze results
 	termIdx []*attrComparison
@@ -50,14 +48,10 @@ func (p *simpleExpressionPlanner) planner() (shared.SQLRequestPlanner, error) {
 	return &FieldFilterPlanner{Filter: p.selector.Filter, Prefix: p.prefix}, nil
 }
 
-// planEval estimates the selector's cost; a whole-query `{}` (operand unset)
-// estimates the attribute-less planner.
+// planEval estimates the selector's cost as an operand read.
 func (p *simpleExpressionPlanner) planEval() (shared.SQLRequestPlanner, error) {
 	if p.selector.Filter == nil {
-		if p.operand {
-			return &AllSpansEvaluatorPlanner{Prefix: p.prefix}, nil
-		}
-		return &AttrlessEvaluatorPlanner{Prefix: p.prefix}, nil
+		return &AllSpansEvaluatorPlanner{Prefix: p.prefix}, nil
 	}
 	if err := traceql_ir.CheckFilter(p.selector.Filter); err != nil {
 		return nil, err

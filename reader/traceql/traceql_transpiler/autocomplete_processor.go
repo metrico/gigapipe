@@ -4,7 +4,6 @@ import (
 	"slices"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -32,8 +31,7 @@ type complexAutocompleteRequestProcessor struct {
 }
 
 func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext,
-	complexity int64) (chan []string, error) {
-	portions := (complexity + COMPLEXITY_THRESHOLD - 1) / COMPLEXITY_THRESHOLD
+	portions int64) (chan []string, error) {
 	parts := make([][]string, 0, portions)
 	for i := range portions {
 		portionCtx := *ctx
@@ -64,7 +62,7 @@ func readSuggestions(ctx *shared.PlannerContext, main shared.SQLRequestPlanner) 
 	}
 	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, strReq)
 	if err != nil {
-		return nil, clickhouse_transpiler.UnresolvedAncestryError(ctx, err)
+		return nil, err
 	}
 	defer rows.Close()
 	var res []string
@@ -76,7 +74,7 @@ func readSuggestions(ctx *shared.PlannerContext, main shared.SQLRequestPlanner) 
 		res = append(res, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, clickhouse_transpiler.UnresolvedAncestryError(ctx, err)
+		return nil, err
 	}
 	return res, nil
 }

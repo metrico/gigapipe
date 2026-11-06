@@ -1,11 +1,11 @@
 package clickhouse_transpiler
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -89,6 +89,21 @@ func recursiveWiths(withs map[string]*sql.With) []*sql.With {
 	return res
 }
 
+// unresolvedAnc is a jump row's ancestor pointer still being set.
+const unresolvedAnc = "anc != toFixedString('', 8)"
+
+// jumpReaders is the aliases of the CTEs other than the jumps that read jump.
+func jumpReaders(t *testing.T, withs map[string]*sql.With, jump *sql.With) []string {
+	t.Helper()
+	var res []string
+	for alias, w := range withs {
+		if !w.IsRecursive() && strings.Contains(renderWith(t, w), "FROM "+jump.GetAlias()+" ") {
+			res = append(res, alias)
+		}
+	}
+	return res
+}
+
 func renderSelect(t *testing.T, s sql.ISelect) string {
 	t.Helper()
 	res, err := s.String(sql.DefaultCtx(), sql.STRING_OPT_SKIP_WITH)
@@ -149,9 +164,9 @@ func TestTransitiveOperatorsJumpOverEveryCandidateSpan(t *testing.T) {
 	}
 }
 
-// Every pointer jump runs the configured number of rounds and fails the query
-// when a pointer is still unresolved after the last one.
-func TestAncestryRoundsComeFromTheSettingWithAGuard(t *testing.T) {
+// Every pointer jump runs the configured number of rounds, and a row whose
+// pointer is still set after the last one is unreachable.
+func TestAncestryRoundsLeaveUnresolvedRowsUnreachable(t *testing.T) {
 	for _, rounds := range []int{0, 3, 7} {
 		want := rounds
 		if rounds == 0 {
@@ -160,51 +175,150 @@ func TestAncestryRoundsComeFromTheSettingWithAGuard(t *testing.T) {
 		for _, query := range structuralQueries {
 			ctx := testPlannerContext(3)
 			ctx.AncestryRounds = rounds
-			withs := structuralWiths(t, query, ctx)
-			guarded := map[string]bool{}
-			for _, w := range withs {
-				body := renderWith(t, w)
-				for _, jump := range recursiveWiths(withs) {
-					if strings.Contains(body, "FROM "+jump.GetAlias()+" ") && strings.Contains(body,
-						fmt.Sprintf("throwIf(k = %d AND anc != %s, '%s')", want, zeroSpanID, unresolvedAncestryMessage(want))) {
-						guarded[jump.GetAlias()] = true
-					}
-				}
+			if plan := renderPlan(t, planSearch(t, query), ctx); strings.Contains(plan, "throwIf") {
+				t.Errorf("rounds=%d %s: plan can fail the query:\n%s", rounds, query, plan)
 			}
+			withs := structuralWiths(t, query, ctx)
 			for _, jump := range recursiveWiths(withs) {
 				if step := renderSelect(t, jump.GetStep()); !strings.Contains(step, fmt.Sprintf("((x.k) < (%d))", want)) {
 					t.Errorf("rounds=%d %s: %s does not stop after %d rounds:\n%s", rounds, query, jump.GetAlias(), want, step)
 				}
-				if !guarded[jump.GetAlias()] {
-					t.Errorf("rounds=%d %s: %s has no unresolved-ancestry guard", rounds, query, jump.GetAlias())
+				if readers := jumpReaders(t, withs, jump); len(readers) != 1 {
+					t.Errorf("rounds=%d %s: %s is read by %v, want one pass", rounds, query, jump.GetAlias(), readers)
+				}
+			}
+			resolved, unreachable := withSuffix(withs, "_resolved"), withSuffix(withs, "_unreachable")
+			if len(resolved)+len(unreachable) == 0 {
+				t.Errorf("rounds=%d %s: no ancestry reader in the plan", rounds, query)
+			}
+			for _, w := range resolved {
+				res := renderWith(t, w)
+				for _, part := range []string{"cut = 0 AND NOT (" + unresolvedAnc + ")", fmt.Sprintf("k = %d", want)} {
+					if !strings.Contains(res, part) {
+						t.Errorf("rounds=%d %s: %s lacks %q:\n%s", rounds, query, w.GetAlias(), part, res)
+					}
+				}
+			}
+			for _, w := range unreachable {
+				part := fmt.Sprintf("k = %d AND (cut = 1 OR %s)", want, unresolvedAnc)
+				if res := renderWith(t, w); !strings.Contains(res, part) {
+					t.Errorf("rounds=%d %s: %s lacks %q:\n%s", rounds, query, w.GetAlias(), part, res)
 				}
 			}
 		}
+	}
+}
+
+// unresolvedTraceFlag is the per-trace flag on a transitive operator's jump.
+var unresolvedTraceFlag = "max(" + unresolvedAnc + ") OVER (PARTITION BY trace_id)"
+
+// assertUnresolvedTraceSkip checks that every transitive operator of the plan
+// carries the flag to its final condition, or that none has it.
+func assertUnresolvedTraceSkip(t *testing.T, req sql.ISelect, want bool) {
+	t.Helper()
+	plan, err := req.String(sql.DefaultCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plan, "throwIf") {
+		t.Errorf("plan can fail the query:\n%s", plan)
+	}
+	var resolved int
+	for _, w := range req.GetWith() {
+		if strings.HasSuffix(w.GetAlias(), "_resolved") {
+			resolved++
+			if res := renderWith(t, w); strings.Contains(res, unresolvedTraceFlag) != want {
+				t.Errorf("%s: flag present = %v, want %v:\n%s", w.GetAlias(), !want, want, res)
+			}
+		}
+	}
+	if resolved == 0 {
+		t.Errorf("no transitive operator in the plan:\n%s", plan)
+	}
+	if strings.Contains(plan, "unresolved = 0 AND (") != want {
+		t.Errorf("final condition on the flag = %v, want %v:\n%s", !want, want, plan)
+	}
+}
+
+// Operators reading down marks skip a trace with an unresolved span; those
+// reading up marks test the row alone and read no flag.
+func TestTransitiveOperatorsSkipUnresolvedTracesOnlyWhenReadingDownMarks(t *testing.T) {
+	for _, c := range []struct {
+		op   string
+		skip bool
+	}{
+		{">>", false}, {"!>>", false},
+		{"<<", true}, {"!<<", true}, {"&>>", true}, {"&<<", true},
+	} {
+		t.Run(c.op, func(t *testing.T) {
+			req, err := planSearch(t, "{.a = 1} "+c.op+" {.b = 2}").Process(testPlannerContext(3))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertUnresolvedTraceSkip(t, req, c.skip)
+		})
+	}
+}
+
+// One-hop operators test the row alone.
+func TestOneHopOperatorsHaveNoUnresolvedTraceFlag(t *testing.T) {
+	for _, query := range oneHopQueries {
+		t.Run(query, func(t *testing.T) {
+			withs := structuralWiths(t, query, testPlannerContext(3))
+			for _, w := range withSuffix(withs, "_unreachable") {
+				if res := renderWith(t, w); strings.Contains(res, "OVER") {
+					t.Errorf("%s has a window:\n%s", w.GetAlias(), res)
+				}
+			}
+			if plan := renderPlan(t, planSearch(t, query), testPlannerContext(3)); strings.Contains(plan, "unresolved") {
+				t.Errorf("plan has an unresolved flag:\n%s", plan)
+			}
+		})
+	}
+}
+
+// Every entry point inherits the skip through the shared planners.
+func TestEveryEntryPointSkipsUnresolvedTraces(t *testing.T) {
+	const skipped, unskipped = `{.a = 1} !<< {.b = 2}`, `{.a = 1} !>> {.b = 2}`
+	entries := map[string]func(t *testing.T, query string) shared.SQLRequestPlanner{
+		"metrics": planMetrics,
+		"count stage": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return planSearch(t, query+" | count() > 1")
+		},
+		"tags": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return autocompletePlans(t, query)["tags"]
+		},
+		"values": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return autocompletePlans(t, query)["values"]
+		},
+		"compare": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			q, err := traceql_ir.Parse("(" + query + ") | compare({.c = 3})")
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareSpans)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return plan
+		},
+	}
+	for name, plan := range entries {
+		t.Run(name, func(t *testing.T) {
+			for query, want := range map[string]bool{skipped: true, unskipped: false} {
+				req, err := plan(t, query).Process(testPlannerContext(3))
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertUnresolvedTraceSkip(t, req, want)
+			}
+		})
 	}
 }
 
 func TestDefaultAncestryRoundsIs20(t *testing.T) {
 	if traceqlconfig.DefaultAncestryRounds != 20 {
 		t.Errorf("default ancestry rounds = %d, want 20", traceqlconfig.DefaultAncestryRounds)
-	}
-}
-
-func TestUnresolvedAncestryMessageNamesTheSetting(t *testing.T) {
-	msg := unresolvedAncestryMessage(3)
-	for _, want := range []string{"deeper than", "8 spans", traceqlconfig.AncestryRoundsEnv} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("message %q does not contain %q", msg, want)
-		}
-	}
-	ctx := testPlannerContext(3)
-	ctx.AncestryRounds = 3
-	chErr := errors.New("code: 395, message: " + msg + ": while executing 'FUNCTION throwIf(...)'")
-	if err := UnresolvedAncestryError(ctx, chErr); err == nil || err.Error() != msg {
-		t.Errorf("UnresolvedAncestryError = %v, want %q", err, msg)
-	}
-	other := errors.New("code: 241, message: memory limit exceeded")
-	if err := UnresolvedAncestryError(ctx, other); err != other {
-		t.Errorf("UnresolvedAncestryError changed an unrelated error: %v", err)
 	}
 }
 

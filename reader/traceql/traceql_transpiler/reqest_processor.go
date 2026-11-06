@@ -33,7 +33,7 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 
 	traces, err := t.read(ctx, strReq)
 	if err != nil {
-		return nil, clickhouse_transpiler.UnresolvedAncestryError(ctx, err)
+		return nil, err
 	}
 	res := make(chan []model.TraceInfo)
 	go func() {

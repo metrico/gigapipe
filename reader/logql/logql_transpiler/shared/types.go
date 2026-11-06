@@ -77,6 +77,10 @@ type PlannerContext struct {
 	CancelCtx context.CancelFunc
 
 	Step time.Duration
+	// Instant marks an instant query, evaluated at To.
+	Instant bool
+	// Grid is the evaluation grid of a range aggregation on the Go path.
+	Grid *EvalGrid
 
 	DeleteID string
 
@@ -86,7 +90,10 @@ type PlannerContext struct {
 
 	RandomFilter   RandomFilter
 	CachedTraceIds []string
-	VersionInfo    dbversion.VersionInfo
+	// Portions is the number of complexity portions the request was read in,
+	// or 0 when it was read at once.
+	Portions    int64
+	VersionInfo dbversion.VersionInfo
 
 	// TracesOperandSpans, when set, holds the previous pipeline stage's span
 	// rows: the only ones TraceQL selectors may match, and the input of a

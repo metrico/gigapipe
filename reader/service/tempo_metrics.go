@@ -14,16 +14,22 @@ import (
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/tempo"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	traceql_transpiler "github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 // MetricsQueryRange executes a TraceQL metrics range query and returns time series.
-func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.MetricsQueryRequest) (*model.MetricsQueryRangeResponse, error) {
+func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.MetricsQueryRequest) (_ *model.MetricsQueryRangeResponse, err error) {
 	tq, planCtx, err := t.metricsPlannerContext(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err == nil {
+			traceql_transpiler.WarnUnresolved(ctx, tq, unresolvedProbeContext(tq, planCtx))
+		}
+	}()
 	metricsFn := tq.Metrics
 
 	// compare() has its own query and response format
@@ -273,19 +279,26 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 }
 
 // MetricsQueryInstant executes a TraceQL metrics instant query.
-func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.MetricsQueryRequest) (*model.MetricsQueryInstantResponse, error) {
+func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.MetricsQueryRequest) (_ *model.MetricsQueryInstantResponse, err error) {
 	tq, planCtx, err := t.metricsPlannerContext(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	metricsFn := tq.Metrics
 
-	if metricsFn.Fn == "compare" {
-		return executeCompareInstant(tq, req, planCtx)
-	}
-
+	// An instant histogram is not probed.
 	if metricsFn.Fn == "histogram_over_time" {
 		return &model.MetricsQueryInstantResponse{Series: []model.MetricsInstantSeries{}}, nil
+	}
+
+	defer func() {
+		if err == nil {
+			traceql_transpiler.WarnUnresolved(ctx, tq, unresolvedProbeContext(tq, planCtx))
+		}
+	}()
+
+	if metricsFn.Fn == "compare" {
+		return executeCompareInstant(tq, req, planCtx)
 	}
 
 	mreq := metricsRequest(metricsFn, req, planCtx)
@@ -420,7 +433,7 @@ func queryMetrics(planCtx *shared.PlannerContext, planner shared.SQLRequestPlann
 	}
 	rows, err := planCtx.CHDb.QueryCtx(planCtx.Ctx, str)
 	if err != nil {
-		return clickhouse_transpiler.UnresolvedAncestryError(planCtx, err)
+		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -428,7 +441,7 @@ func queryMetrics(planCtx *shared.PlannerContext, planner shared.SQLRequestPlann
 			return err
 		}
 	}
-	return clickhouse_transpiler.UnresolvedAncestryError(planCtx, rows.Err())
+	return rows.Err()
 }
 
 // executeHistogramRange handles histogram_over_time() queries.
@@ -728,6 +741,18 @@ func compareRequest(fn *traceql_ir.MetricsFn, planCtx *shared.PlannerContext) te
 		}
 	}
 	return res
+}
+
+// unresolvedProbeContext is the context of tq's unresolved-trace probe: compare()
+// reads its chain over the baseline window, any other query over planCtx's range.
+func unresolvedProbeContext(tq *traceql_ir.Query, planCtx *shared.PlannerContext) *shared.PlannerContext {
+	if tq.Metrics == nil || tq.Metrics.Fn != "compare" {
+		return planCtx
+	}
+	creq := compareRequest(tq.Metrics, planCtx)
+	res := *planCtx
+	res.From, res.To = time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS)
+	return &res
 }
 
 // metricsFormatDuration converts nanoseconds to a human-readable duration string.

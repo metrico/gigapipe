@@ -231,3 +231,22 @@ ALTER TABLE {{.DB}}.patterns {{.OnCluster}}
     MODIFY COLUMN samples_count UInt32 CODEC(ZSTD(1)),
     MODIFY COLUMN pattern_id UInt64 CODEC(ZSTD(1)),
     MODIFY COLUMN iteration_id UInt64 CODEC(ZSTD(1));
+
+## start_count: the lines exactly on the cell start.
+ALTER TABLE {{.DB}}.metrics_15s {{.OnCluster}}
+    ADD COLUMN IF NOT EXISTS start_count SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1));
+
+ALTER TABLE {{.DB}}.metrics_15s_mv {{.OnCluster}} MODIFY QUERY
+SELECT
+    fingerprint,
+    intDiv(samples.timestamp_ns, 15000000000) * 15000000000 as timestamp_ns,
+    argMaxState(value, samples.timestamp_ns) as last,
+    maxSimpleState(value) as max,
+    minSimpleState(value) as min,
+    countState() as count,
+    sumSimpleState(value) as sum,
+    sumSimpleState(length(string)) as bytes,
+    sumSimpleState(toUInt64(samples.timestamp_ns % 15000000000 = 0)) as start_count,
+    type
+FROM samples_v3 as samples
+GROUP BY fingerprint, timestamp_ns, type;

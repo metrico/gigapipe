@@ -113,7 +113,7 @@ func (s *StreamSelectorPlanner) getMatchers() (*matchersResponse, error) {
 		if err != nil {
 			return nil, err
 		}
-		clause = sql.And(sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(selector.Name)), clause)
+		clause = sql.And(sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(string(selector.Name))), clause)
 		kvClauses = append(kvClauses, clause)
 	}
 	return &matchersResponse{

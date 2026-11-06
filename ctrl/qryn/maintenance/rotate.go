@@ -13,10 +13,14 @@ import (
 	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
+// settingFingerprint is the settings row key of the setting.
+func settingFingerprint(tp string, name string) uint32 {
+	return helputils.FingerprintLabelsDJBHashPrometheus(
+		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name)))
+}
+
 func getSetting(db clickhouse.Conn, dist bool, tp string, name string) (string, error) {
-	fp := helputils.FingerprintLabelsDJBHashPrometheus(
-		fmt.Appendf(nil, `{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name)),
-	)
+	fp := settingFingerprint(tp, name)
 	settings := "settings"
 	if dist {
 		settings += distconfig.Suffix()
@@ -38,11 +42,16 @@ GROUP BY fingerprint HAVING argMax(name, inserted_at) != ''`, settings), fp)
 }
 
 func putSetting(db clickhouse.Conn, tp string, name string, value string) error {
-	_name := fmt.Sprintf(`{"type":%s, "name":%s`, strconv.Quote(tp), strconv.Quote(name))
-	fp := helputils.FingerprintLabelsDJBHashPrometheus([]byte(_name))
 	err := db.Exec(context.Background(), `INSERT INTO settings (fingerprint, type, name, value, inserted_at)
-VALUES ($1, $2, $3, $4, NOW())`, fp, tp, name, value)
+VALUES ($1, $2, $3, $4, now64(9))`, settingFingerprint(tp, name), tp, name, value)
 	return err
+}
+
+// clearSetting writes a tombstone for the setting: getSetting and readers
+// then find none until it is put again.
+func clearSetting(db clickhouse.Conn, tp string, name string) error {
+	return db.Exec(context.Background(), `INSERT INTO settings (fingerprint, type, name, value, inserted_at)
+VALUES ($1, $2, '', '', now64(9))`, settingFingerprint(tp, name), tp)
 }
 
 func rotateTables(db clickhouse.Conn, clusterName string, distributed bool, days []RotatePolicy, minTTL time.Duration,

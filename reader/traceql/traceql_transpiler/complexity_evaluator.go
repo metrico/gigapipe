@@ -16,7 +16,7 @@ type simpleRequestProcessor[T any] interface {
 }
 
 type complexRequestProcessor[T any] interface {
-	Process(ctx *shared.PlannerContext, complexity int64) (chan []T, error)
+	Process(ctx *shared.PlannerContext, portions int64) (chan []T, error)
 	SetMain(main shared.SQLRequestPlanner)
 }
 
@@ -25,6 +25,7 @@ type TraceQLComplexityEvaluator[T any] struct {
 	simpleRequestProcessor    simpleRequestProcessor[T]
 	complexRequestProcessor   complexRequestProcessor[T]
 	evaluateComplexityPlanner shared.SQLRequestPlanner
+	threshold                 int64
 }
 
 const COMPLEXITY_THRESHOLD = 10000000
@@ -61,7 +62,7 @@ func (t *TraceQLComplexityEvaluator[T]) Process(ctx *shared.PlannerContext) (cha
 			complexity = _complexity
 		}
 	}
-	if complexity < COMPLEXITY_THRESHOLD {
+	if complexity < t.threshold {
 		return t.ProcessSimpleReq(ctx)
 	}
 	return t.ProcessComplexReq(ctx, complexity)
@@ -75,7 +76,8 @@ func (t *TraceQLComplexityEvaluator[T]) ProcessSimpleReq(ctx *shared.PlannerCont
 func (t *TraceQLComplexityEvaluator[T]) ProcessComplexReq(ctx *shared.PlannerContext,
 	complexity int64) (chan []T, error) {
 	t.complexRequestProcessor.SetMain(t.initSqlPlanner)
-	return t.complexRequestProcessor.Process(ctx, complexity)
+	ctx.Portions = (complexity + t.threshold - 1) / t.threshold
+	return t.complexRequestProcessor.Process(ctx, ctx.Portions)
 }
 
 // sortSpans orders spans earliest-first, ties by span id.
