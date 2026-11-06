@@ -1,0 +1,62 @@
+# golangci-lint configuration (schema v2).
+#
+# Goal for this pass: a reasonable, not-overly-strict baseline appropriate for
+# a mid-size *existing* codebase, not a from-scratch project. Linter choice
+# and tuning below were derived by actually running golangci-lint against
+# this repo and looking at what fired:
+#
+#   - errcheck is intentionally NOT enabled. This codebase idiomatically
+#     ignores errors from things like http.ResponseWriter.Write and
+#     rows/conn.Close() in defers; enabling it flags ~170 pre-existing call
+#     sites that are not bugs, just this codebase's style.
+#   - govet's "structtag" and "composites" checks are disabled. Both parsers
+#     built on github.com/alecthomas/participle encode grammar rules as
+#     struct tags (e.g. `@@`, `"(" @@ ")"`) that are not real reflect
+#     struct tags, and lexer rule tables use unkeyed composite literals by
+#     participle's own convention. These would fire on every new grammar
+#     rule added to the PromQL/LogQL/TraceQL parsers, which is exactly the
+#     code this milestone's corpus work touches most.
+#   - staticcheck is restricted to the SA* (actual bug/deprecation) checks.
+#     The ST*/S*/QF* style and quickfix checks bundled into staticcheck by
+#     default add ~90 pre-existing stylistic findings (e.g. "could use
+#     strings.ReplaceAll", implicit type on declaration) that are not worth
+#     a hard gate right now.
+#
+# ineffassign, unused, misspell, unconvert, gofmt and goimports are enabled
+# as-is; the CI job runs golangci-lint-action with only-new-issues so this
+# initial adoption gates new/changed code without requiring a full
+# pre-existing-debt cleanup as a prerequisite.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - unused
+    - staticcheck
+    - misspell
+    - unconvert
+  settings:
+    govet:
+      disable:
+        - structtag
+        - composites
+    staticcheck:
+      checks:
+        - "SA*"
+  exclusions:
+    paths:
+      # Ported/vendored-style algorithm implementations (two independent
+      # copies pre-date this config); not code we want a style gate on.
+      - reader/utils/cityhash102
+      - writer/utils/helputils/cityhash102
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - reader/utils/cityhash102
+      - writer/utils/helputils/cityhash102
