@@ -26,7 +26,7 @@ func planMetricsQuery(t *testing.T, query string) *MetricsPlan {
 	return plan
 }
 
-// onePassSelectors relate no spans across a trace.
+// onePassSelectors need no whole trace.
 var onePassSelectors = []string{
 	`{}`,
 	`({})`,
@@ -46,7 +46,7 @@ var onePassSelectors = []string{
 	`{nestedSetParent < 0 && nestedSetLeft > 2 && .a = 1}`,
 }
 
-// A query that relates no spans across a trace reads the traces table once and
+// A query that needs no whole trace reads the traces table once and
 // runs no ids statement, also with a sample, a nested-set field or exemplars.
 func TestMetricsWithoutWholeTraceReadTracesOnce(t *testing.T) {
 	for _, selector := range onePassSelectors {
@@ -84,8 +84,8 @@ func TestMetricsWithoutWholeTraceReadTracesOnce(t *testing.T) {
 	}
 }
 
-// A query that relates spans across a trace, also with by() or a scalar filter
-// over one selector, lists its span ids in an ids statement.
+// A query with a spanset operator, by() or a scalar filter lists its span ids in
+// an ids statement.
 func TestMetricsOverWholeTracesKeepTheIdsStatement(t *testing.T) {
 	for _, query := range []string{
 		`{.a = 1} >> {.b = 2}`,
