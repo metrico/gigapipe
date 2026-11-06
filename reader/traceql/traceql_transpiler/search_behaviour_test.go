@@ -557,9 +557,9 @@ func TestSearchPortionsByTheSpansInRange(t *testing.T) {
 	})
 	spans := len(structuralTraces())
 	for _, tc := range []struct {
-		budget   int
-		portions int64
-	}{{spans, 0}, {spans - 1, 2}} {
+		budget              int
+		portions, totalJobs int64
+	}{{spans, 0, 1}, {spans - 1, 2, 2}} {
 		t.Setenv(traceqlconfig.PortionSpansEnv, strconv.Itoa(tc.budget))
 		if err := traceqlconfig.Init(); err != nil {
 			t.Fatal(err)
@@ -590,6 +590,9 @@ func TestSearchPortionsByTheSpansInRange(t *testing.T) {
 		if ctx.Portions != tc.portions || traces == 0 {
 			t.Errorf("budget %d: %d portions and %d traces, want %d portions and some traces",
 				tc.budget, ctx.Portions, traces, tc.portions)
+		}
+		if ctx.TotalJobs() != tc.totalJobs {
+			t.Errorf("budget %d: TotalJobs %d, want %d", tc.budget, ctx.TotalJobs(), tc.totalJobs)
 		}
 	}
 }

@@ -14,18 +14,18 @@ import (
 )
 
 func (t *TempoService) SearchTraceQL(ctx context.Context,
-	q string, limit int, spss int, from time.Time, to time.Time) (chan []model.TraceInfo, error) {
+	q string, limit int, spss int, from time.Time, to time.Time) (chan []model.TraceInfo, int64, error) {
 	conn, err := t.Session.GetDB(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	query, err := traceql_ir.Parse(q)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	planner, err := traceql_transpiler.Plan(query)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	reqCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
@@ -33,7 +33,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	sqlCtx, err := traceQLPlannerContext(ctx, conn, q, from, to, limit)
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, 0, err
 	}
 	sqlCtx.CancelCtx = cancel
 	sqlCtx.SpansPerSpanSet = int64(spss)
@@ -41,7 +41,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	ch, err := planner.Process(sqlCtx)
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	traceql_transpiler.WarnUnresolved(reqCtx, query, sqlCtx)
 	res := make(chan []model.TraceInfo)
@@ -52,7 +52,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 			res <- ch
 		}
 	}()
-	return res, nil
+	return res, sqlCtx.TotalJobs(), nil
 }
 
 // traceQLPlannerContext builds the planner context shared by TraceQL search,

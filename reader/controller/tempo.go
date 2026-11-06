@@ -391,7 +391,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 		if params.Limit == 0 {
 			params.Limit = 20
 		}
-		ch, err := t.Service.SearchTraceQL(internalCtx,
+		ch, totalJobs, err := t.Service.SearchTraceQL(internalCtx,
 			params.Q, params.Limit, params.Spss, params.Start, params.End)
 		if err != nil {
 			PromError(500, err.Error(), w)
@@ -411,7 +411,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 				i++
 			}
 		}
-		w.Write([]byte("]}"))
+		writeSearchTail(w, totalJobs)
 		return
 	}
 
@@ -442,7 +442,12 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 		w.Write(bTrace)
 		i++
 	}
-	w.Write([]byte("]}"))
+	writeSearchTail(w, 1)
+}
+
+// writeSearchTail closes the trace array and reports the jobs that read it.
+func writeSearchTail(w http.ResponseWriter, jobs int64) {
+	fmt.Fprintf(w, `],"metrics":{"totalJobs":%d,"completedJobs":%d}}`, jobs, jobs)
 }
 
 type traceSearchParams struct {

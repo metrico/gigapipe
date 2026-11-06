@@ -160,9 +160,9 @@ func (s *simpleRequestRecorder) SetMain(shared.SQLRequestPlanner) {}
 
 func TestRequestPortionsOnlyOverTheBudget(t *testing.T) {
 	for _, tc := range []struct {
-		estimate, portions int64
-		simpleCalls        int
-	}{{9, 0, 1}, {10, 0, 1}, {11, 2, 0}, {20, 2, 0}, {21, 3, 0}} {
+		estimate, portions, totalJobs int64
+		simpleCalls                   int
+	}{{9, 0, 1, 1}, {10, 0, 1, 1}, {11, 2, 2, 0}, {20, 2, 2, 0}, {21, 3, 3, 0}} {
 		simple, portioned := &simpleRequestRecorder{}, &portionCountRecorder{}
 		evaluator := &TraceQLComplexityEvaluator[string]{
 			threshold: 10, simpleRequestProcessor: simple, complexRequestProcessor: portioned,
@@ -174,6 +174,9 @@ func TestRequestPortionsOnlyOverTheBudget(t *testing.T) {
 		if simple.calls != tc.simpleCalls || portioned.portions != tc.portions || ctx.Portions != tc.portions {
 			t.Errorf("estimate %d: simple calls %d, read in %d portions, ctx.Portions %d; want %d, %d, %d",
 				tc.estimate, simple.calls, portioned.portions, ctx.Portions, tc.simpleCalls, tc.portions, tc.portions)
+		}
+		if ctx.TotalJobs() != tc.totalJobs {
+			t.Errorf("estimate %d: TotalJobs %d, want %d", tc.estimate, ctx.TotalJobs(), tc.totalJobs)
 		}
 	}
 }

@@ -109,6 +109,11 @@ type PlannerContext struct {
 	TracesSample sql.SQLCondition
 }
 
+// TotalJobs is the job count of a search response: Portions, or 1 when the request was read at once.
+func (p *PlannerContext) TotalJobs() int64 {
+	return max(p.Portions, 1)
+}
+
 func (p *PlannerContext) Id() int {
 	p.id++
 	return p.id
