@@ -112,7 +112,7 @@ func TestExtentStatement(t *testing.T) {
 			_, ctx := sliceContext(t, `{.a = 1} >> {.b = 2}`, tc.cluster)
 			s := renderPlan(t, &ExtentPlanner{}, ctx)
 			for _, want := range []string{tc.table, tc.in, "shardNum()", "GROUP BY shard",
-				"min(timestamp_ns)", "max(timestamp_ns)", "count()"} {
+				"min(timestamp_ns)", "max(timestamp_ns)", "count()", "uniqExact(trace_id)"} {
 				if !strings.Contains(s, want) {
 					t.Errorf("no %q:\n%s", want, s)
 				}

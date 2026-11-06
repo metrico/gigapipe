@@ -115,8 +115,8 @@ func candidatesFilter(ctx *shared.PlannerContext) sql.SQLCondition {
 	return inSubquery(ctx, sql.NewRawObject("trace_id"), ids)
 }
 
-// ExtentPlanner returns, per shard, the earliest and latest start and the count
-// of the spans in range of ctx.TracesCandidates' traces.
+// ExtentPlanner returns, per shard, the earliest and latest start and the count of
+// the spans in range of ctx.TracesCandidates' traces, and how many traces hold them.
 type ExtentPlanner struct{}
 
 func (e *ExtentPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -126,6 +126,7 @@ func (e *ExtentPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 			sql.NewSimpleCol("toInt64(min(timestamp_ns))", "lo"),
 			sql.NewSimpleCol("toInt64(max(timestamp_ns))", "hi"),
 			sql.NewSimpleCol("toInt64(count())", "spans"),
+			sql.NewSimpleCol("toInt64(uniqExact(trace_id))", "trace_count"),
 			sql.NewSimpleCol("shardNum()", "shard")).
 		From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
 		AndWhere(tsFrom, tsTo, candidatesFilter(ctx)).
@@ -134,8 +135,8 @@ func (e *ExtentPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 
 // ShardExtent is a row of ExtentPlanner.
 type ShardExtent struct {
-	Lo, Hi, Spans int64
-	Shard         uint32
+	Lo, Hi, Spans, Traces int64
+	Shard                 uint32
 }
 
 // ReadExtents runs ExtentPlanner: no rows when ctx.TracesCandidates has no spans in range.
@@ -152,7 +153,7 @@ func ReadExtents(ctx *shared.PlannerContext) ([]ShardExtent, error) {
 	var res []ShardExtent
 	for rows.Next() {
 		var e ShardExtent
-		if err := rows.Scan(&e.Lo, &e.Hi, &e.Spans, &e.Shard); err != nil {
+		if err := rows.Scan(&e.Lo, &e.Hi, &e.Spans, &e.Traces, &e.Shard); err != nil {
 			return nil, err
 		}
 		res = append(res, e)
