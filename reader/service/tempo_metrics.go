@@ -171,6 +171,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		traceID  string
 		durNs    int64
 		spanTs   int64
+		argValue float64
 		groupKey string
 	}
 	var exemplarRows []exRow
@@ -186,22 +187,24 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			var traceID string
 			var durNs int64
 			var spanTs int64
+			var argValue float64
 			exByVals := make([]string, len(exByLabels))
 
-			scanArgs := make([]any, 4+len(exByLabels))
+			scanArgs := make([]any, 5+len(exByLabels))
 			scanArgs[0] = &ts
 			scanArgs[1] = &traceID
 			scanArgs[2] = &durNs
 			scanArgs[3] = &spanTs
+			scanArgs[4] = &argValue
 			for i := range exByVals {
-				scanArgs[4+i] = &exByVals[i]
+				scanArgs[5+i] = &exByVals[i]
 			}
 
 			if err := exRows.Scan(scanArgs...); err != nil {
 				return nil
 			}
 			groupKey := strings.Join(exByVals, "\x00")
-			exemplarRows = append(exemplarRows, exRow{traceID, durNs, spanTs, groupKey})
+			exemplarRows = append(exemplarRows, exRow{traceID, durNs, spanTs, argValue, groupKey})
 			return nil
 		})
 	}
@@ -230,7 +233,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			if isQuantile {
 				p := *result[i].Labels[len(byLabels)].Value.DoubleValue
 				groupExemplars = slices.DeleteFunc(slices.Clone(groupExemplars), func(ex exRow) bool {
-					return metricsFn.Quantiles[nearestQuantile(queryWideValues, float64(ex.durNs)/1e9)] != p
+					return metricsFn.Quantiles[nearestQuantile(queryWideValues, ex.argValue)] != p
 				})
 			}
 			groupExemplars = capExemplars(tq, groupExemplars)

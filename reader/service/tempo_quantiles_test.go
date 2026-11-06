@@ -64,7 +64,7 @@ func newFakeReader(series, exemplars [][]driver.Value) *fakeReader {
 func (f *fakeReader) answer(query string) driver.Rows {
 	switch {
 	case strings.Contains(query, "any(("):
-		columns := []string{"ts", "trace_id", "duration_ns", "span_ts"}
+		columns := []string{"ts", "trace_id", "duration_ns", "span_ts", "arg_value"}
 		if len(f.exemplars) > 0 {
 			columns = make([]string, len(f.exemplars[0]))
 		}
@@ -125,7 +125,7 @@ func twoGroupSeries() [][]driver.Value {
 
 func exemplarRow(group string, seconds float64) []driver.Value {
 	ts := quantileStart.UnixNano()
-	row := []driver.Value{ts, "t", int64(seconds * 1e9), ts}
+	row := []driver.Value{ts, "t", int64(seconds * 1e9), ts, seconds}
 	if group != "" {
 		row = append(row, group)
 	}
