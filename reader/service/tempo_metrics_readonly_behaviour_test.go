@@ -48,6 +48,12 @@ func TestReadonlyUserRunsOnePassMetricsOnCluster(t *testing.T) {
 			`{.a = "1"} | select(.b) | rate()`,
 			`{nestedSetParent < 0} | rate()`,
 			`{.a = "1"} | rate() by (name)`,
+			`{} | count_over_time() by (name)`,
+			`{} | rate() by (.a)`,
+			`{} | histogram_over_time(duration)`,
+			`{} | avg_over_time(duration)`,
+			`{} | quantile_over_time(duration, .5)`,
+			`{} | min_over_time(duration)`,
 		}
 		if !skip {
 			queries = append(queries, `{} | compare({.b = "1"})`, `{.a = "1"} | {.b = "1"} | compare({.c = "1"})`,

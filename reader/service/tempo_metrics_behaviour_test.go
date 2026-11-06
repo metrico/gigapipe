@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -660,6 +661,132 @@ func testMetricsRoundLimit(t *testing.T, cluster bool) {
 // missing parent of a rooted trace, and answer over a rooted chain of 9 with a
 // span under a missing parent.
 func TestMetricsRoundLimit(t *testing.T) { testMetricsRoundLimit(t, false) }
+
+// metricsRangeTotal sums every sample of query at step.
+func (s *metricsStore) metricsRangeTotal(t *testing.T, query string, step time.Duration) float64 {
+	t.Helper()
+	req := metricsRequestRange(query)
+	req.Step = step
+	res, err := s.svc.MetricsQueryRange(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0.0
+	for _, series := range res.Series {
+		for _, p := range series.Samples {
+			total += p.Value
+		}
+	}
+	return total
+}
+
+// metricsInstantTotal sums every series of query over the seeded range.
+func (s *metricsStore) metricsInstantTotal(t *testing.T, query string) float64 {
+	t.Helper()
+	res, err := s.svc.MetricsQueryInstant(context.Background(), metricsRequestRange(query))
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0.0
+	for _, series := range res.Series {
+		total += series.Value
+	}
+	return total
+}
+
+// A span stored twice counts once per bucket holding a copy on a lone `{}`
+// count, and once for a function of its value.
+func testEverySpanCopies(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
+	s.seed(t, metricsTraces())
+	const countQ, histQ, sumQ = `{} | count_over_time()`, `{} | histogram_over_time(duration)`, `{} | sum_over_time(duration)`
+	const inOneBucket, inTwoBuckets = 30 * time.Second, time.Second
+	type totals struct{ oneCount, twoCount, instant, oneHist, twoHist, oneSum, twoSum, instantSum float64 }
+	read := func() totals {
+		return totals{
+			oneCount:   s.metricsRangeTotal(t, countQ, inOneBucket),
+			twoCount:   s.metricsRangeTotal(t, countQ, inTwoBuckets),
+			instant:    s.metricsInstantTotal(t, countQ),
+			oneHist:    s.metricsRangeTotal(t, histQ, inOneBucket),
+			twoHist:    s.metricsRangeTotal(t, histQ, inTwoBuckets),
+			oneSum:     s.metricsRangeTotal(t, sumQ, inOneBucket),
+			twoSum:     s.metricsRangeTotal(t, sumQ, inTwoBuckets),
+			instantSum: s.metricsInstantTotal(t, sumQ),
+		}
+	}
+	before := read()
+	// A second seed starts at metricsStart: the copies are 1 s apart in one 30 s bucket.
+	const spanMs = 9001
+	copied := metricsSpan{trace: 9000, id: spanMs}
+	s.seed(t, []metricsSpan{copied, copied})
+	after := read()
+	spanS := float64(spanMs) / 1000
+	for _, c := range []struct {
+		name               string
+		before, after, add float64
+	}{
+		{"count in one bucket", before.oneCount, after.oneCount, 1},
+		{"count in two buckets", before.twoCount, after.twoCount, 2},
+		{"instant count", before.instant, after.instant, 1},
+		{"histogram in one bucket", before.oneHist, after.oneHist, 1},
+		{"histogram in two buckets", before.twoHist, after.twoHist, 2},
+		{"sum in one bucket", before.oneSum, after.oneSum, spanS},
+		{"sum in two buckets", before.twoSum, after.twoSum, spanS},
+		{"instant sum", before.instantSum, after.instantSum, spanS},
+	} {
+		if got := c.after - c.before; math.Abs(got-c.add) > 1e-9 {
+			t.Errorf("%s: grew by %v, want %v", c.name, got, c.add)
+		}
+	}
+}
+
+// A lone `{}` count takes a span once per service-name by-label value and
+// histogram bucket its copies hold, and once with neither.
+func testEverySpanCopiesDiffer(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
+	table := "tempo_traces"
+	if cluster {
+		table = "tempo_traces_dist"
+	}
+	insert := func(service string, durationMs int) {
+		s.exec(t, fmt.Sprintf(`INSERT INTO %s (oid, trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, service_name)
+			SELECT '', unhex('%032x')::FixedString(16), unhex('%016x')::FixedString(8), '', 's', %d, %d, '%s'`,
+			table, 9000, 9001, metricsSpanStart(1), durationMs*1000000, service))
+	}
+	insert("a", 1)
+	insert("b", 4)
+	if cluster {
+		s.exec(t, "SYSTEM FLUSH DISTRIBUTED "+table)
+	}
+	const step = 30 * time.Second
+	for _, c := range []struct {
+		query string
+		want  float64
+	}{
+		{`{} | count_over_time()`, 1},
+		{`{} | count_over_time() by (resource.service.name)`, 2},
+		{`{} | rate() by (resource.service.name)`, 2 / step.Seconds()},
+		{`{} | histogram_over_time(duration)`, 2},
+	} {
+		if got := s.metricsRangeTotal(t, c.query, step); math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("range %s: %v, want %v", c.query, got, c.want)
+		}
+	}
+	if got := s.metricsInstantTotal(t, `{} | count_over_time()`); got != 1 {
+		t.Errorf("instant count: %v, want 1", got)
+	}
+	if got := s.metricsInstantTotal(t, `{} | count_over_time() by (resource.service.name)`); got != 2 {
+		t.Errorf("instant count by service: %v, want 2", got)
+	}
+}
+
+func TestEverySpanCopiesDiffer(t *testing.T) { testEverySpanCopiesDiffer(t, false) }
+
+func TestEverySpanCopiesDifferOnCluster(t *testing.T) { testEverySpanCopiesDiffer(t, true) }
+
+func TestEverySpanCopies(t *testing.T) { testEverySpanCopies(t, false) }
+
+func TestEverySpanCopiesOnCluster(t *testing.T) { testEverySpanCopies(t, true) }
 
 func TestMetricsRoundLimitOnCluster(t *testing.T) { testMetricsRoundLimit(t, true) }
 

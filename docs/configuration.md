@@ -142,7 +142,27 @@ Structural queries, `compare()` and TraceQL metrics with no spanset operator
 cluster, so the same placement holds for them. In those metrics, a span whose
 attribute rows sit on another shard is lost, and a span stored on two shards
 counts twice. With a read suffix other than `_dist` and
-`CLICKHOUSE_READ_CLUSTER` unset, they read only the local cluster.
+`CLICKHOUSE_READ_CLUSTER` unset, they read only the local cluster, except that
+a lone `{}` reads all the clusters of the read table for its
+`histogram_over_time()` exemplars and, with no custom `by` label, for its other
+exemplars and for `min_over_time()` and `max_over_time()`. A lone `{}` reads no
+nested-set field; a custom `by` label is any but `name`, `span:name`, `duration`,
+`span:duration`, `resource.service.name`, `service.name` and `rootServiceName`,
+so `.service.name` is one.
+
+On a lone `{}`, `rate()` and `count_over_time()` count a span once per bucket
+and `by` label value on each shard, and `histogram_over_time()` once per time
+bucket and histogram bucket. A span whose copies land in two time buckets, or
+hold two values of a `by` label on the span name, duration or service name,
+counts in each, and `histogram_over_time()` counts it in each histogram bucket
+its copies' durations fall in. A custom `by` label takes one value per span. An
+instant query's window is its one bucket, so copies in two time buckets count
+once there, and an instant `histogram_over_time()` returns no series.
+
+`avg_over_time()`, `sum_over_time()` and `quantile_over_time()` read one copy of
+a span. `min_over_time()` and `max_over_time()` read every copy, or one copy
+under a custom `by` label. A `{}` that reads a nested-set field reads one copy
+of a span in every function.
 
 A `readonly=1` ClickHouse user needs settings of its own for some of these
 queries; see [ClickHouse access](#clickhouse-access).
