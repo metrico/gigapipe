@@ -185,7 +185,7 @@ The nested-set numberer computes `nestedSetLeft`, `nestedSetRight` and `nestedSe
 - **Lease outages.** While the lease can't be read or written, numbering pauses and the instances log the start and end of the outage. Traces whose only spans arrived more than about a day before numbering resumes stay `0`/`0`/`0`, or more than 5 minutes before if no pass has succeeded yet.
 - **No backfill.** A trace that receives no spans once the `tempo_traces_touched` table exists is never numbered, and one whose last span arrived more than 5 minutes before the first successful pass may not be.
 
-Instances log only leadership changes and lease outages. To see who leads and since when (on a cluster, query `tempo_traces_nested_set_lease_dist`):
+Instances log start-up, failed passes, leadership changes and lease outages. To see who leads and since when (on a cluster, query `tempo_traces_nested_set_lease_dist`):
 
 ```sql
 SELECT term,
