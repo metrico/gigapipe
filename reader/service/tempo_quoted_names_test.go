@@ -177,7 +177,7 @@ func TestQuotedNameStaysOneStringLiteralInMetricsBy(t *testing.T) {
 			} {
 				t.Run(name.title+" "+buildName+" "+tmpl, func(t *testing.T) {
 					q := hostileQuery(t, tmpl, name.spelled)
-					mreq := metricsRequest(q.Metrics, &model.MetricsQueryRequest{Step: time.Second}, hostileContext())
+					mreq := metricsRequest(q, &model.MetricsQueryRequest{Step: time.Second}, hostileContext())
 					plan, err := clickhouse_transpiler.PlanMetrics(q, func(spans *sql.With) (sql.ISelect, error) {
 						res, _, err := build(over(mreq, spans))
 						return res, err
@@ -194,7 +194,7 @@ func TestQuotedNameStaysOneStringLiteralInCompare(t *testing.T) {
 	for _, name := range hostileNames {
 		t.Run(name.title, func(t *testing.T) {
 			q := hostileQuery(t, `{ NAME = 1 } | compare({ NAME = 2 })`, name.spelled)
-			creq := compareRequest(q.Metrics, hostileContext())
+			creq := compareRequest(q, hostileContext())
 			plan, err := clickhouse_transpiler.PlanCompare(q, q.Metrics.Compare.Filter,
 				time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS),
 				func(baseline, selection *sql.With) (sql.ISelect, error) {
@@ -234,7 +234,7 @@ func TestMetricsByQuotedNameReadsItsKey(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			q, err := traceql_ir.Parse(query)
 			require.NoError(t, err)
-			mreq := metricsRequest(q.Metrics, &model.MetricsQueryRequest{Step: time.Second}, hostileContext())
+			mreq := metricsRequest(q, &model.MetricsQueryRequest{Step: time.Second}, hostileContext())
 			mreq.Spans = sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("s")), "metrics_spans")
 			build, _, err := tempo.BuildMetricsRangeQuery(&mreq)
 			require.NoError(t, err)

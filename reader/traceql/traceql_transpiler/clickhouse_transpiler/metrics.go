@@ -75,6 +75,17 @@ func sampleFilter(query *traceql_ir.Query) sql.SQLCondition {
 	return rawCond(fmt.Sprintf("cityHash64(%s) < %d", col, sampleThreshold(f)))
 }
 
+// SampleScale is the factor that scales a sampled volume up to the whole: 1/f
+// for the query's sample hint f, or 1 without a hint or when its hash threshold
+// is 0, which keeps no spans.
+func SampleScale(query *traceql_ir.Query) float64 {
+	f, ok := query.SampleFraction()
+	if !ok || sampleThreshold(f) == 0 {
+		return 1
+	}
+	return 1 / f
+}
+
 // sampleThreshold is f·2^64, the hash bound below which a fraction f of
 // uniform 64-bit hashes falls.
 func sampleThreshold(f float64) uint64 {
