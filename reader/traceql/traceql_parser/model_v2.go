@@ -250,14 +250,14 @@ func (a Aggregate) String() string {
 	return a.Fn + "(" + a.Arg.String() + ")"
 }
 
-// ScalarLiteral is a number, with its duration unit if any.
+// ScalarLiteral is a number or a duration.
 type ScalarLiteral struct {
-	Num  string `@Minus? (@Float | @Integer)`
-	Unit string `@("ns"|"us"|"ms"|"s"|"m"|"h"|"d")?`
+	Num      string `@Minus? (@Float | @Integer)`
+	Duration string `| @Minus? @Duration`
 }
 
 func (l ScalarLiteral) String() string {
-	return l.Num + l.Unit
+	return l.Num + l.Duration
 }
 
 // FieldExpr is a field expression as written: operands joined by binary
@@ -312,14 +312,14 @@ func (a FieldAtom) String() string {
 	return a.Name
 }
 
-// NumberLiteral is an unsigned number, with its duration unit if any.
+// NumberLiteral is an unsigned number or duration.
 type NumberLiteral struct {
-	Num  string `(@Float | @Integer)`
-	Unit string `@("ns"|"us"|"ms"|"s"|"m"|"h"|"d")?`
+	Num      string `(@Float | @Integer)`
+	Duration string `| @Duration`
 }
 
 func (l NumberLiteral) String() string {
-	return l.Num + l.Unit
+	return l.Num + l.Duration
 }
 
 type QuotedString struct {

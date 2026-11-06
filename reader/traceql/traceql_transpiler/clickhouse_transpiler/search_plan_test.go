@@ -245,6 +245,13 @@ func TestSearchRendersNumberLiterals(t *testing.T) {
 		{`{ .foo = 1e3 }`, `1000.000000`},
 		{`{ duration > .5s }`, `duration) > (500000000)`},
 		{`{ duration > 5.s }`, `duration) > (5000000000)`},
+		{`{ duration > 1d }`, `duration) > (86400000000000)`},
+		{`{ duration > 1h30m }`, `duration) > (5400000000000)`},
+		{`{ duration > -1d }`, `duration) > (-86400000000000)`},
+		{`{ duration * 2 > 1d }`, `toFloat64(8.64e+13)`},
+		{`{} | avg(duration) > 1d`, `toFloat64(8.64e+13)`},
+		{`{} | avg(duration) > 1h30m`, `toFloat64(5.4e+12)`},
+		{`{} | avg(duration) > -1d`, `toFloat64(-8.64e+13)`},
 		{`{} | count() > -.5`, `-0.5`},
 	} {
 		t.Run(tc.query, func(t *testing.T) {

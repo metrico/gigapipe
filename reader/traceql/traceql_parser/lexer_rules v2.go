@@ -41,6 +41,8 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"UnionSibling", `&~`},
 	{"Sibling", `~`},
 
+	// A number directly followed by a duration unit, then more units and digits.
+	{"Duration", `([0-9]+\.?[0-9]*|\.[0-9]+)[nsumhµdwy][nsumhµdwy0-9.]*`},
 	// A digit right after a dot makes a number.
 	{"Float", `([0-9]+\.[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?|[0-9]+[eE][-+]?[0-9]+`},
 

@@ -2,12 +2,17 @@ package traceql_ir
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func cmp(attr, op string, kind ValueKind, text string) *BinaryOp {
 	return &BinaryOp{Op: op, LHS: &Attribute{Name: attr}, RHS: &Static{Kind: kind, Text: text}}
+}
+
+func durCmp(attr, op, text string, d time.Duration) *BinaryOp {
+	return &BinaryOp{Op: op, LHS: &Attribute{Name: attr}, RHS: &Static{Kind: ValueDuration, Text: text, Duration: d}}
 }
 
 func strCmp(attr, op, text string) *BinaryOp { return cmp(attr, op, ValueString, text) }
@@ -47,8 +52,8 @@ func TestLowerFilters(t *testing.T) {
 		{`{.a > - -3}`, cmp(".a", ">", ValueNumber, "3")},
 		{`{.a < 1.5}`, cmp(".a", "<", ValueNumber, "1.5")},
 		{`{.a = .95}`, cmp(".a", "=", ValueNumber, ".95")},
-		{`{duration > 1.5ms}`, cmp("duration", ">", ValueDuration, "1.5ms")},
-		{`{duration > -1ms}`, cmp("duration", ">", ValueDuration, "-1ms")},
+		{`{duration > 1.5ms}`, durCmp("duration", ">", "1.5ms", 1500*time.Microsecond)},
+		{`{duration > -1ms}`, durCmp("duration", ">", "-1ms", -time.Millisecond)},
 		{`{.a = true}`, cmp(".a", "=", ValueBool, "true")},
 		{`{status = error}`, cmp("status", "=", ValueIdent, "error")},
 		{`{span.foo = bar}`, cmp("span.foo", "=", ValueIdent, "bar")},
@@ -62,7 +67,7 @@ func TestLowerFilters(t *testing.T) {
 		{`{nil = nil}`, &Static{Kind: ValueBool, Text: "false"}},
 		{`{!(.a = 1)}`, &UnaryOp{Op: "!", Expr: cmp(".a", "=", ValueNumber, "1")}},
 		{`{name = "x" && span:duration > 1s && rootServiceName = "y"}`,
-			bin("&&", bin("&&", strCmp("name", "=", `"x"`), cmp("span:duration", ">", ValueDuration, "1s")),
+			bin("&&", bin("&&", strCmp("name", "=", `"x"`), durCmp("span:duration", ">", "1s", time.Second)),
 				strCmp("rootServiceName", "=", `"y"`))},
 		{`{(.a = 1 || .b = 2) && .c = 3}`,
 			bin("&&", bin("||", cmp(".a", "=", ValueNumber, "1"), cmp(".b", "=", ValueNumber, "2")),
@@ -134,7 +139,7 @@ func TestLowerScalarFilters(t *testing.T) {
 		want  Pipeline
 	}{
 		{`{.a = "a"} | avg(duration) >= 1.5ms`, stages(a(), &ScalarFilter{Op: ">=",
-			LHS: &Aggregate{Fn: "avg", Arg: &Attribute{Name: "duration"}}, RHS: &Static{Kind: ValueDuration, Text: "1.5ms"}})},
+			LHS: &Aggregate{Fn: "avg", Arg: &Attribute{Name: "duration"}}, RHS: &Static{Kind: ValueDuration, Text: "1.5ms", Duration: 1500 * time.Microsecond}})},
 		{`count() > 2`, stages(count(">", "2"))},
 		{`{.a = "a"} >> {.b = "b"} | count() > 2 | max(span.x) < -3`, stages(op(OpDescendant, a(), b()), count(">", "2"),
 			&ScalarFilter{Op: "<", LHS: &Aggregate{Fn: "max", Arg: &Attribute{Name: "span.x"}}, RHS: &Static{Kind: ValueNumber, Text: "-3"}})},
@@ -311,6 +316,53 @@ func TestStaticUnquote(t *testing.T) {
 func TestParseError(t *testing.T) {
 	_, err := Parse(`{`)
 	require.Error(t, err)
+}
+
+func TestLowerDurationLiterals(t *testing.T) {
+	const day = 24 * time.Hour
+	for literal, want := range map[string]time.Duration{
+		"1h30m":              90 * time.Minute,
+		"1d":                 day,
+		"1w":                 7 * day,
+		"1y":                 365 * day,
+		"1d12h":              36 * time.Hour,
+		".5s":                500 * time.Millisecond,
+		"5.s":                5 * time.Second,
+		"1.5h":               90 * time.Minute,
+		"500ms":              500 * time.Millisecond,
+		"1µs":                time.Microsecond,
+		"1us":                time.Microsecond,
+		"1ns":                time.Nanosecond,
+		"1s30m":              30*time.Minute + time.Second,
+		"1h15m30.918273645s": time.Hour + 15*time.Minute + 30*time.Second + 918273645*time.Nanosecond,
+		"-1d":                -day,
+		"- -1d":              day,
+		"07s":                7 * time.Second,
+		"010s":               10 * time.Second,
+		"00s":                0,
+		"09.5s":              9500 * time.Millisecond,
+		"09.s":               9 * time.Second,
+		"1h09m":              time.Hour + 9*time.Minute,
+	} {
+		t.Run(literal, func(t *testing.T) {
+			got := mustParse(t, `{duration > `+literal+`}`).Pipeline.Elements[0].(*Selector).Filter.(*BinaryOp).RHS.(*Static)
+			require.Equal(t, ValueDuration, got.Kind)
+			require.Equal(t, want, got.Duration)
+		})
+	}
+	got := mustParse(t, `{} | avg(duration) > -1h30m`).Pipeline.Elements[1].(*ScalarFilter).RHS.(*Static)
+	require.Equal(t, -90*time.Minute, got.Duration)
+}
+
+func TestParseNamesInvalidDurationLiteral(t *testing.T) {
+	for _, literal := range []string{"1e3s", "1.5d", "1h30", "1x", "1hh", "1hx", "1000y", "1h.5", "08s", "019s", "09h30m"} {
+		for _, query := range []string{`{duration > ` + literal + `}`, `{} | avg(duration) > ` + literal} {
+			t.Run(query, func(t *testing.T) {
+				_, err := Parse(query)
+				require.ErrorContains(t, err, `"`+literal+`"`)
+			})
+		}
+	}
 }
 
 func TestHasStructural(t *testing.T) {

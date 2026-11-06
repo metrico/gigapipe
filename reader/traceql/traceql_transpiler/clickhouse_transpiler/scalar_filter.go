@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -87,11 +86,7 @@ func checkAggregates(e traceql_ir.ScalarExpr) error {
 // staticValue is a literal as a float: a duration in nanoseconds.
 func staticValue(lit *traceql_ir.Static) (float64, error) {
 	if lit.Kind == traceql_ir.ValueDuration {
-		d, err := time.ParseDuration(lit.Text)
-		if err != nil {
-			return 0, err
-		}
-		return float64(d.Nanoseconds()), nil
+		return float64(lit.Duration.Nanoseconds()), nil
 	}
 	return strconv.ParseFloat(lit.Text, 64)
 }
