@@ -174,41 +174,68 @@ trace, whenever those spans started. A long-running root that started before
 
 Search and metrics are also served under the `/tempo` prefix.
 
-- `spss` (spans per spanset) is the number of spans listed per spanset,
-  newest first. It defaults to 3. A value that isn't a positive integer is
-  rejected with `invalid spss: must be a positive number`.
+- `spss` (spans per spanset) is the number of spans listed per spanset. It
+  defaults to 3. A value that isn't a positive integer is rejected with
+  `invalid spss: must be a positive number`.
+- Each spanset lists its `spss` earliest-starting spans, earliest first, ties by
+  span id.
 - `matched` is the number of spans the spanset matched, even when `spss`
   lists fewer.
 - `limit` counts traces that satisfy the whole query.
 - No cap applies to the spans a query evaluates. ClickHouse memory limits
   apply.
+- `durationNanos` is always the span duration in nanoseconds.
+- Listed spans carry the attributes and intrinsics the query's spanset filters
+  `{...}` read, as if they were added to a `select()`: the union over the whole
+  query. `{ .a = 1 } >> { .b = 2 }` returns `.a` and `.b` on each listed span
+  that has them. Fields read only by a scalar filter (`| avg(.x) > 1`) or by
+  `by()` are not echoed. Metrics and autocomplete are unaffected.
 
-#### Known issues
+#### Nested-set intrinsics
 
-- `nestedSetParent < 0` applies to every span the query returns, not only to
-  the selector it is written in:
-  - As the left operand of a structural operator the selector matches every
-    span, and only root spans of the result are kept.
-    `{nestedSetParent < 0} >> {.a = 1}`, and the same with `>`, return nothing.
-    The other operators return only root spans: `{nestedSetParent < 0} << {.a = 1}`
-    returns the `.a = 1` roots that have any descendant.
-  - `{nestedSetParent < 0} && {.a = 1}` and `{nestedSetParent < 0} || {.a = 1}`
-    return only the root spans.
-  - `{nestedSetParent < 0 || .a = 1}` returns only root spans.
+`nestedSetLeft`, `nestedSetRight` and `nestedSetParent` describe a span's place
+in its trace's tree. They are ints, accepted in spanset filters, field
+expressions, `select()`, `by()`, aggregates, and metrics `by (...)` and
+`*_over_time()` arguments, and returned as `intValue`. Autocomplete doesn't
+offer them. A background numberer stores them; see
+[The numberer](docs/configuration.md#the-numberer).
 
-  `{nestedSetParent < 0 && .a = 1}` in a single selector, and a pipeline stage
-  `{…} | {nestedSetParent < 0}`, are correct.
-- Only `nestedSetParent < 0` is supported. Other comparisons of
-  `nestedSetParent`, `nestedSetLeft` or `nestedSetRight` with a number or
-  duration on the right hold for every span. A string or boolean on the right
-  fails with `binary operations must operate on the same type`.
-- Any comparison of these fields, `nestedSetParent < 0` included, fails with
-  `unsupported attribute <name>` when:
-  - it is negated: `{!(nestedSetParent < 0)}`
-  - its other side is not a literal, or the literal is on the left:
-    `{nestedSetLeft > .a}`, `{0 > nestedSetParent}`
-  - the selector has another term such as `.a = .b`, `.a != nil`, `.a = true` or
-    `.a > 1ms`: `{nestedSetParent < 0 && .a = .b}`
+```
+{ nestedSetParent < 0 } | select(nestedSetLeft, nestedSetRight)
+{ nestedSetRight - nestedSetLeft > 1 }
+```
+
+The values follow Tempo's relationships, but the absolute numbers can differ:
+
+- A depth-first walk numbers each trace from 1, with one counter across all
+  roots. A span's descendants have their `nestedSetLeft` inside the span's
+  `[nestedSetLeft, nestedSetRight]`, and a leaf has
+  `nestedSetRight = nestedSetLeft + 1`.
+- `nestedSetParent` is the parent's `nestedSetLeft`. Roots hold `-1`.
+- Spans that can't reach a root (a missing parent, a cycle, a trace without a
+  root) read `0`/`0`/`0`.
+- Siblings, and the roots of a trace, are numbered by start time, then span id.
+- Spans sharing a span id form one node, placed by the earliest-starting copy.
+  Every copy reports that node's values.
+
+In filters, an attribute named like a nested-set intrinsic (`.nestedSetLeft`,
+`span.nestedSetRight`) is an attribute. In `select()` and in the filter echo it
+selects the intrinsic.
+
+**Unnumbered spans.** A span not numbered yet, or never, reads `0`/`0`/`0` in
+`select()`, the filter echo, filters, `by()`, aggregates and metrics. Unnumbered
+and unreachable spans look the same.
+
+The root filter is the exception: `{ nestedSetParent < 0 }` and
+`{ nestedSetParent = -1 }` find roots through the span's parent id, so they
+match the roots of every trace, numbered or not. An unnumbered root still
+selects and echoes `nestedSetParent = 0`. Only these forms, with the number on
+the right, read the parent id; other spellings such as `-1 = nestedSetParent` or
+`nestedSetParent <= -1` read the stored value and miss unnumbered roots.
+
+Structural operators never read the stored values; they resolve the tree at
+query time. A span that matches `>>` can therefore carry `0`/`0`/`0`, or stale
+numbers when its trace received a late span after it was numbered.
 
 #### Differences from Tempo
 
@@ -268,6 +295,30 @@ gigapipe returns the spans Tempo returns, except in the cases listed here.
 - `(count() > 2) && {B}` is a parse error. Tempo accepts it.
 - A bare word as an aggregate argument (`avg(spanN)`) reads the attribute of
   that name. Tempo rejects it.
+
+**Nested-set intrinsics**
+
+- Siblings are numbered by start time, then span id; Tempo numbers them in its
+  storage order, so the absolute values can differ.
+- Spans sharing a span id form one node, placed by the earliest-starting copy;
+  Tempo matches two copies by kind and zeroes a trace in which three or more
+  share an id.
+- Every pass renumbers whole traces, so merges leave no stale numbers, as they
+  can in Tempo.
+- A trace reads `0`/`0`/`0` until the numberer has numbered it, about 15s after
+  its last span with the defaults, and traces stored before the numberer ran may
+  never be numbered.
+
+**Search results**
+
+- Each spanset lists its `spss` earliest-starting spans; Tempo lists the first
+  spans in its storage order. Under clock skew, a child can be kept ahead of its
+  parent.
+- The filter echo uses the union of the query's keys:
+  `{ .a = 1 } >> { .b = 2 }` shows `.a` on returned spans that carry it, where
+  Tempo shows only `.b`.
+- Fields read only by a scalar filter or `by()` aren't echoed; Tempo returns
+  them too.
 
 **`select()`**
 

@@ -124,6 +124,9 @@ ones, provided **a trace's spans and attribute rows live on one shard**.
 Writers inserting through the `_dist` tables place them so: the sharding key is
 `sipHash64(oid, trace_id)`, and a trace has one `oid`.
 
+The nested-set intrinsics read values that a background numberer stores, which
+needs ClickHouse 24.9 or newer; see [The numberer](#the-numberer).
+
 ### Depth limit
 
 The span tree is built at query time from stored `parent_id`s:
@@ -166,11 +169,38 @@ TraceQL structural query: N trace(s) have unresolved ancestry (deeper than 2^R s
 The line lists up to 20 trace IDs. Raising the round limit helps only with
 deep traces, not cycles.
 
-The nested-set numberer stores `nestedSetLeft`, `nestedSetRight` and `nestedSetParent` for each span; see [TraceQL](traceql.md#the-numberer). Every instance in `all` or `writer` mode takes part, and ClickHouse elects one of them to run the passes; if it stops, another takes over within 4 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`. It needs ClickHouse 24.9 or newer; on an older server it logs an error and doesn't start, and every span reads `0`/`0`/`0`. With the defaults, values appear about 15s after a trace's last span. In `all` or `writer` mode an invalid value of the settings below stops Gigapipe at start-up; a `reader` ignores them.
+### The numberer
+
+The nested-set numberer computes `nestedSetLeft`, `nestedSetRight` and `nestedSetParent` for each span after ingestion and stores them in the `tempo_traces_nested_set` table; see [Nested-set intrinsics](../README.md#nested-set-intrinsics). There is nothing to enable. In `all` or `writer` mode an invalid value of the settings below stops Gigapipe at start-up; a `reader` ignores them.
 
 - **`GIGAPIPE_NESTED_SET_NUMBERER_IDLE`** - How long a trace must receive no spans before it is numbered, as a Go duration (default: `10s`).
 - **`GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`** - Time between numbering passes, as a Go duration (default: `5s`).
-- **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster the cap applies per shard.
+- **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster each shard numbers its own traces and the cap applies per shard.
+
+- **Who takes part.** Every instance in `all` or `writer` mode takes part, and ClickHouse elects one of them to run the passes through a lease in the `tempo_traces_nested_set_lease` table. If the leader stops, or its passes keep failing, another takes over within 4 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`, so values can lag that much longer. `reader` instances never take part.
+- **Clocks.** Each instance judges the lease by the clock of the ClickHouse node it connects to, so on a cluster node clocks must agree to well within 3 × the interval. On a replicated cluster they must also agree within 2s and well within the idle period. NTP is enough.
+- **ClickHouse version.** It needs ClickHouse 24.9 or newer. On an older server it logs an error and doesn't start, and every span reads `0`/`0`/`0`.
+- **When values appear.** A trace is numbered once it has received no spans for the idle period. With the defaults, values appear about 15s after a trace's last span. A late span renumbers its whole trace.
+- **What holds numbering back.** A pass waits for running synchronous inserts into `tempo_traces` and for spans a lagging replica has yet to fetch. A long insert, such as a backfill, holds back every shard's traces touched after it started until it ends. A lagging replica delays its shard by a few times the lag; a replica that can't catch up (a broken part, fetches stopped), or whose tables have yet to receive their first insert, stops its shard and the cursor until it does. A pass doesn't wait for inserts on a node it can't reach, and a node too slow to answer fails the pass until it answers. Async inserts are assumed to commit within the idle period; a trace whose spans commit later may not be numbered until it receives another span.
+- **Lease outages.** While the lease can't be read or written, numbering pauses and the instances log the start and end of the outage. Traces whose only spans arrived more than about a day before numbering resumes stay `0`/`0`/`0`, or more than 5 minutes before if no pass has succeeded yet.
+- **No backfill.** A trace that receives no spans once the `tempo_traces_touched` table exists is never numbered, and one whose last span arrived more than 5 minutes before the first successful pass may not be.
+
+Instances log only leadership changes and lease outages. To see who leads and since when (on a cluster, query `tempo_traces_nested_set_lease_dist`):
+
+```sql
+SELECT term,
+       if(countIf(NOT claim) > 0, argMaxIf(holder, (expires_at, holder), NOT claim),
+          argMinIf(holder, (expires_at, holder), claim)) AS leader,
+       min(expires_at) - INTERVAL 15 SECOND AS since,
+       max(expires_at) AS until,
+       until > now64(3) AS live
+FROM tempo_traces_nested_set_lease
+GROUP BY term
+ORDER BY term DESC
+LIMIT 1
+```
+
+`leader` is the hostname, PID and a random suffix of the leading process. `since` subtracts the lease length, 3 × the interval: `15 SECOND` holds only at the default. Rows are kept for a day after they expire, so for a term led longer than that, `since` shows about a day ago.
 
 ### Large queries
 
