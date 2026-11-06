@@ -18,6 +18,10 @@ var errStructuralVersion = errors.New(
 // zeroSpanID is the parent of a root span.
 const zeroSpanID = "toFixedString('', 8)"
 
+// unresolvedRow is a jump row at the last round whose chain has no known end:
+// a parent cycle or a chain deeper than the round limit.
+const unresolvedRow = "anc != " + zeroSpanID
+
 // spanResult is which spans a structural operator returns.
 type spanResult int
 
@@ -210,14 +214,23 @@ func (t *TransitivePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 	needDown := !rel.descendant || rel.result == resultUnion
 	resolved := resolvedAncestry(ctx, alias, lhs, rhs, sides, upSide, downSide, needUp, needDown)
 
+	matchedCols := []sql.SQLObject{
+		sql.NewSimpleCol("s.trace_id", "trace_id"),
+		sql.NewSimpleCol("s.span_id", "span_id"),
+		sql.NewSimpleCol("s.timestamp_ns", "timestamp_ns"),
+		sql.NewSimpleCol("s.side", "side"),
+		sql.NewSimpleCol(fmt.Sprintf("toUInt8(r.reachable = 1 AND r.%s = 1)", rhsFlag), "rhs_match"),
+		sql.NewSimpleCol(fmt.Sprintf("toUInt8(r.reachable = 1 AND r.%s = 1)", lhsFlag), "lhs_match"),
+	}
+	final := rel.result.cond("rhs_match = 1", "lhs_match = 1")
+	// Down marks spread through unresolved spans, so an operator reading them
+	// returns nothing from a trace with an unresolved span, negations included.
+	if needDown {
+		matchedCols = append(matchedCols, sql.NewSimpleCol("ifNull(r.unresolved, 0)", "unresolved"))
+		final = fmt.Sprintf("unresolved = 0 AND (%s)", final)
+	}
 	matched := sql.NewWith(sql.NewSelect().
-		Select(
-			sql.NewSimpleCol("s.trace_id", "trace_id"),
-			sql.NewSimpleCol("s.span_id", "span_id"),
-			sql.NewSimpleCol("s.timestamp_ns", "timestamp_ns"),
-			sql.NewSimpleCol("s.side", "side"),
-			sql.NewSimpleCol(fmt.Sprintf("toUInt8(r.reachable = 1 AND r.%s = 1)", rhsFlag), "rhs_match"),
-			sql.NewSimpleCol(fmt.Sprintf("toUInt8(r.reachable = 1 AND r.%s = 1)", lhsFlag), "lhs_match")).
+		Select(matchedCols...).
 		From(sql.NewCol(sql.NewWithRef(sides), "s")).
 		Join(sql.NewJoin("left", sql.NewCol(sql.NewWithRef(resolved), "r"), sameSpan("r.span_id", "s.span_id"))),
 		alias+"_matched")
@@ -228,11 +241,13 @@ func (t *TransitivePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		Distinct(true).
 		Select(spanRowCols()...).
 		From(sql.NewWithRef(matched)).
-		AndWhere(rawCond(rel.result.cond("rhs_match = 1", "lhs_match = 1"))), nil
+		AndWhere(rawCond(final)), nil
 }
 
 // resolvedAncestry is <alias>_resolved: every span of the candidate traces with
 // reachable, up (an upSide ancestor) and down (a downSide descendant); unneeded flags stay 0.
+// An unresolved span is not reachable. With needDown, unresolved is set on
+// every span of a trace with an unresolved span.
 func resolvedAncestry(ctx *shared.PlannerContext, alias string, lhs, rhs, sides *sql.With,
 	upSide, downSide int, needUp, needDown bool) *sql.With {
 	tree, flags := traceTree(ctx, alias, lhs, rhs)
@@ -302,16 +317,22 @@ func resolvedAncestry(ctx *shared.PlannerContext, alias string, lhs, rhs, sides 
 				sql.NewCol(&union{selects: []sql.ISelect{marked}}, "d"), sameSpan("d.node", "x.node")))
 	})
 
+	resolvedCols := []sql.SQLObject{
+		sql.NewSimpleCol("trace_id", "trace_id"),
+		sql.NewSimpleCol("node", "span_id"),
+		sql.NewSimpleCol(fmt.Sprintf("toUInt8(cut = 0 AND NOT (%s))", unresolvedRow), "reachable"),
+		sql.NewSimpleCol("up", "up"),
+		sql.NewSimpleCol("down", "down"),
+	}
+	if needDown {
+		resolvedCols = append(resolvedCols,
+			sql.NewSimpleCol(fmt.Sprintf("max(%s) OVER (PARTITION BY trace_id)", unresolvedRow), "unresolved"))
+	}
 	return sql.NewWith(sql.NewSelect().
 		With(append(withs, jump)...).
-		Select(
-			sql.NewSimpleCol("trace_id", "trace_id"),
-			sql.NewSimpleCol("node", "span_id"),
-			sql.NewSimpleCol("toUInt8(cut = 0)", "reachable"),
-			sql.NewSimpleCol("up", "up"),
-			sql.NewSimpleCol("down", "down")).
+		Select(resolvedCols...).
 		From(sql.NewWithRef(jump)).
-		AndWhere(unresolvedGuard(rounds), rawCond(fmt.Sprintf("k = %d", rounds))),
+		AndWhere(rawCond(fmt.Sprintf("k = %d", rounds))),
 		alias+"_resolved")
 }
 
@@ -335,11 +356,11 @@ func reachableSpans(ctx *shared.PlannerContext, alias string, lhs, rhs *sql.With
 			AndWhere(rawCond("has_root = 1 AND has_dangling = 1")),
 		alias+"_jump",
 		func(self *sql.WithRef) sql.ISelect { return jumpStep(self, rounds, jumpFlag("cut")) })
-	// A cut chain reaches no root.
+	// A cut or unresolved chain reaches no root.
 	unreachable := sql.NewWith(sql.NewSelect().
 		Select(sql.NewSimpleCol("trace_id", "trace_id"), sql.NewSimpleCol("node", "node")).
 		From(sql.NewWithRef(jump)).
-		AndWhere(unresolvedGuard(rounds), rawCond(fmt.Sprintf("k = %d AND cut = 1", rounds))),
+		AndWhere(rawCond(fmt.Sprintf("k = %d AND (cut = 1 OR %s)", rounds, unresolvedRow))),
 		alias+"_unreachable")
 
 	return sql.NewWith(sql.NewSelect().
@@ -441,29 +462,6 @@ func ancestryRounds(ctx *shared.PlannerContext) int {
 		return ctx.AncestryRounds
 	}
 	return traceqlconfig.DefaultAncestryRounds
-}
-
-func unresolvedAncestryMessage(rounds int) string {
-	return fmt.Sprintf("TraceQL structural query: a trace is deeper than the round limit of %d rounds "+
-		"(%d spans) or its parent links form a cycle; raise %s",
-		rounds, 1<<rounds, traceqlconfig.AncestryRoundsEnv)
-}
-
-// unresolvedGuard fails the query on a jump row whose ancestor pointer is
-// still set after the last round.
-func unresolvedGuard(rounds int) sql.SQLCondition {
-	return rawCond(fmt.Sprintf("throwIf(k = %d AND anc != %s, '%s') = 0",
-		rounds, zeroSpanID, unresolvedAncestryMessage(rounds)))
-}
-
-// UnresolvedAncestryError returns the unresolved-ancestry error that err, a
-// ClickHouse error from a query planned with ctx, carries, or err itself.
-func UnresolvedAncestryError(ctx *shared.PlannerContext, err error) error {
-	msg := unresolvedAncestryMessage(ancestryRounds(ctx))
-	if err != nil && strings.Contains(err.Error(), msg) {
-		return errors.New(msg)
-	}
-	return err
 }
 
 // sameSpan joins two aliased rows on trace id and the given span id columns.

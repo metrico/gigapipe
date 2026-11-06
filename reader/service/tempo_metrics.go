@@ -409,7 +409,7 @@ func queryMetrics(planCtx *shared.PlannerContext, planner shared.SQLRequestPlann
 	}
 	rows, err := planCtx.CHDb.QueryCtx(planCtx.Ctx, str)
 	if err != nil {
-		return clickhouse_transpiler.UnresolvedAncestryError(planCtx, err)
+		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -417,7 +417,7 @@ func queryMetrics(planCtx *shared.PlannerContext, planner shared.SQLRequestPlann
 			return err
 		}
 	}
-	return clickhouse_transpiler.UnresolvedAncestryError(planCtx, rows.Err())
+	return rows.Err()
 }
 
 // executeHistogramRange handles histogram_over_time() queries.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -342,3 +343,122 @@ func testSearchSmoke(t *testing.T, cluster bool) {
 func TestSearchSmoke(t *testing.T) { testSearchSmoke(t, false) }
 
 func TestSearchSmokeOnCluster(t *testing.T) { testSearchSmoke(t, true) }
+
+// unresolvedSpanRE finds a span id in a summary line.
+var unresolvedSpanRE = regexp.MustCompile(`span ([0-9a-f]+)@`)
+
+// unresolvedSpans runs query: the sorted span ids it returns, by trace id.
+func unresolvedSpans(t *testing.T, s *searchStore, query string, run searchRun) map[string]string {
+	t.Helper()
+	spans := map[string][]string{}
+	var trace string
+	for _, line := range s.result(t, query, run) {
+		if strings.HasPrefix(line, "error: ") {
+			t.Errorf("%s: %s", query, line)
+			return nil
+		}
+		if id, ok := strings.CutPrefix(line, "trace "); ok {
+			trace = strings.Fields(id)[0]
+			spans[trace] = nil
+			continue
+		}
+		for _, m := range unresolvedSpanRE.FindAllStringSubmatch(line, -1) {
+			spans[trace] = append(spans[trace], m[1])
+		}
+	}
+	res := map[string]string{}
+	for id, ids := range spans {
+		slices.Sort(ids)
+		res[id] = strings.Join(slices.Compact(ids), " ")
+	}
+	return res
+}
+
+// testSearchUnresolvedTraces checks what each operator returns from traces
+// with a parent cycle or deeper than the round limit.
+func testSearchUnresolvedTraces(t *testing.T, cluster bool) {
+	a, b, ab := []string{"a"}, []string{"b"}, []string{"a", "b"}
+	type traces = map[string]string
+	check := func(t *testing.T, s *searchStore, rounds int, query string, want traces) {
+		t.Helper()
+		for _, portions := range []int{0, 3} {
+			got := unresolvedSpans(t, s, query, searchRun{limit: searchLimit, rounds: rounds, portions: portions})
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s portions %d: got %v, want %v", query, portions, got, want)
+			}
+		}
+	}
+
+	t.Run("cycles", func(t *testing.T) {
+		s := openSearchStore(t, cluster, false)
+		s.seed(t, []span{
+			// 0x28, 0x2b: healthy, a above b and b above a.
+			{40, 1, 0, a}, {40, 2, 1, b},
+			{43, 1, 0, b}, {43, 2, 1, a},
+			// 0x29: its own parent.
+			{41, 1, 1, ab},
+			// 0x2a: a healthy branch and a cycle, no missing parent.
+			{42, 1, 0, a}, {42, 6, 1, b}, {42, 2, 4, a}, {42, 3, 2, b}, {42, 4, 3, ab}, {42, 5, 3, b},
+			// 0x2c: a healthy branch, a missing parent and a cycle.
+			{44, 1, 0, a}, {44, 2, 1, b}, {44, 3, 99, b}, {44, 4, 5, a}, {44, 5, 4, b},
+			// 0x2d: a cycle of b spans only, never a candidate.
+			{45, 1, 2, b}, {45, 2, 1, b},
+		})
+		for op, want := range map[string]traces{
+			">>":  {"28": "2", "2a": "6", "2c": "2"},
+			"!>>": {"29": "1", "2a": "3 4 5", "2b": "1", "2c": "3 5", "2d": "1 2"},
+			"<<":  {"2b": "1"},
+			"!<<": {"28": "2", "2d": "1 2"},
+			"&>>": {"28": "1 2"},
+			"&<<": {"2b": "1 2"},
+			">":   {"28": "2", "2a": "3 6", "2c": "2"},
+			"!>":  {"29": "1", "2a": "4 5", "2b": "1", "2c": "3 5", "2d": "1 2"},
+			"&>":  {"28": "1 2", "2a": "1 2 3 6", "2c": "1 2"},
+			"<":   {"2a": "3 4", "2b": "1"},
+			"!<":  {"28": "2", "29": "1", "2a": "5 6", "2c": "2 3 5", "2d": "1 2"},
+			"&<":  {"2a": "2 3 4", "2b": "1 2"},
+			"~":   {"2a": "5"},
+			"!~":  {"28": "2", "29": "1", "2a": "3 4 6", "2b": "1", "2c": "2 3 5", "2d": "1 2"},
+			"&~":  {"2a": "4 5"},
+		} {
+			check(t, s, 0, fmt.Sprintf(`{.a = "1"} %s {.b = "1"}`, op), want)
+		}
+		check(t, s, 0, `{.a = "1"} >> {.b = "1"} | count() > 0`, traces{"28": "2", "2a": "6", "2c": "2"})
+		check(t, s, 0, `{.a = "1"} !<< {.b = "1"} | count() > 0`, traces{"28": "2", "2d": "1 2"})
+	})
+
+	t.Run("round limit", func(t *testing.T) {
+		s := openSearchStore(t, cluster, false)
+		chain := func(trace, depth int) []span {
+			var res []span
+			for id := 1; id <= depth; id++ {
+				attrs := ab
+				switch id {
+				case 1:
+					attrs = a
+				case depth:
+					attrs = b
+				}
+				res = append(res, span{trace, id, id - 1, attrs})
+			}
+			return res
+		}
+		// 0x32 fits 3 rounds, 0x33 is one span too deep.
+		s.seed(t, append(chain(50, 8), chain(51, 9)...))
+		for op, want := range map[string]traces{
+			">>":  {"32": "2 3 4 5 6 7 8", "33": "2 3 4 5 6 7 8"},
+			"!>>": {"33": "9"},
+			"<<":  {"32": "2 3 4 5 6"},
+			"!<<": {"32": "7 8"},
+			"&>>": {"32": "1 2 3 4 5 6 7 8"},
+			"&<<": {"32": "2 3 4 5 6 7"},
+			">":   {"32": "2 3 4 5 6 7 8", "33": "2 3 4 5 6 7 8 9"},
+		} {
+			check(t, s, 3, fmt.Sprintf(`{.a = "1"} %s {.b = "1"}`, op), want)
+		}
+	})
+}
+
+func TestSearchUnresolvedTraces(t *testing.T) { testSearchUnresolvedTraces(t, false) }
+
+func TestSearchUnresolvedTracesOnCluster(t *testing.T) { testSearchUnresolvedTraces(t, true) }
