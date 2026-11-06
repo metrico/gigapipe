@@ -10,6 +10,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 )
 
 // fakeWarner is a warner over a fake clock, probe and logger.
@@ -70,8 +71,6 @@ func TestUnresolvedWarningIsSilentWhenNothingIsFound(t *testing.T) {
 	}
 }
 
-// The count sums a jump's rows, whose traces are disjoint, and takes the
-// largest jump, at least the distinct ids listed.
 func TestUnresolvedWarningMergesRows(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -93,7 +92,24 @@ func TestUnresolvedWarningMergesRows(t *testing.T) {
 				{Jump: "j", N: 2, IDs: []string{"a", "b"}},
 				{Jump: "j", N: 2, IDs: []string{"a", "c"}},
 			},
-			n: 4, ids: "a, b, c",
+			n: 3, ids: "a, b, c",
+		},
+		{
+			name: "a trace crossing slices counts once",
+			found: []unresolvedFound{
+				{Jump: "j", N: 1, IDs: []string{"x"}},
+				{Jump: "j", N: 1, IDs: []string{"x"}},
+				{Jump: "j", N: 1, IDs: []string{"x"}},
+			},
+			n: 1, ids: "x",
+		},
+		{
+			name: "a row listing fewer than it counted keeps the sum",
+			found: []unresolvedFound{
+				{Jump: "j", N: 30, IDs: []string{"a", "b"}},
+				{Jump: "j", N: 1, IDs: []string{"a"}},
+			},
+			n: 31, ids: "a, b",
 		},
 		{
 			name: "jumps sharing traces take the largest",
@@ -103,6 +119,14 @@ func TestUnresolvedWarningMergesRows(t *testing.T) {
 				{Jump: "l", N: 2, IDs: []string{"a", "c"}},
 			},
 			n: 3, ids: "a, b, c",
+		},
+		{
+			name: "capped rows of disjoint jumps estimate by the largest",
+			found: []unresolvedFound{
+				{Jump: "j", N: 100, IDs: []string{"a"}},
+				{Jump: "k", N: 100, IDs: []string{"b"}},
+			},
+			n: 100, ids: "a, b",
 		},
 		{
 			name: "distinct ids across jumps floor the count",
@@ -322,5 +346,50 @@ func TestUnresolvedPortionContext(t *testing.T) {
 		if got := unresolvedPortion(probeCtx, planCtx, 0); got.RandomFilter != (shared.RandomFilter{}) {
 			t.Errorf("%d portions: filter = %+v", portions, got.RandomFilter)
 		}
+	}
+}
+
+// A walk's probe reads each evaluated slice's range and candidates, with no hash.
+func TestUnresolvedReadsAWalksSlices(t *testing.T) {
+	type key struct{}
+	probeCtx := context.WithValue(context.Background(), key{}, "probe")
+	base := time.Unix(1000, 0).UTC()
+	candidates := func() shared.SQLRequestPlanner { return &clickhouse_transpiler.ExtentPlanner{} }
+	slices := []shared.TracesSlice{
+		{From: base.Add(time.Minute), To: base.Add(2 * time.Minute), Candidates: candidates()},
+		{From: base, To: base.Add(time.Minute), Candidates: candidates()},
+	}
+	planCtx := &shared.PlannerContext{
+		Ctx: context.Background(), Portions: 5, From: base.Add(-time.Hour), To: base.Add(time.Hour), TracesSlices: slices,
+	}
+	reads := unresolvedReads(probeCtx, planCtx)
+	if len(reads) != 2 {
+		t.Fatalf("%d reads", len(reads))
+	}
+	for i, read := range reads {
+		if !read.From.Equal(slices[i].From) || !read.To.Equal(slices[i].To) ||
+			read.TracesCandidates != slices[i].Candidates || read.Ctx != probeCtx {
+			t.Errorf("read %d: %+v", i, read)
+		}
+		if read.RandomFilter != (shared.RandomFilter{}) {
+			t.Errorf("read %d: hash %+v", i, read.RandomFilter)
+		}
+	}
+	if !planCtx.From.Equal(base.Add(-time.Hour)) || planCtx.TracesCandidates != nil {
+		t.Errorf("plan context changed: %+v", planCtx)
+	}
+}
+
+// A walk that evaluated nothing has nothing to probe; a request that didn't
+// walk reads its portions.
+func TestUnresolvedReadsWithoutSlices(t *testing.T) {
+	if got := unresolvedReads(context.Background(), &shared.PlannerContext{Portions: 3, TracesSlices: []shared.TracesSlice{}}); len(got) != 0 {
+		t.Errorf("empty walk: %d reads", len(got))
+	}
+	if got := unresolvedReads(context.Background(), &shared.PlannerContext{Portions: 3}); len(got) != 3 {
+		t.Errorf("portions: %d reads", len(got))
+	}
+	if got := unresolvedReads(context.Background(), &shared.PlannerContext{}); len(got) != 1 {
+		t.Errorf("at once: %d reads", len(got))
 	}
 }

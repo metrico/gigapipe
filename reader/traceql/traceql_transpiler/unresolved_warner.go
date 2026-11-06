@@ -21,7 +21,7 @@ import (
 const (
 	// unresolvedMaxIDs is the most trace ids one warning lists.
 	unresolvedMaxIDs = 20
-	// unresolvedProbeTimeout is one probe's deadline across its portions and jumps.
+	// unresolvedProbeTimeout is one probe's deadline across its reads and jumps.
 	unresolvedProbeTimeout = 30 * time.Second
 )
 
@@ -109,20 +109,24 @@ func (w *unresolvedWarner) run(reqCtx context.Context, query *traceql_ir.Query, 
 		n, r, traceqlconfig.AncestryRoundsEnv, r, strings.Join(ids, ", ")))
 }
 
-// mergeUnresolved is the largest jump's summed count, at least the number of
-// distinct ids, and the first listed distinct ids of found.
+// mergeUnresolved is found's trace count and first distinct ids. The count is the distinct ids
+// when every row lists all it counted, else an estimate: the largest jump's sum, at least those ids.
 func mergeUnresolved(found []unresolvedFound) (uint64, []string) {
 	perJump := map[string]uint64{}
+	listedAll := true
 	var ids []string
 	for _, f := range found {
 		perJump[f.Jump] += f.N
 		ids = append(ids, f.IDs...)
+		listedAll = listedAll && uint64(len(f.IDs)) == f.N
 	}
 	slices.Sort(ids)
 	ids = slices.Compact(ids)
 	n := uint64(len(ids))
-	for _, c := range perJump {
-		n = max(n, c)
+	if !listedAll {
+		for _, c := range perJump {
+			n = max(n, c)
+		}
 	}
 	return n, ids[:min(len(ids), unresolvedMaxIDs)]
 }
@@ -138,16 +142,36 @@ func unresolvedPortion(ctx context.Context, planCtx *shared.PlannerContext, i in
 	return &res
 }
 
-// probeUnresolved runs each probe statement over each portion, in order, and
-// returns what it found up to the first error.
+// unresolvedReads is the contexts the probe reads planCtx in, on ctx: the slices
+// a walk evaluated, or else its portions.
+func unresolvedReads(ctx context.Context, planCtx *shared.PlannerContext) []*shared.PlannerContext {
+	if planCtx.TracesSlices != nil {
+		res := make([]*shared.PlannerContext, len(planCtx.TracesSlices))
+		for i, slice := range planCtx.TracesSlices {
+			read := *planCtx
+			read.Ctx = ctx
+			read.From, read.To, read.TracesCandidates = slice.From, slice.To, slice.Candidates
+			res[i] = &read
+		}
+		return res
+	}
+	res := make([]*shared.PlannerContext, max(planCtx.Portions, 1))
+	for i := range res {
+		res[i] = unresolvedPortion(ctx, planCtx, int64(i))
+	}
+	return res
+}
+
+// probeUnresolved runs each probe statement over each of the request's reads,
+// in order, and returns what it found up to the first error.
 func probeUnresolved(ctx context.Context, query *traceql_ir.Query, planCtx *shared.PlannerContext) ([]unresolvedFound, error) {
 	plan, err := clickhouse_transpiler.PlanUnresolvedProbes(query)
 	if err != nil {
 		return nil, err
 	}
 	var found []unresolvedFound
-	for i := range max(planCtx.Portions, 1) {
-		probes, err := plan.Process(unresolvedPortion(ctx, planCtx, i))
+	for _, read := range unresolvedReads(ctx, planCtx) {
+		probes, err := plan.Process(read)
 		if err != nil {
 			return found, err
 		}

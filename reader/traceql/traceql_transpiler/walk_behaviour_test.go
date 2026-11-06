@@ -334,3 +334,36 @@ func TestWalkSpanArrivesBetweenSlices(t *testing.T) { testWalkSpanArrivesBetween
 func TestWalkSpanArrivesBetweenSlicesOnCluster(t *testing.T) {
 	testWalkSpanArrivesBetweenSlices(t, true)
 }
+
+// A walk's unresolved probe reports what the walk evaluated, not older slices
+// an early stop never read.
+func testWalkProbesItsSlices(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	a, ab := []string{"a"}, []string{"a", "b"}
+	s.seedStarts(t, []span{
+		{1, 1, 1, ab},
+		{2, 1, 1, ab},
+		{3, 1, 0, a},
+	}, func(i int) int64 {
+		return []int64{beforeEnd(10 * time.Second), beforeEnd(20 * time.Minute), beforeEnd(5 * time.Second)}[i]
+	})
+	const query = `{.a = "1"} >> {.b = "1"} || {.b = "1"}`
+	walk, q := planWalk(t, query)
+	ctx := s.walkContext(walkEnd.Add(-30*time.Minute), walkEnd, 1)
+	s.walkLines(t, walk, query, ctx)
+	if ctx.Portions != 1 || len(ctx.TracesSlices) != 1 {
+		t.Fatalf("%d slices, %d evaluated", ctx.Portions, len(ctx.TracesSlices))
+	}
+	found, err := probeUnresolved(context.Background(), q, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ids := mergeUnresolved(found)
+	if want := []string{fmt.Sprintf("%032x", 1)}; n != 1 || !slices.Equal(ids, want) {
+		t.Errorf("n = %d ids = %q, want 1 %q", n, ids, want)
+	}
+}
+
+func TestWalkProbesItsSlices(t *testing.T) { testWalkProbesItsSlices(t, false) }
+
+func TestWalkProbesItsSlicesOnCluster(t *testing.T) { testWalkProbesItsSlices(t, true) }

@@ -228,6 +228,22 @@ func TestOnlySearchReadsCandidates(t *testing.T) {
 	}
 }
 
+// A walk's probe reads the slice's candidates, shard-locally on a cluster.
+func TestUnresolvedProbeReadsTheCandidates(t *testing.T) {
+	for _, cluster := range []bool{false, true} {
+		_, ctx := sliceContext(t, `{.a = 1} >> {.b = 2}`, cluster)
+		_, stmts := planProbes(t, `{.a = 1} >> {.b = 2}`, ctx)
+		for _, s := range stmts {
+			if !strings.Contains(s, candidatesIn) {
+				t.Errorf("cluster %v: no candidates:\n%s", cluster, s)
+			}
+			if strings.Contains(s, "GLOBAL IN") {
+				t.Errorf("cluster %v: reads over the cluster:\n%s", cluster, s)
+			}
+		}
+	}
+}
+
 // A slice's date bounds are one UTC day wider than its range each way, in any
 // reader time zone.
 func TestSliceDateBoundsDoNotDependOnTheReaderZone(t *testing.T) {
