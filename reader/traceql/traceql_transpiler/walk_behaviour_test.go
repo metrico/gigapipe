@@ -155,6 +155,44 @@ func TestWalkMatchesTheWholeRange(t *testing.T) { testWalkMatchesTheWholeRange(t
 
 func TestWalkMatchesTheWholeRangeOnCluster(t *testing.T) { testWalkMatchesTheWholeRange(t, true, 1) }
 
+// A walk halving its slices to a low budget returns what one statement over the
+// whole range returns.
+func testWalkUnderALowBudget(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.seedRandomTrees(t, 1)
+	from := walkEnd.Add(-10 * time.Minute)
+	halved := false
+	for _, query := range []string{
+		`{.a = "1"}`, `{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !>> {.b = "1"}`, `{.a = "1"} ~ {.b = "1"}`,
+		`{.a = "1"} | count() > 2`, `{} | count() > 2`,
+	} {
+		for _, limit := range []int{1, 10} {
+			walk, _ := planWalk(t, query)
+			walk.budget = 3
+			extent, reads := walk.extent, int64(0)
+			walk.extent = func(ctx *shared.PlannerContext) ([]clickhouse_transpiler.ShardExtent, error) {
+				reads++
+				return extent(ctx)
+			}
+			ctx := s.walkContext(from, walkEnd, limit)
+			got := s.walkLines(t, walk, query, ctx)
+			want := s.wholeLines(t, query, from, walkEnd, limit)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s limit %d in %d slices:\nwalk:\n%s\nwhole:\n%s", query, limit, ctx.Portions,
+					strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+			halved = halved || reads > ctx.Portions
+		}
+	}
+	if !halved {
+		t.Error("no slice halved")
+	}
+}
+
+func TestWalkUnderALowBudget(t *testing.T) { testWalkUnderALowBudget(t, false) }
+
+func TestWalkUnderALowBudgetOnCluster(t *testing.T) { testWalkUnderALowBudget(t, true) }
+
 // A limit that the newest spans fill stops the walk before older slices.
 func testWalkStopsEarly(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, false)
