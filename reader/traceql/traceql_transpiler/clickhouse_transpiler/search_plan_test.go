@@ -324,6 +324,7 @@ func TestStructuralStatementsOnSingleNodeHaveNoShardStatement(t *testing.T) {
 	for _, query := range structuralQueries {
 		statements := idsStatements(t, query)
 		statements["search"] = planSearch(t, query).Ids[0].Statement
+		statements["estimate"] = estimateStatement(t, query)
 		for name, statement := range statements {
 			res := renderPlan(t, statement, testPlannerContext(3))
 			for _, bad := range []string{"cluster(", "prefer_localhost_replica"} {
@@ -341,6 +342,7 @@ func TestShardStatementSkipsUnavailableShardsLikeTheReadTables(t *testing.T) {
 		for _, query := range structuralQueries {
 			statements := idsStatements(t, query)
 			statements["search"] = planSearch(t, query).Ids[0].Statement
+			statements["estimate"] = estimateStatement(t, query)
 			for name, statement := range statements {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = true
