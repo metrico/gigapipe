@@ -394,7 +394,7 @@ func TestEmptyOperandReadsEverySpanInRange(t *testing.T) {
 			}
 		})
 	}
-	q, err := traceql_ir.Parse(`{} ~ {.a = 1}`)
+	q, err := traceql_ir.Parse(`{} && {.a = 1}`)
 	if err != nil {
 		t.Fatal(err)
 	}
