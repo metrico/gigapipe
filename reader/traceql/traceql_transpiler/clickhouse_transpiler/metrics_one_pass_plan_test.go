@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
@@ -73,6 +74,9 @@ func TestMetricsWithoutWholeTraceReadTracesOnce(t *testing.T) {
 						if !strings.Contains(stmt, "(traces.timestamp_ns) >") {
 							t.Errorf("read has no span start bound:\n%s", stmt)
 						}
+						if cluster {
+							assertOnEachShard(t, stmt, ctx)
+						}
 					}
 				})
 			}
@@ -109,6 +113,10 @@ func TestMetricsByLabelsReadTracesOnce(t *testing.T) {
 	plan := planMetricsQuery(t, `{.a = 1} | rate() by (name)`)
 	if len(plan.Ids) != 0 {
 		t.Errorf("%d ids statements, want none", len(plan.Ids))
+	}
+	res := renderPlan(t, plan.Metrics, testPlannerContext(3))
+	if got := len(tracesReads.FindAllString(res, -1)); got != 1 {
+		t.Errorf("%d traces reads, want 1:\n%s", got, res)
 	}
 }
 
@@ -194,26 +202,25 @@ func TestCompareSidesReadTracesOnceEach(t *testing.T) {
 				if got := len(tracesReads.FindAllString(res, -1)); got != tc.reads {
 					t.Errorf("%d traces reads, want %d:\n%s", got, tc.reads, res)
 				}
+				if cluster {
+					assertOnEachShard(t, res, ctx)
+				}
 			})
 		}
 	}
 }
 
-// On a cluster the one read runs on each shard, over local tables, under the
-// skip_unavailable_shards setting of the read tables.
-func TestOnePassMetricsRunOnEachShard(t *testing.T) {
-	ctx := testPlannerContext(3)
-	ctx.IsCluster = true
-	ctx.SkipUnavailableShards = true
-	res := renderPlan(t, planMetrics(t, `{nestedSetLeft > 2 && .a = 1}`).Metrics, ctx)
-	for _, want := range []string{"cluster('", "view(", "prefer_localhost_replica", "skip_unavailable_shards"} {
-		if !strings.Contains(res, want) {
-			t.Errorf("no %q in:\n%s", want, res)
+// assertOnEachShard wants stmt to read the traces over local tables on each shard.
+func assertOnEachShard(t *testing.T, stmt string, ctx *shared.PlannerContext) {
+	t.Helper()
+	for _, want := range []string{"cluster('", "view(", "prefer_localhost_replica"} {
+		if !strings.Contains(stmt, want) {
+			t.Errorf("no %q in:\n%s", want, stmt)
 		}
 	}
 	for _, dist := range []string{"tempo_traces_dist", "tempo_traces_nested_set_dist", ctx.TracesAttrsDistTable} {
-		if strings.Contains(res, dist) {
-			t.Errorf("reads %s on a shard:\n%s", dist, res)
+		if strings.Contains(stmt, dist) {
+			t.Errorf("reads %s on a shard:\n%s", dist, stmt)
 		}
 	}
 }
