@@ -31,27 +31,37 @@ func (m *MetricsPlan) EverySpan() bool {
 	return m.spans.OnePass.Result == nil && m.spans.OnePass.Filter == nil
 }
 
-// OverShards is a statement built by build, with its Shard run on each shard;
-// m is an EverySpan plan.
+// OverShards is a statement built by build, with its Shard run on each shard
+// over the traces rows; m is an EverySpan plan.
 func (m *MetricsPlan) OverShards(build ShardBuild) shared.SQLRequestPlanner {
-	return &everySpanShards{sample: m.mainSample, build: build}
+	return &everySpanShards{build: build, read: func(ctx *shared.PlannerContext) SpanRead {
+		return everySpanRead(ctx, m.mainSample)
+	}}
+}
+
+// OverDistinctSpanShards is OverShards over one row per span hash with cols.
+func (m *MetricsPlan) OverDistinctSpanShards(cols []string, build ShardBuild) shared.SQLRequestPlanner {
+	distinct := &everySpanDistinct{sample: m.mainSample, cols: cols}
+	return &everySpanShards{build: build, read: func(ctx *shared.PlannerContext) SpanRead {
+		return overCTE(distinct.spans(ctx))
+	}}
 }
 
 type everySpanShards struct {
-	sample sql.SQLCondition
-	build  ShardBuild
+	build ShardBuild
+	read  func(ctx *shared.PlannerContext) SpanRead
 }
 
 func (e *everySpanShards) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
 	if !ctx.IsCluster {
-		rows, err := e.build.Shard(everySpanRead(ctx, e.sample), attrsTable(ctx))
+		rows, err := e.build.Shard(e.read(ctx), attrsTable(ctx))
 		if err != nil {
 			return nil, err
 		}
 		return e.build.Result(sql.NewWith(rows, "shard_rows"))
 	}
 	local := localContext(ctx)
-	shard, err := e.build.Shard(everySpanRead(local, e.sample), attrsTable(local))
+	shard, err := e.build.Shard(e.read(local), attrsTable(local))
 	if err != nil {
 		return nil, err
 	}

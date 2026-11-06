@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -542,6 +543,9 @@ func (s *metricsStore) assertResults(t *testing.T, step string, queries []string
 					t.Errorf("%s: %s", key, l)
 				}
 			}
+			if key == exemplarTotalKey {
+				lines = exemplarTotal(t, lines)
+			}
 			if *updateMetricsGolden {
 				s.golden[key] = lines
 				continue
@@ -661,6 +665,30 @@ func testMetricsRoundLimit(t *testing.T, cluster bool) {
 // missing parent of a rooted trace, and answer over a rooted chain of 9 with a
 // span under a missing parent.
 func TestMetricsRoundLimit(t *testing.T) { testMetricsRoundLimit(t, false) }
+
+// exemplarTotalKey's exemplars split between series by the span a shard picks,
+// so its results pin their total.
+const exemplarTotalKey = "metrics | range | {} | quantile_over_time(duration, .5, .9)"
+
+// exemplarTotal moves the exemplar counts of rangeResult lines into one total.
+func exemplarTotal(t *testing.T, lines []string) []string {
+	t.Helper()
+	total := 0
+	res := make([]string, 0, len(lines)+1)
+	for _, l := range lines {
+		rest, count, ok := strings.Cut(l, " exemplars=")
+		if !ok {
+			return lines
+		}
+		n, err := strconv.Atoi(count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += n
+		res = append(res, rest)
+	}
+	return append(res, fmt.Sprintf("exemplars=%d", total))
+}
 
 // metricsRangeTotal sums every sample of query at step.
 func (s *metricsStore) metricsRangeTotal(t *testing.T, query string, step time.Duration) float64 {
@@ -783,6 +811,28 @@ func testEverySpanCopiesDiffer(t *testing.T, cluster bool) {
 func TestEverySpanCopiesDiffer(t *testing.T) { testEverySpanCopiesDiffer(t, false) }
 
 func TestEverySpanCopiesDifferOnCluster(t *testing.T) { testEverySpanCopiesDiffer(t, true) }
+
+// A lone `{}` on a one-shard cluster gives the results of a single node.
+func TestEverySpanOnOneShardCluster(t *testing.T) {
+	s := openMetricsStore(t, false, false)
+	s.seed(t, metricsTraces())
+	const cluster = "default"
+	var shards uint64
+	if err := s.conn.QueryRow(context.Background(),
+		"SELECT count() FROM system.clusters WHERE cluster = '"+cluster+"'").Scan(&shards); err != nil {
+		t.Fatal(err)
+	}
+	if shards != 1 {
+		t.Skipf("cluster %s has %d shards", cluster, shards)
+	}
+	for _, table := range []string{"tempo_traces", "tempo_traces_attrs_gin", "tempo_traces_nested_set", "settings"} {
+		s.exec(t, "CREATE TABLE "+table+"_dist AS "+table+" ENGINE = Distributed('"+cluster+"', currentDatabase(), "+table+")")
+	}
+	s.svc.Session.(testRegistry).db.Config.ClusterName = cluster
+	queries := append([]string{`{} | quantile_over_time(duration, .5, .9)`, `{} | histogram_over_time(duration)`}, everySpanQueries...)
+	s.assertResults(t, "metrics", queries)
+	s.assertResults(t, "exemplars", everySpanQueries)
+}
 
 func TestEverySpanCopies(t *testing.T) { testEverySpanCopies(t, false) }
 

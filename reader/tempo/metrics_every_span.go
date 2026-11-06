@@ -146,6 +146,9 @@ func RangeSeries(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (sh
 		*labels = resolved
 		return query, err
 	}
+	if req.Fn == "quantile_over_time" && shapeOf(plan, &req) == distinctSpans {
+		return plan.OverDistinctSpanShards(spanColumns(&req, true), quantileStates(req, labels)), nil
+	}
 	switch shapeOf(plan, &req) {
 	case shardCounts:
 		divisor := float64(req.StepNS) / 1e9
@@ -179,6 +182,38 @@ func InstantSeries(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (
 		return plan.OverDistinctSpans(spanColumns(&req, false), build), nil
 	}
 	return plan.Metrics, nil
+}
+
+// quantileStates takes a quantile state per bucket and by-labels from each shard,
+// merged per bucket and over the whole query. Result reads ts, value, query_wide, by-labels.
+func quantileStates(req MetricsRequest, labels *[]string) ct.ShardBuild {
+	col := resolveAttrForAgg(req.Attr)
+	levels := quantileLevels(req.Quantiles)
+	return ct.ShardBuild{
+		Shard: func(read ct.SpanRead, attrs string) (sql.ISelect, error) {
+			if col == "" {
+				return nil, fmt.Errorf("quantile_over_time requires an attribute argument")
+			}
+			query := read().Select(
+				sql.NewCol(sql.NewRawObject(tsBucket(&req)), "ts"),
+				sql.NewCol(sql.NewRawObject(fmt.Sprintf("quantilesState(%s)(%s)", levels, col)), "q_state"))
+			group := []sql.SQLObject{sql.NewRawObject("ts")}
+			*labels = addByLabels(query, &group, req.By, req.FromNS, req.ToNS, attrs)
+			return query.GroupBy(group...), nil
+		},
+		Result: func(rows *sql.With) (sql.ISelect, error) {
+			by := byAliases(req.By)
+			value := quantilesInSeconds(col, fmt.Sprintf("quantilesMerge(%s)(q_state)", levels))
+			columns := append([]sql.SQLObject{
+				sql.NewRawObject("ts"),
+				sql.NewCol(sql.NewRawObject(value), "value"),
+				sql.NewCol(sql.NewRawObject("grouping(ts)"), "query_wide"),
+			}, by...)
+			return sql.NewSelect().With(rows).Select(columns...).From(sql.NewWithRef(rows)).
+				GroupBy(groupingWithQueryWide(append([]sql.SQLObject{sql.NewRawObject("ts")}, by...))).
+				OrderBy(sql.NewOrderBy(sql.NewRawObject("ts"), sql.ORDER_BY_DIRECTION_ASC)), nil
+		},
+	}
 }
 
 // HistogramRange is req's histogram statement under plan.

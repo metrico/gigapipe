@@ -175,15 +175,7 @@ func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64, 
 		if col == "" {
 			return "", fmt.Errorf("quantile_over_time requires an attribute argument")
 		}
-		levels := make([]string, len(quantiles))
-		for i, q := range quantiles {
-			levels[i] = fmt.Sprintf("%g", q)
-		}
-		expr := fmt.Sprintf("quantiles(%s)(%s)", strings.Join(levels, ", "), col)
-		if col == "main.duration_ns" {
-			expr = "arrayMap(x -> x / 1e9, " + expr + ")"
-		}
-		return expr, nil
+		return quantilesInSeconds(col, fmt.Sprintf("quantiles(%s)(%s)", quantileLevels(quantiles), col)), nil
 	}
 	if fn == "histogram_over_time" {
 		col := resolveAttrForAgg(attr)
@@ -219,6 +211,23 @@ func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64, 
 		expr = scaledExpr(expr, scale)
 	}
 	return expr, nil
+}
+
+// quantileLevels are the levels of a quantiles aggregate.
+func quantileLevels(quantiles []float64) string {
+	levels := make([]string, len(quantiles))
+	for i, q := range quantiles {
+		levels[i] = fmt.Sprintf("%g", q)
+	}
+	return strings.Join(levels, ", ")
+}
+
+// quantilesInSeconds is expr, quantiles of col, in the unit of the series.
+func quantilesInSeconds(col, expr string) string {
+	if col == "main.duration_ns" {
+		return "arrayMap(x -> x / 1e9, " + expr + ")"
+	}
+	return expr
 }
 
 // countExpr is rate or count_over_time of the span count count.
