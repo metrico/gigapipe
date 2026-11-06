@@ -650,3 +650,109 @@ func TestWalkFloors(t *testing.T) {
 		})
 	}
 }
+
+func TestNextSlice(t *testing.T) {
+	const longest = time.Duration(math.MaxInt64)
+	for _, tc := range []struct {
+		name         string
+		d            time.Duration
+		limit, found int64
+		want         time.Duration
+	}{
+		{"the formula above double", time.Minute, 100, 10, 9 * time.Minute},
+		{"the formula keeps a fraction", time.Minute, 7, 2, 150 * time.Second},
+		{"the formula at double", time.Minute, 3, 1, 2 * time.Minute},
+		{"the formula below double doubles", time.Minute, 10, 4, 2 * time.Minute},
+		{"one short of the limit doubles", time.Minute, 10, 9, 2 * time.Minute},
+		{"none found is x4", time.Minute, 5, 0, 4 * time.Minute},
+		{"limit 0 doubles", time.Minute, 0, 5, 2 * time.Minute},
+		{"limit 0 with none found doubles", time.Minute, 0, 0, 2 * time.Minute},
+		{"the formula clamps", 1000 * time.Hour, math.MaxInt64, 1, longest},
+		{"x4 clamps", longest / 2, 5, 0, longest},
+		{"doubling clamps", longest, 0, 0, longest},
+		{"the longest slice below double stays the longest", longest, 10, 9, longest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nextSlice(tc.d, tc.limit, tc.found); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Growth starts from the slice that ran and counts distinct traces above its
+// boundary, across every slice so far.
+func TestWalkGrowth(t *testing.T) {
+	type parts = [][]model.TraceInfo
+	type reads = [][2]time.Duration
+	aa := ranked("aa", walkTo.UnixNano(), 1)
+	bb := ranked("bb", walkTo.UnixNano()-1, 2)
+	over := []clickhouse_transpiler.ShardExtent{row(11, 2)}
+	for _, tc := range []struct {
+		name     string
+		limit    int64
+		parts    parts
+		attempts [][]clickhouse_transpiler.ShardExtent
+		want     reads
+	}{
+		{
+			name: "by the formula", limit: 10, parts: parts{{aa, bb}},
+			want: reads{{time.Minute, 0}, {5 * time.Minute, time.Minute}},
+		},
+		{
+			name: "x4 with none found", limit: 10,
+			want: reads{{time.Minute, 0}, {5 * time.Minute, time.Minute}, {21 * time.Minute, 5 * time.Minute}},
+		},
+		{
+			name: "from the halved slice", limit: 10, parts: parts{{aa, bb}},
+			attempts: [][]clickhouse_transpiler.ShardExtent{over},
+			want:     reads{{30 * time.Second, 0}, {150 * time.Second, 30 * time.Second}},
+		},
+		{
+			name: "a slice adding nothing grows by the traces already found", limit: 3, parts: parts{{aa}, nil},
+			want: reads{{time.Minute, 0}, {3 * time.Minute, time.Minute}, {7 * time.Minute, 3 * time.Minute}},
+		},
+		{
+			name: "a trace in two slices counts once", limit: 5, parts: parts{{aa}, {aa}},
+			want: reads{{time.Minute, 0}, {5 * time.Minute, time.Minute}, {21 * time.Minute, 5 * time.Minute}},
+		},
+		{
+			name: "limit 0 doubles", limit: 0, parts: parts{{aa, bb}},
+			want: reads{{time.Minute, 0}, {3 * time.Minute, time.Minute}, {7 * time.Minute, 3 * time.Minute}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk(tc.parts...)
+			walk.next = nextSlice
+			walk.withExtents(10, tc.attempts...)
+			ctx := &shared.PlannerContext{From: walkTo.Add(-time.Hour), To: walkTo, Limit: tc.limit}
+			if _, err := walk.Process(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if len(walk.reads) < len(tc.want) {
+				t.Fatalf("%d reads, want at least %d", len(walk.reads), len(tc.want))
+			}
+			checkReads(t, walk.reads[:len(tc.want)], tc.want...)
+		})
+	}
+}
+
+// A slice length clamped at the longest duration still ends at the range's start.
+func TestWalkClampsALongSlice(t *testing.T) {
+	walk := newScriptedWalk([]model.TraceInfo{ranked("aa", walkTo.UnixNano(), 1)})
+	walk.next = nextSlice
+	walk.first = time.Duration(math.MaxInt64) / 3
+	ctx := &shared.PlannerContext{From: walkTo.AddDate(-200, 0, 0), To: walkTo, Limit: math.MaxInt64}
+	if _, err := walk.Process(ctx); err != nil {
+		t.Fatal(err)
+	}
+	last := walk.reads[len(walk.reads)-1]
+	for i, read := range walk.reads {
+		if !read.From.Before(read.To) {
+			t.Errorf("read %d: (%v, %v]", i, read.From, read.To)
+		}
+	}
+	if !last.From.Equal(ctx.From) {
+		t.Errorf("walk ends at %v, want %v", last.From, ctx.From)
+	}
+}

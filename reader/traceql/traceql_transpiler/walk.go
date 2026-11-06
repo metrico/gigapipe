@@ -2,6 +2,7 @@ package traceql_transpiler
 
 import (
 	"cmp"
+	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -18,9 +19,21 @@ const (
 	minSlice = time.Second
 )
 
-// nextSlice is the length of the slice after one of length d, with found traces
-// ranking above its lower boundary at limit.
-func nextSlice(d time.Duration, _, _ int64) time.Duration { return 2 * d }
+// nextSlice is the length after a slice of length d with found traces ranked above
+// its lower boundary: scaled to reach limit at that rate, x4 with none, at least double.
+func nextSlice(d time.Duration, limit, found int64) time.Duration {
+	factor := 2.0
+	if limit > 0 {
+		factor = 4
+		if found > 0 {
+			factor = max(2, float64(limit-found)/float64(found))
+		}
+	}
+	if scaled := float64(d) * factor; scaled < math.MaxInt64 {
+		return time.Duration(scaled)
+	}
+	return math.MaxInt64
+}
 
 // walkProcessor searches adjacent slices of (ctx.From, ctx.To], newest first,
 // until the result is the exact top ctx.Limit by rank.
