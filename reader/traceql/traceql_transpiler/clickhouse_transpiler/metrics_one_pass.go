@@ -61,7 +61,11 @@ func (m *metricsSpansPlanner) onePassOnEachShard(ctx *shared.PlannerContext) (sq
 	for _, col := range m.NestedSet {
 		cols = append(cols, col.metrics())
 	}
-	return onEachShard(ctx, shard, cols...)
+	res, err := onEachShard(ctx, shard, cols...)
+	if err != nil {
+		return nil, err
+	}
+	return clusterSettings(ctx, res), nil
 }
 
 // onePass reads the spans of m.OnePass over ctx's own tables. The read's filter

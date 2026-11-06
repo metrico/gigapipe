@@ -217,3 +217,26 @@ func TestOnePassMetricsRunOnEachShard(t *testing.T) {
 		}
 	}
 }
+
+// skip_unavailable_shards sits on the read of the shards, not the outer statement.
+func TestOnePassMetricsSkipUnavailableShardsOnTheRead(t *testing.T) {
+	plan := planMetricsQuery(t, `{.a = 1} | rate()`)
+	over, err := plan.Over(countSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skip := range []bool{false, true} {
+		ctx := testPlannerContext(3)
+		ctx.IsCluster = true
+		ctx.SkipUnavailableShards = skip
+		for _, stmt := range []string{renderPlan(t, plan.Metrics, ctx), renderPlan(t, over, ctx)} {
+			setting := regexp.MustCompile(`metrics_spans as \(.* SETTINGS [^)]*skip_unavailable_shards=1`)
+			if setting.MatchString(stmt) != skip || strings.Count(stmt, "skip_unavailable_shards") > 1 {
+				t.Errorf("want skip_unavailable_shards once on the read = %v:\n%s", skip, stmt)
+			}
+			if strings.HasSuffix(stmt, "skip_unavailable_shards=1") {
+				t.Errorf("skip_unavailable_shards on the outer statement:\n%s", stmt)
+			}
+		}
+	}
+}

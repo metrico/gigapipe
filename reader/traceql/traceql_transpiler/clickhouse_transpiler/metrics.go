@@ -225,14 +225,7 @@ func (m *metricsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.Build(sql.NewWith(spans, "metrics_spans"))
-	if err != nil {
-		return nil, err
-	}
-	if m.Spans.OnePass != nil {
-		return clusterSettings(ctx, res), nil
-	}
-	return res, nil
+	return m.Build(sql.NewWith(spans, "metrics_spans"))
 }
 
 // comparePlanner builds compare() over the baseline spans, taken over the
