@@ -36,7 +36,6 @@ func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext
 	for i := range portions {
 		portionCtx := *ctx
 		portionCtx.RandomFilter = shared.RandomFilter{Max: int(portions), I: int(i)}
-		portionCtx.CachedTraceIds = nil
 		res, err := readSuggestions(&portionCtx, c.main)
 		if err != nil {
 			return nil, err

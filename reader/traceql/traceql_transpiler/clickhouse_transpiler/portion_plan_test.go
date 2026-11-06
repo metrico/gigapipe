@@ -7,10 +7,11 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 func TestPortionFilterOnEveryOperandRead(t *testing.T) {
-	const portionFilter = `((cityHash64(trace_id) % 3) == (1)) or (trace_id IN (unhex('aa'),unhex('bb')))`
+	const portionFilter = `(cityHash64(trace_id) % 3) == (1)`
 	requestedBounds := []string{">86390", "<=86410"}
 	for _, tc := range []struct {
 		query    string
@@ -28,7 +29,6 @@ func TestPortionFilterOnEveryOperandRead(t *testing.T) {
 		t.Run(tc.query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.RandomFilter = shared.RandomFilter{Max: 3, I: 1}
-			ctx.CachedTraceIds = []string{"aa", "bb"}
 			req, err := planSearch(t, tc.query).Process(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -50,6 +50,76 @@ func TestPortionFilterOnEveryOperandRead(t *testing.T) {
 			}
 			if operands != tc.operands {
 				t.Errorf("got %d operand reads, want %d", operands, tc.operands)
+			}
+		})
+	}
+}
+
+// A lone {} picks its traces in the current portion, and in every trace outside
+// portioned evaluation.
+func TestLoneSelectorPicksTracesOfItsPortion(t *testing.T) {
+	const portionFilter = `(cityHash64(trace_id) % 3) == (1)`
+	for _, query := range []string{`{}`, `({})`, `{} | select(.x)`} {
+		t.Run(query, func(t *testing.T) {
+			picked := func(ctx *shared.PlannerContext) string {
+				t.Helper()
+				req, err := planSearch(t, query).Process(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, w := range req.GetWith() {
+					if w.GetAlias() == "attrless_trace_ids" {
+						return renderWith(t, w)
+					}
+				}
+				t.Fatal("no attrless_trace_ids")
+				return ""
+			}
+			ctx := testPlannerContext(3)
+			ctx.RandomFilter = shared.RandomFilter{Max: 3, I: 1}
+			if s := picked(ctx); !strings.Contains(s, portionFilter) {
+				t.Errorf("no portion filter:\n%s", s)
+			}
+			if s := picked(testPlannerContext(3)); strings.Contains(s, "cityHash64") {
+				t.Errorf("portion filter outside portions:\n%s", s)
+			}
+		})
+	}
+}
+
+func TestResultSortsEqualStartsByTraceID(t *testing.T) {
+	req, err := planSearch(t, `{.a = 1}`).Process(testPlannerContext(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := req.String(sql.DefaultCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s, "ORDER BY start_time_unix_nano desc , trace_id desc") {
+		t.Errorf("got %s", s)
+	}
+}
+
+// Every search shape returns the rank the reader merges portions by.
+func TestFinalSelectHasTheRank(t *testing.T) {
+	shapes := []string{
+		`{}`, `{} | select(.x)`, `{.a = 1}`, `{.a}`, `{.a} >> {.b}`, `{.a} && {.b}`, `{.a} !>> {.b}`,
+		`{.a} | count() > 2`, `{.a} | by(.x)`, `{.a} || {.b}`, `{.a} | select(.x)`,
+	}
+	for _, query := range shapes {
+		t.Run(query, func(t *testing.T) {
+			req, err := planSearch(t, query).Process(testPlannerContext(3))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cols := req.GetSelect()
+			last, err := cols[len(cols)-1].String(sql.DefaultCtx())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasSuffix(last, "as trace_newest") {
+				t.Errorf("last column %q, want trace_newest", last)
 			}
 		})
 	}

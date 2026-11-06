@@ -100,9 +100,16 @@ type span struct {
 	attrs             []string
 }
 
-// seed inserts spans, attribute "k" = "1" for each k in attrs. On a cluster
-// the spans go through Distributed tables, sharded by trace.
+// seed inserts spans, each starting one nanosecond after the one before it.
 func (s *searchStore) seed(t *testing.T, spans []span) {
+	t.Helper()
+	s.seedStarts(t, spans, func(i int) int64 { return spanStart.UnixNano() + int64(i) })
+}
+
+// seedStarts inserts spans, the i-th starting at start(i), attribute "k" = "1"
+// for each k in attrs. On a cluster the spans go through Distributed tables,
+// sharded by trace.
+func (s *searchStore) seedStarts(t *testing.T, spans []span, start func(i int) int64) {
 	t.Helper()
 	var rows []string
 	for i, sp := range spans {
@@ -115,7 +122,7 @@ func (s *searchStore) seed(t *testing.T, spans []span) {
 			tags = append(tags, fmt.Sprintf("('%s', '1')", a))
 		}
 		rows = append(rows, fmt.Sprintf("('%032x', '%016x', '%s', 's%d', %d, 10, [%s])",
-			sp.trace, sp.id, parent, sp.id, spanStart.UnixNano()+int64(i), strings.Join(tags, ", ")))
+			sp.trace, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
 	}
 	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
 	if s.cluster == "" {

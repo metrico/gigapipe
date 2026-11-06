@@ -13,7 +13,7 @@ const DefaultSpansPerSpanSet = 3
 // SearchSpansetPlanner groups the result span rows into spansets, one per
 // trace and group key, each listing its newest spss spans (ties by span id)
 // and matched, the count of all. A trace lists its spansets by group key;
-// traces come newest-span first.
+// traces come newest-span first, with that span's start as trace_newest, their rank.
 type SearchSpansetPlanner struct {
 	Main shared.SQLRequestPlanner
 }
@@ -46,6 +46,7 @@ func (s *SearchSpansetPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 		Select(
 			sql.NewSimpleCol("trace_id", "trace_id"),
 			sql.NewSimpleCol("arrayFlatten(arrayMap(x -> x.2, spansets))", "span_id"),
+			sql.NewSimpleCol("max(newest)", "trace_newest"),
 			sql.NewSimpleCol("arraySort(x -> x.1, groupArray((grp, span_ids, matched, attrs)))", "spansets")).
 		From(sql.NewWithRef(withSpansets)).
 		GroupBy(sql.NewRawObject("trace_id")).

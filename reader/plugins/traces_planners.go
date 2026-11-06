@@ -24,7 +24,8 @@ func GetTracesDataPlugin() *TracesDataPlugin {
 // AttrlessConditionPlannerPlugin and InitIndexPlannerPlugin replace only the
 // selector reads in attrless.go and init.go. all_spans.go, field_filter.go,
 // the traceTree edge read and selectAttrs read the tables directly, so these
-// hooks don't scope the rows of those reads.
+// hooks don't scope the rows of those reads. An AttrlessConditionPlannerPlugin
+// reads only the traces of ctx.RandomFilter: portions are merged without a dedupe.
 type AttrlessConditionPlannerPlugin func() shared.SQLRequestPlanner
 
 var attrlessConditionPlannerPlugin *AttrlessConditionPlannerPlugin

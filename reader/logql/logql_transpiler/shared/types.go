@@ -86,8 +86,7 @@ type PlannerContext struct {
 
 	id int
 
-	RandomFilter   RandomFilter
-	CachedTraceIds []string
+	RandomFilter RandomFilter
 	// Portions is the number of complexity portions the request was read in,
 	// or 0 when it was read at once. It is final when the planner's Process returns.
 	Portions int64
