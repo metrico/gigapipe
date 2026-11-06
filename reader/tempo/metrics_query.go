@@ -40,12 +40,14 @@ type MetricsRequest struct {
 	ToNS       int64
 	StepNS     int64
 	AttrsTable string
+	// Scale multiplies volume results; 1 or unset leaves them as counted.
+	Scale float64
 }
 
 // BuildMetricsRangeQuery builds a ClickHouse SQL query for a metrics range request.
 // It returns the query and the list of by-label keys (for result grouping).
 func BuildMetricsRangeQuery(req *MetricsRequest) (sql.ISelect, []string, error) {
-	valueExpr, err := buildAggExpr(req.Fn, req.Attr, float64(req.StepNS)/1e9, req.Percentile)
+	valueExpr, err := buildAggExpr(req.Fn, req.Attr, float64(req.StepNS)/1e9, req.Percentile, req.Scale)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -67,7 +69,7 @@ func BuildMetricsInstantQuery(req *MetricsRequest) (sql.ISelect, []string, error
 	if windowS <= 0 {
 		windowS = 1
 	}
-	valueExpr, err := buildAggExpr(req.Fn, req.Attr, windowS, req.Percentile)
+	valueExpr, err := buildAggExpr(req.Fn, req.Attr, windowS, req.Percentile, req.Scale)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -128,8 +130,11 @@ func addByLabels(query sql.ISelect, groupBy *[]sql.SQLObject, byLabels []string,
 }
 
 // buildAggExpr returns the ClickHouse aggregation expression for a metrics function.
-func buildAggExpr(fn string, attr string, divisor float64, percentile *float64) (string, error) {
+func buildAggExpr(fn string, attr string, divisor float64, percentile *float64, scale float64) (string, error) {
 	if fn == "rate" {
+		if !isUnscaled(scale) {
+			return fmt.Sprintf("toFloat64(count(*)) / %g", divisor/scale), nil
+		}
 		return fmt.Sprintf("toFloat64(count(*)) / %f", divisor), nil
 	}
 	if fn == "quantile_over_time" {
@@ -152,6 +157,9 @@ func buildAggExpr(fn string, attr string, divisor float64, percentile *float64) 
 		if col == "" {
 			return "", fmt.Errorf("histogram_over_time requires an attribute argument")
 		}
+		if !isUnscaled(scale) {
+			return fmt.Sprintf("arrayMap(b -> (b.1, b.2, b.3 * %g), histogram(20)(%s))", scale, col), nil
+		}
 		return fmt.Sprintf("histogram(20)(%s)", col), nil
 	}
 	if fn == "compare" {
@@ -163,7 +171,7 @@ func buildAggExpr(fn string, attr string, divisor float64, percentile *float64) 
 		return "", fmt.Errorf("unsupported metrics function: %s", fn)
 	}
 	if !strings.Contains(tmpl, "%s") {
-		return tmpl, nil
+		return scaledExpr(tmpl, scale), nil
 	}
 	col := resolveAttrForAgg(attr)
 	if col == "" {
@@ -174,7 +182,23 @@ func buildAggExpr(fn string, attr string, divisor float64, percentile *float64) 
 	if col == "main.duration_ns" {
 		expr += " / 1e9"
 	}
+	if fn == "sum_over_time" {
+		expr = scaledExpr(expr, scale)
+	}
 	return expr, nil
+}
+
+// isUnscaled reports whether a Scale leaves results as counted: 1 or unset.
+func isUnscaled(scale float64) bool {
+	return scale <= 0 || scale == 1
+}
+
+// scaledExpr multiplies expr by scale, and returns it as is when unscaled.
+func scaledExpr(expr string, scale float64) string {
+	if isUnscaled(scale) {
+		return expr
+	}
+	return fmt.Sprintf("(%s) * %g", expr, scale)
 }
 
 // resolveAttrForAgg resolves a TraceQL attribute name to a ClickHouse column for aggregation.
@@ -272,7 +296,7 @@ func BuildHistogramRangeQuery(req *MetricsRequest) (sql.ISelect, error) {
 		Select(
 			sql.NewCol(sql.NewRawObject(tsBucket), "ts"),
 			sql.NewCol(sql.NewRawObject(bucket), "bucket_ns"),
-			sql.NewCol(sql.NewRawObject("count(*)"), "cnt"),
+			sql.NewCol(sql.NewRawObject(scaledExpr("count(*)", req.Scale)), "cnt"),
 		).
 		GroupBy(sql.NewRawObject("ts"), sql.NewRawObject("bucket_ns")).
 		OrderBy(
@@ -348,14 +372,16 @@ type CompareRequest struct {
 	BaselineToNS   int64
 	AttrsTable     string
 	TopN           int
+	// Scale multiplies both counts; 1 or unset leaves them as counted.
+	Scale float64
 }
 
 // CompareResultRow is one row from the compare() query.
 type CompareResultRow struct {
 	Key            string
 	Val            string
-	SelectionCount uint64
-	BaselineCount  uint64
+	SelectionCount float64
+	BaselineCount  float64
 }
 
 // BuildCompareQuery builds a ClickHouse SQL query for compare().
@@ -404,8 +430,8 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 		Select(
 			sql.NewCol(sql.NewRawObject("attrs.key"), "attr_key"),
 			sql.NewCol(sql.NewRawObject("attrs.val"), "attr_val"),
-			sql.NewCol(sql.NewRawObject("countIf(sel.trace_id != '')"), "selection_count"),
-			sql.NewCol(sql.NewRawObject("countIf(sel.trace_id = '')"), "baseline_count"),
+			sql.NewCol(sql.NewRawObject(scaledExpr("countIf(sel.trace_id != '')", req.Scale)), "selection_count"),
+			sql.NewCol(sql.NewRawObject(scaledExpr("countIf(sel.trace_id = '')", req.Scale)), "baseline_count"),
 		).
 		From(sql.NewCol(sql.NewWithRef(allSpansWith), "asp")).
 		AddJoin(sql.NewJoin("INNER",
