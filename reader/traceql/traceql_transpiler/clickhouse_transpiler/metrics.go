@@ -34,6 +34,8 @@ type MetricsPlan struct {
 	Metrics shared.SQLRequestPlanner
 	// spans are a PlanMetrics plan's spans, nil for compare().
 	spans *metricsSpansPlanner
+	// mainSample is the query's hash sample over rows aliased main.
+	mainSample sql.SQLCondition
 }
 
 // PlanMetrics plans a metrics query over the spans a search for it returns in the
@@ -45,7 +47,8 @@ func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (*MetricsPlan, err
 		return nil, err
 	}
 	spans := &metricsSpansPlanner{Prefix: p.getPrefix(), NestedSet: metricsNestedSet(query.Metrics)}
-	plan := &MetricsPlan{Metrics: &metricsPlanner{Spans: spans, Build: build}, spans: spans}
+	plan := &MetricsPlan{Metrics: &metricsPlanner{Spans: spans, Build: build}, spans: spans,
+		mainSample: sampleOf(query, "main.")}
 	if query.NeedsWholeTrace() {
 		spans.Ids = SearchResultTable
 		plan.Ids = []IdsStatement{{
@@ -106,6 +109,11 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 // sampleFilter is the hash sample of the query's sample hint, or nil without
 // one: by trace when the query relates spans across a trace, else by span.
 func sampleFilter(query *traceql_ir.Query) sql.SQLCondition {
+	return sampleOf(query, "")
+}
+
+// sampleOf is sampleFilter over columns with prefix.
+func sampleOf(query *traceql_ir.Query, prefix string) sql.SQLCondition {
 	f, ok := query.SampleFraction()
 	if !ok {
 		return nil
@@ -114,7 +122,7 @@ func sampleFilter(query *traceql_ir.Query) sql.SQLCondition {
 	if query.NeedsWholeTrace() {
 		col = "trace_id"
 	}
-	return rawCond(fmt.Sprintf("cityHash64(%s) < %d", col, sampleThreshold(f)))
+	return rawCond(fmt.Sprintf("cityHash64(%s%s) < %d", prefix, col, sampleThreshold(f)))
 }
 
 // SampleScale is the factor that scales a sampled volume up to the whole: 1/f

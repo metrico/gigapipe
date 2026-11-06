@@ -53,6 +53,9 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	if err != nil {
 		return nil, err
 	}
+	if planner.Metrics, err = tempo.RangeSeries(planner, mreq, &resolvedByLabels); err != nil {
+		return nil, err
+	}
 
 	// Group results into time series by label combination
 	seriesMap := make(map[string]*model.MetricsTimeSeries)
@@ -180,11 +183,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	}
 	var exemplarRows []exRow
 	var exByLabels []string
-	exMetrics, err := planner.Over(func(spans *sql.With) (sql.ISelect, error) {
-		query, byLabels, err := tempo.BuildGenericExemplarsQuery(over(mreq, spans))
-		exByLabels = byLabels
-		return query, err
-	})
+	exMetrics, err := tempo.GenericExemplars(planner, mreq, &exByLabels)
 	if err == nil && wantsExemplars(tq) {
 		_ = clickhouse_transpiler.QueryOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
 			var ts int64
@@ -313,6 +312,9 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		return query, err
 	})
 	if err != nil {
+		return nil, err
+	}
+	if planner.Metrics, err = tempo.InstantSeries(planner, mreq, &resolvedByLabels); err != nil {
 		return nil, err
 	}
 
@@ -474,6 +476,9 @@ func executeHistogramRange(
 	if err != nil {
 		return nil, err
 	}
+	if planner.Metrics, err = tempo.HistogramRange(planner, mreq); err != nil {
+		return nil, err
+	}
 
 	// Group by bucket_ns (power-of-2 upper bound) into separate series
 	seriesMap := make(map[uint64]*model.MetricsTimeSeries)
@@ -551,9 +556,7 @@ func executeHistogramRange(
 		spanTs   int64
 	}
 	var exemplarRows []exRow
-	exMetrics, err := planner.Over(func(spans *sql.With) (sql.ISelect, error) {
-		return tempo.BuildHistogramExemplarsQuery(over(mreq, spans))
-	})
+	exMetrics, err := tempo.HistogramExemplars(planner, mreq)
 	if err == nil && wantsExemplars(tq) {
 		_ = clickhouse_transpiler.QueryOver(planCtx, exMetrics, ids, func(exRows *stdsql.Rows) error {
 			var ts int64

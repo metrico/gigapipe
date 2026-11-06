@@ -33,7 +33,9 @@ var metricsAggFn = map[string]string{
 // span it counts: trace_id, span_id, timestamp_ns, duration_ns, name,
 // service_name and the MetricsNestedSetColumn of each nested-set field it reads.
 type MetricsRequest struct {
-	Spans      *sql.With
+	Spans *sql.With
+	// Read starts a statement over span rows in place of Spans.
+	Read       clickhouse_transpiler.SpanRead
 	Fn         string
 	Attr       string
 	By         []string
@@ -64,7 +66,7 @@ func BuildMetricsRangeQuery(req *MetricsRequest) (sql.ISelect, []string, error) 
 	if queryWide {
 		columns = append(columns, sql.NewCol(sql.NewRawObject("grouping(ts)"), "query_wide"))
 	}
-	query := spansQuery(req.Spans).Select(columns...)
+	query := spansQuery(req).Select(columns...)
 	groupBy := []sql.SQLObject{sql.NewRawObject("ts")}
 	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable)
 	if queryWide {
@@ -92,15 +94,11 @@ func groupingWithQueryWide(keys []sql.SQLObject) sql.SQLObject {
 
 // BuildMetricsInstantQuery builds a ClickHouse SQL query for an instant metrics query.
 func BuildMetricsInstantQuery(req *MetricsRequest) (sql.ISelect, []string, error) {
-	windowS := float64(req.ToNS-req.FromNS) / 1e9
-	if windowS <= 0 {
-		windowS = 1
-	}
-	valueExpr, err := buildAggExpr(req.Fn, req.Attr, windowS, req.Quantiles, req.Scale)
+	valueExpr, err := buildAggExpr(req.Fn, req.Attr, instantWindowS(req), req.Quantiles, req.Scale)
 	if err != nil {
 		return nil, nil, err
 	}
-	query := spansQuery(req.Spans).Select(sql.NewCol(sql.NewRawObject(valueExpr), "value"))
+	query := spansQuery(req).Select(sql.NewCol(sql.NewRawObject(valueExpr), "value"))
 	var groupBy []sql.SQLObject
 	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable)
 	if len(groupBy) > 0 {
@@ -109,11 +107,22 @@ func BuildMetricsInstantQuery(req *MetricsRequest) (sql.ISelect, []string, error
 	return query, resolvedByLabels, nil
 }
 
-// spansQuery selects from spans as main.
-func spansQuery(spans *sql.With) sql.ISelect {
+// instantWindowS is the seconds an instant request's rate divides by.
+func instantWindowS(req *MetricsRequest) float64 {
+	if windowS := float64(req.ToNS-req.FromNS) / 1e9; windowS > 0 {
+		return windowS
+	}
+	return 1
+}
+
+// spansQuery starts a statement over req's span rows as main.
+func spansQuery(req *MetricsRequest) sql.ISelect {
+	if req.Read != nil {
+		return req.Read()
+	}
 	return sql.NewSelect().
-		With(spans).
-		From(sql.NewCol(sql.NewWithRef(spans), "main"))
+		With(req.Spans).
+		From(sql.NewCol(sql.NewWithRef(req.Spans), "main"))
 }
 
 // addByLabels adds a column and a group-by key to query per by-label:
@@ -159,10 +168,7 @@ func addByLabels(query sql.ISelect, groupBy *[]sql.SQLObject, byLabels []string,
 // buildAggExpr returns the ClickHouse aggregation expression for a metrics function.
 func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64, scale float64) (string, error) {
 	if fn == "rate" {
-		if !isUnscaled(scale) {
-			return fmt.Sprintf("toFloat64(count(*)) / %g", divisor/scale), nil
-		}
-		return fmt.Sprintf("toFloat64(count(*)) / %f", divisor), nil
+		return countExpr(fn, "count(*)", divisor, scale), nil
 	}
 	if fn == "quantile_over_time" {
 		col := resolveAttrForAgg(attr)
@@ -198,7 +204,7 @@ func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64, 
 		return "", fmt.Errorf("unsupported metrics function: %s", fn)
 	}
 	if !strings.Contains(tmpl, "%s") {
-		return scaledExpr(tmpl, scale), nil
+		return countExpr(fn, tmpl, divisor, scale), nil
 	}
 	col := resolveAttrForAgg(attr)
 	if col == "" {
@@ -213,6 +219,17 @@ func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64, 
 		expr = scaledExpr(expr, scale)
 	}
 	return expr, nil
+}
+
+// countExpr is rate or count_over_time of the span count count.
+func countExpr(fn, count string, divisor, scale float64) string {
+	if fn != "rate" {
+		return scaledExpr(count, scale)
+	}
+	if !isUnscaled(scale) {
+		return fmt.Sprintf("toFloat64(%s) / %g", count, divisor/scale)
+	}
+	return fmt.Sprintf("toFloat64(%s) / %f", count, divisor)
 }
 
 // isUnscaled reports whether a Scale leaves results as counted: 1 or unset.
@@ -320,7 +337,7 @@ func BuildHistogramRangeQuery(req *MetricsRequest) (sql.ISelect, error) {
 		return nil, err
 	}
 	tsBucket := fmt.Sprintf("intDiv(main.timestamp_ns, %d) * %d", req.StepNS, req.StepNS)
-	return spansQuery(req.Spans).
+	return spansQuery(req).
 		Select(
 			sql.NewCol(sql.NewRawObject(tsBucket), "ts"),
 			sql.NewCol(sql.NewRawObject(bucket), "bucket_ns"),
@@ -341,7 +358,7 @@ func BuildHistogramExemplarsQuery(req *MetricsRequest) (sql.ISelect, error) {
 		return nil, err
 	}
 	tsBucket := fmt.Sprintf("intDiv(main.timestamp_ns, %d) * %d", req.StepNS, req.StepNS)
-	return spansQuery(req.Spans).
+	return spansQuery(req).
 		Select(append([]sql.SQLObject{
 			sql.NewCol(sql.NewRawObject(tsBucket), "ts"),
 			sql.NewCol(sql.NewRawObject(bucket), "bucket_ns"),
@@ -389,7 +406,7 @@ type HistogramExemplar struct {
 // responses. It returns the by-labels in column order.
 func BuildGenericExemplarsQuery(req *MetricsRequest) (sql.ISelect, []string, error) {
 	tsBucket := fmt.Sprintf("intDiv(main.timestamp_ns, %d) * %d", req.StepNS, req.StepNS)
-	query := spansQuery(req.Spans).Select(
+	query := spansQuery(req).Select(
 		append([]sql.SQLObject{sql.NewCol(sql.NewRawObject(tsBucket), "ts")}, exemplarCols(req.Attr)...)...,
 	)
 	groupBy := []sql.SQLObject{sql.NewRawObject("ts")}
