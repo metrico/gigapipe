@@ -308,6 +308,29 @@ func TestStructuralSearchRunsWholeOnEachShard(t *testing.T) {
 	}
 }
 
+// The reader merges portions by trace_newest, so a structural search returns it
+// from each shard and from one node.
+func TestStructuralSearchReturnsTheRank(t *testing.T) {
+	for _, query := range structuralQueries {
+		t.Run(query, func(t *testing.T) {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx)
+			m := shardView.FindStringSubmatch(res)
+			if m == nil {
+				t.Fatalf("statement is not run on each shard:\n%s", res)
+			}
+			if !strings.Contains(m[1], "trace_newest") {
+				t.Errorf("merge does not select the rank:\n%s", m[1])
+			}
+			res = renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3))
+			if !strings.Contains(res, "max(newest) as trace_newest") || !strings.Contains(res, "LIMIT 5") {
+				t.Errorf("single node does not return its newest 5 traces:\n%s", res)
+			}
+		})
+	}
+}
+
 func TestShardStatementSendsEveryShardItsBodyAtOnce(t *testing.T) {
 	setting := regexp.MustCompile(`LIMIT 5 SETTINGS prefer_localhost_replica=0\)`)
 	for _, query := range structuralQueries {
@@ -324,6 +347,7 @@ func TestStructuralStatementsOnSingleNodeHaveNoShardStatement(t *testing.T) {
 	for _, query := range structuralQueries {
 		statements := idsStatements(t, query)
 		statements["search"] = planSearch(t, query).Ids[0].Statement
+		statements["estimate"] = estimateStatement(t, query)
 		for name, statement := range statements {
 			res := renderPlan(t, statement, testPlannerContext(3))
 			for _, bad := range []string{"cluster(", "prefer_localhost_replica"} {
@@ -341,6 +365,7 @@ func TestShardStatementSkipsUnavailableShardsLikeTheReadTables(t *testing.T) {
 		for _, query := range structuralQueries {
 			statements := idsStatements(t, query)
 			statements["search"] = planSearch(t, query).Ids[0].Statement
+			statements["estimate"] = estimateStatement(t, query)
 			for name, statement := range statements {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = true

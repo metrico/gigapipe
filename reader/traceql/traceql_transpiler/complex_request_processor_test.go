@@ -1,8 +1,12 @@
 package traceql_transpiler
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +16,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
+	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 type portionRead struct {
@@ -287,6 +292,113 @@ func TestRequestPortionsOnlyOverTheBudget(t *testing.T) {
 		if ctx.TotalJobs() != tc.totalJobs {
 			t.Errorf("estimate %d: TotalJobs %d, want %d", tc.estimate, ctx.TotalJobs(), tc.totalJobs)
 		}
+	}
+}
+
+// estimateRows returns one row per count, then ends with err, or cleanly without one.
+type estimateRows struct {
+	counts []int64
+	err    error
+}
+
+func (r *estimateRows) Columns() []string { return []string{"_count"} }
+func (r *estimateRows) Close() error      { return nil }
+func (r *estimateRows) Next(dest []driver.Value) error {
+	if len(r.counts) == 0 {
+		if r.err != nil {
+			return r.err
+		}
+		return io.EOF
+	}
+	dest[0], r.counts = r.counts[0], r.counts[1:]
+	return nil
+}
+
+type estimateConn struct {
+	driver.Conn
+	counts []int64
+	err    error
+}
+
+func (c estimateConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+	return &estimateRows{counts: slices.Clone(c.counts), err: c.err}, nil
+}
+
+func (c estimateConn) Close() error { return nil }
+
+type estimateConnector struct {
+	counts []int64
+	err    error
+}
+
+func (c estimateConnector) Connect(context.Context) (driver.Conn, error) {
+	return estimateConn{counts: c.counts, err: c.err}, nil
+}
+
+func (c estimateConnector) Driver() driver.Driver { return nil }
+
+type estimateDB struct {
+	model.ISqlxDB
+	db *sql.DB
+}
+
+func (d estimateDB) QueryCtx(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return d.db.QueryContext(ctx, query, args...)
+}
+
+type selectOne struct{}
+
+func (selectOne) Process(*shared.PlannerContext) (sql_select.ISelect, error) {
+	return sql_select.NewSelect().Select(sql_select.NewRawObject("1")), nil
+}
+
+func TestEstimateIsTheFullestShard(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		counts      []int64
+		portions    int64
+		simpleCalls int
+	}{
+		{name: "the fullest shard is neither first nor last", counts: []int64{0, 7, 3}, portions: 4},
+		{name: "the fullest shard is first", counts: []int64{7, 0}, portions: 4},
+		{name: "the fullest shard follows a smaller one", counts: []int64{3, 7, 0}, portions: 4},
+		{name: "no rows read at once", simpleCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := sql.OpenDB(estimateConnector{counts: tc.counts})
+			t.Cleanup(func() { _ = db.Close() })
+			simple, portioned := &simpleRequestRecorder{}, &portionCountRecorder{}
+			evaluator := &TraceQLComplexityEvaluator[string, *clickhouse_transpiler.SearchPlan]{
+				threshold: 2, simpleRequestProcessor: simple, complexRequestProcessor: portioned,
+				evaluateComplexityPlanner: selectOne{},
+			}
+			ctx := &shared.PlannerContext{Ctx: context.Background(), CHDb: estimateDB{db: db}}
+			if _, err := evaluator.Process(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if portioned.portions != tc.portions || simple.calls != tc.simpleCalls {
+				t.Errorf("read in %d portions, %d simple calls; want %d, %d",
+					portioned.portions, simple.calls, tc.portions, tc.simpleCalls)
+			}
+		})
+	}
+}
+
+func TestEstimateReadFailureFailsTheRequest(t *testing.T) {
+	failure := errors.New("shard failed")
+	db := sql.OpenDB(estimateConnector{counts: []int64{1}, err: failure})
+	t.Cleanup(func() { _ = db.Close() })
+	simple, portioned := &simpleRequestRecorder{}, &portionCountRecorder{}
+	evaluator := &TraceQLComplexityEvaluator[string, *clickhouse_transpiler.SearchPlan]{
+		threshold: 10, simpleRequestProcessor: simple, complexRequestProcessor: portioned,
+		evaluateComplexityPlanner: selectOne{},
+	}
+	ctx := &shared.PlannerContext{Ctx: context.Background(), CHDb: estimateDB{db: db}}
+	if _, err := evaluator.Process(ctx); !errors.Is(err, failure) {
+		t.Errorf("Process returned %v, want %v", err, failure)
+	}
+	if simple.calls != 0 || portioned.portions != 0 {
+		t.Errorf("read the request after the estimate failed: %d simple calls, %d portions", simple.calls, portioned.portions)
 	}
 }
 

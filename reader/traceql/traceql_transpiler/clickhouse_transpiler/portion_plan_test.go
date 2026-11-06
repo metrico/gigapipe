@@ -143,17 +143,10 @@ func TestEstimateFollowsAttrlessPlan(t *testing.T) {
 		{`{} >> {.a}`, false},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
-			q, err := traceql_ir.Parse(tc.query)
-			if err != nil {
-				t.Fatal(err)
-			}
-			eval, err := PlanEval(q)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, attrless := eval.(*EvalFinalizerPlanner).Main.(*AttrlessEvaluatorPlanner)
+			estimate := estimateOf(t, tc.query)
+			_, attrless := estimate.(*AttrlessEvaluatorPlanner)
 			if attrless != tc.attrless {
-				t.Errorf("estimated by %T, want attrless %v", eval.(*EvalFinalizerPlanner).Main, tc.attrless)
+				t.Errorf("estimated by %T, want attrless %v", estimate, tc.attrless)
 			}
 		})
 	}
@@ -169,7 +162,24 @@ func estimateOf(t *testing.T, query string) shared.SQLRequestPlanner {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if gate, ok := eval.(*StructuralQueryPlanner); ok {
+		eval = gate.Main
+	}
 	return eval.(*EvalFinalizerPlanner).Main
+}
+
+// estimateStatement is the whole statement that estimates query.
+func estimateStatement(t *testing.T, query string) shared.SQLRequestPlanner {
+	t.Helper()
+	q, err := traceql_ir.Parse(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eval, err := PlanEval(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return eval
 }
 
 func TestStructuralQueriesEstimateEverySpanInRange(t *testing.T) {
@@ -179,9 +189,13 @@ func TestStructuralQueriesEstimateEverySpanInRange(t *testing.T) {
 	}
 	for _, query := range queries {
 		t.Run(query, func(t *testing.T) {
-			estimate := estimateOf(t, query)
-			if _, ok := estimate.(*AllSpansEvaluatorPlanner); !ok {
-				t.Fatalf("estimated by %T", estimate)
+			perShard, ok := estimateOf(t, query).(*shardLocalPlanner)
+			if !ok {
+				t.Fatalf("estimated by %T", estimateOf(t, query))
+			}
+			estimate, ok := perShard.Single.(*AllSpansEvaluatorPlanner)
+			if !ok {
+				t.Fatalf("estimated on one node by %T", perShard.Single)
 			}
 			res := renderPlan(t, estimate, testPlannerContext(3))
 			if !strings.Contains(res, "count()") || !strings.Contains(res, "tempo_traces") {
@@ -189,6 +203,54 @@ func TestStructuralQueriesEstimateEverySpanInRange(t *testing.T) {
 			}
 			if bounds := spanStartBounds(res); !slices.Equal(bounds, []string{">86390", "<=86410"}) {
 				t.Errorf("bounds %v:\n%s", bounds, res)
+			}
+		})
+	}
+}
+
+// One row per shard reaches the evaluator: each shard counts its own spans in range.
+func TestStructuralEstimateCountsOnEachShard(t *testing.T) {
+	view := shardViewThen(`(.*)`)
+	for _, query := range append([]string{`{.a} && ({.b} >> {.c})`, `{} >> {.a}`}, structuralQueries...) {
+		t.Run(query, func(t *testing.T) {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			res := renderPlan(t, estimateStatement(t, query), ctx)
+			if strings.Count(res, "cluster('test_cluster', view(") != 1 {
+				t.Fatalf("estimate is not one statement on each shard:\n%s", res)
+			}
+			m := view.FindStringSubmatch(res)
+			if m == nil {
+				t.Fatalf("estimate does not read a shard view:\n%s", res)
+			}
+			shard, outer := m[2], m[1]+m[3]
+			if !strings.Contains(shard, "count()") || !strings.Contains(shard, "tempo_traces") || strings.Contains(shard, "_dist") {
+				t.Errorf("shard does not count its local traces table:\n%s", shard)
+			}
+			if bounds := spanStartBounds(shard); !slices.Equal(bounds, []string{">86390", "<=86410"}) {
+				t.Errorf("bounds %v:\n%s", bounds, shard)
+			}
+			if strings.Contains(outer, "max(") || strings.Contains(outer, "sum(") {
+				t.Errorf("coordinator aggregates the shards' rows:\n%s", outer)
+			}
+			if !strings.Contains(outer, "prefer_localhost_replica=0") {
+				t.Errorf("local shard runs in-process:\n%s", outer)
+			}
+		})
+	}
+}
+
+func TestSpanOnlyEstimatesStayOffTheShardView(t *testing.T) {
+	for _, query := range []string{`{}`, `{.a = 1}`, `{.a} | count() > 2`, `{.a = 1} && {.b = 2}`, `{.a = 1} || {.b = 2}`} {
+		t.Run(query, func(t *testing.T) {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			ctx.SkipUnavailableShards = true
+			res := renderPlan(t, estimateStatement(t, query), ctx)
+			for _, bad := range []string{"cluster(", "SETTINGS"} {
+				if strings.Contains(res, bad) {
+					t.Errorf("estimate holds %q:\n%s", bad, res)
+				}
 			}
 		})
 	}

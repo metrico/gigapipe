@@ -120,7 +120,7 @@ func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	if AllSpans(p.query) {
 		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
 	} else if p.query.HasStructural() {
-		res = &AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}
+		res = shardLocal(&AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}, "_count")
 	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
 		var err error
 		if res, err = p.operand(selector).planEval(); err != nil {
@@ -133,7 +133,7 @@ func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 		}
 		res = &ComplexEvalOrPlanner{Operands: operands, Prefix: p.getPrefix()}
 	}
-	return &EvalFinalizerPlanner{Main: res}, nil
+	return p.structuralGate(&EvalFinalizerPlanner{Main: res}), nil
 }
 
 // planSpansetExpr plans a spanset operator tree into span rows.

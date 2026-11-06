@@ -51,6 +51,10 @@ type searchStore struct {
 	name    string
 	cluster string
 	golden  map[string][]string
+	// skipUnavailable is the reader's SkipUnavailableShards.
+	skipUnavailable bool
+	// user is the ClickHouse user reading s, when it is not the admin.
+	user string
 }
 
 var goldenMu sync.Mutex
@@ -179,7 +183,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 	}
 	distconfig.Init()
 	tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
-		Name: s.name, ClusterName: s.cluster,
+		Name: s.name, ClusterName: s.cluster, SkipUnavailableShards: s.skipUnavailable,
 	}})
 	var ch chan []model.TraceInfo
 	if run.portions == 0 {
@@ -848,21 +852,45 @@ func TestProbeUnresolvedOverHTTP(t *testing.T) { testProbeUnresolved(t, false, t
 
 func TestProbeUnresolvedOverHTTPOnCluster(t *testing.T) { testProbeUnresolved(t, true, true) }
 
-// A structural query's estimate is every span in range, so the budget that holds
-// all of them reads it at once and one span less splits it.
-func TestSearchPortionsByTheSpansInRange(t *testing.T) {
-	s := openSearchStore(t, false, false)
+// A structural query's estimate is the spans in range on the fullest shard, so
+// the budget that holds them reads it at once and one span less splits it.
+func TestSearchPortionsByTheSpansInRange(t *testing.T) { testSearchPortionsByTheSpansInRange(t, false) }
+
+func TestSearchPortionsByTheSpansInRangeOnCluster(t *testing.T) {
+	testSearchPortionsByTheSpansInRange(t, true)
+}
+
+// fullestShard returns the spans of the fullest shard, a single node being one.
+func (s *searchStore) fullestShard(t *testing.T) int {
+	t.Helper()
+	total := len(structuralTraces())
+	if s.cluster == "" {
+		return total
+	}
+	var fullest uint64
+	if err := s.conn.QueryRow(context.Background(), `SELECT max(c) FROM
+		(SELECT count() c FROM tempo_traces_dist GROUP BY _shard_num)`).Scan(&fullest); err != nil {
+		t.Fatal(err)
+	}
+	if int(fullest) >= total {
+		t.Fatalf("fullest shard holds %d of %d spans, want them split", fullest, total)
+	}
+	return int(fullest)
+}
+
+func testSearchPortionsByTheSpansInRange(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
 	s.seedStructural(t)
 	t.Cleanup(func() {
 		if err := traceqlconfig.Init(); err != nil {
 			t.Error(err)
 		}
 	})
-	spans := len(structuralTraces())
+	fullest := s.fullestShard(t)
 	for _, tc := range []struct {
 		budget              int
 		portions, totalJobs int64
-	}{{spans, 0, 1}, {spans - 1, 2, 2}} {
+	}{{fullest, 0, 1}, {fullest - 1, 2, 2}} {
 		t.Setenv(traceqlconfig.PortionSpansEnv, strconv.Itoa(tc.budget))
 		if err := traceqlconfig.Init(); err != nil {
 			t.Fatal(err)
@@ -876,12 +904,15 @@ func TestSearchPortionsByTheSpansInRange(t *testing.T) {
 			t.Fatal(err)
 		}
 		ctx := &shared.PlannerContext{
-			Ctx: context.Background(), CHDb: s.db,
+			Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
 			From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
 			Limit: searchLimit, SpansPerSpanSet: 100, AncestryRounds: 20,
 			VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
 		}
-		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{Name: s.name}})
+		distconfig.Init()
+		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
+			Name: s.name, ClusterName: s.cluster,
+		}})
 		ch, err := planner.Process(ctx)
 		if err != nil {
 			t.Fatal(err)
