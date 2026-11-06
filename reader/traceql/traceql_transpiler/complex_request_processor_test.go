@@ -131,3 +131,17 @@ func TestPortionCountRoundsComplexityUpToThreshold(t *testing.T) {
 		}
 	}
 }
+
+func TestComplexRequestRecordsPortions(t *testing.T) {
+	var reads []portionRead
+	ctx := &shared.PlannerContext{Limit: 2}
+	ch, err := portionedTraces(fakeTracesRead(1, &reads)).ProcessComplexReq(ctx, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	if ctx.Portions != 3 || len(reads) != 3 {
+		t.Errorf("Portions = %d, reads = %d, want 3", ctx.Portions, len(reads))
+	}
+}

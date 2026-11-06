@@ -27,6 +27,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	reqCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 
 	sqlCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
@@ -42,6 +43,7 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	traceql_transpiler.WarnUnresolved(reqCtx, query, sqlCtx)
 	res := make(chan []model.TraceInfo)
 	go func() {
 		defer close(res)

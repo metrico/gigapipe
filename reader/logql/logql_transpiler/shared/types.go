@@ -88,7 +88,10 @@ type PlannerContext struct {
 
 	RandomFilter   RandomFilter
 	CachedTraceIds []string
-	VersionInfo    dbversion.VersionInfo
+	// Portions is the number of complexity portions the request was read in,
+	// or 0 when it was read at once.
+	Portions    int64
+	VersionInfo dbversion.VersionInfo
 
 	// TracesIntrinsicWhere holds extra WHERE conditions for the tempo_traces table
 	// (e.g., nestedSetParent < 0 → parent_id = '').

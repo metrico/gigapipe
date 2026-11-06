@@ -76,7 +76,8 @@ func (t *TraceQLComplexityEvaluator[T]) ProcessSimpleReq(ctx *shared.PlannerCont
 func (t *TraceQLComplexityEvaluator[T]) ProcessComplexReq(ctx *shared.PlannerContext,
 	complexity int64) (chan []T, error) {
 	t.complexRequestProcessor.SetMain(t.initSqlPlanner)
-	return t.complexRequestProcessor.Process(ctx, (complexity+t.threshold-1)/t.threshold)
+	ctx.Portions = (complexity + t.threshold - 1) / t.threshold
+	return t.complexRequestProcessor.Process(ctx, ctx.Portions)
 }
 
 func sortSpans(spans []model.SpanInfo) {

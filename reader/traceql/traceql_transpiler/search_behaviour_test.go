@@ -462,3 +462,84 @@ func testSearchUnresolvedTraces(t *testing.T, cluster bool) {
 func TestSearchUnresolvedTraces(t *testing.T) { testSearchUnresolvedTraces(t, false) }
 
 func TestSearchUnresolvedTracesOnCluster(t *testing.T) { testSearchUnresolvedTraces(t, true) }
+
+// testProbeUnresolved checks what the probe reports for cycles, whatever the
+// portion count, and that well-formed and dangling traces stay out of it.
+func testProbeUnresolved(t *testing.T, cluster, http bool) {
+	s := openSearchStore(t, cluster, http)
+	a, b, ab := []string{"a"}, []string{"b"}, []string{"a", "b"}
+	s.seed(t, []span{
+		// well formed
+		{40, 1, 0, a}, {40, 2, 1, b},
+		// self-parent
+		{41, 1, 1, ab},
+		// cycle under a root
+		{42, 1, 0, a}, {42, 6, 1, b}, {42, 2, 4, a}, {42, 3, 2, b}, {42, 4, 3, ab}, {42, 5, 3, b},
+		// root, dangling span and cycle
+		{44, 1, 0, a}, {44, 2, 1, b}, {44, 3, 99, b}, {44, 4, 5, a}, {44, 5, 4, b},
+		// root and dangling span
+		{45, 1, 0, a}, {45, 2, 1, b}, {45, 3, 99, ab},
+	})
+	const id41, id42, id44 = "00000000000000000000000000000029", "0000000000000000000000000000002a", "0000000000000000000000000000002c"
+	for _, c := range []struct {
+		query string
+		n     uint64
+		ids   []string
+		jumps []uint64
+	}{
+		{`{.a = "1"} >> {.b = "1"}`, 3, []string{id41, id42, id44}, []uint64{3}},
+		{`{.a = "1"} > {.b = "1"}`, 1, []string{id44}, []uint64{1}},
+		{`({.a = "1"} >> {.b = "1"}) &<< ({.a = "1"} > {.b = "1"})`, 3, []string{id41, id42, id44}, []uint64{3, 1, 2}},
+		{`{.a = "nope"} >> {.b = "nope"}`, 0, nil, []uint64{0}},
+	} {
+		for _, portions := range []int64{0, 3} {
+			t.Run(fmt.Sprintf("%s portions %d", c.query, portions), func(t *testing.T) {
+				q, err := traceql_ir.Parse(c.query)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ctx := &shared.PlannerContext{
+					Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
+					From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+					AncestryRounds: 20, Portions: portions,
+					VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
+				}
+				distconfig.Init()
+				tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
+					Name: s.name, ClusterName: s.cluster,
+				}})
+				found, err := probeUnresolved(context.Background(), q, ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				n, ids := mergeUnresolved(found)
+				if n != c.n || !slices.Equal(ids, c.ids) {
+					t.Errorf("n = %d ids = %q, want %d %q", n, ids, c.n, c.ids)
+				}
+				sums := map[string]uint64{}
+				var order []string
+				for _, f := range found {
+					if _, ok := sums[f.Jump]; !ok {
+						order = append(order, f.Jump)
+					}
+					sums[f.Jump] += f.N
+				}
+				var jumps []uint64
+				for _, j := range order {
+					jumps = append(jumps, sums[j])
+				}
+				if !slices.Equal(jumps, c.jumps) {
+					t.Errorf("per-jump counts %v, want %v", jumps, c.jumps)
+				}
+			})
+		}
+	}
+}
+
+func TestProbeUnresolved(t *testing.T) { testProbeUnresolved(t, false, false) }
+
+func TestProbeUnresolvedOnCluster(t *testing.T) { testProbeUnresolved(t, true, false) }
+
+func TestProbeUnresolvedOverHTTP(t *testing.T) { testProbeUnresolved(t, false, true) }
+
+func TestProbeUnresolvedOverHTTPOnCluster(t *testing.T) { testProbeUnresolved(t, true, true) }

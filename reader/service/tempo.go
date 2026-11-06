@@ -227,6 +227,7 @@ func (t *TempoService) TagsV2(ctx context.Context, query string, from time.Time,
 	if err != nil {
 		return nil, err
 	}
+	traceql_transpiler.WarnUnresolved(ctx, oQuery, planCtx)
 
 	res := make(chan string)
 	go func() {
@@ -269,6 +270,7 @@ func (t *TempoService) ValuesV2(ctx context.Context, key string, query string, f
 	if err != nil {
 		return nil, err
 	}
+	traceql_transpiler.WarnUnresolved(ctx, oQuery, planCtx)
 
 	res := make(chan string)
 	go func() {
