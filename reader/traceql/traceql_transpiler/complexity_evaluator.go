@@ -28,8 +28,6 @@ type TraceQLComplexityEvaluator[T any] struct {
 	threshold                 int64
 }
 
-const COMPLEXITY_THRESHOLD = 10000000
-
 func (t *TraceQLComplexityEvaluator[T]) Process(ctx *shared.PlannerContext) (chan []T, error) {
 	evaluateComplexity, err := t.evaluateComplexityPlanner.Process(ctx)
 	if err != nil {

@@ -105,6 +105,7 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 ## TraceQL
 
 - **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
+- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per portion, a positive integer (default: `2500000`). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range; a lone `{}` estimates the search limit; others estimate the spans their selectors match. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up.
 
 Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
 

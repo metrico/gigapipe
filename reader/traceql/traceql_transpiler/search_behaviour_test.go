@@ -20,6 +20,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
@@ -171,7 +172,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 		portioned := planner.(interface {
 			ProcessComplexReq(*shared.PlannerContext, int64) (chan []model.TraceInfo, error)
 		})
-		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*COMPLEXITY_THRESHOLD)
+		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*traceqlconfig.PortionSpans())
 	}
 	if err != nil {
 		return []string{"error: " + err.Error()}

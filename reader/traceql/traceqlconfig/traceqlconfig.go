@@ -14,12 +14,28 @@ const (
 	// DefaultAncestryRounds applies when AncestryRoundsEnv is unset.
 	DefaultAncestryRounds = 20
 	maxAncestryRounds     = 32
+
+	// PortionSpansEnv sets the most spans a TraceQL search or tag autocomplete
+	// reads per portion.
+	PortionSpansEnv = "GIGAPIPE_TRACEQL_PORTION_SPANS"
+	// DefaultPortionSpans applies when PortionSpansEnv is unset.
+	DefaultPortionSpans = 2500000
 )
 
-var ancestryRounds = DefaultAncestryRounds
+var (
+	ancestryRounds       = DefaultAncestryRounds
+	portionSpans   int64 = DefaultPortionSpans
+)
 
 // Init reads the settings from the environment. Call it at startup.
 func Init() error {
+	if err := initAncestryRounds(); err != nil {
+		return err
+	}
+	return initPortionSpans()
+}
+
+func initAncestryRounds() error {
 	ancestryRounds = DefaultAncestryRounds
 	v := os.Getenv(AncestryRoundsEnv)
 	if v == "" {
@@ -33,7 +49,26 @@ func Init() error {
 	return nil
 }
 
+func initPortionSpans() error {
+	portionSpans = DefaultPortionSpans
+	v := os.Getenv(PortionSpansEnv)
+	if v == "" {
+		return nil
+	}
+	spans, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || spans < 1 {
+		return fmt.Errorf("%s=%q: want a positive integer", PortionSpansEnv, v)
+	}
+	portionSpans = spans
+	return nil
+}
+
 // AncestryRounds returns the configured pointer-jumping rounds.
 func AncestryRounds() int {
 	return ancestryRounds
+}
+
+// PortionSpans returns the span budget of one portion.
+func PortionSpans() int64 {
+	return portionSpans
 }
