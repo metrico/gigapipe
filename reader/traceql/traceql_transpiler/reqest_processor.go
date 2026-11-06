@@ -37,7 +37,7 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 
 // read reads every trace with its spansets before returning.
 func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext) ([]model.TraceInfo, error) {
-	spansets := map[string][]searchSpanset{}
+	spansets := map[string]searchTrace{}
 	idsScan := func(rows *sql.Rows) (string, []string, error) {
 		return scanSearch(rows, spansets)
 	}
@@ -60,7 +60,7 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext) ([]model.Trace
 
 // scanSearch reads a search's ids row, adding the trace's spansets to
 // spansets by hex trace id.
-func scanSearch(rows *sql.Rows, spansets map[string][]searchSpanset) (string, []string, error) {
+func scanSearch(rows *sql.Rows, spansets map[string]searchTrace) (string, []string, error) {
 	var (
 		traceId        string
 		spanIds        []string
@@ -70,9 +70,10 @@ func scanSearch(rows *sql.Rows, spansets map[string][]searchSpanset) (string, []
 		attrTypes      [][]string
 		attrValues     [][]float64
 		attrTexts      [][]string
+		newest         int64
 	)
 	if err := rows.Scan(&traceId, &spanIds, &spansetSpanIds, &matched,
-		&attrNames, &attrTypes, &attrValues, &attrTexts); err != nil {
+		&attrNames, &attrTypes, &attrValues, &attrTexts, &newest); err != nil {
 		return "", nil, err
 	}
 	sets := make([]searchSpanset, len(spansetSpanIds))
@@ -83,8 +84,14 @@ func scanSearch(rows *sql.Rows, spansets map[string][]searchSpanset) (string, []
 			attributes: spanSetAttrs(attrNames[i], attrTypes[i], attrValues[i], attrTexts[i]),
 		}
 	}
-	spansets[hex.EncodeToString([]byte(traceId))] = sets
+	spansets[hex.EncodeToString([]byte(traceId))] = searchTrace{sets: sets, newest: newest}
 	return traceId, spanIds, nil
+}
+
+// searchTrace is a search's ids row: its spansets and its rank.
+type searchTrace struct {
+	sets   []searchSpanset
+	newest int64
 }
 
 // searchSpanset is a spanset of a search's ids row: its listed span ids in hex.
@@ -95,7 +102,7 @@ type searchSpanset struct {
 }
 
 // scanTrace reads a Data row: a trace with its spansets.
-func scanTrace(rows *sql.Rows, spansets map[string][]searchSpanset) (model.TraceInfo, error) {
+func scanTrace(rows *sql.Rows, spansets map[string]searchTrace) (model.TraceInfo, error) {
 	var (
 		traceId           string
 		spanIds           []string
@@ -122,7 +129,8 @@ func scanTrace(rows *sql.Rows, spansets map[string][]searchSpanset) (model.Trace
 		}
 		spans[spanId] = span
 	}
-	sets := spansets[traceId]
+	searched := spansets[traceId]
+	sets := searched.sets
 	trace := model.TraceInfo{
 		TraceID:           traceId,
 		RootServiceName:   rootServiceName,
@@ -130,6 +138,7 @@ func scanTrace(rows *sql.Rows, spansets map[string][]searchSpanset) (model.Trace
 		StartTimeUnixNano: fmt.Sprintf("%d", startTimeUnixNano),
 		DurationMs:        traceDurationMs,
 		SpanSets:          make([]model.SpanSet, len(sets)),
+		Newest:            searched.newest,
 	}
 	for i, s := range sets {
 		set := model.SpanSet{

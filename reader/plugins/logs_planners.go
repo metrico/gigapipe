@@ -18,6 +18,10 @@ func GetSeriesPlannerPlugin() *SeriesPlannerPlugin {
 	return seriesPlannerPlugin
 }
 
+// Metrics15ShortcutPlannerPlugin replaces the metrics_15s cell read of the
+// LogQL shortcut. Its planner returns one row per fingerprint and 15s cell in
+// [From, To): fingerprint, c (the cell start in ns) and cnt (the line count),
+// filtered by `samples.fingerprint`.
 type Metrics15ShortcutPlannerPlugin func(fn string, duration time.Duration) shared.SQLRequestPlanner
 
 var metrics15ShortcutPlannerPlugin *Metrics15ShortcutPlannerPlugin

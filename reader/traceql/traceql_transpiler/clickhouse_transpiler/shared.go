@@ -82,23 +82,15 @@ func attrsTable(ctx *shared.PlannerContext) string {
 	return ctx.TracesAttrsTable
 }
 
-// randomFilter keeps the traces of the current complexity portion and the
-// traces already returned, or is nil outside portioned evaluation.
+// randomFilter keeps the traces of the current complexity portion, or is nil
+// outside portioned evaluation.
 func randomFilter(ctx *shared.PlannerContext) sql.SQLCondition {
 	if ctx.RandomFilter.Max == 0 {
 		return nil
 	}
-	portion := sql.Eq(
+	return sql.Eq(
 		sql.NewRawObject(fmt.Sprintf("cityHash64(trace_id) %% %d", ctx.RandomFilter.Max)),
 		sql.NewIntVal(int64(ctx.RandomFilter.I)))
-	if len(ctx.CachedTraceIds) == 0 {
-		return portion
-	}
-	cached := make([]sql.SQLObject, len(ctx.CachedTraceIds))
-	for i, tid := range ctx.CachedTraceIds {
-		cached[i] = sql.NewRawObject(fmt.Sprintf("unhex('%s')", tid))
-	}
-	return sql.Or(portion, sql.NewIn(sql.NewRawObject("trace_id"), cached...))
 }
 
 // restrictOperand keeps the rows of sel, an operand read, in the current

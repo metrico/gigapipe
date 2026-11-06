@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -84,6 +85,21 @@ func recursiveWiths(withs map[string]*sql.With) []*sql.With {
 	for _, w := range withs {
 		if w.IsRecursive() {
 			res = append(res, w)
+		}
+	}
+	return res
+}
+
+// unresolvedAnc is a jump row's ancestor pointer still being set.
+const unresolvedAnc = "anc != toFixedString('', 8)"
+
+// jumpReaders is the aliases of the CTEs other than the jumps that read jump.
+func jumpReaders(t *testing.T, withs map[string]*sql.With, jump *sql.With) []string {
+	t.Helper()
+	var res []string
+	for alias, w := range withs {
+		if !w.IsRecursive() && strings.Contains(renderWith(t, w), "FROM "+jump.GetAlias()+" ") {
+			res = append(res, alias)
 		}
 	}
 	return res
@@ -185,6 +201,115 @@ func TestAncestryRoundsComeFromTheSettingWithAGuard(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// unresolvedTraceFlag is the per-trace flag on a transitive operator's jump.
+var unresolvedTraceFlag = "max(" + unresolvedAnc + ") OVER (PARTITION BY trace_id)"
+
+// assertUnresolvedTraceSkip checks that every transitive operator of the plan
+// carries the flag to its final condition, or that none has it.
+func assertUnresolvedTraceSkip(t *testing.T, req sql.ISelect, want bool) {
+	t.Helper()
+	plan, err := req.String(sql.DefaultCtx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plan, "throwIf") {
+		t.Errorf("plan can fail the query:\n%s", plan)
+	}
+	var resolved int
+	for _, w := range req.GetWith() {
+		if strings.HasSuffix(w.GetAlias(), "_resolved") {
+			resolved++
+			if res := renderWith(t, w); strings.Contains(res, unresolvedTraceFlag) != want {
+				t.Errorf("%s: flag present = %v, want %v:\n%s", w.GetAlias(), !want, want, res)
+			}
+		}
+	}
+	if resolved == 0 {
+		t.Errorf("no transitive operator in the plan:\n%s", plan)
+	}
+	if strings.Contains(plan, "unresolved = 0 AND (") != want {
+		t.Errorf("final condition on the flag = %v, want %v:\n%s", !want, want, plan)
+	}
+}
+
+// Operators reading down marks skip a trace with an unresolved span; those
+// reading up marks test the row alone and read no flag.
+func TestTransitiveOperatorsSkipUnresolvedTracesOnlyWhenReadingDownMarks(t *testing.T) {
+	for _, c := range []struct {
+		op   string
+		skip bool
+	}{
+		{">>", false}, {"!>>", false},
+		{"<<", true}, {"!<<", true}, {"&>>", true}, {"&<<", true},
+	} {
+		t.Run(c.op, func(t *testing.T) {
+			req, err := planSearch(t, "{.a = 1} "+c.op+" {.b = 2}").Ids[0].Statement.Process(testPlannerContext(3))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertUnresolvedTraceSkip(t, req, c.skip)
+		})
+	}
+}
+
+// One-hop operators test the row alone.
+func TestOneHopOperatorsHaveNoUnresolvedTraceFlag(t *testing.T) {
+	for _, query := range oneHopQueries {
+		t.Run(query, func(t *testing.T) {
+			withs := structuralWiths(t, query, testPlannerContext(3))
+			for _, w := range withSuffix(withs, "_unreachable") {
+				if res := renderWith(t, w); strings.Contains(res, "OVER") {
+					t.Errorf("%s has a window:\n%s", w.GetAlias(), res)
+				}
+			}
+			if plan := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3)); strings.Contains(plan, "unresolved") {
+				t.Errorf("plan has an unresolved flag:\n%s", plan)
+			}
+		})
+	}
+}
+
+// Every entry point inherits the skip through the shared planners.
+func TestEveryEntryPointSkipsUnresolvedTraces(t *testing.T) {
+	const skipped, unskipped = `{.a = 1} !<< {.b = 2}`, `{.a = 1} !>> {.b = 2}`
+	entries := map[string]func(t *testing.T, query string) shared.SQLRequestPlanner{
+		"metrics": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return planMetrics(t, query).Ids[0].Statement
+		},
+		"count stage": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return planSearch(t, query+" | count() > 1").Ids[0].Statement
+		},
+		"tags": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return autocompletePlans(t, query)["tags"].Ids[0].Statement
+		},
+		"values": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return autocompletePlans(t, query)["values"].Ids[0].Statement
+		},
+		"compare": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			q, err := traceql_ir.Parse("(" + query + ") | compare({.c = 3})")
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareAttrRows)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return plan.Ids[0].Statement
+		},
+	}
+	for name, plan := range entries {
+		t.Run(name, func(t *testing.T) {
+			for query, want := range map[string]bool{skipped: true, unskipped: false} {
+				req, err := plan(t, query).Process(testPlannerContext(3))
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertUnresolvedTraceSkip(t, req, want)
+			}
+		})
 	}
 }
 
@@ -294,7 +419,7 @@ func TestEmptyOperandReadsEverySpanInRange(t *testing.T) {
 			}
 		})
 	}
-	q, err := traceql_ir.Parse(`{} ~ {.a = 1}`)
+	q, err := traceql_ir.Parse(`{} && {.a = 1}`)
 	if err != nil {
 		t.Fatal(err)
 	}

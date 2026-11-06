@@ -5,6 +5,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 )
 
 func Plan(query *traceql_ir.Query) (shared.TraceRequestProcessor, error) {
@@ -21,8 +22,9 @@ func Plan(query *traceql_ir.Query) (shared.TraceRequestProcessor, error) {
 	return &TraceQLComplexityEvaluator[model.TraceInfo, *clickhouse_transpiler.SearchPlan]{
 		main:                      sqlPlanner,
 		simpleRequestProcessor:    &SimpleRequestProcessor{},
-		complexRequestProcessor:   &ComplexRequestProcessor{},
+		complexRequestProcessor:   &ComplexRequestProcessor{read: readTraces},
 		evaluateComplexityPlanner: complexityPlanner,
+		threshold:                 traceqlconfig.PortionSpans(),
 	}, nil
 }
 
@@ -61,5 +63,6 @@ func planAutocomplete(query *traceql_ir.Query, plan *clickhouse_transpiler.Searc
 		simpleRequestProcessor:    &autocompleteRequestProcessor{},
 		complexRequestProcessor:   &complexAutocompleteRequestProcessor{},
 		evaluateComplexityPlanner: complexityPlanner,
+		threshold:                 traceqlconfig.PortionSpans(),
 	}, nil
 }

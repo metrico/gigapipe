@@ -33,8 +33,6 @@
 
 - [Configuration & Docker](docs/configuration.md) — environment variables, Docker quickstart, cross-cluster setup
 - [Table Ordering](docs/table-ordering.md) — ClickHouse sort keys, `ADVANCED_SAMPLES_ORDERING`, changing the ordering of an existing deployment
-- [TraceQL](docs/traceql.md) — structural operators, pipelines, field expressions, differences from Tempo
-- [Release Notes](docs/release-notes.md) — behaviour changes to note before upgrading
 - [Profiling API](docs/profiling-api.md) — profiling endpoints, DOT format export, Graphviz visualization
 - [OTLP Profiles Ingestion](docs/otlp-profiles.md) — OpenTelemetry profiles signal ingestion via `/v1development/profiles`
 - [OTLP Metrics Ingestion](docs/otlp-metrics.md) — OpenTelemetry metrics signal ingestion via `/v1/metrics` (protobuf + JSON)
@@ -155,6 +153,193 @@ GET /api/metrics/query_range?q={span.http.status_code=200}&since=1h&step=1m
 ```
 
 This query calculates span counts for successful HTTP requests over the last hour with 1-minute resolution.
+
+#### Time range
+
+A span is in range when it **starts** in `(from, to]`: a span starting exactly
+at `from` is excluded, and one starting exactly at `to` is included. The same
+rule applies to search, metrics and autocomplete with a filtering query, so
+adjacent windows never count a span twice. Autocomplete without a query, or
+with `{}`, reads whole days.
+
+Only spans in range can be operands or results. The structural context of a
+span (its parent, ancestors, siblings and roots) is read from the whole
+trace, whenever those spans started. A long-running root that started before
+`from` still links its descendants inside the range.
+
+#### Search results
+
+- `GET /api/search` - TraceQL search (`q`, `start`, `end`, `limit`, `spss`)
+- `GET /api/v2/search/tags`, `GET /api/v2/search/tag/{tag}/values` - autocomplete (`q`)
+
+Search and metrics are also served under the `/tempo` prefix.
+
+- `spss` (spans per spanset) is the number of spans listed per spanset. It
+  defaults to 3. A value that isn't a positive integer is rejected with
+  `invalid spss: must be a positive number`.
+- Each spanset lists its `spss` earliest-starting spans, earliest first, ties by
+  span id.
+- `matched` is the number of spans the spanset matched, even when `spss`
+  lists fewer.
+- `limit` counts traces that satisfy the whole query.
+- No cap applies to the spans a query evaluates. ClickHouse memory limits
+  apply.
+- `durationNanos` is always the span duration in nanoseconds.
+- Listed spans carry the attributes and intrinsics the query's spanset filters
+  `{...}` read, as if they were added to a `select()`: the union over the whole
+  query. `{ .a = 1 } >> { .b = 2 }` returns `.a` and `.b` on each listed span
+  that has them. Fields read only by a scalar filter (`| avg(.x) > 1`) or by
+  `by()` are not echoed. Metrics and autocomplete are unaffected.
+
+#### Nested-set intrinsics
+
+`nestedSetLeft`, `nestedSetRight` and `nestedSetParent` describe a span's place
+in its trace's tree. They are ints, accepted in spanset filters, field
+expressions, `select()`, `by()`, aggregates, and metrics `by (...)` and
+`*_over_time()` arguments, and returned as `intValue`. Autocomplete doesn't
+offer them. A background numberer stores them; see
+[The numberer](docs/configuration.md#the-numberer).
+
+```
+{ nestedSetParent < 0 } | select(nestedSetLeft, nestedSetRight)
+{ nestedSetRight - nestedSetLeft > 1 }
+```
+
+The values follow Tempo's relationships, but the absolute numbers can differ:
+
+- A depth-first walk numbers each trace from 1, with one counter across all
+  roots. A span's descendants have their `nestedSetLeft` inside the span's
+  `[nestedSetLeft, nestedSetRight]`, and a leaf has
+  `nestedSetRight = nestedSetLeft + 1`.
+- `nestedSetParent` is the parent's `nestedSetLeft`. Roots hold `-1`.
+- Spans that can't reach a root (a missing parent, a cycle, a trace without a
+  root) read `0`/`0`/`0`.
+- Siblings, and the roots of a trace, are numbered by start time, then span id.
+- Spans sharing a span id form one node, placed by the earliest-starting copy.
+  Every copy reports that node's values.
+
+In filters, an attribute named like a nested-set intrinsic (`.nestedSetLeft`,
+`span.nestedSetRight`) is an attribute. In `select()` and in the filter echo it
+selects the intrinsic.
+
+**Unnumbered spans.** A span not numbered yet, or never, reads `0`/`0`/`0` in
+`select()`, the filter echo, filters, `by()`, aggregates and metrics. Unnumbered
+and unreachable spans look the same.
+
+The root filter is the exception: `{ nestedSetParent < 0 }` and
+`{ nestedSetParent = -1 }` find roots through the span's parent id, so they
+match the roots of every trace, numbered or not. An unnumbered root still
+selects and echoes `nestedSetParent = 0`. Only these forms, with the number on
+the right, read the parent id; other spellings such as `-1 = nestedSetParent` or
+`nestedSetParent <= -1` read the stored value and miss unnumbered roots.
+
+Structural operators never read the stored values; they resolve the tree at
+query time. A span that matches `>>` can therefore carry `0`/`0`/`0`, or stale
+numbers when its trace received a late span after it was numbered.
+
+#### Differences from Tempo
+
+gigapipe returns the spans Tempo returns, except in the cases listed here.
+
+<details>
+<summary>Full list</summary>
+
+**Time range and trace data**
+
+- Operands must start in the query range. Tempo draws operands from every
+  span of a trace that overlaps the range.
+- Tempo's rule that returns nothing for a trace in which three or more spans
+  share a span ID is not reproduced. Such traces are evaluated as stored.
+- Traces that are too deep or cyclic are handled as described in
+  [Depth limit](docs/configuration.md#depth-limit).
+
+**Grouping**
+
+- The grouped-spanset error is raised before the query runs. So it also
+  fires on queries Tempo would run because every trace has a single group,
+  and on spanset operators after `by()` (`{A} | by(.x) | {B} > {C}`), which
+  Tempo evaluates per group.
+- Groups are ordered by key. Tempo's order is random.
+- Attribute group keys are returned as strings, since attributes are stored
+  untyped. Tempo returns typed values. `status` and `kind` read the stored
+  attribute, so spans without one form the nil group, where Tempo reports
+  `unset`.
+
+**Field expressions and filters**
+
+- `!` works inside spanset filters. Tempo returns nothing for such filters.
+- `!x` on a non-boolean is false, where Tempo can fail.
+- `span.a = nil`, `resource.a = nil` and `.a = nil` all test `a` whatever its
+  scope, and match only spans without `a`. In Tempo the scope matters, and
+  unscoped `.a = nil` also matches spans that have `.a`.
+- Int, float and duration values aren't distinguished in storage, so
+  `.a = "200"` and `.a = 200` both match a stored `200`.
+- `int ^ int` is evaluated as written. Tempo swaps base and exponent.
+- Integer division and modulo by zero give nil, not an error.
+- `&&` and `||` treat a nil operand as false and evaluate the other side.
+  Tempo usually makes the whole operation false.
+- Typing is stricter. A filter that can't be boolean, or an aggregate
+  argument that can't be numeric, built only from attributes (`{ -.a }`,
+  `{ .a * .b }`, `{ !.a = 1 }`, `{ .a + .b = "x" }`, `avg(!.a)`), is
+  rejected before the query runs. Tempo accepts these and matches nothing or
+  fails per span.
+
+**Scalar filters**
+
+- In aggregate arguments, a span where the expression is nil (`.a + nil`) is
+  skipped. Tempo counts it.
+- `sum()` over a mix of ints and floats adds every value as a float. Tempo
+  drops values whose type differs from the first value's.
+- Literal arithmetic isn't folded, so `count() > 1 + 2` is rejected.
+- `count() > count()` is rejected with Tempo's right-hand-side error text.
+- `(count() > 2) && {B}` is a parse error. Tempo accepts it.
+- A bare word as an aggregate argument (`avg(spanN)`) reads the attribute of
+  that name. Tempo rejects it.
+
+**Nested-set intrinsics**
+
+- Siblings are numbered by start time, then span id; Tempo numbers them in its
+  storage order, so the absolute values can differ.
+- Spans sharing a span id form one node, placed by the earliest-starting copy;
+  Tempo matches two copies by kind and zeroes a trace in which three or more
+  share an id.
+- Every pass renumbers whole traces, so merges leave no stale numbers, as they
+  can in Tempo.
+- A trace reads `0`/`0`/`0` until the numberer has numbered it, about 15s after
+  its last span with the defaults, and traces stored before the numberer ran may
+  never be numbered.
+
+**Search results**
+
+- Each spanset lists its `spss` earliest-starting spans; Tempo lists the first
+  spans in its storage order. Under clock skew, a child can be kept ahead of its
+  parent.
+- The filter echo uses the union of the query's keys:
+  `{ .a = 1 } >> { .b = 2 }` shows `.a` on returned spans that carry it, where
+  Tempo shows only `.b`.
+- Fields read only by a scalar filter or `by()` aren't echoed; Tempo returns
+  them too.
+
+**`select()`**
+
+- Selected values are returned as strings. Tempo returns typed values.
+- An attribute named like an intrinsic shares its storage key: a span
+  attribute `name`, `status` or `kind` is reported as the span's name,
+  status or kind.
+
+**Metrics hints**
+
+- `sample=f` keeps a deterministic hash sample. Queries that relate spans
+  across a trace sample whole traces by trace ID, and other queries sample
+  spans by span ID. Tempo keeps one item in N with a counter.
+- Sampled metrics are scaled up by `1/f`: counts, sums, histogram bucket
+  counts and `compare()` counts. `min_over_time`, `max_over_time`,
+  `avg_over_time` and `quantile_over_time` are not scaled. Tempo scales by
+  the sampling ratio it observes, so values can differ slightly.
+- `exemplars=N` caps exemplars per series, spread over the buckets that have
+  one. Tempo applies the cap per query evaluator, not per series.
+
+</details>
 
 <br>
 

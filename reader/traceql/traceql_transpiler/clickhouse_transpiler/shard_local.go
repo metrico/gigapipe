@@ -23,8 +23,8 @@ type shardLocalPlanner struct {
 func newestShardLocal(main shared.SQLRequestPlanner) *shardLocalPlanner {
 	return &shardLocalPlanner{
 		Shard:  &IndexLimitPlanner{&SearchSpansetPlanner{Main: main, Newest: true}},
-		Single: &IndexLimitPlanner{&SearchSpansetPlanner{Main: main}},
-		Cols:   []string{"trace_id", "span_id", "spansets"},
+		Single: &IndexLimitPlanner{&SearchSpansetPlanner{Main: main, Newest: true}},
+		Cols:   []string{"trace_id", "span_id", "spansets", "trace_newest"},
 		Newest: true,
 	}
 }

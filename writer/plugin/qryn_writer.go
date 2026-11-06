@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/writer/chwrapper"
 	controllerv1 "github.com/metrico/qryn/v5/writer/controller"
@@ -115,7 +114,7 @@ func (p *QrynWriterPlugin) Initialize(config config.ClokiBaseSettingServer) erro
 func (p *QrynWriterPlugin) RegisterRoutes(config config.ClokiBaseSettingServer,
 	middlewareFactory controllerv1.MiddlewareConfig,
 	middlewareTempoFactory controllerv1.MiddlewareConfig,
-	router *mux.Router,
+	router *http.ServeMux,
 ) {
 	config.Validate = validator.New()
 

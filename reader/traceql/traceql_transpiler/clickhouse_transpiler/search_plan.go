@@ -16,7 +16,7 @@ type SearchPlan struct {
 }
 
 // searchRowsPlanner returns Main's rows as a search's ids rows: the ids, then
-// each trace's spansets.
+// each trace's spansets and rank.
 type searchRowsPlanner struct {
 	Main shared.SQLRequestPlanner
 }
@@ -37,6 +37,7 @@ func (s *searchRowsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.1, s.4), spansets)", "attr_names"),
 			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.2, s.4), spansets)", "attr_types"),
 			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.3, s.4), spansets)", "attr_values"),
-			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.4, s.4), spansets)", "attr_texts")).
+			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.4, s.4), spansets)", "attr_texts"),
+			sql.NewSimpleCol("trace_newest", "trace_newest")).
 		From(sql.NewWithRef(withMain)), nil
 }

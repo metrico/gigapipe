@@ -3,12 +3,12 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/metrico/qryn/v5/writer/chwrapper"
 	"github.com/metrico/qryn/v5/writer/config"
 	controllerv1 "github.com/metrico/qryn/v5/writer/controller"
@@ -155,7 +155,7 @@ func getShardsNum(conn chwrapper.IChClient, clusterName string) int {
 func (p *QrynWriterPlugin) performV1APIRouting(
 	middlewareFactory controllerv1.MiddlewareConfig,
 	middlewareTempoFactory controllerv1.MiddlewareConfig,
-	router *mux.Router,
+	router *http.ServeMux,
 ) {
 	apirouterv1.RouteInsertDataApis(router, middlewareFactory)
 	apirouterv1.RoutePromDataApis(router, middlewareFactory)

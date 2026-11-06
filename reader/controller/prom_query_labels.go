@@ -1,12 +1,12 @@
 package controller
 
 import (
+	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
 	"github.com/metrico/qryn/v5/reader/service"
 )
 
@@ -14,18 +14,13 @@ type PromQueryLabelsController struct {
 	Controller
 	QueryLabelsService *service.QueryLabelsService
 	MetadataService    *service.MetadataService
+	ExemplarsService   *service.ExemplarsService
 }
 
 type promLabelsParams struct {
 	start time.Time
 	end   time.Time
 	match []string
-}
-
-type rawPromLabelsParams struct {
-	Start string   `form:"start"`
-	End   string   `form:"end"`
-	Match []string `form:"match[]"`
 }
 
 type promSeriesParams struct {
@@ -60,12 +55,12 @@ func (p *PromQueryLabelsController) LabelValues(w http.ResponseWriter, r *http.R
 		PromError(500, err.Error(), w)
 		return
 	}
-	params, err := ParseLogSeriesParamsV2(r, time.Second)
+	params, err := ParseLogSeriesParamsV2(r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return
 	}
-	name := mux.Vars(r)["name"]
+	name := r.PathValue("name")
 	if name == "" {
 		PromError(400, "label name is required", w)
 		return
@@ -173,29 +168,69 @@ func parserTimeString(strTime string, def time.Time) time.Time {
 	if err == nil {
 		return time.Unix(iTime, 0)
 	}
+	// Prometheus clients are free to send fractional unix seconds, and
+	// ParseInt rejects them -- which used to fall through to the default
+	// window rather than to the time the caller asked for.
+	if fTime, err := strconv.ParseFloat(strTime, 64); err == nil {
+		sec, frac := math.Modf(fTime)
+		return time.Unix(int64(sec), int64(frac*float64(time.Second)))
+	}
 	return def
+}
+
+// QueryExemplars answers Prometheus /api/v1/query_exemplars: the trace ids
+// recorded against metric data points, grouped into their series.
+func (p *PromQueryLabelsController) QueryExemplars(w http.ResponseWriter, r *http.Request) {
+	defer tamePanic(w, r)
+	internalCtx, err := RunPreRequestPlugins(r)
+	if err != nil {
+		PromError(500, err.Error(), w)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	query := r.FormValue("query")
+	if query == "" {
+		PromError(400, "a query parameter is required", w)
+		return
+	}
+	start := parserTimeString(r.FormValue("start"), time.Now().Add(time.Hour*-1))
+	end := parserTimeString(r.FormValue("end"), time.Now())
+
+	if p.ExemplarsService == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"status":"success","data":[]}`))
+		return
+	}
+
+	res, err := p.ExemplarsService.QueryExemplars(internalCtx, query, start, end)
+	if err != nil {
+		// A rejected selector is the caller's error; anything else, such as the
+		// database being unavailable, is the server's.
+		code := http.StatusInternalServerError
+		var invalid *service.InvalidExemplarsQueryError
+		if errors.As(err, &invalid) {
+			code = http.StatusBadRequest
+		}
+		PromError(code, err.Error(), w)
+		return
+	}
+	SmartBufferServeStrings(w, res)
 }
 
 func getLabelsParams(r *http.Request) (*promLabelsParams, error) {
 	if r.Method == "POST" && r.Header.Get("content-type") == "application/x-www-form-urlencoded" {
-		rawParams := rawPromLabelsParams{}
-		dec := schema.NewDecoder()
-		dec.IgnoreUnknownKeys(true)
 		err := r.ParseForm()
 		if err != nil {
 			return nil, err
 		}
-		if matches, ok := r.Form["match[]"]; ok {
-			rawParams.Match = matches
-		}
-		err = dec.Decode(&rawParams, r.Form)
-		if err != nil {
-			return nil, err
-		}
 		return &promLabelsParams{
-			start: parserTimeString(rawParams.Start, time.Now().Add(time.Hour*-6)),
-			end:   parserTimeString(rawParams.End, time.Now()),
-			match: rawParams.Match,
+			start: parserTimeString(r.Form.Get("start"), time.Now().Add(time.Hour*-6)),
+			end:   parserTimeString(r.Form.Get("end"), time.Now()),
+			match: r.Form["match[]"],
 		}, nil
 	}
 	return &promLabelsParams{

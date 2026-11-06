@@ -326,7 +326,7 @@ func TestStructuralStatementsOnSingleNodeHaveNoShardStatement(t *testing.T) {
 		statements["search"] = planSearch(t, query).Ids[0].Statement
 		for name, statement := range statements {
 			res := renderPlan(t, statement, testPlannerContext(3))
-			for _, bad := range []string{"cluster(", "trace_newest", "prefer_localhost_replica"} {
+			for _, bad := range []string{"cluster(", "prefer_localhost_replica"} {
 				if strings.Contains(res, bad) {
 					t.Errorf("%s %s: single-node statement holds %q:\n%s", name, query, bad, res)
 				}
@@ -351,5 +351,62 @@ func TestShardStatementSkipsUnavailableShardsLikeTheReadTables(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestSearchRendersNumberLiterals(t *testing.T) {
+	for _, tc := range []struct{ query, want string }{
+		{`{ .foo = .95 }`, `0.950000`},
+		{`{ .foo = -.5 }`, `-0.500000`},
+		{`{ .foo = 5. }`, `5.000000`},
+		{`{ .foo = 1e3 }`, `1000.000000`},
+		{`{ duration > .5s }`, `duration) > (500000000)`},
+		{`{ duration > 5.s }`, `duration) > (5000000000)`},
+		{`{ duration > 1d }`, `duration) > (86400000000000)`},
+		{`{ duration > 1h30m }`, `duration) > (5400000000000)`},
+		{`{ duration > -1d }`, `duration) > (-86400000000000)`},
+		{`{ duration * 2 > 1d }`, `toFloat64(8.64e+13)`},
+		{`{} | avg(duration) > 1d`, `toFloat64(8.64e+13)`},
+		{`{} | avg(duration) > 1h30m`, `toFloat64(5.4e+12)`},
+		{`{} | avg(duration) > -1d`, `toFloat64(-8.64e+13)`},
+		{`{} | count() > -.5`, `-0.5`},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			if res := renderPlan(t, planSearch(t, tc.query).Ids[0].Statement, testPlannerContext(7)); !strings.Contains(res, tc.want) {
+				t.Errorf("want %s in %s", tc.want, res)
+			}
+		})
+	}
+}
+
+func TestSearchReadsTheKeyOfAQuotedName(t *testing.T) {
+	for query, want := range map[string]string{
+		`{ ."5xx" = 1 }`:             `(key) == ('5xx')`,
+		`{ span."http status" = 1 }`: `(key) == ('http status')`,
+		`{ ."a'b" = 1 }`:             `(key) == ('a\'b')`,
+		`{ ."" = 1 }`:                `(key) == ('')`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if res := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(7)); !strings.Contains(res, want) {
+				t.Errorf("want %s in %s", want, res)
+			}
+		})
+	}
+}
+
+// Result attributes are named by the plain name.
+func TestSearchNamesResultsByThePlainName(t *testing.T) {
+	for query, want := range map[string][]string{
+		`{} | by(."http status")`:  {`'by(.http status)'`, `'http status'`},
+		`{} | avg(span."a b") > 1`: {`'avg(span.a b)'`, `'a b'`},
+	} {
+		t.Run(query, func(t *testing.T) {
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(7))
+			for _, w := range want {
+				if !strings.Contains(res, w) {
+					t.Errorf("want %s in %s", w, res)
+				}
+			}
+		})
 	}
 }

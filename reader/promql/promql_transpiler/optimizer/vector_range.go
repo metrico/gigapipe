@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/clickhouse_planner"
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
@@ -18,7 +17,8 @@ import (
 // measure across the frame boundary need the counter machinery instead: rate,
 // increase and delta compare the endpoints of the range, resets and changes
 // count transitions between consecutive samples.
-var rangeFns = map[string]func(fp shared.SQLRequestPlanner, d time.Duration, fn string) shared.SQLRequestPlanner{
+var rangeFns = map[string]func(fp shared.SQLRequestPlanner, d time.Duration, fn string,
+	g *planner.Grid) shared.SQLRequestPlanner{
 	"sum_over_time":     newOverTime,
 	"count_over_time":   newOverTime,
 	"min_over_time":     newOverTime,
@@ -35,16 +35,16 @@ var rangeFns = map[string]func(fp shared.SQLRequestPlanner, d time.Duration, fn 
 	"changes": newCounterFlags,
 }
 
-func newOverTime(fp shared.SQLRequestPlanner, d time.Duration, fn string) shared.SQLRequestPlanner {
-	return &planner.OverTimePlanner{FpPlanner: fp, Duration: d, Fn: fn}
+func newOverTime(fp shared.SQLRequestPlanner, d time.Duration, fn string, g *planner.Grid) shared.SQLRequestPlanner {
+	return &planner.OverTimePlanner{FpPlanner: fp, Duration: d, Fn: fn, Grid: g}
 }
 
-func newCounter(fp shared.SQLRequestPlanner, d time.Duration, fn string) shared.SQLRequestPlanner {
-	return &planner.CounterPlanner{FpPlanner: fp, Duration: d, Fn: fn}
+func newCounter(fp shared.SQLRequestPlanner, d time.Duration, fn string, g *planner.Grid) shared.SQLRequestPlanner {
+	return &planner.CounterPlanner{FpPlanner: fp, Duration: d, Fn: fn, Grid: g}
 }
 
-func newCounterFlags(fp shared.SQLRequestPlanner, d time.Duration, fn string) shared.SQLRequestPlanner {
-	return &planner.CounterFlagsPlanner{FpPlanner: fp, Duration: d, Fn: fn}
+func newCounterFlags(fp shared.SQLRequestPlanner, d time.Duration, fn string, g *planner.Grid) shared.SQLRequestPlanner {
+	return &planner.CounterFlagsPlanner{FpPlanner: fp, Duration: d, Fn: fn, Grid: g}
 }
 
 type VectorRange struct {
@@ -63,7 +63,11 @@ func (v *VectorRange) Applicable(expr prom_parser.Expr) bool {
 	if len(_expr.Args) != 1 {
 		return false
 	}
-	if _, ok = _expr.Args[0].(*prom_parser.MatrixSelector); !ok {
+	ms, ok := _expr.Args[0].(*prom_parser.MatrixSelector)
+	if !ok {
+		return false
+	}
+	if !pushable(ms.VectorSelector.(*prom_parser.VectorSelector), ms.Range.Milliseconds()) {
 		return false
 	}
 	_, ok = rangeFns[_expr.Func.Name]
@@ -81,24 +85,12 @@ func (v *VectorRange) Optimize(gExpr *promql_parser.Expr, expr prom_parser.Expr)
 	if !ok {
 		return v.expr, nil
 	}
-	return v.substitute(build(v.fpPlanner(), v.selector.Range, v.fn)), nil
+	vs := v.selector.VectorSelector.(*prom_parser.VectorSelector)
+	return v.substitute(build(v.fpPlanner(), v.selector.Range, v.fn, taggedGrid(vs))), nil
 }
 
 func (v *VectorRange) fpPlanner() shared.SQLRequestPlanner {
-	fpPlanner := &planner.StreamSelectPlanner{
-		clickhouse_planner.StreamSelectPlanner{
-			LabelNames: nil,
-			Ops:        nil,
-			Values:     nil,
-		},
-	}
-	strSelect := v.selector.VectorSelector.(*prom_parser.VectorSelector)
-	for _, lm := range strSelect.LabelMatchers {
-		fpPlanner.LabelNames = append(fpPlanner.LabelNames, lm.Name)
-		fpPlanner.Ops = append(fpPlanner.Ops, lm.Type.String())
-		fpPlanner.Values = append(fpPlanner.Values, lm.Value)
-	}
-	return fpPlanner
+	return streamSelect(v.selector.VectorSelector.(*prom_parser.VectorSelector))
 }
 
 // substitute swaps the call out for a synthetic vector selector and registers

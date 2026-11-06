@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/metrico/qryn/v5/reader/model"
@@ -113,5 +114,16 @@ func TestSortSpansEarliestFirst(t *testing.T) {
 	}
 	if want := []string{"0b", "0c", "0d", "0e", "0a"}; !slices.Equal(got, want) {
 		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// The search rank stays out of the response.
+func TestTraceInfoJSONOmitsTheRank(t *testing.T) {
+	b, err := json.Marshal(model.TraceInfo{TraceID: "aa", Newest: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); strings.Contains(s, "ewest") {
+		t.Errorf("rank in %s", s)
 	}
 }

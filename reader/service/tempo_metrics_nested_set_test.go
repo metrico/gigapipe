@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -155,4 +156,36 @@ func TestMetricsReadNestedSetValues(t *testing.T) {
 	assertSeries(t, maxRight, rangeSeries(maxRight),
 		`[{"key":"nestedSetParent","value":{"intValue":"-1"}},{"key":"name","value":{"stringValue":"root"}}] 4`,
 		`[{"key":"nestedSetParent","value":{"intValue":"0"}},{"key":"name","value":{"stringValue":"other"}}] `)
+}
+
+// A quantile exemplar goes to the nearest query-wide value of the argument
+// column, in the unit of the series.
+func TestQuantileExemplarsGoToNearestValueOfTheArgument(t *testing.T) {
+	svc := openNestedSetTraces(t)
+	for query, want := range map[string]map[string]int{
+		// Rights 4, 3 and 0 give 0.06 and 3.98.
+		`{} | quantile_over_time(nestedSetRight, .01, .99) by (name)`: {
+			"root p=0.01": 0, "root p=0.99": 1,
+			"child p=0.01": 0, "child p=0.99": 1,
+			"other p=0.01": 1, "other p=0.99": 0,
+		},
+		// Durations 10ns, 5ns and 1ns give 1.08ns and 9.9ns.
+		`{} | quantile_over_time(duration, .01, .99) by (name)`: {
+			"root p=0.01": 0, "root p=0.99": 1,
+			"child p=0.01": 1, "child p=0.99": 0,
+			"other p=0.01": 1, "other p=0.99": 0,
+		},
+	} {
+		res, err := svc.MetricsQueryRange(context.Background(), metricsRequestOf(query))
+		if err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		got := map[string]int{}
+		for _, s := range res.Series {
+			got[fmt.Sprintf("%s p=%g", s.Labels[0].Value.StringValue, *s.Labels[1].Value.DoubleValue)] = len(s.Exemplars)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: exemplars per series:\ngot  %v\nwant %v", query, got, want)
+		}
+	}
 }

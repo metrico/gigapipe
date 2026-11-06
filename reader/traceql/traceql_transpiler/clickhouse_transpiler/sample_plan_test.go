@@ -145,10 +145,38 @@ func TestSampleThreshold(t *testing.T) {
 		0.25:            1 << 62,
 		1 - 1.0/(1<<53): 1<<64 - 1<<11,
 		1.0 / (1 << 63): 2,
+		1.0 / (1 << 64): 1,
+		5.42e-20:        0,
 		1e-30:           0,
 	} {
 		if got := sampleThreshold(f); got != want {
 			t.Errorf("sampleThreshold(%g) = %d, want %d", f, got, want)
+		}
+	}
+}
+
+// SampleScale is 1/f for a sample hint between 0 and 1, exclusive, that keeps
+// spans, else 1.
+func TestSampleScale(t *testing.T) {
+	for query, want := range map[string]float64{
+		`{.a = 1} | rate() with(sample=0.25)`:                                                               4,
+		`{.a = 1} >> {.b = 2} | rate() with(sample=0.25)`:                                                   4,
+		`{.a = 1} | rate() with(sample=0.5)`:                                                                2,
+		`{.a = 1} | rate()`:                                                                                 1,
+		`{.a = 1} | rate() with(sample=1)`:                                                                  1,
+		`{.a = 1} | rate() with(sample=0)`:                                                                  1,
+		`{.a = 1} | rate() with(sample=true)`:                                                               1,
+		`{.a = 1} | rate() with(sample=0.` + strings.Repeat("0", 319) + `1)`:                                1,
+		`{.a = 1} | rate() with(sample=0.` + strings.Repeat("0", 307) + `1)`:                                1,
+		`{.a = 1} | rate() with(sample=0.0000000000000000000542)`:                                           1,
+		`{.a = 1} | rate() with(sample=0.0000000000000000000542101086242752217003726400434970855712890625)`: 1 << 64,
+	} {
+		q, err := traceql_ir.Parse(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := SampleScale(q); got != want {
+			t.Errorf("%s: scale %g, want %g", query, got, want)
 		}
 	}
 }

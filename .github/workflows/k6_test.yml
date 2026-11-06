@@ -67,8 +67,16 @@ jobs:
           wget https://github.com/metrico/qryn-bench/releases/download/latest/k6-tracing -O k6-tracing
           chmod +x k6-tracing
           
-      - name: Collect Workflow Telemetry
-        uses: runforesight/workflow-telemetry-action@v1.8.7
+      - name: Start resource sampler
+        run: |
+          # Samples runner CPU, memory and IO while the k6 tests run. Replaces
+          # runforesight/workflow-telemetry-action, whose repository was deleted.
+          if command -v vmstat >/dev/null; then
+            vmstat -n -t 5 > runner_resources.txt 2>&1 &
+            echo $! > sampler.pid
+          else
+            echo "vmstat unavailable; no samples collected" > runner_resources.txt
+          fi
         
       - name: Wait for Loki API
         uses: mydea/action-wait-for-api@v1
@@ -118,6 +126,12 @@ jobs:
         run: |
           sed -i 's/[^[:print:]]/*/' *_summary.txt
           sed -i 's/[\d128-\d255]//g' *_summary.txt
+      - name: Stop resource sampler
+        if: always()
+        run: |
+          if [ -f sampler.pid ]; then
+            kill "$(cat sampler.pid)" 2>/dev/null || true
+          fi
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: results
@@ -125,6 +139,7 @@ jobs:
              loki_summary.txt
              prom_summary.txt
              tempo_summary.txt
+             runner_resources.txt
       - name: Summary Report
         run: |
           echo "### qryn image" >> $GITHUB_STEP_SUMMARY

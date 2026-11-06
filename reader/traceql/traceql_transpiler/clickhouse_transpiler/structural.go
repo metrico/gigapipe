@@ -18,6 +18,12 @@ var errStructuralVersion = errors.New(
 // zeroSpanID is the parent of a root span.
 const zeroSpanID = "toFixedString('', 8)"
 
+// unresolvedRow is the condition on a final jump row of a recursing node whose
+// chain has no known end: a parent cycle or a chain deeper than limit rounds.
+func unresolvedRow(limit int) string {
+	return fmt.Sprintf("(rounds > 0 AND if(rounds <= %d, anc != %s, past_limit = 1))", limit, zeroSpanID)
+}
+
 // spanResult is which spans a structural operator returns.
 type spanResult int
 
@@ -442,8 +448,8 @@ const finalJump = "jumps = rounds"
 // (an ancestor pointer still set, or past the limit), when cond (SQL) holds.
 func ancestryGuard(ctx *shared.PlannerContext, cond string) sql.SQLCondition {
 	limit := ancestryRounds(ctx)
-	return rawCond(fmt.Sprintf("throwIf(%s AND if(rounds <= %d, anc != %s, past_limit = 1), '%s') = 0",
-		cond, limit, zeroSpanID, unresolvedAncestryMessage(limit)))
+	return rawCond(fmt.Sprintf("throwIf(%s AND %s, '%s') = 0",
+		cond, unresolvedRow(limit), unresolvedAncestryMessage(limit)))
 }
 
 // operandRows ARRAY JOINs a final jump row into its operand rows: o.1 the

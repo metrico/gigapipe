@@ -97,7 +97,9 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			plainIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
 			plainIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
 		GroupBy(sql.NewRawObject("traces.trace_id")).
-		OrderBy(sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC))
+		OrderBy(
+			sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC),
+			sql.NewOrderBy(sql.NewRawObject("trace_id"), sql.ORDER_BY_DIRECTION_DESC))
 	if withSelected != nil {
 		res.AddWith(withValues, withSelected)
 		res.AddJoin(sql.NewJoin(join, sql.NewWithRef(withSelected), sql.And(

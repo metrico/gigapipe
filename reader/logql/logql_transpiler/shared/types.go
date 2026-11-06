@@ -83,6 +83,10 @@ type PlannerContext struct {
 	CancelCtx context.CancelFunc
 
 	Step time.Duration
+	// Instant marks an instant query, evaluated at To.
+	Instant bool
+	// Grid is the evaluation grid of a range aggregation on the Go path.
+	Grid *EvalGrid
 
 	DeleteID string
 
@@ -90,9 +94,13 @@ type PlannerContext struct {
 
 	id int
 
-	RandomFilter   RandomFilter
-	CachedTraceIds []string
-	VersionInfo    dbversion.VersionInfo
+	RandomFilter RandomFilter
+	// Portions is the number of complexity portions the request was read in,
+	// or 0 when it was read at once. It is final when the planner's Process returns.
+	Portions int64
+	// TraceQL is the request's query text, for its log lines.
+	TraceQL     string
+	VersionInfo dbversion.VersionInfo
 
 	// TracesOperandSpans, when set, holds the previous pipeline stage's span
 	// rows: the only ones TraceQL selectors may match, and the input of a
@@ -102,6 +110,11 @@ type PlannerContext struct {
 	// TracesSample, when set, keeps the sampled rows of every TraceQL
 	// operand read.
 	TracesSample sql.SQLCondition
+}
+
+// TotalJobs is the job count of a search response: Portions, or 1 when the request was read at once.
+func (p *PlannerContext) TotalJobs() int64 {
+	return max(p.Portions, 1)
 }
 
 func (p *PlannerContext) Id() int {

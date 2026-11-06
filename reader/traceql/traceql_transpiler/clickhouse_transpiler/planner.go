@@ -104,7 +104,7 @@ func (p *planner) plan() (*SearchPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	var spansets shared.SQLRequestPlanner = &IndexLimitPlanner{&SearchSpansetPlanner{Main: res}}
+	var spansets shared.SQLRequestPlanner = &IndexLimitPlanner{&SearchSpansetPlanner{Main: res, Newest: true}}
 	if p.query.HasStructural() {
 		spansets = newestShardLocal(res)
 	}
@@ -117,10 +117,13 @@ func (p *planner) plan() (*SearchPlan, error) {
 
 func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	var res shared.SQLRequestPlanner
-	if selector, ok := loneSelector(&p.query.Pipeline); ok {
-		op := &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix(), operand: selector.Filter != nil}
+	if AllSpans(p.query) {
+		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
+	} else if p.query.HasStructural() {
+		res = &AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}
+	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
 		var err error
-		if res, err = op.planEval(); err != nil {
+		if res, err = p.operand(selector).planEval(); err != nil {
 			return nil, err
 		}
 	} else {
@@ -254,7 +257,7 @@ func ungroup(expr traceql_ir.SpansetExpr) traceql_ir.SpansetExpr {
 
 // operand plans one selector of a spanset expression.
 func (p *planner) operand(selector *traceql_ir.Selector) *simpleExpressionPlanner {
-	return &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix(), operand: true}
+	return &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix()}
 }
 
 // structuralGate wraps res in StructuralQueryPlanner when the query has

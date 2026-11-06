@@ -14,25 +14,26 @@ import (
 )
 
 func (t *TempoService) SearchTraceQL(ctx context.Context,
-	q string, limit int, spss int, from time.Time, to time.Time) (chan []model.TraceInfo, error) {
+	q string, limit int, spss int, from time.Time, to time.Time) (chan []model.TraceInfo, int64, error) {
 	conn, err := t.Session.GetDB(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	query, err := traceql_ir.Parse(q)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	planner, err := traceql_transpiler.Plan(query)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	reqCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 
-	sqlCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
+	sqlCtx, err := traceQLPlannerContext(ctx, conn, q, from, to, limit)
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, 0, err
 	}
 	sqlCtx.CancelCtx = cancel
 	sqlCtx.SpansPerSpanSet = int64(spss)
@@ -40,8 +41,9 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 	ch, err := planner.Process(sqlCtx)
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	traceql_transpiler.WarnUnresolved(reqCtx, query, sqlCtx)
 	res := make(chan []model.TraceInfo)
 	go func() {
 		defer close(res)
@@ -50,13 +52,13 @@ func (t *TempoService) SearchTraceQL(ctx context.Context,
 			res <- ch
 		}
 	}()
-	return res, nil
+	return res, sqlCtx.TotalJobs(), nil
 }
 
 // traceQLPlannerContext builds the planner context shared by TraceQL search,
 // autocomplete and metrics, with the server's version info resolved.
 func traceQLPlannerContext(ctx context.Context, conn *model.DataDatabasesMap,
-	from time.Time, to time.Time, limit int) (*shared.PlannerContext, error) {
+	query string, from time.Time, to time.Time, limit int) (*shared.PlannerContext, error) {
 	versionInfo, err := dbversion.GetVersionInfo(ctx, conn.Config.ClusterName != "", conn.Session)
 	if err != nil {
 		return nil, err
@@ -69,6 +71,7 @@ func traceQLPlannerContext(ctx context.Context, conn *model.DataDatabasesMap,
 		Ctx:         ctx,
 		CHDb:        conn.Session,
 		VersionInfo: versionInfo,
+		TraceQL:     query,
 
 		AncestryRounds: traceqlconfig.AncestryRounds(),
 	}

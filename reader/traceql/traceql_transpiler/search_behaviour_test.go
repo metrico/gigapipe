@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
@@ -110,6 +112,14 @@ type span struct {
 // the spans go through Distributed tables, sharded by trace.
 func (s *searchStore) seed(t *testing.T, spans []span) {
 	t.Helper()
+	s.seedStarts(t, spans, func(i int) int64 { return spanStart.UnixNano() + int64(i) })
+}
+
+// seedStarts inserts spans, the i-th starting at start(i), attribute "k" = "1"
+// for each k in attrs. On a cluster the spans go through Distributed tables,
+// sharded by trace.
+func (s *searchStore) seedStarts(t *testing.T, spans []span, start func(i int) int64) {
+	t.Helper()
 	var rows []string
 	for i, sp := range spans {
 		parent := ""
@@ -121,7 +131,7 @@ func (s *searchStore) seed(t *testing.T, spans []span) {
 			tags = append(tags, fmt.Sprintf("('%s', '1')", a))
 		}
 		rows = append(rows, fmt.Sprintf("('%032x', '%016x', '%s', 's%d', %d, 10, [%s])",
-			sp.trace, sp.id, parent, sp.id, spanStart.UnixNano()+int64(i), strings.Join(tags, ", ")))
+			sp.trace, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
 	}
 	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
 	if s.cluster == "" {
@@ -178,7 +188,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 		portioned := planner.(interface {
 			ProcessComplexReq(*shared.PlannerContext, int64) (chan []model.TraceInfo, error)
 		})
-		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*COMPLEXITY_THRESHOLD)
+		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*traceqlconfig.PortionSpans())
 	}
 	if err != nil {
 		return []string{"error: " + err.Error()}
@@ -613,3 +623,277 @@ func TestSearchCyclesOnCluster(t *testing.T) { testSearchCycles(t, true) }
 func TestSearchRoundLimit(t *testing.T) { testSearchRoundLimit(t, false) }
 
 func TestSearchRoundLimitOnCluster(t *testing.T) { testSearchRoundLimit(t, true) }
+
+// testSearchSmoke checks trace ids and order, whatever the portion count.
+func testSearchSmoke(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.seedStructural(t)
+	want := []string{"28", "11", "12", "e", "10", "a"}
+	for _, portions := range []int{0, 1, 3} {
+		var got []string
+		for _, line := range s.result(t, `{.a = "1"} >> {.b = "1"}`, searchRun{limit: searchLimit, portions: portions}) {
+			if id, ok := strings.CutPrefix(line, "trace "); ok {
+				got = append(got, strings.Fields(id)[0])
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("portions %d: got %q, want %q", portions, got, want)
+		}
+	}
+}
+
+func TestSearchSmoke(t *testing.T) { testSearchSmoke(t, false) }
+
+func TestSearchSmokeOnCluster(t *testing.T) { testSearchSmoke(t, true) }
+
+// unresolvedSpanRE finds a span id in a summary line.
+var unresolvedSpanRE = regexp.MustCompile(`span ([0-9a-f]+)@`)
+
+// unresolvedSpans runs query: the sorted span ids it returns, by trace id.
+func unresolvedSpans(t *testing.T, s *searchStore, query string, run searchRun) map[string]string {
+	t.Helper()
+	spans := map[string][]string{}
+	var trace string
+	for _, line := range s.result(t, query, run) {
+		if strings.HasPrefix(line, "error: ") {
+			t.Errorf("%s: %s", query, line)
+			return nil
+		}
+		if id, ok := strings.CutPrefix(line, "trace "); ok {
+			trace = strings.Fields(id)[0]
+			spans[trace] = nil
+			continue
+		}
+		for _, m := range unresolvedSpanRE.FindAllStringSubmatch(line, -1) {
+			spans[trace] = append(spans[trace], m[1])
+		}
+	}
+	res := map[string]string{}
+	for id, ids := range spans {
+		slices.Sort(ids)
+		res[id] = strings.Join(slices.Compact(ids), " ")
+	}
+	return res
+}
+
+// testSearchUnresolvedTraces checks what each operator returns from traces
+// with a parent cycle or deeper than the round limit.
+func testSearchUnresolvedTraces(t *testing.T, cluster bool) {
+	a, b, ab := []string{"a"}, []string{"b"}, []string{"a", "b"}
+	type traces = map[string]string
+	check := func(t *testing.T, s *searchStore, rounds int, query string, want traces) {
+		t.Helper()
+		for _, portions := range []int{0, 3} {
+			got := unresolvedSpans(t, s, query, searchRun{limit: searchLimit, rounds: rounds, portions: portions})
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s portions %d: got %v, want %v", query, portions, got, want)
+			}
+		}
+	}
+
+	t.Run("cycles", func(t *testing.T) {
+		s := openSearchStore(t, cluster, false)
+		s.seed(t, []span{
+			// 0x28, 0x2b: healthy, a above b and b above a.
+			{40, 1, 0, a}, {40, 2, 1, b},
+			{43, 1, 0, b}, {43, 2, 1, a},
+			// 0x29: its own parent.
+			{41, 1, 1, ab},
+			// 0x2a: a healthy branch and a cycle, no missing parent.
+			{42, 1, 0, a}, {42, 6, 1, b}, {42, 2, 4, a}, {42, 3, 2, b}, {42, 4, 3, ab}, {42, 5, 3, b},
+			// 0x2c: a healthy branch, a missing parent and a cycle.
+			{44, 1, 0, a}, {44, 2, 1, b}, {44, 3, 99, b}, {44, 4, 5, a}, {44, 5, 4, b},
+			// 0x2d: a cycle of b spans only, never a candidate.
+			{45, 1, 2, b}, {45, 2, 1, b},
+		})
+		for op, want := range map[string]traces{
+			">>":  {"28": "2", "2a": "6", "2c": "2"},
+			"!>>": {"29": "1", "2a": "3 4 5", "2b": "1", "2c": "3 5", "2d": "1 2"},
+			"<<":  {"2b": "1"},
+			"!<<": {"28": "2", "2d": "1 2"},
+			"&>>": {"28": "1 2"},
+			"&<<": {"2b": "1 2"},
+			">":   {"28": "2", "2a": "3 6", "2c": "2"},
+			"!>":  {"29": "1", "2a": "4 5", "2b": "1", "2c": "3 5", "2d": "1 2"},
+			"&>":  {"28": "1 2", "2a": "1 2 3 6", "2c": "1 2"},
+			"<":   {"2a": "3 4", "2b": "1"},
+			"!<":  {"28": "2", "29": "1", "2a": "5 6", "2c": "2 3 5", "2d": "1 2"},
+			"&<":  {"2a": "2 3 4", "2b": "1 2"},
+			"~":   {"2a": "5"},
+			"!~":  {"28": "2", "29": "1", "2a": "3 4 6", "2b": "1", "2c": "2 3 5", "2d": "1 2"},
+			"&~":  {"2a": "4 5"},
+		} {
+			check(t, s, 0, fmt.Sprintf(`{.a = "1"} %s {.b = "1"}`, op), want)
+		}
+		check(t, s, 0, `{.a = "1"} >> {.b = "1"} | count() > 0`, traces{"28": "2", "2a": "6", "2c": "2"})
+		check(t, s, 0, `{.a = "1"} !<< {.b = "1"} | count() > 0`, traces{"28": "2", "2d": "1 2"})
+	})
+
+	t.Run("round limit", func(t *testing.T) {
+		s := openSearchStore(t, cluster, false)
+		chain := func(trace, depth int) []span {
+			var res []span
+			for id := 1; id <= depth; id++ {
+				attrs := ab
+				switch id {
+				case 1:
+					attrs = a
+				case depth:
+					attrs = b
+				}
+				res = append(res, span{trace, id, id - 1, attrs})
+			}
+			return res
+		}
+		// 0x32 fits 3 rounds, 0x33 is one span too deep.
+		s.seed(t, append(chain(50, 8), chain(51, 9)...))
+		for op, want := range map[string]traces{
+			">>":  {"32": "2 3 4 5 6 7 8", "33": "2 3 4 5 6 7 8"},
+			"!>>": {"33": "9"},
+			"<<":  {"32": "2 3 4 5 6"},
+			"!<<": {"32": "7 8"},
+			"&>>": {"32": "1 2 3 4 5 6 7 8"},
+			"&<<": {"32": "2 3 4 5 6 7"},
+			">":   {"32": "2 3 4 5 6 7 8", "33": "2 3 4 5 6 7 8 9"},
+		} {
+			check(t, s, 3, fmt.Sprintf(`{.a = "1"} %s {.b = "1"}`, op), want)
+		}
+	})
+}
+
+func TestSearchUnresolvedTraces(t *testing.T) { testSearchUnresolvedTraces(t, false) }
+
+func TestSearchUnresolvedTracesOnCluster(t *testing.T) { testSearchUnresolvedTraces(t, true) }
+
+// testProbeUnresolved checks what the probe reports for cycles, whatever the
+// portion count, and that well-formed and dangling traces stay out of it.
+func testProbeUnresolved(t *testing.T, cluster, http bool) {
+	s := openSearchStore(t, cluster, http)
+	a, b, ab := []string{"a"}, []string{"b"}, []string{"a", "b"}
+	s.seed(t, []span{
+		// well formed
+		{40, 1, 0, a}, {40, 2, 1, b},
+		// self-parent
+		{41, 1, 1, ab},
+		// cycle under a root
+		{42, 1, 0, a}, {42, 6, 1, b}, {42, 2, 4, a}, {42, 3, 2, b}, {42, 4, 3, ab}, {42, 5, 3, b},
+		// root, dangling span and cycle
+		{44, 1, 0, a}, {44, 2, 1, b}, {44, 3, 99, b}, {44, 4, 5, a}, {44, 5, 4, b},
+		// root and dangling span
+		{45, 1, 0, a}, {45, 2, 1, b}, {45, 3, 99, ab},
+	})
+	const id41, id42, id44 = "00000000000000000000000000000029", "0000000000000000000000000000002a", "0000000000000000000000000000002c"
+	for _, c := range []struct {
+		query string
+		n     uint64
+		ids   []string
+		jumps []uint64
+	}{
+		{`{.a = "1"} >> {.b = "1"}`, 3, []string{id41, id42, id44}, []uint64{3}},
+		{`{.a = "1"} > {.b = "1"}`, 1, []string{id44}, []uint64{1}},
+		{`({.a = "1"} >> {.b = "1"}) &<< ({.a = "1"} > {.b = "1"})`, 3, []string{id41, id42, id44}, []uint64{3, 1, 2}},
+		{`{.a = "nope"} >> {.b = "nope"}`, 0, nil, []uint64{0}},
+	} {
+		for _, portions := range []int64{0, 3} {
+			t.Run(fmt.Sprintf("%s portions %d", c.query, portions), func(t *testing.T) {
+				q, err := traceql_ir.Parse(c.query)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ctx := &shared.PlannerContext{
+					Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
+					From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+					AncestryRounds: 20, Portions: portions,
+					VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
+				}
+				distconfig.Init()
+				tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
+					Name: s.name, ClusterName: s.cluster,
+				}})
+				found, err := probeUnresolved(context.Background(), q, ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				n, ids := mergeUnresolved(found)
+				if n != c.n || !slices.Equal(ids, c.ids) {
+					t.Errorf("n = %d ids = %q, want %d %q", n, ids, c.n, c.ids)
+				}
+				sums := map[string]uint64{}
+				var order []string
+				for _, f := range found {
+					if _, ok := sums[f.Jump]; !ok {
+						order = append(order, f.Jump)
+					}
+					sums[f.Jump] += f.N
+				}
+				var jumps []uint64
+				for _, j := range order {
+					jumps = append(jumps, sums[j])
+				}
+				if !slices.Equal(jumps, c.jumps) {
+					t.Errorf("per-jump counts %v, want %v", jumps, c.jumps)
+				}
+			})
+		}
+	}
+}
+
+func TestProbeUnresolved(t *testing.T) { testProbeUnresolved(t, false, false) }
+
+func TestProbeUnresolvedOnCluster(t *testing.T) { testProbeUnresolved(t, true, false) }
+
+func TestProbeUnresolvedOverHTTP(t *testing.T) { testProbeUnresolved(t, false, true) }
+
+func TestProbeUnresolvedOverHTTPOnCluster(t *testing.T) { testProbeUnresolved(t, true, true) }
+
+// A structural query's estimate is every span in range, so the budget that holds
+// all of them reads it at once and one span less splits it.
+func TestSearchPortionsByTheSpansInRange(t *testing.T) {
+	s := openSearchStore(t, false, false)
+	s.seedStructural(t)
+	t.Cleanup(func() {
+		if err := traceqlconfig.Init(); err != nil {
+			t.Error(err)
+		}
+	})
+	spans := len(structuralTraces())
+	for _, tc := range []struct {
+		budget              int
+		portions, totalJobs int64
+	}{{spans, 0, 1}, {spans - 1, 2, 2}} {
+		t.Setenv(traceqlconfig.PortionSpansEnv, strconv.Itoa(tc.budget))
+		if err := traceqlconfig.Init(); err != nil {
+			t.Fatal(err)
+		}
+		q, err := traceql_ir.Parse(`{.a = "1"} >> {.b = "1"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		planner, err := Plan(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := &shared.PlannerContext{
+			Ctx: context.Background(), CHDb: s.db,
+			From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+			Limit: searchLimit, SpansPerSpanSet: 100, AncestryRounds: 20,
+			VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
+		}
+		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{Name: s.name}})
+		ch, err := planner.Process(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		traces := 0
+		for batch := range ch {
+			traces += len(batch)
+		}
+		if ctx.Portions != tc.portions || traces == 0 {
+			t.Errorf("budget %d: %d portions and %d traces, want %d portions and some traces",
+				tc.budget, ctx.Portions, traces, tc.portions)
+		}
+		if ctx.TotalJobs() != tc.totalJobs {
+			t.Errorf("budget %d: TotalJobs %d, want %d", tc.budget, ctx.TotalJobs(), tc.totalJobs)
+		}
+	}
+}

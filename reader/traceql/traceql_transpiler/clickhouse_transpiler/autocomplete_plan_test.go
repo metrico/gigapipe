@@ -281,3 +281,22 @@ func TestAutocompleteReadsDistributedTablesOnClusters(t *testing.T) {
 		}
 	}
 }
+
+func TestAutocompleteTreatsQuotedNamesLikeBareOnes(t *testing.T) {
+	for quoted, bare := range map[string]string{
+		`{ ."foo" = "a" }`:                  `{ .foo = "a" }`,
+		`{ span."foo".bar = 1 }`:            `{ span.foo.bar = 1 }`,
+		`{ .a = ."b" }`:                     `{ .a = .b }`,
+		`{ ."foo" = 1 } >> { .x"bar" = 2 }`: `{ .foo = 1 } >> { .xbar = 2 }`,
+	} {
+		bares := autocompletePlans(t, bare)
+		for kind, plan := range autocompletePlans(t, quoted) {
+			t.Run(kind+" "+quoted, func(t *testing.T) {
+				got, want := renderSearch(t, plan, testPlannerContext(7)), renderSearch(t, bares[kind], testPlannerContext(7))
+				if got != want {
+					t.Errorf("got:\n%s\nwant:\n%s", got, want)
+				}
+			})
+		}
+	}
+}

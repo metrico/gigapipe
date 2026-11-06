@@ -4,6 +4,13 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
+// A quoted name part may run unclosed to the end of the input: the parser
+// rejects it with its own error.
+const (
+	nameRune       = `[.:a-zA-Z0-9_-]`
+	quotedNamePart = `"([^"\\]|\\(?s:.))*("|\\?\z)`
+)
+
 var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Ocb", `\{`},
 	{"Ccb", `\}`},
@@ -41,9 +48,16 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"UnionSibling", `&~`},
 	{"Sibling", `~`},
 
+	// A number directly followed by a duration unit, then more units and digits.
+	{"Duration", `([0-9]+\.?[0-9]*|\.[0-9]+)[nsumhµdwy][nsumhµdwy0-9.]*`},
+	// A digit right after a dot makes a number.
+	{"Float", `([0-9]+\.[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?|[0-9]+[eE][-+]?[0-9]+`},
+
 	// Label_name supports dotted names and colon intrinsics (span:duration).
 	// Keywords like true/false/nil are matched as Label_name and handled in the grammar.
-	{"Label_name", `(\.[a-zA-Z_][.:a-zA-Z0-9_-]*|[a-zA-Z_][.:a-zA-Z0-9_-]*)`},
+	// After a dot scope a name mixes bare runes and quoted parts.
+	{"Label_name", `(\.|span\.|resource\.)` + nameRune + `*` + quotedNamePart + `(` + nameRune + `|` + quotedNamePart + `)*` +
+		`|\.[a-zA-Z_]` + nameRune + `*|[a-zA-Z_]` + nameRune + `*`},
 	{"Dot", `\.`},
 
 	{"And", `&&`},
@@ -60,8 +74,6 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Div", `/`},
 	{"Mod", `%`},
 	{"Pow", `\^`},
-	// Float must come before Integer to correctly lex 3.14 as a single token
-	{"Float", `[0-9]+\.[0-9]+`},
 	{"Integer", "[0-9]+"},
 
 	{"space", `\s+`},
