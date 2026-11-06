@@ -16,10 +16,6 @@ var idsColumns = []struct{ Name, Type string }{
 	{Name: "span_id", Type: "Array(FixedString(8))"},
 }
 
-// selectionResultTable is the external table that carries compare()'s
-// selection ids, with idsColumns.
-const selectionResultTable = "_selection_result"
-
 // IdsStatement lists (trace_id, span_id[]) rows, sent to the statement that
 // follows it as the external table Table with idsColumns.
 type IdsStatement struct {

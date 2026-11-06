@@ -22,6 +22,7 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/tempo"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/shared/chtest"
@@ -674,7 +675,7 @@ func (r *queryRecorder) take() []string {
 }
 
 // Each ids statement runs once per request, also when the series and their
-// exemplars both read its ids.
+// exemplars both read its ids, and only the baseline of whole-trace queries has one.
 func TestMetricsRunEachIdsStatementOncePerRequest(t *testing.T) {
 	testMetricsRunEachIdsStatementOncePerRequest(t, false)
 }
@@ -707,12 +708,24 @@ func testMetricsRunEachIdsStatementOncePerRequest(t *testing.T, cluster bool) {
 			}
 		}
 	}
+	// idsOf is 1 for a query that relates spans across a trace, else 0.
+	idsOf := func(query string) int {
+		t.Helper()
+		q, err := traceql_ir.Parse(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.NeedsWholeTrace() {
+			return 1
+		}
+		return 0
+	}
 	for _, query := range exemplarQueries {
 		s.exemplarResult(t, query)
-		check("range", query, 1)
+		check("range", query, idsOf(query))
 	}
 	for _, query := range metricsQueries() {
-		want := 1
+		want := idsOf(query)
 		if strings.Contains(query, "histogram_over_time") {
 			want = 0
 		}
@@ -720,10 +733,7 @@ func testMetricsRunEachIdsStatementOncePerRequest(t *testing.T, cluster bool) {
 		check("instant", query, want)
 	}
 	for _, query := range compareQueries() {
-		want := 2
-		if strings.Contains(query, "compare({})") {
-			want = 1
-		}
+		want := idsOf(query)
 		s.rangeResult(t, query)
 		check("range", query, want)
 		s.instantResult(t, query)

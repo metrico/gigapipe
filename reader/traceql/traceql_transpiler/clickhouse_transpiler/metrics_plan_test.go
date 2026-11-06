@@ -67,6 +67,15 @@ func idsResult(t *testing.T, statement shared.SQLRequestPlanner) (structural boo
 	return structural, ids.Result
 }
 
+// spansStatement is the statement that finds plan's spans: its ids statement, or
+// the metrics statement when that reads them itself.
+func spansStatement(plan *MetricsPlan) shared.SQLRequestPlanner {
+	if len(plan.Ids) > 0 {
+		return plan.Ids[0].Statement
+	}
+	return plan.Metrics
+}
+
 // renderMetrics renders plan's ids statements and its metrics statement, in
 // that order.
 func renderMetrics(t *testing.T, plan *MetricsPlan, ctx *shared.PlannerContext) string {
@@ -89,14 +98,22 @@ func processMetrics(plan *MetricsPlan, ctx *shared.PlannerContext) error {
 	return err
 }
 
-// Metrics count the spans search returns: the same evaluated expression.
+// Metrics count the spans search returns: the same evaluated expression. A
+// query the read filters itself has no expression of its own.
 func TestMetricsReadTheSearchResultSpans(t *testing.T) {
 	for _, query := range searchQueries {
-		if query == `{}` {
-			continue
-		}
 		t.Run(query, func(t *testing.T) {
-			structural, expr := metricsResult(t, planMetrics(t, query))
+			plan := planMetrics(t, query)
+			if len(plan.Ids) == 0 {
+				if read := plan.spans.OnePass; read.Result != nil {
+					_, searchExpr := searchStages(t, planSearch(t, query))
+					if got, want := describePlan(t, read.Result), describePlan(t, searchExpr); got != want {
+						t.Errorf("metrics plan %s, search plan %s", got, want)
+					}
+				}
+				return
+			}
+			structural, expr := metricsResult(t, plan)
 			_, searchExpr := searchStages(t, planSearch(t, query))
 			if got, want := describePlan(t, expr), describePlan(t, searchExpr); got != want {
 				t.Errorf("metrics plan %s, search plan %s", got, want)
@@ -106,9 +123,9 @@ func TestMetricsReadTheSearchResultSpans(t *testing.T) {
 			}
 		})
 	}
-	_, expr := metricsResult(t, planMetrics(t, `{}`))
-	if got := describePlan(t, expr); got != "{}" {
-		t.Errorf("{} | rate() reads %s, want every span in range", got)
+	read := planMetrics(t, `{}`).spans.OnePass
+	if read.Result != nil || read.Filter != nil {
+		t.Errorf("{} | rate() reads %+v, want every span in range", read)
 	}
 }
 
@@ -127,7 +144,11 @@ func TestMetricsSpansAreUncapped(t *testing.T) {
 func TestMetricsSpansJoinResultSpansOnTraceAndSpan(t *testing.T) {
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planMetrics(t, query).Metrics, testPlannerContext(3))
+			plan := planMetrics(t, query)
+			if len(plan.Ids) == 0 {
+				t.Skip("TestOnePassMetricsAreTheResultSpans covers it")
+			}
+			res := renderPlan(t, plan.Metrics, testPlannerContext(3))
 			if !regexp.MustCompile(`\(traces\.trace_id, traces\.span_id\) IN \(_\d+trace_span_ids\)`).MatchString(res) {
 				t.Errorf("metrics spans are not the result spans by (trace_id, span_id):\n%s", res)
 			}
@@ -172,7 +193,7 @@ func TestMetricsStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing.T) {
 			t.Errorf("%s: %v", query, err)
 		}
 		plan := planMetrics(t, query)
-		res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
+		res := renderPlan(t, spansStatement(plan), testPlannerContext(3))
 		if strings.HasSuffix(res, " SETTINGS enable_analyzer=1") != structural ||
 			strings.Count(res, "enable_analyzer") != map[bool]int{true: 1}[structural] {
 			t.Errorf("%s: enable_analyzer pinned wrongly on the ids statement:\n%s", query, res)
@@ -193,6 +214,9 @@ func TestMetricsReadDistributedTablesOnClusters(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.IsCluster = true
 			plan := planMetrics(t, query)
+			if len(plan.Ids) == 0 {
+				t.Skip("TestOnePassMetricsRunOnEachShard covers it")
+			}
 			res := renderPlan(t, plan.Ids[0].Statement, ctx)
 			if m := local.FindString(res); m != "" {
 				t.Errorf("ids statement reads a local table (%q):\n%s", m, res)
@@ -235,6 +259,9 @@ func TestMetricsIdsStatementListsSpanIdsByTrace(t *testing.T) {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = cluster
 				plan := planMetricsFn(t, query)
+				if len(plan.Ids) == 0 {
+					t.Skip("the metrics statement finds its spans")
+				}
 				if structural, _ := metricsResult(t, plan); structural && cluster {
 					t.Skip("on a cluster TestStructuralIdsStatementsRunWholeOnEachShard covers it")
 				}
@@ -263,7 +290,11 @@ func TestMetricsStatementReadsOnlySearchResult(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/cluster=%t", query, cluster), func(t *testing.T) {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = cluster
-				res := renderPlan(t, planMetricsFn(t, query).Metrics, ctx)
+				plan := planMetricsFn(t, query)
+				if len(plan.Ids) == 0 {
+					t.Skip("the metrics statement finds its spans")
+				}
+				res := renderPlan(t, plan.Metrics, ctx)
 				if !strings.Contains(res, "FROM "+SearchResultTable) {
 					t.Errorf("does not read %s:\n%s", SearchResultTable, res)
 				}
@@ -318,25 +349,17 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Ids) != 2 || plan.Ids[0].Table != SearchResultTable || plan.Ids[1].Table != selectionResultTable {
-		t.Fatalf("compare ids statements %+v, want %s and %s", plan.Ids, SearchResultTable, selectionResultTable)
+	if len(plan.Ids) != 1 || plan.Ids[0].Table != SearchResultTable {
+		t.Fatalf("compare ids statements %+v, want %s", plan.Ids, SearchResultTable)
 	}
 	structural, expr := idsResult(t, plan.Ids[0].Statement)
 	if got := describePlan(t, expr); !structural || got != ">>({.a},{.b})" {
 		t.Errorf("baseline plan %s, structural %v", got, structural)
 	}
-	structural, expr = idsResult(t, plan.Ids[1].Statement)
-	if got := describePlan(t, expr); structural || got != "{.c,.d}" {
-		t.Errorf("selection plan %s, structural %v", got, structural)
-	}
 	ctx := testPlannerContext(3)
 	baselineIds := renderPlan(t, plan.Ids[0].Statement, ctx)
 	if !strings.Contains(baselineIds, "86000000000000") || strings.Contains(baselineIds, "86390000000000") {
 		t.Errorf("baseline ids are not over the baseline window:\n%s", baselineIds)
-	}
-	selectionIds := renderPlan(t, plan.Ids[1].Statement, ctx)
-	if !strings.Contains(selectionIds, "86390000000000") || strings.Contains(selectionIds, "86000000000000") {
-		t.Errorf("selection ids are not over the query range:\n%s", selectionIds)
 	}
 
 	req, err := plan.Metrics.Process(ctx)
@@ -360,13 +383,13 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 		!strings.Contains(selection, "(traces.timestamp_ns) <= (86410000000000)") {
 		t.Errorf("selection spans are not over the query range:\n%s", selection)
 	}
-	if got := idsTableOf(t, withs, selection); got != selectionResultTable {
-		t.Errorf("selection spans read %s, want %s", got, selectionResultTable)
+	if !strings.Contains(selection, "result_spans") {
+		t.Errorf("selection spans aren't the selector's spans:\n%s", selection)
 	}
 	for _, cluster := range []bool{false, true} {
 		ctx.IsCluster = cluster
 		res := renderPlan(t, plan.Metrics, ctx)
-		for _, banned := range []string{"result_spans", "spansets", "GLOBAL", "enable_analyzer"} {
+		for _, banned := range []string{"GLOBAL", "enable_analyzer"} {
 			if strings.Contains(res, banned) {
 				t.Errorf("cluster %v: compare statement has %s:\n%s", cluster, banned, res)
 			}
@@ -381,10 +404,10 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Ids) != 1 {
-		t.Errorf("compare({}) plans %d ids statements, want 1", len(plan.Ids))
+	if len(plan.Ids) != 0 {
+		t.Errorf("compare({}) plans %d ids statements, want none", len(plan.Ids))
 	}
-	if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); strings.Contains(res, selectionResultTable) {
+	if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); strings.Contains(res, "selection_spans") {
 		t.Errorf("compare({}) reads a selection:\n%s", res)
 	}
 }
@@ -408,7 +431,7 @@ func idsTableOf(t *testing.T, withs map[string]*sql.With, spans string) string {
 // Metrics read the stored nested-set values of the result spans, from the
 // distributed table on a cluster.
 func TestMetricsReadNestedSetValuesOfTheResultSpans(t *testing.T) {
-	q, err := traceql_ir.Parse(`{.a = 1} | avg_over_time(nestedSetRight) by (nestedSetLeft, nestedSetRight)`)
+	q, err := traceql_ir.Parse(`{.a = 1} >> {.b = 2} | avg_over_time(nestedSetRight) by (nestedSetLeft, nestedSetRight)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,12 +551,23 @@ func TestCompareCountsRunOnEachShard(t *testing.T) {
 	}
 }
 
-// The baseline trace ids passed to Counts read the ids table on their own.
+// The baseline trace ids passed to Counts read the ids table on their own, or
+// the baseline spans when those have no ids table.
 func TestCompareTraceIdsDefineTheirRows(t *testing.T) {
-	q, err := traceql_ir.Parse(`{.a = 1} | compare({.c = 3})`)
-	if err != nil {
-		t.Fatal(err)
+	for query, rows := range map[string]string{
+		`({.a = 1} >> {.b = 2}) | compare({.c = 3})`: `_\d+result_ids as \(`,
+		`{.a = 1} | compare({.c = 3})`:               `_\d+trace_ids as \( SELECT trace_id FROM baseline_spans\)`,
+	} {
+		q, err := traceql_ir.Parse(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testCompareTraceIds(t, q, regexp.MustCompile(rows))
 	}
+}
+
+func testCompareTraceIds(t *testing.T, q *traceql_ir.Query, rows *regexp.Regexp) {
+	t.Helper()
 	build := CompareBuild{
 		Counts: func(_, _, traceIds *sql.With, _ string) (sql.ISelect, error) {
 			return sql.NewSelect().With(traceIds).Select(sql.NewRawObject("trace_id")).From(sql.NewWithRef(traceIds)), nil
@@ -545,7 +579,7 @@ func TestCompareTraceIdsDefineTheirRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := renderPlan(t, plan.Metrics, testPlannerContext(3))
-	if !regexp.MustCompile(`_\d+result_ids as \(`).MatchString(res) {
+	if !rows.MatchString(res) {
 		t.Errorf("trace ids read undefined rows:\n%s", res)
 	}
 }

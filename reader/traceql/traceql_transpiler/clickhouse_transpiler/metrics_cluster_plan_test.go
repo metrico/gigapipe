@@ -123,10 +123,25 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 			return q, err
 		},
 	}
-	for _, query := range ct.SearchQueries {
+	builds["nested-set argument"] = func(spans *sql.With) (sql.ISelect, error) {
+		req := request(spans, "nestedSetLeft")
+		req.Fn, req.Attr = "avg_over_time", "nestedSetRight"
+		q, _, err := tempo.BuildMetricsRangeQuery(req)
+		return q, err
+	}
+	selectors := append(slices.Clone(ct.SearchQueries),
+		`{nestedSetParent < 0}`,
+		`{nestedSetParent < 0 && .a = 1}`,
+		`{.a = 1} | select(.x)`,
+		`{.a = 1} | avg_over_time(nestedSetRight)`)
+	for _, query := range selectors {
 		for name, build := range builds {
 			t.Run(name+"/"+query, func(t *testing.T) {
-				q, err := traceql_ir.Parse(query + " | rate()")
+				text := query
+				if !strings.Contains(query, "_over_time") {
+					text += " | rate()"
+				}
+				q, err := traceql_ir.Parse(text)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -141,7 +156,10 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 				check(t, rendered)
 			})
 		}
-		for _, selection := range []string{"{.c = 3}", "{}"} {
+		if strings.Contains(query, "_over_time") {
+			continue
+		}
+		for _, selection := range []string{"{.c = 3}", "{}", "{nestedSetParent < 0}"} {
 			t.Run("compare "+selection+"/"+query, func(t *testing.T) {
 				q, err := traceql_ir.Parse(query + " | compare(" + selection + ")")
 				if err != nil {
