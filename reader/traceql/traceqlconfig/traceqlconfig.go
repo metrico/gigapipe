@@ -20,7 +20,7 @@ const (
 	// reads per portion on one shard.
 	PortionSpansEnv = "GIGAPIPE_TRACEQL_PORTION_SPANS"
 	// DefaultPortionSpans applies when PortionSpansEnv is unset.
-	DefaultPortionSpans = 2500000
+	DefaultPortionSpans = 7500000
 
 	// SearchMaxDurationEnv sets the longest range of a TraceQL search or tag
 	// autocomplete; 0 means no limit.
