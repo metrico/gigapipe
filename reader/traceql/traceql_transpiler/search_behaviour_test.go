@@ -544,3 +544,52 @@ func TestProbeUnresolvedOnCluster(t *testing.T) { testProbeUnresolved(t, true, f
 func TestProbeUnresolvedOverHTTP(t *testing.T) { testProbeUnresolved(t, false, true) }
 
 func TestProbeUnresolvedOverHTTPOnCluster(t *testing.T) { testProbeUnresolved(t, true, true) }
+
+// A structural query's estimate is every span in range, so the budget that holds
+// all of them reads it at once and one span less splits it.
+func TestSearchPortionsByTheSpansInRange(t *testing.T) {
+	s := openSearchStore(t, false, false)
+	s.seedStructural(t)
+	t.Cleanup(func() {
+		if err := traceqlconfig.Init(); err != nil {
+			t.Error(err)
+		}
+	})
+	spans := len(structuralTraces())
+	for _, tc := range []struct {
+		budget   int
+		portions int64
+	}{{spans, 0}, {spans - 1, 2}} {
+		t.Setenv(traceqlconfig.PortionSpansEnv, strconv.Itoa(tc.budget))
+		if err := traceqlconfig.Init(); err != nil {
+			t.Fatal(err)
+		}
+		q, err := traceql_ir.Parse(`{.a = "1"} >> {.b = "1"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		planner, err := Plan(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := &shared.PlannerContext{
+			Ctx: context.Background(), CHDb: s.db,
+			From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+			Limit: searchLimit, SpansPerSpanSet: 100, AncestryRounds: 20,
+			VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
+		}
+		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{Name: s.name}})
+		ch, err := planner.Process(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		traces := 0
+		for batch := range ch {
+			traces += len(batch)
+		}
+		if ctx.Portions != tc.portions || traces == 0 {
+			t.Errorf("budget %d: %d portions and %d traces, want %d portions and some traces",
+				tc.budget, ctx.Portions, traces, tc.portions)
+		}
+	}
+}
