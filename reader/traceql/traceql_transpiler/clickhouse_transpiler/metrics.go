@@ -27,10 +27,8 @@ type CompareBuild struct {
 	Result func(counts *sql.With) (sql.ISelect, error)
 }
 
-// MetricsPlan is a metrics query in steps: each Ids statement lists span ids,
-// and Metrics reads the spans of those ids from the Ids external tables. A side
-// that relates no spans across a trace has no Ids statement: Metrics finds its
-// spans itself.
+// MetricsPlan is a metrics query in steps: Ids statements list span ids for
+// Metrics to read. A side that needs no whole trace has none.
 type MetricsPlan struct {
 	Ids     []IdsStatement
 	Metrics shared.SQLRequestPlanner
@@ -38,9 +36,8 @@ type MetricsPlan struct {
 	spans *metricsSpansPlanner
 }
 
-// PlanMetrics plans a metrics query over the result spans of the query's
-// spanset expression in the query range: the spans a search for it returns,
-// uncapped. A query that needs the whole trace lists them into SearchResultTable.
+// PlanMetrics plans a metrics query over the spans a search for it returns in the
+// query range, uncapped; one that needs the whole trace lists them into SearchResultTable.
 func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (*MetricsPlan, error) {
 	p := &planner{query: query}
 	result, err := p.planQuery()
@@ -65,14 +62,13 @@ func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (*MetricsPlan, err
 // m is a PlanMetrics plan.
 func (m *MetricsPlan) Over(build MetricsBuild) (shared.SQLRequestPlanner, error) {
 	if m.spans == nil {
-		return nil, errors.New("compare() has no metrics statement over its ids")
+		return nil, errors.New("compare() has no metrics statement over its spans")
 	}
 	return &metricsPlanner{Spans: m.spans, Build: build}, nil
 }
 
-// PlanCompare plans compare() over the baseline, the result spans in [baselineFrom,
-// baselineTo], and the selection filter's spans. A baseline that needs the whole
-// trace lists its spans into SearchResultTable.
+// PlanCompare plans compare() over the result spans in [baselineFrom, baselineTo]
+// and the selection's; a baseline that needs the whole trace lists its into SearchResultTable.
 func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 	baselineFrom, baselineTo time.Time, build CompareBuild) (*MetricsPlan, error) {
 	p := &planner{query: query}
@@ -164,9 +160,8 @@ func metricsNestedSet(fn *traceql_ir.MetricsFn) []nestedSetCol {
 	return cols
 }
 
-// metricsSpansPlanner reads the traces table for the spans of OnePass, or else
-// of the ids table Ids: one row per span, as MetricsBuild reads, with the stored
-// values of the NestedSet columns.
+// metricsSpansPlanner reads one traces row per span of OnePass, or else of the ids
+// table Ids, as MetricsBuild reads, with the stored values of the NestedSet columns.
 type metricsSpansPlanner struct {
 	Ids       string
 	OnePass   *onePassRead

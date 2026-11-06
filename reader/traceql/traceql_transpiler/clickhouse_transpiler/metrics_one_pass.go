@@ -8,13 +8,12 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-// onePassRead is how a metrics read finds a query's spans without an ids
-// statement: the span rows of Result when set, else those Filter holds for over
-// the read, else every span. Sample is the query's hash sample.
+// onePassRead is how a metrics read finds a query's spans without an ids statement:
+// the span rows of Result when set, else those Filter holds for, else every span.
 type onePassRead struct {
 	Result shared.SQLRequestPlanner
 	Filter traceql_ir.FieldExpr
-	Sample sql.SQLCondition
+	Sample sql.SQLCondition // the query's hash sample
 }
 
 // onePassOf is the read of pipeline, whose span rows are result. Select and

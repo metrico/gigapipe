@@ -196,7 +196,7 @@ func TestMetricsStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing.T) {
 		res := renderPlan(t, spansStatement(plan), testPlannerContext(3))
 		if strings.HasSuffix(res, " SETTINGS enable_analyzer=1") != structural ||
 			strings.Count(res, "enable_analyzer") != map[bool]int{true: 1}[structural] {
-			t.Errorf("%s: enable_analyzer pinned wrongly on the ids statement:\n%s", query, res)
+			t.Errorf("%s: enable_analyzer pinned wrongly on the statement listing the spans:\n%s", query, res)
 		}
 		if res := renderPlan(t, plan.Metrics, testPlannerContext(3)); strings.Contains(res, "enable_analyzer") {
 			t.Errorf("%s: enable_analyzer on the metrics statement:\n%s", query, res)
@@ -487,7 +487,7 @@ func TestCompareHasNoMetricsOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := plan.Over(countSpans); err == nil {
-		t.Error("compare plan has a metrics statement over its ids")
+		t.Error("compare plan has a metrics statement over its spans")
 	}
 }
 
