@@ -41,6 +41,9 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"UnionSibling", `&~`},
 	{"Sibling", `~`},
 
+	// A digit right after a dot makes a number.
+	{"Float", `([0-9]+\.[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?|[0-9]+[eE][-+]?[0-9]+`},
+
 	// Label_name supports dotted names and colon intrinsics (span:duration).
 	// Keywords like true/false/nil are matched as Label_name and handled in the grammar.
 	{"Label_name", `(\.[a-zA-Z_][.:a-zA-Z0-9_-]*|[a-zA-Z_][.:a-zA-Z0-9_-]*)`},
@@ -60,8 +63,6 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Div", `/`},
 	{"Mod", `%`},
 	{"Pow", `\^`},
-	// Float must come before Integer to correctly lex 3.14 as a single token
-	{"Float", `[0-9]+\.[0-9]+`},
 	{"Integer", "[0-9]+"},
 
 	{"space", `\s+`},

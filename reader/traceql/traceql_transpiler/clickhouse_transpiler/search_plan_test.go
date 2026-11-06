@@ -236,3 +236,21 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchRendersNumberLiterals(t *testing.T) {
+	for _, tc := range []struct{ query, want string }{
+		{`{ .foo = .95 }`, `0.950000`},
+		{`{ .foo = -.5 }`, `-0.500000`},
+		{`{ .foo = 5. }`, `5.000000`},
+		{`{ .foo = 1e3 }`, `1000.000000`},
+		{`{ duration > .5s }`, `duration) > (500000000)`},
+		{`{ duration > 5.s }`, `duration) > (5000000000)`},
+		{`{} | count() > -.5`, `-0.5`},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			if res := renderPlan(t, planSearch(t, tc.query), testPlannerContext(7)); !strings.Contains(res, tc.want) {
+				t.Errorf("want %s in %s", tc.want, res)
+			}
+		})
+	}
+}
