@@ -100,8 +100,6 @@ func selectOf(fields ...*FieldExpr) PipelineElement {
 	return PipelineElement{Select: res}
 }
 
-func f64(f float64) *float64 { return &f }
-
 func i64(i int64) *int64 { return &i }
 
 func TestParseSelectors(t *testing.T) {
@@ -498,9 +496,19 @@ func TestParseMetricsFunctions(t *testing.T) {
 		{`{} | count_over_time() by (span.x, name)`, metrics(empty(),
 			&MetricsPipelineStage{Fn: "count_over_time", By: &ByClause{Labels: []string{"span.x", "name"}}})},
 		{`{} | quantile_over_time(duration, 0.9)`, metrics(empty(),
-			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Percentile: f64(0.9)})},
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.9}})},
 		{`{} | quantile_over_time(duration, .95)`, metrics(empty(),
-			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Percentile: f64(0.95)})},
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.95}})},
+		{`{} | quantile_over_time(duration, 0, .9, 1)`, metrics(empty(),
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0, 0.9, 1}})},
+		{`{} | quantile_over_time(duration, 1e-1)`, metrics(empty(),
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.1}})},
+		{`{} | quantile_over_time(duration, .5, .95, .99) by (x)`, metrics(empty(),
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.5, 0.95, 0.99},
+				By: &ByClause{Labels: []string{"x"}}})},
+		{`{} | quantile_over_time(duration, .5, .95) by (.x)`, metrics(empty(),
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.5, 0.95},
+				By: &ByClause{Labels: []string{".x"}}})},
 		{`{} | histogram_over_time(duration)`, metrics(empty(),
 			&MetricsPipelineStage{Fn: "histogram_over_time", Attr: "duration"})},
 		{`{} | compare({.a = "b"}, 10, 1, 2)`, metrics(empty(), &MetricsPipelineStage{Fn: "compare", CompSel: &CompareSelector{
@@ -594,6 +602,9 @@ func TestParseRejects(t *testing.T) {
 		`{} | avg(duration) > 5 s`,
 		`{duration > 1μs}`,
 		`{duration > 1.5.5s}`,
+		`{} | quantile_over_time(duration, -.1)`,
+		`{} | quantile_over_time(duration, .5s)`,
+		`{} | quantile_over_time(duration, .5,)`,
 	} {
 		t.Run(q, func(t *testing.T) {
 			_, err := Parse(q)

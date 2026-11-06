@@ -5,6 +5,7 @@ import (
 	"context"
 	stdsql "database/sql"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,55 +57,23 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	// Group results into time series by label combination
 	seriesMap := make(map[string]*model.MetricsTimeSeries)
 	hasByLabels := len(metricsFn.By) > 0
+	isQuantile := metricsFn.Fn == "quantile_over_time"
+	var queryWideValues []float64
 
-	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
-		byCount := len(resolvedByLabels)
-		var ts int64
-		var value float64
-		byVals := make([]string, byCount)
-
-		scanArgs := make([]any, 2+byCount)
-		scanArgs[0] = &ts
-		scanArgs[1] = &value
-		for i := range byVals {
-			scanArgs[2+i] = &byVals[i]
-		}
-
-		if err := rows.Scan(scanArgs...); err != nil {
-			return err
-		}
-
+	addSample := func(byVals []string, quantile *float64, ts int64, value float64) {
 		key := strings.Join(byVals, "\x00")
+		if quantile != nil {
+			key += "\x00" + strconv.FormatFloat(*quantile, 'g', -1, 64)
+		}
 		series, ok := seriesMap[key]
 		if !ok {
-			var labels []model.MetricsKeyValue
-			if !hasByLabels {
-				switch metricsFn.Fn {
-				case "rate", "count_over_time":
-					labels = append(labels, model.MetricsKeyValue{
-						Key:   "__name__",
-						Value: model.MetricsLabelValue{StringValue: metricsFn.Fn},
-					})
-				case "quantile_over_time":
-					p := 0.5
-					if metricsFn.Percentile != nil {
-						p = *metricsFn.Percentile
-					}
-					labels = append(labels, model.MetricsKeyValue{
-						Key:   "p",
-						Value: model.MetricsLabelValue{DoubleValue: &p},
-					})
-				default:
-					labels = append(labels, model.MetricsKeyValue{
-						Key:   "__name__",
-						Value: model.MetricsLabelValue{StringValue: metricsFn.Fn},
-					})
-				}
-			}
-			for i, label := range resolvedByLabels {
+			labels := byLabelValues(resolvedByLabels, byVals)
+			if quantile != nil {
+				labels = append(labels, quantileLabel(quantile))
+			} else if !hasByLabels {
 				labels = append(labels, model.MetricsKeyValue{
-					Key:   label,
-					Value: model.MetricsLabelValue{StringValue: byVals[i]},
+					Key:   "__name__",
+					Value: model.MetricsLabelValue{StringValue: metricsFn.Fn},
 				})
 			}
 
@@ -130,6 +99,38 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			TimestampMs: strconv.FormatInt(ts/1e6, 10),
 			Value:       value,
 		})
+	}
+
+	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
+		var ts int64
+		var value float64
+		var values []float64
+		var queryWide uint64
+		byVals := make([]string, len(resolvedByLabels))
+
+		scanArgs := []any{&ts, &value}
+		if isQuantile {
+			scanArgs = []any{&ts, &values, &queryWide}
+		}
+		for i := range byVals {
+			scanArgs = append(scanArgs, &byVals[i])
+		}
+
+		if err := rows.Scan(scanArgs...); err != nil {
+			return err
+		}
+
+		if !isQuantile {
+			addSample(byVals, nil, ts, value)
+			return nil
+		}
+		if queryWide != 0 {
+			queryWideValues = values
+			return nil
+		}
+		for i := range metricsFn.Quantiles {
+			addSample(byVals, &metricsFn.Quantiles[i], ts, values[i])
+		}
 		return nil
 	})
 	if err != nil {
@@ -214,18 +215,23 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		}
 
 		for i := range result {
-			var keyParts []string
-			for _, lbl := range result[i].Labels {
-				isBy := slices.Contains(resolvedByLabels, lbl.Key)
-				if isBy {
-					keyParts = append(keyParts, lbl.Value.StringValue)
-				}
+			// By-labels lead a series' labels and are read by position: p may name one.
+			byLabels := result[i].Labels[:len(resolvedByLabels)]
+			keyParts := make([]string, len(byLabels))
+			for j, lbl := range byLabels {
+				keyParts[j] = lbl.Value.StringValue
 			}
 			seriesKey := strings.Join(keyParts, "\x00")
 
 			groupExemplars := exByGroup[seriesKey]
 			if len(exByLabels) == 0 {
 				groupExemplars = exemplarRows
+			}
+			if isQuantile {
+				p := *result[i].Labels[len(byLabels)].Value.DoubleValue
+				groupExemplars = slices.DeleteFunc(slices.Clone(groupExemplars), func(ex exRow) bool {
+					return metricsFn.Quantiles[nearestQuantile(queryWideValues, float64(ex.durNs)/1e9)] != p
+				})
 			}
 			groupExemplars = capExemplars(tq, groupExemplars)
 
@@ -241,13 +247,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 					{Key: "trace:id", Value: model.MetricsLabelValue{StringValue: ex.traceID}},
 				}
 				if hasByLabels {
-					for _, lbl := range result[i].Labels {
-						for _, byLabel := range resolvedByLabels {
-							if lbl.Key == byLabel {
-								labels = append(labels, lbl)
-							}
-						}
-					}
+					labels = append(labels, byLabels...)
 				} else {
 					labels = append(labels, model.MetricsKeyValue{
 						Key: "nestedSetParent", Value: model.MetricsLabelValue{IntValue: "-1"},
@@ -315,35 +315,40 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		return nil, err
 	}
 
+	isQuantile := metricsFn.Fn == "quantile_over_time"
 	var result []model.MetricsInstantSeries
 	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
-		byCount := len(resolvedByLabels)
 		var value float64
-		byVals := make([]string, byCount)
+		var values []float64
+		byVals := make([]string, len(resolvedByLabels))
 
-		scanArgs := make([]any, 1+byCount)
-		scanArgs[0] = &value
+		scanArgs := []any{&value}
+		if isQuantile {
+			scanArgs = []any{&values}
+		}
 		for i := range byVals {
-			scanArgs[1+i] = &byVals[i]
+			scanArgs = append(scanArgs, &byVals[i])
 		}
 
 		if err := rows.Scan(scanArgs...); err != nil {
 			return err
 		}
 
-		labels := make([]model.MetricsKeyValue, byCount)
-		for i, label := range resolvedByLabels {
-			labels[i] = model.MetricsKeyValue{
-				Key:   label,
-				Value: model.MetricsLabelValue{StringValue: byVals[i]},
-			}
+		if !isQuantile {
+			result = append(result, model.MetricsInstantSeries{
+				Labels:    byLabelValues(resolvedByLabels, byVals),
+				Value:     value,
+				Exemplars: make([]any, 0),
+			})
+			return nil
 		}
-
-		result = append(result, model.MetricsInstantSeries{
-			Labels:    labels,
-			Value:     value,
-			Exemplars: make([]any, 0),
-		})
+		for i := range metricsFn.Quantiles {
+			result = append(result, model.MetricsInstantSeries{
+				Labels:    append(byLabelValues(resolvedByLabels, byVals), quantileLabel(&metricsFn.Quantiles[i])),
+				Value:     values[i],
+				Exemplars: make([]any, 0),
+			})
+		}
 		return nil
 	})
 	if err != nil {
@@ -358,6 +363,35 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		Series:  result,
 		Metrics: []byte(`{}`),
 	}, nil
+}
+
+// byLabelValues pairs the by-labels with their values.
+func byLabelValues(byLabels, byVals []string) []model.MetricsKeyValue {
+	labels := make([]model.MetricsKeyValue, len(byLabels))
+	for i, label := range byLabels {
+		labels[i] = model.MetricsKeyValue{
+			Key:   label,
+			Value: model.MetricsLabelValue{StringValue: byVals[i]},
+		}
+	}
+	return labels
+}
+
+// quantileLabel is the p label of a quantile series.
+func quantileLabel(quantile *float64) model.MetricsKeyValue {
+	return model.MetricsKeyValue{Key: "p", Value: model.MetricsLabelValue{DoubleValue: quantile}}
+}
+
+// nearestQuantile returns the index of the value closest to v, the earliest
+// on a tie.
+func nearestQuantile(values []float64, v float64) int {
+	nearest, distance := 0, math.Inf(1)
+	for i, value := range values {
+		if d := math.Abs(value - v); d < distance {
+			nearest, distance = i, d
+		}
+	}
+	return nearest
 }
 
 // metricsPlannerContext parses the metrics query of req and resolves the
@@ -388,7 +422,7 @@ func metricsRequest(fn *traceql_ir.MetricsFn, req *model.MetricsQueryRequest, pl
 		Fn:         fn.Fn,
 		Attr:       fn.Attr,
 		By:         fn.By,
-		Percentile: fn.Percentile,
+		Quantiles:  fn.Quantiles,
 		FromNS:     planCtx.From.UnixNano(),
 		ToNS:       planCtx.To.UnixNano(),
 		StepNS:     req.Step.Nanoseconds(),

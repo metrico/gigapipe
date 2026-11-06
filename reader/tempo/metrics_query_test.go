@@ -30,10 +30,12 @@ func TestMetricsQueriesReadOnlyTheSpans(t *testing.T) {
 		return &MetricsRequest{Spans: testSpans(), Fn: fn, Attr: attr, By: by,
 			FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "tempo_traces_attrs_gin"}
 	}
+	quantileReq := req("quantile_over_time", "duration", "service.name")
+	quantileReq.Quantiles = []float64{0.5}
 	var queries []sql.ISelect
 	for _, r := range []*MetricsRequest{
 		req("rate", ""), req("count_over_time", "", "name", "span.http.method"),
-		req("avg_over_time", "duration"), req("quantile_over_time", "duration", "service.name"),
+		req("avg_over_time", "duration"), quantileReq,
 	} {
 		q, _, err := BuildMetricsRangeQuery(r)
 		if err != nil {
@@ -66,6 +68,73 @@ func TestMetricsQueriesReadOnlyTheSpans(t *testing.T) {
 		}
 		if traces.MatchString(res) {
 			t.Errorf("reads the traces table:\n%s", res)
+		}
+	}
+}
+
+func quantileRequest(by ...string) *MetricsRequest {
+	return &MetricsRequest{Spans: testSpans(), Fn: "quantile_over_time", Attr: "duration", By: by,
+		Quantiles: []float64{0.5, 0.95, 1e-7}, FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "attrs"}
+}
+
+// A quantile list is one quantiles() over the spans, in seconds, with no log2 buckets.
+func TestQuantileListIsOneAggregate(t *testing.T) {
+	for name, build := range map[string]func(*MetricsRequest) (sql.ISelect, []string, error){
+		"range": BuildMetricsRangeQuery, "instant": BuildMetricsInstantQuery,
+	} {
+		t.Run(name, func(t *testing.T) {
+			q, labels, err := build(quantileRequest("name", ".x"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(labels, ","); got != "name,.x" {
+				t.Errorf("labels %s", got)
+			}
+			res := render(t, q)
+			if !strings.Contains(res, "arrayMap(x -> x / 1e9, quantiles(0.5, 0.95, 1e-07)(main.duration_ns))") {
+				t.Errorf("no quantile list in seconds:\n%s", res)
+			}
+			if n := strings.Count(res, "quantiles("); n != 1 {
+				t.Errorf("%d quantiles():\n%s", n, res)
+			}
+			if strings.Contains(res, "log2") {
+				t.Errorf("has log2 buckets:\n%s", res)
+			}
+		})
+	}
+}
+
+// The range statement also computes the list over the whole query.
+func TestQuantileRangeCarriesAQueryWideRow(t *testing.T) {
+	q, _, err := BuildMetricsRangeQuery(quantileRequest("name", ".x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := render(t, q)
+	if !strings.Contains(res, "GROUP BY GROUPING SETS ((ts, by_0, by_custom_0), ())") {
+		t.Errorf("no query-wide grouping set:\n%s", res)
+	}
+	if !regexp.MustCompile(`value, grouping\(ts\) as query_wide, main\.name as by_0`).MatchString(res) {
+		t.Errorf("no query-wide marker before the by columns:\n%s", res)
+	}
+	if strings.Contains(res, "WITH TOTALS") {
+		t.Errorf("uses totals:\n%s", res)
+	}
+}
+
+func TestOnlyQuantileRangeHasAQueryWideRow(t *testing.T) {
+	instant, _, err := BuildMetricsInstantQuery(quantileRequest("name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rate, _, err := BuildMetricsRangeQuery(&MetricsRequest{Spans: testSpans(), Fn: "rate", By: []string{"name"},
+		FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "attrs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []sql.ISelect{instant, rate} {
+		if res := render(t, q); strings.Contains(res, "GROUPING SETS") || strings.Contains(res, "query_wide") {
+			t.Errorf("query-wide row:\n%s", res)
 		}
 	}
 }
