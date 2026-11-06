@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"reflect"
@@ -40,18 +39,7 @@ func onePassReader(t *testing.T, s *metricsStore, user string, skip bool) *metri
 func TestReadonlyUserRunsOnePassMetricsOnCluster(t *testing.T) {
 	admin := openMetricsStore(t, true, false)
 	admin.seed(t, metricsTraces())
-	ctx := context.Background()
-	user := "chtest_ro_" + admin.name
-	t.Cleanup(func() { _ = admin.conn.Exec(ctx, "DROP USER IF EXISTS "+user) })
-	for _, stmt := range []string{
-		"CREATE USER " + user + " IDENTIFIED WITH no_password SETTINGS readonly = 1",
-		"GRANT SELECT ON " + admin.name + ".* TO " + user,
-		"GRANT REMOTE ON *.* TO " + user,
-	} {
-		if err := admin.conn.Exec(ctx, stmt); err != nil {
-			t.Fatalf("%v\n%s", err, stmt)
-		}
-	}
+	user := chtest.ReaderUser(t, admin.conn, admin.name, "readonly = 1")
 	for _, skip := range []bool{false, true} {
 		queries := []string{
 			`{} | rate()`,
