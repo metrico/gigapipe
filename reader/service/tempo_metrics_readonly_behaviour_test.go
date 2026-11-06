@@ -68,7 +68,8 @@ func TestReadonlyUserRunsOnePassMetricsOnCluster(t *testing.T) {
 					"exemplars": (*metricsStore).exemplarResult,
 				} {
 					w, g := result(want, t, q), result(got, t, q)
-					if len(w) == 0 || strings.HasPrefix(w[0], "error: ") {
+					emptyHistogram := name == "instant" && strings.Contains(q, "histogram_over_time")
+					if (len(w) == 0 && !emptyHistogram) || (len(w) > 0 && strings.HasPrefix(w[0], "error: ")) {
 						t.Errorf("%s: admin got %.300q", name, w)
 					}
 					if !reflect.DeepEqual(g, w) {
