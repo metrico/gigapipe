@@ -25,14 +25,14 @@ func selectAttrs(ctx *shared.PlannerContext, result shared.SQLRequestPlanner, pr
 	if err != nil {
 		return nil, err
 	}
+	dateFrom, dateTo := timerange.SpanDate("date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	res := sql.NewSelect().
 		With(withResult, withIds).
 		Select(sql.NewSimpleCol(col, col)).
 		From(sql.NewSimpleCol(attrsTable(ctx), "traces_idx")).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+			dateFrom, dateTo,
 			tsFrom,
 			tsTo,
 			inSubquery(ctx, sql.NewRawObject("traces_idx.trace_id"),
