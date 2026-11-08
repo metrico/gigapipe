@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/traceql/timerange"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
@@ -313,6 +315,14 @@ const parentID = "toFixedString(substring(traces.parent_id, 1, 8), 8)"
 // hasRoot is whether a node's trace has a found root.
 var hasRoot = fmt.Sprintf("max(found = 1 AND parent = %s) OVER (PARTITION BY trace_id)", zeroSpanID)
 
+// treeReadEnd is the later of the query's end and the statement's own end.
+func treeReadEnd(ctx *shared.PlannerContext) time.Time {
+	if ctx.To.After(ctx.QueryTo) {
+		return ctx.To
+	}
+	return ctx.QueryTo
+}
+
 // edges reads the cand traces' spans with their parents, as side 0; under
 // scopeIncomplete each parent is also a side 3 row.
 func (s treeScope) edges(ctx *shared.PlannerContext, cand sql.ISelect) sql.ISelect {
@@ -320,6 +330,9 @@ func (s treeScope) edges(ctx *shared.PlannerContext, cand sql.ISelect) sql.ISele
 	sel := sql.NewSelect().
 		From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
 		AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"), cand))
+	if !ctx.QueryTo.IsZero() {
+		sel.AndWhere(timerange.TreeRead("traces.timestamp_ns", treeReadEnd(ctx).UnixNano()))
+	}
 	keepPortion(ctx, sel)
 	if s == scopeIncomplete {
 		spanID, parent, side = "e.1", "e.2", "e.3"

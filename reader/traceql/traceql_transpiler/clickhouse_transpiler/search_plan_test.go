@@ -68,6 +68,7 @@ func testPlannerContext(spss int64) *shared.PlannerContext {
 		DistSuffix:               "_dist",
 		From:                     time.Unix(86390, 0).UTC(),
 		To:                       time.Unix(86410, 0).UTC(),
+		QueryTo:                  time.Unix(86410, 0).UTC(),
 		Limit:                    5,
 		SpansPerSpanSet:          spss,
 		TracesAttrsTable:         "tempo_traces_attrs_gin",

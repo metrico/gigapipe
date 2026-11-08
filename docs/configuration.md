@@ -152,6 +152,9 @@ The span tree is built at query time from stored `parent_id`s:
 - A span whose ancestor hasn't been ingested yet starts matching once that
   ancestor arrives.
 - When a trace has several roots, they are all siblings under `~`.
+- The span tree is read up to 1 hour past the end of the query range, or of a
+  `compare()` baseline ending later, so a parent starting more than 1 hour
+  after that end counts as missing.
 
 Ancestry is resolved in up to `R` rounds, set by
 `GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`. Each trace takes one round per doubling of

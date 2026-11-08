@@ -184,7 +184,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 	}
 	ctx := &shared.PlannerContext{
 		Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
-		From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+		From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute), QueryTo: spanStart.Add(time.Minute),
 		Limit: int64(run.limit), SpansPerSpanSet: 100, AncestryRounds: run.rounds,
 		VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
 	}
@@ -937,3 +937,122 @@ func testSearchPortionsByTheSpansInRange(t *testing.T, cluster bool) {
 		}
 	}
 }
+
+// matchedSpans is the "trace/span" of every span in summary lines, sorted.
+func matchedSpans(lines []string) []string {
+	res := []string{}
+	trace := regexp.MustCompile(`^trace (\w+) `)
+	spanID := regexp.MustCompile(`\[span (\w+)@`)
+	current := ""
+	for _, line := range lines {
+		if m := trace.FindStringSubmatch(line); m != nil {
+			current = m[1]
+			continue
+		}
+		for _, m := range spanID.FindAllStringSubmatch(line, -1) {
+			res = append(res, current+"/"+m[1])
+		}
+	}
+	slices.Sort(res)
+	return res
+}
+
+// testSearchTreeReadBound checks spans of a trace reaching outside the range.
+func testSearchTreeReadBound(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	// The range of a search ends a minute after spanStart.
+	bound := time.Minute + time.Hour
+	spans := []span{
+		// 0x30 crosses the range's upper edge, deepest spans past the bound.
+		{0x30, 1, 0, []string{"a"}}, {0x30, 2, 1, []string{"b"}}, {0x30, 3, 2, []string{"b"}}, {0x30, 4, 3, []string{"b"}},
+		// 0x31: children in range under a parent starting exactly at the bound.
+		{0x31, 1, 0, []string{"a"}}, {0x31, 2, 1, nil}, {0x31, 3, 2, []string{"b"}}, {0x31, 4, 2, []string{"c"}},
+		// 0x32: a parent starting past the bound counts as missing.
+		{0x32, 1, 0, []string{"a"}}, {0x32, 2, 1, nil}, {0x32, 3, 2, []string{"b"}},
+		// 0x33: a root days before the range.
+		{0x33, 1, 0, nil}, {0x33, 2, 1, []string{"a"}}, {0x33, 3, 2, []string{"b"}}, {0x33, 4, 2, []string{"c"}},
+	}
+	starts := map[[2]int]time.Duration{
+		{0x30, 3}: 30 * time.Minute, {0x30, 4}: 2 * time.Hour,
+		{0x31, 2}: bound,
+		{0x32, 2}: bound + time.Nanosecond,
+		{0x33, 1}: -48 * time.Hour,
+	}
+	s.seedStarts(t, spans, func(i int) int64 {
+		if d, ok := starts[[2]int{spans[i].trace, spans[i].id}]; ok {
+			return spanStart.Add(d).UnixNano()
+		}
+		return spanStart.UnixNano() + int64(i)
+	})
+	for query, want := range map[string][]string{
+		`{.a = "1"} >> {.b = "1"}`:  {"30/2", "31/3", "33/3"},
+		`{.a = "1"} > {.b = "1"}`:   {"30/2", "33/3"},
+		`{.b = "1"} ~ {.c = "1"}`:   {"31/4", "33/4"},
+		`{.a = "1"} !>> {.b = "1"}`: {"32/3"},
+		`{.b = "1"} << {.a = "1"}`:  {"30/1", "31/1", "33/2"},
+		`{.a = "1"} &>> {.b = "1"}`: {"30/1", "30/2", "31/1", "31/3", "33/2", "33/3"},
+	} {
+		for _, limit := range []int{10, 1000} {
+			if got := matchedSpans(s.result(t, query, searchRun{limit: limit})); !slices.Equal(got, want) {
+				t.Errorf("%s limit %d: got %v, want %v", query, limit, got, want)
+			}
+		}
+	}
+}
+
+// matchedTraces is the trace of every summary line, in result order.
+func matchedTraces(lines []string) []string {
+	res := []string{}
+	trace := regexp.MustCompile(`^trace (\w+) `)
+	for _, line := range lines {
+		if m := trace.FindStringSubmatch(line); m != nil {
+			res = append(res, m[1])
+		}
+	}
+	return res
+}
+
+// testSearchTreeReadBoundOrder runs more matching traces than the small limit:
+// the newest come first and the small limit is a prefix of the large one.
+func testSearchTreeReadBoundOrder(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	const matching = 12
+	var spans []span
+	for n := range matching {
+		spans = append(spans, span{0x40 + n, 1, 0, []string{"a"}}, span{0x40 + n, 2, 1, []string{"b"}})
+	}
+	// 0x60 resolves through a parent after the range; 0x61's parent is past the bound.
+	spans = append(spans,
+		span{0x60, 1, 0, []string{"a"}}, span{0x60, 2, 1, nil}, span{0x60, 3, 2, []string{"b"}},
+		span{0x61, 1, 0, []string{"a"}}, span{0x61, 2, 1, nil}, span{0x61, 3, 2, []string{"b"}})
+	starts := map[[2]int]time.Duration{
+		{0x60, 2}: 30 * time.Minute,
+		{0x61, 2}: time.Minute + time.Hour + time.Nanosecond,
+	}
+	s.seedStarts(t, spans, func(i int) int64 {
+		if d, ok := starts[[2]int{spans[i].trace, spans[i].id}]; ok {
+			return spanStart.Add(d).UnixNano()
+		}
+		return spanStart.UnixNano() + int64(i)
+	})
+	want := []string{"60"}
+	for n := matching - 1; n >= 0; n-- {
+		want = append(want, fmt.Sprintf("%x", 0x40+n))
+	}
+	for _, query := range []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} << {.a = "1"}`, `{.a = "1"} &>> {.b = "1"}`} {
+		for _, limit := range []int{10, 1000} {
+			expected := want[:min(limit, len(want))]
+			if got := matchedTraces(s.result(t, query, searchRun{limit: limit})); !slices.Equal(got, expected) {
+				t.Errorf("%s limit %d: got %v, want %v", query, limit, got, expected)
+			}
+		}
+	}
+}
+
+func TestSearchTreeReadBound(t *testing.T) { testSearchTreeReadBound(t, false) }
+
+func TestSearchTreeReadBoundOrder(t *testing.T) { testSearchTreeReadBoundOrder(t, false) }
+
+func TestSearchTreeReadBoundOrderOnCluster(t *testing.T) { testSearchTreeReadBoundOrder(t, true) }
+
+func TestSearchTreeReadBoundOnCluster(t *testing.T) { testSearchTreeReadBound(t, true) }
