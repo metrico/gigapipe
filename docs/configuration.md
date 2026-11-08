@@ -219,13 +219,17 @@ LIMIT 1
 ### Large queries
 
 A TraceQL search or tag autocomplete whose estimate exceeds
-`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each portion reads one hash
-bucket of traces over the whole requested range. For a search, each portion
-returns its bucket's top `limit` traces and Gigapipe merges them by newest
-matched span, so the result is the same at any portion count. Each portioned
-request logs one info-level `traceql portioned` line with the query, range,
-estimate, setting and portion count. For a structural query, the estimate is
-the fullest shard's.
+`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each search portion reads one
+hash bucket of traces over the whole requested range. Each autocomplete portion
+reads a slice of the `trace_id` space in every read of its statements, so
+`tempo_traces` reads narrow by the sort key; attribute index reads still scan
+the whole requested range. Autocomplete portions balance when trace ids are
+uniformly distributed; ids with a time prefix concentrate in few portions. For a
+search, each portion returns its bucket's top `limit` traces and Gigapipe merges
+them by newest matched span, so the result is the same at any portion count.
+Each portioned request logs one info-level `traceql portioned` line with the
+query, range, estimate, setting and portion count. For a structural query, the
+estimate is the fullest shard's.
 
 A search response reports its portions in a `metrics` block after the trace
 array: `"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the portion count,
