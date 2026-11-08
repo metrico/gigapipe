@@ -287,7 +287,7 @@ func TestSpanOnlyQueriesKeepTheirEstimates(t *testing.T) {
 // autocompletePortionQueries cover every structural operator and the reads a
 // filter can add: root, nested set and span-only operands.
 var autocompletePortionQueries = []string{
-	`{.a = 1}`, `{duration > 1ms}`, `{.a} && {.b}`, `{.a} || {.b}`, `{.a} | count() > 2`,
+	`{.a = 1}`, `{.a = 1 || duration > 1ms}`, `{.a} && {.b}`, `{.a} || {.b}`, `{.a} | count() > 2`,
 	`{.a} >> {.b}`, `{.a = 1} > {.b = 2}`, `{.a} ~ {.b}`, `{.a} &>> {.b}`, `{.a} !>> {.b}`,
 	`{.a} << {.b}`, `{.a} < {.b}`, `{.a} &<< {.b}`, `{.a} !<< {.b}`, `{.a} !~ {.b}`, `{} >> {.b}`, `{duration > 1ms} >> {.b}`, `{.a} > {}`,
 	`{nestedSetParent = -1 && .a = 1} >> {.b}`, `{nestedSetLeft > 0 && .a = 1} &>> {.b}`,

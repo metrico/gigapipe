@@ -234,6 +234,20 @@ Each portioned request logs one info-level `traceql portioned` line with the
 query, range, estimate, setting and portion count. For a structural query, the
 estimate is the fullest shard's.
 
+Tag autocomplete with a lone selector whose filter compares only `duration` or
+`span:duration` (combined with `&&` and `||`, and any `select()` stages), such
+as `{duration > 100ms}`, is one statement over the attribute index, with no
+estimate and no portions. The filter applies to each attribute row, so the
+statement holds in memory as many values as match it: up to one per distinct
+key for tags, or per distinct value of the requested key for tag values. All
+of a range's distinct values are held at once, on the initiator on a cluster,
+so a tag-value request for a high-cardinality key, such as a URL or an id, can
+fail on `max_memory_usage`. A span stored more than once with different
+durations suggests only the attributes of the copies whose duration passes, and
+with `&&` over terms that different copies meet it can suggest none. Other
+filters, including `{.a = 1 || duration > 0}`, keep their ids stage and
+portions.
+
 A search response reports its portions in a `metrics` block after the trace
 array: `"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the portion count,
 or `1` when the search was read at once. Autocomplete responses have no such

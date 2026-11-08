@@ -352,7 +352,7 @@ var portionedScalarAndSpanOnly = []string{
 	`{.b = "1"} | count() > 1`,
 	`{.b = "1"} | avg(.a) > 0`,
 	`{.b = "1"} | max(duration) > 0ns`,
-	`{duration > 1ns}`,
+	`{duration > 1ns && true}`,
 }
 
 // Portioned suggestions equal the unportioned ones, and each portion's ids and
@@ -394,4 +394,76 @@ func TestAutocompletePortionsEqualTheWhole(t *testing.T) {
 
 func TestAutocompletePortionsEqualTheWholeOnCluster(t *testing.T) {
 	testAutocompletePortionsEqualTheWhole(t, true)
+}
+
+// durationSpans are spans around a 1ms threshold: starts at the range's
+// exclusive From and inclusive To, and spans of both sides in one trace.
+func durationSpans() ([]span, map[int]int64, func(i int) int64) {
+	spans := []span{
+		{trace: 1, id: 1, attrs: []string{"a"}},
+		{trace: 1, id: 2, attrs: []string{"b"}},
+		{trace: 2, id: 3, attrs: []string{"c"}}, // at To
+		{trace: 2, id: 4, attrs: []string{"d"}}, // at From, out of range
+		{trace: 3, id: 5, attrs: []string{"e"}},
+		{trace: 4, id: 6, attrs: []string{"g"}},
+		{trace: 5, id: 7, attrs: []string{"h"}},
+	}
+	durations := map[int]int64{1: 5_000_000, 2: 100, 3: 2_000_000, 4: 5_000_000, 5: 3_000_000, 6: 500, 7: 1_000_000}
+	return spans, durations, func(i int) int64 {
+		switch i {
+		case 2:
+			return spanStart.Add(time.Hour).UnixNano()
+		case 3:
+			return spanStart.Add(-time.Minute).UnixNano()
+		}
+		return spanStart.UnixNano() + int64(i)
+	}
+}
+
+// A duration-only filter suggests what the ids path of the same condition
+// suggests, read at once and in portions.
+func testAutocompleteDurationOnlyEqualsItsIdsPath(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.traceID = spreadTraceID
+	spans, durations, start := durationSpans()
+	s.duration = func(id int) int64 { return durations[id] }
+	s.seedStarts(t, spans, start)
+	want := map[string][]string{
+		"tags":        {"a", "c", "e", "name"},
+		"values name": {"s1", "s3", "s5"},
+		"values a":    {"1"},
+	}
+	for kind, expected := range want {
+		if got := s.suggest(t, kind, `{duration > 1ms}`, searchRun{limit: autocompleteLimit}); !slices.Equal(got, expected) {
+			t.Errorf("%s: got %q, want %q", kind, got, expected)
+		}
+	}
+	for _, filter := range []string{
+		`duration > 1ms`, `duration >= 1ms`, `duration <= 1ms`, `span:duration > 1ms`,
+		`duration > 1ms && duration < 4ms`, `duration > 4ms || duration < 1us`,
+	} {
+		for _, kind := range autocompleteKinds {
+			for _, limit := range []int{autocompleteLimit, 2} {
+				got := s.suggest(t, kind, "{"+filter+"}", searchRun{limit: limit})
+				idsPath := "{(" + filter + ") && true}"
+				if len(got) == 0 && limit > 1 && kind != "values a" {
+					t.Errorf("%s %s: no suggestions", kind, filter)
+				}
+				if whole := s.suggest(t, kind, idsPath, searchRun{limit: limit}); !slices.Equal(got, whole) {
+					t.Errorf("%s %s limit %d: got %q, ids path %q", kind, filter, limit, got, whole)
+				}
+				if portioned := s.suggest(t, kind, idsPath, searchRun{limit: limit, portions: 3}); !slices.Equal(got, portioned) {
+					t.Errorf("%s %s limit %d: got %q, portioned ids path %q", kind, filter, limit, got, portioned)
+				}
+			}
+		}
+	}
+}
+
+func TestAutocompleteDurationOnlyEqualsItsIdsPath(t *testing.T) {
+	testAutocompleteDurationOnlyEqualsItsIdsPath(t, false)
+}
+
+func TestAutocompleteDurationOnlyEqualsItsIdsPathOnCluster(t *testing.T) {
+	testAutocompleteDurationOnlyEqualsItsIdsPath(t, true)
 }

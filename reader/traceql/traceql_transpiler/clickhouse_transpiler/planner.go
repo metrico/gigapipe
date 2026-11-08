@@ -5,7 +5,9 @@ import (
 	"reflect"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/plugins"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 // Plan plans a search for query in two statements.
@@ -18,10 +20,14 @@ func PlanEval(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
 }
 
 // PlanTagsV2 plans the attribute keys of the spans a search for query
-// returns, or, without Ids, of every span in range when AllSpans(query).
+// returns, or, without Ids, of every span in range when AllSpans(query) and
+// of the attribute rows that pass a duration-only filter.
 func PlanTagsV2(query *traceql_ir.Query) (*SearchPlan, error) {
 	if AllSpans(query) {
 		return &SearchPlan{Data: &AllTagsRequestPlanner{}}, nil
+	}
+	if filter, err := durationOnlyFilter(query); filter != nil || err != nil {
+		return &SearchPlan{Data: &RowAttrsPlanner{Col: "key", Where: []sql.SQLCondition{filter}}}, err
 	}
 	return planAutocomplete(query, func(prefix string) shared.SQLRequestPlanner {
 		return &SelectTagsPlanner{Prefix: prefix}
@@ -29,11 +35,16 @@ func PlanTagsV2(query *traceql_ir.Query) (*SearchPlan, error) {
 }
 
 // PlanValuesV2 plans the values of attribute key of the spans a search for
-// query returns, or, without Ids, of every span in range when
-// AllSpans(query).
+// query returns, or, without Ids, of every span in range when AllSpans(query)
+// and of the attribute rows that pass a duration-only filter.
 func PlanValuesV2(query *traceql_ir.Query, key string) (*SearchPlan, error) {
 	if AllSpans(query) {
 		return &SearchPlan{Data: &AllValuesRequestPlanner{Key: key}}, nil
+	}
+	if filter, err := durationOnlyFilter(query); filter != nil || err != nil {
+		return &SearchPlan{Data: &RowAttrsPlanner{Col: "val", Where: []sql.SQLCondition{
+			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(key)), filter,
+		}}}, err
 	}
 	return planAutocomplete(query, func(prefix string) shared.SQLRequestPlanner {
 		return &SelectValuesPlanner{Prefix: prefix, Key: key}
@@ -60,17 +71,38 @@ func AllSpans(query *traceql_ir.Query) bool {
 	if query == nil {
 		return true
 	}
+	elements := withoutSelect(query)
+	if len(elements) == 0 {
+		return true
+	}
+	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: elements})
+	return ok && selector.Filter == nil
+}
+
+// withoutSelect returns the query's pipeline elements other than select().
+func withoutSelect(query *traceql_ir.Query) []traceql_ir.Element {
 	var elements []traceql_ir.Element
 	for _, e := range query.Pipeline.Elements {
 		if _, ok := e.(*traceql_ir.Select); !ok {
 			elements = append(elements, e)
 		}
 	}
-	if len(elements) == 0 {
-		return true
+	return elements
+}
+
+// durationOnlyFilter returns the filter of a lone selector, select() stages
+// aside, whose every term compares duration or span:duration, as a condition
+// on one attribute row. It is nil for any other query and when an
+// InitIndexPlannerPlugin is registered.
+func durationOnlyFilter(query *traceql_ir.Query) (sql.SQLCondition, error) {
+	if plugins.GetInitIndexPlannerPlugin() != nil {
+		return nil, nil
 	}
-	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: elements})
-	return ok && selector.Filter == nil
+	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: withoutSelect(query)})
+	if !ok {
+		return nil, nil
+	}
+	return (&simpleExpressionPlanner{selector: selector}).rowCondition()
 }
 
 // loneSelector returns the selector a one-element pipeline is, parenthesised or not.

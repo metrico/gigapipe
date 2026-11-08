@@ -58,6 +58,8 @@ type searchStore struct {
 	// traceID is the hex trace id seeded for a span's trace; nil is the
 	// trace number, zero-padded.
 	traceID func(trace int) string
+	// duration is a span's seeded duration in ns; nil is 10.
+	duration func(spanID int) int64
 }
 
 var goldenMu sync.Mutex
@@ -141,8 +143,12 @@ func (s *searchStore) seedStarts(t *testing.T, spans []span, start func(i int) i
 		if s.traceID != nil {
 			traceID = s.traceID(sp.trace)
 		}
-		rows = append(rows, fmt.Sprintf("('%s', '%016x', '%s', 's%d', %d, 10, [%s])",
-			traceID, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
+		duration := int64(10)
+		if s.duration != nil {
+			duration = s.duration(sp.id)
+		}
+		rows = append(rows, fmt.Sprintf("('%s', '%016x', '%s', 's%d', %d, %d, [%s])",
+			traceID, sp.id, parent, sp.id, start(i), duration, strings.Join(tags, ", ")))
 	}
 	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
 	if s.cluster == "" {
