@@ -39,7 +39,7 @@ type scriptedWalk struct {
 }
 
 // newScriptedWalk walks 1 minute, then 2, 4 and so on, every slice having
-// candidates.
+// candidates, and a newest-candidate read finding one where the last slice began.
 func newScriptedWalk(parts ...[]model.TraceInfo) *scriptedWalk {
 	s := &scriptedWalk{parts: parts}
 	s.walkProcessor = &walkProcessor{
@@ -56,6 +56,7 @@ func newScriptedWalk(parts ...[]model.TraceInfo) *scriptedWalk {
 			}
 			return nil, nil
 		},
+		newest: func(_ *shared.PlannerContext, _, to time.Time) (time.Time, bool, error) { return to, true, nil },
 	}
 	return s
 }
@@ -206,7 +207,8 @@ func TestWalkReadsTheExtent(t *testing.T) {
 	}
 }
 
-// A slice without candidates isn't read and counts as a slice.
+// A slice without candidates isn't read; it and the newest-candidate read after
+// it count as jobs.
 func TestWalkSkipsASliceWithoutCandidates(t *testing.T) {
 	walk := newScriptedWalk([]model.TraceInfo{ranked("aa", boundary2+1, 1)})
 	calls := 0
@@ -218,8 +220,220 @@ func TestWalkSkipsASliceWithoutCandidates(t *testing.T) {
 		return []clickhouse_transpiler.ShardExtent{sliceOnly}, nil
 	}
 	got, ctx := walk.run(t, 1)
-	if !slices.Equal(got, []string{"aa"}) || calls != 2 || len(walk.reads) != 1 || ctx.Portions != 2 || len(ctx.TracesSlices) != 1 {
+	if !slices.Equal(got, []string{"aa"}) || calls != 2 || len(walk.reads) != 1 || ctx.Portions != 3 || len(ctx.TracesSlices) != 1 {
 		t.Errorf("got %v, %d extents, %d reads, %d slices, %d evaluated", got, calls, len(walk.reads), ctx.Portions, len(ctx.TracesSlices))
+	}
+}
+
+// newestRead is the range of a newest-candidate read, before walkTo.
+type newestRead struct{ from, to time.Duration }
+
+// withNewest answers the walk's newest-candidate reads with newest in turn, each
+// a duration before walkTo, zero for none. It returns the reads run.
+func (s *scriptedWalk) withNewest(newest ...time.Duration) *[]newestRead {
+	reads := &[]newestRead{}
+	s.newest = func(_ *shared.PlannerContext, from, to time.Time) (time.Time, bool, error) {
+		*reads = append(*reads, newestRead{walkTo.Sub(from), walkTo.Sub(to)})
+		i := len(*reads) - 1
+		if i >= len(newest) || newest[i] == 0 {
+			return time.Time{}, false, nil
+		}
+		return walkTo.Add(-newest[i]), true, nil
+	}
+	return reads
+}
+
+// A search with no candidates runs the first slice and one newest-candidate read
+// of the rest.
+func TestWalkWithoutCandidatesReadsTheNewestOnce(t *testing.T) {
+	walk := newScriptedWalk()
+	calls := walk.withExtents(0, nil, nil, nil, nil, nil)
+	newestReads := walk.withNewest()
+	got, ctx := walk.run(t, 10)
+	if len(got) != 0 || len(walk.reads) != 0 || *calls != 1 {
+		t.Errorf("got %v, %d reads, %d extent reads", got, len(walk.reads), *calls)
+	}
+	if want := []newestRead{{15 * time.Minute, time.Minute}}; !slices.Equal(*newestReads, want) {
+		t.Errorf("newest reads %v, want %v", *newestReads, want)
+	}
+	if ctx.TotalJobs() != 2 {
+		t.Errorf("TotalJobs %d, want 2", ctx.TotalJobs())
+	}
+}
+
+// After a slice without candidates the next slice ends at the newest candidate
+// left, sized by the slice that ran; the gap counts as read for the stop rule.
+func TestWalkJumpsToTheNewestCandidate(t *testing.T) {
+	walk := newScriptedWalk([]model.TraceInfo{ranked("aa", nanosBefore(10*time.Minute), 1)})
+	calls := walk.withExtents(0, nil)
+	newestReads := walk.withNewest(10 * time.Minute)
+	got, ctx := walk.run(t, 1)
+	if !slices.Equal(got, []string{"aa"}) || *calls != 2 {
+		t.Errorf("got %v, %d extent reads", got, *calls)
+	}
+	if want := []newestRead{{15 * time.Minute, time.Minute}}; !slices.Equal(*newestReads, want) {
+		t.Errorf("newest reads %v, want %v", *newestReads, want)
+	}
+	checkReads(t, walk.reads, [2]time.Duration{12 * time.Minute, 10 * time.Minute})
+	if ctx.TotalJobs() != 3 {
+		t.Errorf("TotalJobs %d, want 3", ctx.TotalJobs())
+	}
+}
+
+// A newest-candidate read runs only after a slice without candidates: not after a
+// match in the first slice, nor after slices whose candidates give no result.
+func TestWalkReadsTheNewestOnlyAfterASliceWithoutCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit int64
+		parts [][]model.TraceInfo
+		jobs  int64
+	}{
+		{"a match in the first slice", 1, [][]model.TraceInfo{{ranked("aa", boundary1+1, 1)}}, 1},
+		{"candidates without results", 1, nil, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk(tc.parts...)
+			newestReads := walk.withNewest()
+			_, ctx := walk.run(t, tc.limit)
+			if len(*newestReads) != 0 || ctx.TotalJobs() != tc.jobs {
+				t.Errorf("newest reads %v, TotalJobs %d, want none and %d", *newestReads, ctx.TotalJobs(), tc.jobs)
+			}
+		})
+	}
+}
+
+// A failed newest-candidate read fails the search.
+func TestWalkNewestReadErrorFailsTheSearch(t *testing.T) {
+	boom := errors.New("boom")
+	walk := newScriptedWalk()
+	walk.withExtents(0, nil)
+	walk.newest = func(*shared.PlannerContext, time.Time, time.Time) (time.Time, bool, error) {
+		return time.Time{}, false, boom
+	}
+	if _, err := walk.Process(&shared.PlannerContext{From: walkTo.Add(-time.Hour), To: walkTo, Limit: 1}); !errors.Is(err, boom) {
+		t.Errorf("got %v", err)
+	}
+}
+
+// A slice that would leave less than its own length before the range's start
+// takes the whole rest.
+func TestWalkTakesAShortTail(t *testing.T) {
+	type reads = [][2]time.Duration
+	for _, tc := range []struct {
+		name string
+		span time.Duration
+		want reads
+	}{
+		{"the last slice", 20 * time.Minute,
+			reads{{time.Minute, 0}, {3 * time.Minute, time.Minute}, {7 * time.Minute, 3 * time.Minute}, {20 * time.Minute, 7 * time.Minute}}},
+		{"the first slice", 90 * time.Second, reads{{90 * time.Second, 0}}},
+		{"a tail as long as the slice stays apart", 2 * time.Minute, reads{{time.Minute, 0}, {2 * time.Minute, time.Minute}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk()
+			ctx := &shared.PlannerContext{From: walkTo.Add(-tc.span), To: walkTo, Limit: 1}
+			if _, err := walk.Process(ctx); err != nil {
+				t.Fatal(err)
+			}
+			checkReads(t, walk.reads, tc.want...)
+		})
+	}
+}
+
+// Over a day at limit 10: a search with no candidates runs one slice and one
+// newest-candidate read, and one finding a single trace grows by the formula to the short tail.
+func TestWalkOverADay(t *testing.T) {
+	type reads = [][2]time.Duration
+	const day = 24 * time.Hour
+	for _, tc := range []struct {
+		name    string
+		extents [][]clickhouse_transpiler.ShardExtent
+		parts   [][]model.TraceInfo
+		want    reads
+		jobs    int64
+	}{
+		{"no candidates", [][]clickhouse_transpiler.ShardExtent{nil}, nil, nil, 2},
+		{"underfilled", nil, [][]model.TraceInfo{{ranked("aa", walkTo.UnixNano(), 1)}},
+			reads{{time.Minute, 0}, {10 * time.Minute, time.Minute}, {91 * time.Minute, 10 * time.Minute}, {day, 91 * time.Minute}}, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk(tc.parts...)
+			walk.next = nextSlice
+			walk.withExtents(0, tc.extents...)
+			walk.withNewest()
+			ctx := &shared.PlannerContext{From: walkTo.Add(-day), To: walkTo, Limit: 10}
+			if _, err := walk.Process(ctx); err != nil {
+				t.Fatal(err)
+			}
+			checkReads(t, walk.reads, tc.want...)
+			if ctx.TotalJobs() != tc.jobs {
+				t.Errorf("TotalJobs %d, want %d", ctx.TotalJobs(), tc.jobs)
+			}
+		})
+	}
+}
+
+// A sparse search runs at most one newest-candidate read: a later slice without
+// candidates is followed by the rest of the range.
+func TestWalkReadsTheNewestAtMostOnce(t *testing.T) {
+	type reads = [][2]time.Duration
+	const day = 24 * time.Hour
+	some := []clickhouse_transpiler.ShardExtent{sliceOnly}
+	for _, tc := range []struct {
+		name    string
+		extents [][]clickhouse_transpiler.ShardExtent
+		parts   [][]model.TraceInfo
+		newest  time.Duration
+		want    reads
+	}{
+		{"an empty first slice, then gaps", [][]clickhouse_transpiler.ShardExtent{nil, some, nil, some},
+			[][]model.TraceInfo{{ranked("aa", nanosBefore(10*time.Minute), 1)}}, 10 * time.Minute,
+			reads{{14 * time.Minute, 10 * time.Minute}, {day, 50 * time.Minute}}},
+		{"an empty tail", [][]clickhouse_transpiler.ShardExtent{nil, some, nil, nil},
+			[][]model.TraceInfo{{ranked("aa", nanosBefore(10*time.Minute), 1)}}, 10 * time.Minute,
+			reads{{14 * time.Minute, 10 * time.Minute}}},
+		{"a match in the first slice, then gaps", [][]clickhouse_transpiler.ShardExtent{some, nil, some, nil, some},
+			[][]model.TraceInfo{{ranked("aa", walkTo.UnixNano(), 1)}, {ranked("bb", nanosBefore(time.Hour), 2)}}, time.Hour,
+			reads{{time.Minute, 0}, {141 * time.Minute, time.Hour}, {day, 465 * time.Minute}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := newScriptedWalk(tc.parts...)
+			walk.next = nextSlice
+			walk.withExtents(0, tc.extents...)
+			newestReads := walk.withNewest(tc.newest)
+			ctx := &shared.PlannerContext{From: walkTo.Add(-day), To: walkTo, Limit: 10}
+			if _, err := walk.Process(ctx); err != nil {
+				t.Fatal(err)
+			}
+			checkReads(t, walk.reads, tc.want...)
+			if want := int64(len(tc.extents) + 1); len(*newestReads) != 1 || ctx.TotalJobs() != want {
+				t.Errorf("%d newest reads, TotalJobs %d, want 1 and %d", len(*newestReads), ctx.TotalJobs(), want)
+			}
+		})
+	}
+}
+
+// The rest of the range after a later slice without candidates halves to fit
+// the budget, and the walk reads what the halving left.
+func TestWalkHalvesTheRestAfterTheProbe(t *testing.T) {
+	const day = 24 * time.Hour
+	some := []clickhouse_transpiler.ShardExtent{sliceOnly}
+	walk := newScriptedWalk([]model.TraceInfo{ranked("aa", nanosBefore(10*time.Minute), 1)})
+	walk.next = nextSlice
+	calls := walk.withExtents(10, nil, some, nil, []clickhouse_transpiler.ShardExtent{row(11, 2)}, some)
+	newestReads := walk.withNewest(10 * time.Minute)
+	ctx := &shared.PlannerContext{From: walkTo.Add(-day), To: walkTo, Limit: 10}
+	if _, err := walk.Process(ctx); err != nil {
+		t.Fatal(err)
+	}
+	checkReads(t, walk.reads,
+		[2]time.Duration{14 * time.Minute, 10 * time.Minute},
+		[2]time.Duration{745 * time.Minute, 50 * time.Minute},
+		[2]time.Duration{day, 745 * time.Minute})
+	if *calls != 6 || len(*newestReads) != 1 || ctx.TotalJobs() != 6 {
+		t.Errorf("%d extent reads, %d newest reads, TotalJobs %d, want 6, 1 and 6",
+			*calls, len(*newestReads), ctx.TotalJobs())
 	}
 }
 
@@ -573,7 +787,8 @@ func TestWalkStopsOnTheHalvedBoundary(t *testing.T) {
 	}
 }
 
-// A halved attempt without candidates ends the slice with no read.
+// A halved attempt without candidates ends the slice with no read, then a
+// newest-candidate read.
 func TestWalkHalvedSliceWithoutCandidates(t *testing.T) {
 	walk := newScriptedWalk()
 	walk.withExtents(10, []clickhouse_transpiler.ShardExtent{row(11, 2)}, nil)
@@ -584,7 +799,7 @@ func TestWalkHalvedSliceWithoutCandidates(t *testing.T) {
 	if !walk.reads[0].To.Equal(walkTo.Add(-30 * time.Second)) {
 		t.Errorf("first read ends %v before the end, want 30s", walkTo.Sub(walk.reads[0].To))
 	}
-	if int64(len(walk.reads)) != ctx.TotalJobs()-1 {
+	if int64(len(walk.reads)) != ctx.TotalJobs()-2 {
 		t.Errorf("%d reads, TotalJobs %d", len(walk.reads), ctx.TotalJobs())
 	}
 }

@@ -48,12 +48,19 @@ type walkProcessor struct {
 	extent func(*shared.PlannerContext) ([]clickhouse_transpiler.ShardExtent, error)
 	// read runs the evaluation and Data for one slice.
 	read func(*shared.PlannerContext, *clickhouse_transpiler.SearchPlan) ([]model.TraceInfo, error)
+	// newest returns the start of the newest candidate leaf match in (from, to],
+	// false when there is none.
+	newest func(ctx *shared.PlannerContext, from, to time.Time) (time.Time, bool, error)
 }
 
 func newWalkProcessor(main *clickhouse_transpiler.SearchPlan, budget int64) *walkProcessor {
 	return &walkProcessor{
 		main: main, first: firstSlice, next: nextSlice, budget: budget,
 		extent: clickhouse_transpiler.ReadExtents, read: readTraces,
+		newest: func(ctx *shared.PlannerContext, from, to time.Time) (time.Time, bool, error) {
+			ns, ok, err := clickhouse_transpiler.ReadNewestCandidate(ctx, main.NewestCandidate(from, to))
+			return time.Unix(0, ns).In(to.Location()), ok, err
+		},
 	}
 }
 
@@ -78,14 +85,18 @@ func (w *walkProcessor) Process(ctx *shared.PlannerContext) (chan []model.TraceI
 
 // walk reads slices until at least ctx.Limit found traces rank above the lower
 // boundary of the slice just read: any trace not found ranks at or below it.
-// Limit 0 reads every slice.
+// Limit 0 reads every slice. After the first slice without candidates, the next
+// slice ends at the newest candidate left, or the walk ends; after any later one,
+// the next slice is the rest of the range.
 func (w *walkProcessor) walk(ctx *shared.PlannerContext) ([]model.TraceInfo, error) {
 	var found []model.TraceInfo
 	var largest int64
+	probed := false
 	ctx.TracesSlices = []shared.TracesSlice{}
 	for to, size := ctx.To, w.first; to.After(ctx.From); {
+		// A slice leaving less than its own length takes the rest of the range.
 		from := to.Add(-size)
-		if from.Before(ctx.From) {
+		if from.Sub(ctx.From) < size {
 			from = ctx.From
 		}
 		ctx.Portions++
@@ -101,6 +112,22 @@ func (w *walkProcessor) walk(ctx *shared.PlannerContext) ([]model.TraceInfo, err
 		}
 		size = w.next(to.Sub(from), ctx.Limit, above)
 		to = from
+		if spans == 0 && probed {
+			size = to.Sub(ctx.From)
+		}
+		// After the first slice without candidates, jump to the newest candidate left.
+		if spans == 0 && !probed && to.After(ctx.From) {
+			probed = true
+			ctx.Portions++
+			newest, ok, err := w.newest(ctx, ctx.From, to)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				break
+			}
+			to = newest
+		}
 	}
 	if ctx.Portions > 1 {
 		logPortioned(portionedLine(ctx, largest, traceqlconfig.PortionSpans(), ctx.Portions))

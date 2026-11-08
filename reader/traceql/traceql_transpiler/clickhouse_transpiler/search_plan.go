@@ -25,6 +25,11 @@ func (s *SearchPlan) Candidates(from, to time.Time) shared.SQLRequestPlanner {
 	return &candidatesPlanner{leaves: s.Leaves, from: from, to: to}
 }
 
+// NewestCandidate plans the latest start of a leaf match in (from, to].
+func (s *SearchPlan) NewestCandidate(from, to time.Time) shared.SQLRequestPlanner {
+	return &newestCandidatePlanner{leaves: s.Leaves, from: from, to: to}
+}
+
 // Check plans and renders the ids statements, returning what would fail them.
 func (s *SearchPlan) Check(ctx *shared.PlannerContext) error {
 	for _, ids := range s.Ids {

@@ -223,7 +223,8 @@ soon as its result is the exact newest `limit` traces, ranked by newest matched
 span. The result doesn't depend on slice sizes. Slice sizes are fixed rules, not
 settings:
 
-- The first slice is the newest 1 minute, or the whole range if shorter.
+- The first slice is the newest 1 minute, or the whole range if shorter than
+  2 minutes.
 - A slice with more than `GIGAPIPE_TRACEQL_PORTION_SPANS` candidate spans on a
   shard halves and counts again. At 1 s, or when that shard has one candidate
   trace, it runs anyway.
@@ -231,16 +232,23 @@ settings:
   the search so far, the next slice is `duration x (limit - found) / found`
   long, at least double. With none found, it's 4 times as long. At `limit` 0, it
   doubles.
+- After the first slice with no candidates, one statement finds the newest
+  candidate left in the range. The next slice ends at it, or the search ends when
+  there is none. After any later slice with no candidates, the next slice is the
+  rest of the range, so a search runs at most one such statement.
+- A slice that would leave less than its own length before the start of the
+  range takes the whole rest.
 
-A search of more than one slice logs one info-level `traceql portioned` line with
-the query, range, estimate, setting and portion count. The portion count is the
-slices that ran, and the estimate is the most candidate spans on a shard of any
-of them. A lone `{}` logs that count too, though it loads only `limit` traces per
-slice.
+A search of more than one slice logs one info-level `traceql portioned` line
+with the query, range, estimate, setting and portion count. The portion count is
+the slices that ran plus the newest-candidate statement, if any, and the
+estimate is the most candidate spans on a shard of any slice. A lone `{}` logs
+that count too, though it loads only `limit` traces per slice.
 
 A search response reports its slices in a `metrics` block after the trace array:
-`"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the slices that ran,
-or `1` for one. Autocomplete responses have no such block.
+`"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the slices that ran
+plus the newest-candidate statement, if any, or `1` for one. Autocomplete
+responses have no such block.
 
 A tag autocomplete whose estimate exceeds `GIGAPIPE_TRACEQL_PORTION_SPANS` runs in
 portions. Each portion reads one hash bucket of traces over the whole requested

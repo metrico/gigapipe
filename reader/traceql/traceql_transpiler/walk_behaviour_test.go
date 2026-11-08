@@ -214,6 +214,40 @@ func TestWalkStopsEarly(t *testing.T) { testWalkStopsEarly(t, false) }
 
 func TestWalkStopsEarlyOnCluster(t *testing.T) { testWalkStopsEarly(t, true) }
 
+// Spans only well before the newest slice: a walk crosses the empty gap and
+// returns what one statement over the whole range returns, and a search with no
+// match runs its first slice and one newest-candidate read.
+func testWalkAcrossAnEmptyGap(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	a, b, ab := []string{"a"}, []string{"b"}, []string{"a", "b"}
+	spans := []span{{1, 1, 0, a}, {1, 2, 1, b}, {2, 1, 0, ab}, {2, 2, 1, nil}, {3, 1, 0, a}, {3, 2, 1, ab}}
+	starts := []int64{
+		beforeEnd(20 * time.Minute), beforeEnd(21 * time.Minute), beforeEnd(22 * time.Minute),
+		beforeEnd(22*time.Minute + time.Second), beforeEnd(25 * time.Minute), beforeEnd(24 * time.Minute),
+	}
+	s.seedStarts(t, spans, func(i int) int64 { return starts[i] })
+	for _, query := range walkQueries {
+		for _, limit := range []int{1, 10, 0} {
+			walk, _ := planWalk(t, query)
+			ctx := s.walkContext(walkBegin, walkEnd, limit)
+			got := s.walkLines(t, walk, query, ctx)
+			if want := s.wholeLines(t, query, walkBegin, walkEnd, limit); !reflect.DeepEqual(got, want) {
+				t.Errorf("%s limit %d in %d jobs:\nwalk:\n%s\nwhole:\n%s", query, limit, ctx.Portions,
+					strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		}
+	}
+	walk, _ := planWalk(t, `{.c = "1"}`)
+	ctx := s.walkContext(walkBegin, walkEnd, 10)
+	if got := s.walkLines(t, walk, `{.c = "1"}`, ctx); len(got) != 0 || ctx.Portions != 2 {
+		t.Errorf("no match: %q in %d jobs, want none in 2", got, ctx.Portions)
+	}
+}
+
+func TestWalkAcrossAnEmptyGap(t *testing.T) { testWalkAcrossAnEmptyGap(t, false) }
+
+func TestWalkAcrossAnEmptyGapOnCluster(t *testing.T) { testWalkAcrossAnEmptyGap(t, true) }
+
 // A range's time zone doesn't change what a search finds, attributes included.
 func TestSearchInAnotherReaderZone(t *testing.T) {
 	s := openSearchStore(t, false, false)
@@ -313,6 +347,28 @@ func testWalkNamedCases(t *testing.T, cluster bool) {
 			},
 			query: `{.a = "1"} >> {.b = "1"}`,
 			want:  []string{"1"},
+		},
+		{
+			name:   "a match on the empty first slice's lower boundary",
+			spans:  []span{{1, 1, 0, a}, {2, 1, 0, a}},
+			starts: []int64{beforeEnd(5 * time.Minute), boundary},
+			query:  `{.a = "1"}`,
+			want:   []string{"2"},
+		},
+		{
+			name: "traces tied at the newest candidate after an empty slice",
+			spans: []span{
+				{1, 1, 0, a}, {1, 2, 1, b},
+				{2, 1, 0, a}, {2, 2, 1, b},
+				{3, 1, 0, a}, {3, 2, 1, b},
+			},
+			starts: []int64{
+				beforeEnd(10 * time.Minute), beforeEnd(10 * time.Minute),
+				beforeEnd(10 * time.Minute), beforeEnd(10 * time.Minute),
+				beforeEnd(12 * time.Minute), beforeEnd(12 * time.Minute),
+			},
+			query: `{.a = "1"} >> {.b = "1"}`,
+			want:  []string{"2"},
 		},
 		{
 			name: "a negated operator returns the older side",

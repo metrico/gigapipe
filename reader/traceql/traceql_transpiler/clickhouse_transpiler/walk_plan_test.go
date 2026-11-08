@@ -1,6 +1,7 @@
 package clickhouse_transpiler
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -91,6 +92,44 @@ func TestCandidatesReadEveryLeafFromItsSource(t *testing.T) {
 			}
 			if strings.Contains(s, "86390000000000") {
 				t.Errorf("over the request:\n%s", s)
+			}
+		})
+	}
+}
+
+// The newest-candidate read takes the latest start and the count of every
+// leaf's matches over its range, from the leaves' sources (Distributed tables on
+// a cluster), with no settings.
+func TestNewestCandidateStatement(t *testing.T) {
+	for _, tc := range []struct {
+		query   string
+		cluster bool
+		source  string
+		reads   int
+	}{
+		{`{kind = server && duration > 1s}`, false, "FROM tempo_traces_attrs_gin", 1},
+		{`{kind = server && duration > 1s}`, true, "FROM tempo_traces_attrs_gin_dist as traces_idx", 1},
+		{`{.a = 1} >> {.b = 2}`, true, "FROM tempo_traces_attrs_gin_dist as traces_idx", 2},
+		{`{.a = .b}`, false, "FROM tempo_traces_attrs_gin", 1},
+		{`{}`, false, "FROM tempo_traces as traces", 1},
+		{`{}`, true, "FROM tempo_traces_dist as traces", 1},
+	} {
+		t.Run(fmt.Sprintf("%s cluster %v", tc.query, tc.cluster), func(t *testing.T) {
+			plan, ctx := sliceContext(t, tc.query, tc.cluster)
+			ctx.TracesCandidates = nil
+			s := renderPlan(t, plan.NewestCandidate(sliceFrom, sliceTo), ctx)
+			for _, want := range []string{tc.source, "max(timestamp_ns)", "count()", sliceFromBound, sliceToBound} {
+				if !strings.Contains(s, want) {
+					t.Errorf("no %q:\n%s", want, s)
+				}
+			}
+			if got := strings.Count(s, "UNION ALL") + 1; got != tc.reads {
+				t.Errorf("%d reads, want %d:\n%s", got, tc.reads, s)
+			}
+			for _, not := range []string{"SETTINGS", "86390000000000", candidatesIn} {
+				if strings.Contains(s, not) {
+					t.Errorf("has %q:\n%s", not, s)
+				}
 			}
 		})
 	}
