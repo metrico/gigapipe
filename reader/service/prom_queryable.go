@@ -492,7 +492,7 @@ func (l *labelsGetter) getFetchRequest(fingerprints map[uint64]bool) sql.ISelect
 		AndWhere(
 			sql.NewIn(sql.NewRawObject("fingerprint"), fps...),
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(l.DateFrom))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(l.DateTo.Format("2006-01-02"))))
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(FormatToDate(l.DateTo))))
 	return req
 }
 
