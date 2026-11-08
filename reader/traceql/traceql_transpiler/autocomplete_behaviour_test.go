@@ -216,6 +216,7 @@ var portionedAutocompletes = []string{
 
 func testAutocomplete(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, false)
+	s.traceID = spreadTraceID
 	defer writeAutocompleteGolden(t)
 	s.seedStructural(t)
 	s.assertSuggestions(t, "plain", plainAutocompletes, searchRun{})
@@ -236,6 +237,7 @@ func testAutocomplete(t *testing.T, cluster bool) {
 // testAutocompleteOverHTTP runs some of testAutocomplete's queries over HTTP.
 func testAutocompleteOverHTTP(t *testing.T, cluster bool) {
 	s := openSearchStore(t, cluster, true)
+	s.traceID = spreadTraceID
 	s.seedStructural(t)
 	s.assertSuggestions(t, "plain", []string{`{.a = "1"}`, `{.b = "1"} | by(.a) | select(name)`}, searchRun{})
 	s.assertSuggestions(t, "all-spans", allSpansAutocompletes[:2], searchRun{})
@@ -295,6 +297,7 @@ func (r *statementRecorder) take() (all, ids, data int) {
 // runs one statement and no complexity estimate.
 func TestAutocompleteListsIdsOncePerPortion(t *testing.T) {
 	s := openSearchStore(t, false, false)
+	s.traceID = spreadTraceID
 	s.seedStructural(t)
 	rec := &statementRecorder{ISqlxDB: s.db}
 	s.db = rec
