@@ -2,9 +2,14 @@ package clickhouse_transpiler
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
+	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
+
+	"github.com/metrico/qryn/v5/shared/chtest"
 )
 
 // boundaryIDs are trace ids at the edges of the id space and of its halves.
@@ -62,4 +67,55 @@ func TestTraceIDPortionsPartitionEveryID(t *testing.T) {
 			}
 		}
 	}
+}
+
+// ClickHouse puts every stored id, short hex ids padded by the ingest cast
+// among them, in exactly one portion.
+func TestTraceIDPortionsPartitionStoredIDs(t *testing.T) {
+	conn, _ := chtest.Open(t)
+	ctx := context.Background()
+	if err := conn.Exec(ctx, "CREATE TABLE ids (trace_id FixedString(16)) ENGINE = MergeTree ORDER BY trace_id"); err != nil {
+		t.Fatal(err)
+	}
+	var rows []string
+	for _, id := range append(shortHexIDs(), boundaryIDs...) {
+		rows = append(rows, fmt.Sprintf("(unhex('%s')::FixedString(16))", id))
+	}
+	if err := conn.Exec(ctx, "INSERT INTO ids SELECT * FROM VALUES('trace_id FixedString(16)', "+strings.Join(rows, ", ")+")"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{1, 2, 3, 5, 7} {
+		conds := make([]string, n)
+		for i := range n {
+			conds[i] = "toUInt8(" + traceIDPortionSQL(n, i) + ")"
+		}
+		res, err := conn.Query(ctx, "SELECT hex(trace_id), toUInt64("+strings.Join(conds, " + ")+") FROM ids")
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := 0
+		for res.Next() {
+			var id string
+			var in uint64
+			if err := res.Scan(&id, &in); err != nil {
+				t.Fatal(err)
+			}
+			seen++
+			if in != 1 {
+				t.Errorf("%d portions: %s in %d portions", n, id, in)
+			}
+		}
+		if err := res.Err(); err != nil {
+			t.Fatal(err)
+		}
+		res.Close()
+		if seen == 0 {
+			t.Fatal("no ids read")
+		}
+	}
+}
+
+// shortHexIDs are hex ids shorter than 16 bytes.
+func shortHexIDs() []string {
+	return []string{"ab", "00", "0123456789abcdef", "ffffffffffffffff", "0000000000000001", "00000000000000000001"}
 }
