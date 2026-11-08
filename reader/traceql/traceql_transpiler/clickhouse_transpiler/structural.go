@@ -320,6 +320,7 @@ func (s treeScope) edges(ctx *shared.PlannerContext, cand sql.ISelect) sql.ISele
 	sel := sql.NewSelect().
 		From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
 		AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"), cand))
+	keepPortion(ctx, sel)
 	if s == scopeIncomplete {
 		spanID, parent, side = "e.1", "e.2", "e.3"
 		sel = sel.Join(sql.NewJoin("array", sql.NewRawObject(fmt.Sprintf(

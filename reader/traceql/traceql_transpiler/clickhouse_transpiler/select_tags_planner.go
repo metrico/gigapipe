@@ -37,6 +37,7 @@ func selectAttrs(ctx *shared.PlannerContext, prefix string, col string,
 		AndWhere(where...).
 		GroupBy(sql.NewRawObject(col)).
 		OrderBy(sql.NewOrderBy(sql.NewRawObject(col), sql.ORDER_BY_DIRECTION_ASC))
+	keepPortion(ctx, res)
 	if ctx.Limit > 0 {
 		res.Limit(sql.NewIntVal(ctx.Limit))
 	}

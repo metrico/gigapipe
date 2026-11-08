@@ -18,9 +18,12 @@ type RequestProcessor interface {
 	Process(*PlannerContext, chan []LogEntry) (chan []LogEntry, error)
 }
 
+// RandomFilter is portion I of Max portions of the traces; Max 0 is every trace.
 type RandomFilter struct {
 	Max int
 	I   int
+	// TraceIDRanges cuts the portions into trace_id ranges, not hash buckets.
+	TraceIDRanges bool
 }
 
 type PlannerContext struct {

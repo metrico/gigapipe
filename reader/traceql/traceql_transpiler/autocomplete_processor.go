@@ -26,7 +26,7 @@ func (a *autocompleteRequestProcessor) SetMain(plan *clickhouse_transpiler.Searc
 }
 
 // complexAutocompleteRequestProcessor reads plan one complexity portion of
-// traces at a time and merges the portions' suggestions.
+// traces at a time, each a trace_id range, and merges the portions' suggestions.
 type complexAutocompleteRequestProcessor struct {
 	plan *clickhouse_transpiler.SearchPlan
 }
@@ -36,7 +36,7 @@ func (c *complexAutocompleteRequestProcessor) Process(ctx *shared.PlannerContext
 	parts := make([][]string, 0, portions)
 	for i := range portions {
 		portionCtx := *ctx
-		portionCtx.RandomFilter = shared.RandomFilter{Max: int(portions), I: int(i)}
+		portionCtx.RandomFilter = shared.RandomFilter{Max: int(portions), I: int(i), TraceIDRanges: true}
 		res, err := readSuggestions(&portionCtx, c.plan)
 		if err != nil {
 			return nil, err

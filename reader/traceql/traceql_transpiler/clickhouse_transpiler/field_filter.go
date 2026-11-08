@@ -101,14 +101,14 @@ func (p *fieldPivot) read(ctx *shared.PlannerContext, spans sql.ISelect, alias s
 	}
 	switch {
 	case joinsRoot:
-		withRoot := sql.NewWith(sql.NewSelect().
+		withRoot := sql.NewWith(keepPortion(ctx, sql.NewSelect().
 			Select(
 				sql.NewSimpleCol("traces.trace_id", "trace_id"),
 				sql.NewSimpleCol("traces.span_id", "span_id"),
 				sql.NewSimpleCol(rootColumn, "root")).
 			From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
 			AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"), traceIds)).
-			GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id")), alias+"_root")
+			GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id"))), alias+"_root")
 		r := withRoot.GetAlias()
 		cols = append(cols, sql.NewSimpleCol(fmt.Sprintf("ifNull(%s.root, 0)", r), "_root"))
 		withs = append(withs, withRoot)

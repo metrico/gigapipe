@@ -60,7 +60,7 @@ func nestedSetValues(ctx *shared.PlannerContext, cols []nestedSetCol, in inFunc,
 	if spanIds != nil {
 		res.AndWhere(in(sql.NewRawObject("(ns.trace_id, ns.span_id)"), spanIds))
 	}
-	return sql.NewWith(res, alias)
+	return sql.NewWith(keepPortion(ctx, res), alias)
 }
 
 // nestedSetJoin is a nestedSetValues CTE, its value columns and its left
