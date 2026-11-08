@@ -28,7 +28,7 @@ func (l *GenericLabelsPlanner) _process(ctx *shared.PlannerContext, returnCol st
 		From(sql.NewRawObject(ctx.ProfilesSeriesGinDistTable)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.To)))).
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatToDate(ctx.To)))).
 		Limit(sql.NewIntVal(10000))
 	if fpReq != nil {
 		res = res.With(withFpReq).AndWhere(sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFpReq)))

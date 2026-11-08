@@ -37,7 +37,7 @@ func (t *TimeSeriesSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISele
 		AndWhere(
 			sql.NewIn(sql.NewRawObject("p.fingerprint"), sql.NewWithRef(withFp)),
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.To))))
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatToDate(ctx.To))))
 	if len(matchers.globalMatchers) > 0 {
 		res = res.AndWhere(matchers.globalMatchers...)
 	}

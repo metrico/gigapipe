@@ -19,6 +19,6 @@ func (s *AllTimeSeriesSelectPlanner) Process(ctx *shared.PlannerContext) (sql.IS
 		Join(sql.NewJoin("array", sql.NewSimpleCol("sample_types_units", "_sample_types_units"), nil)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.To))))
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatToDate(ctx.To))))
 	return res, nil
 }
