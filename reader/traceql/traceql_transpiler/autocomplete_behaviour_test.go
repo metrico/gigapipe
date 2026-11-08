@@ -323,3 +323,72 @@ func TestAutocompleteListsIdsOncePerPortion(t *testing.T) {
 		}
 	}
 }
+
+// spreadTraceID spreads trace numbers over the id space: odd ones as 64-bit
+// ids with a zero high half, even ones as 128-bit ids.
+func spreadTraceID(trace int) string {
+	mixed := uint64(trace) * 0x9e3779b97f4a7c15
+	if trace%2 == 1 {
+		return fmt.Sprintf("%016x%016x", 0, mixed)
+	}
+	return fmt.Sprintf("%016x%016x", mixed, trace)
+}
+
+// takeStatements returns the recorded statements and forgets them.
+func (r *statementRecorder) takeStatements() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	res := r.statements
+	r.statements = nil
+	return res
+}
+
+// portionedScalarAndSpanOnly are the scalar filters, including the keyless
+// pivot's read of tempo_traces, and a span-only filter, each matching seeded spans.
+var portionedScalarAndSpanOnly = []string{
+	`{.b = "1"} | count() > 1`,
+	`{.b = "1"} | avg(.a) > 0`,
+	`{.b = "1"} | max(duration) > 0ns`,
+	`{duration > 1ns}`,
+}
+
+// Portioned suggestions equal the unportioned ones, and each portion's ids and
+// data statements read a trace_id range.
+func testAutocompletePortionsEqualTheWhole(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.traceID = spreadTraceID
+	s.seedStructural(t)
+	rec := &statementRecorder{ISqlxDB: s.db}
+	s.db = rec
+	queries := append(append(structuralSearches(), portionedAutocompletes...), portionedScalarAndSpanOnly...)
+	for _, query := range queries {
+		for _, kind := range autocompleteKinds {
+			for _, run := range []searchRun{{limit: autocompleteLimit, portions: 2}, {limit: autocompleteLimit, portions: 5}, {limit: 3, portions: 3}} {
+				whole := s.suggest(t, kind, query, searchRun{limit: run.limit})
+				rec.takeStatements()
+				if len(whole) == 0 && slices.Contains(portionedScalarAndSpanOnly, query) {
+					t.Errorf("%s %s: no suggestions to compare", kind, query)
+				}
+				got := s.suggest(t, kind, query, run)
+				if len(got) == 1 && strings.HasPrefix(got[0], "error: ") || !slices.Equal(got, whole) {
+					t.Errorf("%s %s limit %d in %d portions:\ngot:  %q\nwant: %q", kind, query, run.limit, run.portions, got, whole)
+				}
+				for _, q := range rec.takeStatements() {
+					portioned := strings.Contains(q, "groupArray(span_id)") ||
+						strings.Contains(q, "FROM "+clickhouse_transpiler.SearchResultTable)
+					if portioned && (!strings.Contains(q, "trace_id >= unhex(") || strings.Contains(q, "cityHash64(trace_id)")) {
+						t.Errorf("%s %s in %d portions: statement without a trace_id range:\n%.400s", kind, query, run.portions, q)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestAutocompletePortionsEqualTheWhole(t *testing.T) {
+	testAutocompletePortionsEqualTheWhole(t, false)
+}
+
+func TestAutocompletePortionsEqualTheWholeOnCluster(t *testing.T) {
+	testAutocompletePortionsEqualTheWhole(t, true)
+}

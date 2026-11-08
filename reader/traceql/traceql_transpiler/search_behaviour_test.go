@@ -55,6 +55,9 @@ type searchStore struct {
 	skipUnavailable bool
 	// user is the ClickHouse user reading s, when it is not the admin.
 	user string
+	// traceID is the hex trace id seeded for a span's trace; nil is the
+	// trace number, zero-padded.
+	traceID func(trace int) string
 }
 
 var goldenMu sync.Mutex
@@ -134,8 +137,12 @@ func (s *searchStore) seedStarts(t *testing.T, spans []span, start func(i int) i
 		for _, a := range sp.attrs {
 			tags = append(tags, fmt.Sprintf("('%s', '1')", a))
 		}
-		rows = append(rows, fmt.Sprintf("('%032x', '%016x', '%s', 's%d', %d, 10, [%s])",
-			sp.trace, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
+		traceID := fmt.Sprintf("%032x", sp.trace)
+		if s.traceID != nil {
+			traceID = s.traceID(sp.trace)
+		}
+		rows = append(rows, fmt.Sprintf("('%s', '%016x', '%s', 's%d', %d, 10, [%s])",
+			traceID, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
 	}
 	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
 	if s.cluster == "" {
