@@ -722,8 +722,7 @@ func (s *metricsStore) metricsInstantTotal(t *testing.T, query string) float64 {
 	return total
 }
 
-// A span stored twice counts once per bucket holding a copy on a lone `{}`
-// count, and once for a function of its value.
+// Every stored copy of a span counts on a lone `{}`, as a row of its own.
 func testEverySpanCopies(t *testing.T, cluster bool) {
 	s := openMetricsStore(t, cluster, false)
 	s.seed(t, metricsTraces())
@@ -753,14 +752,14 @@ func testEverySpanCopies(t *testing.T, cluster bool) {
 		name               string
 		before, after, add float64
 	}{
-		{"count in one bucket", before.oneCount, after.oneCount, 1},
+		{"count in one bucket", before.oneCount, after.oneCount, 2},
 		{"count in two buckets", before.twoCount, after.twoCount, 2},
-		{"instant count", before.instant, after.instant, 1},
-		{"histogram in one bucket", before.oneHist, after.oneHist, 1},
+		{"instant count", before.instant, after.instant, 2},
+		{"histogram in one bucket", before.oneHist, after.oneHist, 2},
 		{"histogram in two buckets", before.twoHist, after.twoHist, 2},
-		{"sum in one bucket", before.oneSum, after.oneSum, spanS},
-		{"sum in two buckets", before.twoSum, after.twoSum, spanS},
-		{"instant sum", before.instantSum, after.instantSum, spanS},
+		{"sum in one bucket", before.oneSum, after.oneSum, 2 * spanS},
+		{"sum in two buckets", before.twoSum, after.twoSum, 2 * spanS},
+		{"instant sum", before.instantSum, after.instantSum, 2 * spanS},
 	} {
 		if got := c.after - c.before; math.Abs(got-c.add) > 1e-9 {
 			t.Errorf("%s: grew by %v, want %v", c.name, got, c.add)
@@ -768,8 +767,7 @@ func testEverySpanCopies(t *testing.T, cluster bool) {
 	}
 }
 
-// A lone `{}` count takes a span once per service-name by-label value and
-// histogram bucket its copies hold, and once with neither.
+// A lone `{}` count takes each copy of a span, whatever its copies hold.
 func testEverySpanCopiesDiffer(t *testing.T, cluster bool) {
 	s := openMetricsStore(t, cluster, false)
 	table := "tempo_traces"
@@ -791,8 +789,9 @@ func testEverySpanCopiesDiffer(t *testing.T, cluster bool) {
 		query string
 		want  float64
 	}{
-		{`{} | count_over_time()`, 1},
+		{`{} | count_over_time()`, 2},
 		{`{} | count_over_time() by (resource.service.name)`, 2},
+		{`{} | count_over_time() by (.a)`, 2},
 		{`{} | rate() by (resource.service.name)`, 2 / step.Seconds()},
 		{`{} | histogram_over_time(duration)`, 2},
 	} {
@@ -800,8 +799,8 @@ func testEverySpanCopiesDiffer(t *testing.T, cluster bool) {
 			t.Errorf("range %s: %v, want %v", c.query, got, c.want)
 		}
 	}
-	if got := s.metricsInstantTotal(t, `{} | count_over_time()`); got != 1 {
-		t.Errorf("instant count: %v, want 1", got)
+	if got := s.metricsInstantTotal(t, `{} | count_over_time()`); got != 2 {
+		t.Errorf("instant count: %v, want 2", got)
 	}
 	if got := s.metricsInstantTotal(t, `{} | count_over_time() by (resource.service.name)`); got != 2 {
 		t.Errorf("instant count by service: %v, want 2", got)
@@ -833,6 +832,221 @@ func TestEverySpanOnOneShardCluster(t *testing.T) {
 	s.assertResults(t, "metrics", queries)
 	s.assertResults(t, "exemplars", everySpanQueries)
 }
+
+// rowSamples are the samples of a plain aggregate over the traces rows that
+// start in (from, to], keyed by "name|ts ms", ts being the bucket start under
+// step or 0 with no step.
+func (s *metricsStore) rowSamples(t *testing.T, table, agg string, byName bool, step time.Duration) map[string]float64 {
+	t.Helper()
+	req := metricsRequestRange("")
+	ts, group := "toInt64(0)", "ts"
+	if step > 0 {
+		ts = fmt.Sprintf("intDiv(timestamp_ns, %d) * %d", step.Nanoseconds(), step.Nanoseconds())
+	}
+	name := "''"
+	if byName {
+		name, group = "name", "ts, name"
+	}
+	return s.scanSamples(t, fmt.Sprintf(
+		"SELECT toInt64(%s) AS ts, toString(%s) AS by, toFloat64(%s) FROM %s WHERE timestamp_ns > %d AND timestamp_ns <= %d GROUP BY %s",
+		ts, name, agg, table, req.From.UnixNano(), req.To.UnixNano(), group))
+}
+
+// attrSamples are agg's samples per value of attribute a in master's statement
+// shape: the rows as stored, left-joined to a pivot of the attributes index
+// holding one row per span.
+func (s *metricsStore) attrSamples(t *testing.T, table, attrs, join, agg string, step time.Duration) map[string]float64 {
+	t.Helper()
+	req := metricsRequestRange("")
+	ts := "toInt64(0)"
+	if step > 0 {
+		ts = fmt.Sprintf("intDiv(main.timestamp_ns, %d) * %d", step.Nanoseconds(), step.Nanoseconds())
+	}
+	return s.scanSamples(t, fmt.Sprintf(`WITH by_attrs AS (
+			SELECT trace_id, span_id, anyIf(val, key = 'a') AS lbl FROM %s FINAL WHERE key IN ('a') GROUP BY trace_id, span_id)
+		SELECT toInt64(%s) AS ts, toString(by_attrs.lbl) AS by, toFloat64(%s)
+		FROM %s AS main %s by_attrs ON main.trace_id = by_attrs.trace_id AND main.span_id = by_attrs.span_id
+		WHERE main.timestamp_ns > %d AND main.timestamp_ns <= %d GROUP BY ts, by`,
+		attrs, ts, agg, table, join, req.From.UnixNano(), req.To.UnixNano()))
+}
+
+// scanSamples reads rows of (ts ms, label, value) keyed as label|ts.
+func (s *metricsStore) scanSamples(t *testing.T, query string) map[string]float64 {
+	t.Helper()
+	rows, err := s.conn.Query(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	res := map[string]float64{}
+	for rows.Next() {
+		var at int64
+		var by string
+		var v float64
+		if err := rows.Scan(&at, &by, &v); err != nil {
+			t.Fatal(err)
+		}
+		res[fmt.Sprintf("%s|%d", by, at/1e6)] = v
+	}
+	return res
+}
+
+// seriesSamples are the samples of query keyed as rowSamples keys them.
+func (s *metricsStore) seriesSamples(t *testing.T, query string, instant bool) map[string]float64 {
+	t.Helper()
+	by := func(labels []model.MetricsKeyValue) string {
+		for _, l := range labels {
+			if l.Key == "name" || l.Key == "span.a" || l.Key == ".a" {
+				return labelText(l.Value)
+			}
+		}
+		return ""
+	}
+	res := map[string]float64{}
+	if instant {
+		got, err := s.svc.MetricsQueryInstant(context.Background(), metricsRequestRange(query))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, series := range got.Series {
+			res[by(series.Labels)+"|0"] = series.Value
+		}
+		return res
+	}
+	got, err := s.svc.MetricsQueryRange(context.Background(), metricsRequestRange(query))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, series := range got.Series {
+		for _, p := range series.Samples {
+			if p.Value != 0 {
+				res[by(series.Labels)+"|"+p.TimestampMs] = p.Value
+			}
+		}
+	}
+	return res
+}
+
+// A lone `{}` metric equals the plain aggregate of the rows as stored, a span
+// stored twice included.
+func testEverySpanMatchesTheRows(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
+	s.seed(t, metricsTraces())
+	copied := metricsSpan{trace: 9000, id: 9001}
+	s.seed(t, []metricsSpan{copied, copied})
+	table := "tempo_traces"
+	if cluster {
+		table = "tempo_traces_dist"
+	}
+	const step = 30 * time.Second
+	bounds := metricsRequestRange("")
+	window := bounds.To.Sub(bounds.From)
+	for _, c := range []struct {
+		query, agg, instantAgg string
+		byName                 bool
+	}{
+		{`{} | rate()`, fmt.Sprintf("count() / %g", step.Seconds()), fmt.Sprintf("count() / %g", window.Seconds()), false},
+		{`{} | count_over_time()`, "count()", "count()", false},
+		{`{} | count_over_time() by (name)`, "count()", "count()", true},
+		{`{} | avg_over_time(duration)`, "avg(duration_ns) / 1e9", "avg(duration_ns) / 1e9", false},
+		{`{} | sum_over_time(duration) by (name)`, "sum(duration_ns) / 1e9", "sum(duration_ns) / 1e9", true},
+		{`{} | max_over_time(duration)`, "max(duration_ns) / 1e9", "max(duration_ns) / 1e9", false},
+		{`{} | quantile_over_time(duration, .5)`, "quantile(0.5)(duration_ns) / 1e9", "quantile(0.5)(duration_ns) / 1e9", false},
+	} {
+		for _, instant := range []bool{false, true} {
+			agg, at := c.agg, step
+			if instant {
+				agg, at = c.instantAgg, 0
+			}
+			want := s.rowSamples(t, table, agg, c.byName, at)
+			got := s.seriesSamples(t, c.query, instant)
+			if len(got) != len(want) {
+				t.Errorf("%s (instant %v): %v, want %v", c.query, instant, got, want)
+				continue
+			}
+			for k, v := range want {
+				if math.Abs(got[k]-v) > 1e-9 {
+					t.Errorf("%s (instant %v) %s: %v, want %v", c.query, instant, k, got[k], v)
+				}
+			}
+		}
+	}
+}
+
+// A lone `{}` value function under a custom by-label equals master's statement,
+// every copy of a span counting, one attribute row per span whatever is stored.
+func testEverySpanValuesByLabel(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
+	s.seed(t, metricsTraces())
+	table, attrs, join, onCluster := "tempo_traces", "tempo_traces_attrs_gin", "LEFT JOIN", ""
+	if cluster {
+		table, attrs, join = "tempo_traces_dist", "tempo_traces_attrs_gin_dist", "GLOBAL LEFT JOIN"
+		onCluster = " ON CLUSTER " + s.cluster
+	}
+	s.exec(t, "SYSTEM STOP MERGES"+onCluster+" "+s.name+".tempo_traces_attrs_gin")
+	const spanMs, step = 9001, 30 * time.Second
+	const sumQ = `{} | sum_over_time(duration) by (.a)`
+	before := s.seriesSamples(t, sumQ, true)["1|0"]
+	copied := metricsSpan{trace: 9000, id: spanMs, attrs: []string{"a"}}
+	s.seed(t, []metricsSpan{copied, copied})
+	s.seed(t, []metricsSpan{copied, copied})
+
+	var stored uint64
+	if err := s.conn.QueryRow(context.Background(), fmt.Sprintf("SELECT count() FROM %s WHERE key = 'a' AND span_id = unhex('%016x')",
+		attrs, spanMs)).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored < 4 {
+		t.Fatalf("%d attribute rows stored for the span, want one per copy unmerged", stored)
+	}
+	spanS := float64(spanMs) / 1000
+	if got := s.seriesSamples(t, sumQ, true)["1|0"] - before; math.Abs(got-4*spanS) > 1e-9 {
+		t.Errorf("instant sum grew by %v, want %v: every copy once", got, 4*spanS)
+	}
+
+	for _, c := range []struct{ query, agg string }{
+		{`{} | avg_over_time(duration) by (.a)`, "avg(duration_ns) / 1e9"},
+		{`{} | sum_over_time(duration) by (.a)`, "sum(duration_ns) / 1e9"},
+		{`{} | min_over_time(duration) by (.a)`, "min(duration_ns) / 1e9"},
+		{`{} | max_over_time(duration) by (.a)`, "max(duration_ns) / 1e9"},
+		{`{} | quantile_over_time(duration, .5) by (.a)`, "quantile(0.5)(duration_ns) / 1e9"},
+	} {
+		for _, instant := range []bool{false, true} {
+			at := step
+			if instant {
+				at = 0
+			}
+			want := s.attrSamples(t, table, attrs, join, c.agg, at)
+			got := s.seriesSamples(t, c.query, instant)
+			if len(got) != len(want) {
+				t.Errorf("%s (instant %v): %v, want %v", c.query, instant, got, want)
+				continue
+			}
+			for k, v := range want {
+				if math.Abs(got[k]-v) > 1e-9 {
+					t.Errorf("%s (instant %v) %s: %v, want %v", c.query, instant, k, got[k], v)
+				}
+			}
+		}
+	}
+
+	const quantiles = `{} | quantile_over_time(duration, .5, .9) by (.a)`
+	found := false
+	for k := range s.seriesSamples(t, quantiles, false) {
+		found = found || strings.HasPrefix(k, "1|")
+	}
+	if !found {
+		t.Errorf("%s: no series for the label", quantiles)
+	}
+}
+
+func TestEverySpanValuesByLabel(t *testing.T) { testEverySpanValuesByLabel(t, false) }
+
+func TestEverySpanValuesByLabelOnCluster(t *testing.T) { testEverySpanValuesByLabel(t, true) }
+
+func TestEverySpanMatchesTheRows(t *testing.T) { testEverySpanMatchesTheRows(t, false) }
+
+func TestEverySpanMatchesTheRowsOnCluster(t *testing.T) { testEverySpanMatchesTheRows(t, true) }
 
 func TestEverySpanCopies(t *testing.T) { testEverySpanCopies(t, false) }
 

@@ -87,34 +87,43 @@ func renderEverySpan(t *testing.T, query string, cluster, skip bool) everySpanSt
 }
 
 var (
-	spanCount     = regexp.MustCompile(`uniqExact\(cityHash64\(main\.trace_id, main\.span_id\)\) as n`)
 	countOnShards = regexp.MustCompile(`shard_rows as \( SELECT \* FROM cluster\('c', view\(.*FROM tempo_traces as main.*\)\)`)
 	groupedByPair = regexp.MustCompile(`GROUP BY traces\.trace_id, traces\.span_id`)
 )
 
-// A lone `{}` count counts span hashes per bucket on each shard and sums them.
-func TestEverySpanCountsOnEachShardThenSums(t *testing.T) {
-	for _, tc := range []struct{ query, value, group string }{
-		{`{} | rate()`, `toFloat64(sum(n)) / 30.000000 as value`, `GROUP BY ts ORDER BY ts`},
-		{`({}) | rate()`, `toFloat64(sum(n)) / 30.000000 as value`, `GROUP BY ts ORDER BY ts`},
-		{`{} | select(.b) | rate()`, `toFloat64(sum(n)) / 30.000000 as value`, `GROUP BY ts ORDER BY ts`},
-		{`{} | count_over_time()`, `sum(n) as value`, `GROUP BY ts ORDER BY ts`},
-		{`{} | count_over_time() with(sample=0.5)`, `(sum(n)) * 2 as value`, `GROUP BY ts ORDER BY ts`},
-		{`{} | rate() by (name)`, `toFloat64(sum(n)) / 30.000000 as value, by_0`, `GROUP BY ts, by_0 ORDER BY ts`},
-		{`{} | histogram_over_time(duration)`, `ts, bucket_ns, sum(n) as cnt`, `GROUP BY ts, bucket_ns ORDER BY ts`},
-	} {
-		got := renderEverySpan(t, tc.query, true, false).series
-		require.Regexp(t, spanCount, got, tc.query)
-		require.Regexp(t, countOnShards, got, tc.query)
-		require.Contains(t, got, tc.value, tc.query)
-		require.Contains(t, got, tc.group, tc.query)
-		require.NotContains(t, got, "SETTINGS", tc.query)
-		require.NotContains(t, got, "tempo_traces_dist", tc.query)
-		require.NotRegexp(t, groupedByPair, got, tc.query)
+// requireReadsTheRows checks that stmt reads the traces rows as stored, with no
+// span hash and no setting.
+func requireReadsTheRows(t *testing.T, stmt, table, query string) {
+	t.Helper()
+	require.Contains(t, stmt, "FROM "+table+" as main", query)
+	require.NotContains(t, stmt, "cityHash64(main.trace_id", query)
+	require.NotContains(t, stmt, "uniqExact", query)
+	require.NotContains(t, stmt, "shard_rows", query)
+	require.NotContains(t, stmt, "metrics_spans", query)
+	require.NotContains(t, stmt, "cluster(", query)
+	require.NotContains(t, stmt, "SETTINGS", query)
+	require.NotRegexp(t, groupedByPair, stmt, query)
+}
 
+// A lone `{}` count counts the rows as stored, per bucket.
+func TestEverySpanCountsReadTheRows(t *testing.T) {
+	for _, tc := range []struct{ query, value, group string }{
+		{`{} | rate()`, `toFloat64(count(*)) / 30.000000 as value`, `GROUP BY ts ORDER BY ts`},
+		{`({}) | rate()`, `toFloat64(count(*)) / 30.000000 as value`, `GROUP BY ts ORDER BY ts`},
+		{`{} | select(.b) | rate()`, `toFloat64(count(*)) / 30.000000 as value`, `GROUP BY ts ORDER BY ts`},
+		{`{} | count_over_time()`, `count(*) as value`, `GROUP BY ts ORDER BY ts`},
+		{`{} | count_over_time() with(sample=0.5)`, `(count(*)) * 2 as value`, `GROUP BY ts ORDER BY ts`},
+		{`{} | rate() by (name)`, `toFloat64(count(*)) / 30.000000 as value, main.name as by_0`, `GROUP BY ts, by_0 ORDER BY ts`},
+		{`{} | histogram_over_time(duration)`, `as bucket_ns, count(*) as cnt`, `GROUP BY ts, bucket_ns ORDER BY ts`},
+	} {
+		for _, skip := range []bool{false, true} {
+			got := renderEverySpan(t, tc.query, true, skip).series
+			requireReadsTheRows(t, got, "tempo_traces_dist", tc.query)
+			require.Contains(t, got, tc.value, tc.query)
+			require.Contains(t, got, tc.group, tc.query)
+		}
 		single := renderEverySpan(t, tc.query, false, false).series
-		require.Regexp(t, spanCount, single, tc.query)
-		require.NotContains(t, single, "cluster(", tc.query)
+		requireReadsTheRows(t, single, "tempo_traces", tc.query)
 		require.Contains(t, single, tc.value, tc.query)
 	}
 }
@@ -122,19 +131,20 @@ func TestEverySpanCountsOnEachShardThenSums(t *testing.T) {
 // The window is an instant count's one bucket.
 func TestEverySpanInstantCountHasNoBucket(t *testing.T) {
 	got := renderEverySpan(t, `{} | rate() by (name)`, true, false).instant
-	require.Regexp(t, spanCount, got)
-	require.Contains(t, got, "toFloat64(sum(n)) / 20.000000 as value, by_0")
+	requireReadsTheRows(t, got, "tempo_traces_dist", "instant rate by name")
+	require.Contains(t, got, "toFloat64(count(*)) / 20.000000 as value, main.name as by_0")
 	require.NotContains(t, got, "intDiv")
 	require.True(t, strings.HasSuffix(got, "GROUP BY by_0"), got)
 
-	got = renderEverySpan(t, `{} | count_over_time()`, true, false).instant
-	require.Contains(t, got, "SELECT sum(n) as value FROM")
+	got = renderEverySpan(t, `{} | count_over_time()`, true, true).instant
+	requireReadsTheRows(t, got, "tempo_traces_dist", "instant count")
+	require.Contains(t, got, "SELECT count(*) as value FROM")
 	require.NotContains(t, got, "GROUP BY")
 }
 
 // Skipping unavailable shards sets the setting in the statement that reads the shards.
 func TestEverySpanCountSkipsInsideTheShardRead(t *testing.T) {
-	got := renderEverySpan(t, `{} | rate()`, true, true).series
+	got := renderEverySpan(t, `{} | rate() by (.a)`, true, true).series
 	require.Regexp(t, `\)\)\s+SETTINGS skip_unavailable_shards\s*=\s*.?1.?\s*\) SELECT`, got)
 }
 
@@ -148,7 +158,7 @@ func TestSelectorsKeepTheGroupedRead(t *testing.T) {
 		`{} | avg_over_time(nestedSetRight)`,
 	} {
 		got := renderEverySpan(t, query, true, false).series
-		require.NotRegexp(t, spanCount, got, query)
+		require.NotContains(t, got, "count() as n", query)
 		require.Contains(t, got, "metrics_spans", query)
 	}
 }
@@ -168,67 +178,75 @@ func TestEverySpanExemplarsReadTheRows(t *testing.T) {
 	}
 }
 
-// min and max read the rows.
-func TestEverySpanMinMaxReadTheRows(t *testing.T) {
-	for _, query := range []string{`{} | min_over_time(duration)`, `{} | max_over_time(duration) by (name)`} {
-		got := renderEverySpan(t, query, true, true)
-		for _, stmt := range []string{got.series, got.instant} {
-			require.Contains(t, stmt, "FROM tempo_traces_dist as main", query)
-			require.NotContains(t, stmt, "cityHash64", query)
-			require.NotContains(t, stmt, "SETTINGS", query)
+// Value functions read the rows as stored, an instant quantile included.
+func TestEverySpanValuesReadTheRows(t *testing.T) {
+	for _, tc := range []struct{ query, value string }{
+		{`{} | min_over_time(duration)`, `min(main.duration_ns) / 1e9 as value`},
+		{`{} | max_over_time(duration) by (name)`, `max(main.duration_ns) / 1e9 as value, main.name as by_0`},
+		{`{} | avg_over_time(duration)`, `avg(main.duration_ns) / 1e9 as value`},
+		{`{} | sum_over_time(duration)`, `sum(main.duration_ns) / 1e9 as value`},
+		{`{} | avg_over_time(duration) by (name, resource.service.name)`, `avg(main.duration_ns) / 1e9 as value, main.name as by_0, main.service_name as by_1`},
+	} {
+		for _, skip := range []bool{false, true} {
+			got := renderEverySpan(t, tc.query, true, skip)
+			for _, stmt := range []string{got.series, got.instant} {
+				requireReadsTheRows(t, stmt, "tempo_traces_dist", tc.query)
+				require.Contains(t, stmt, tc.value, tc.query)
+			}
 		}
+		single := renderEverySpan(t, tc.query, false, false)
+		requireReadsTheRows(t, single.series, "tempo_traces", tc.query)
+		requireReadsTheRows(t, single.instant, "tempo_traces", tc.query)
+	}
+	for _, skip := range []bool{false, true} {
+		got := renderEverySpan(t, `{} | quantile_over_time(duration, .5, .9) by (name)`, true, skip).instant
+		requireReadsTheRows(t, got, "tempo_traces_dist", "instant quantile")
+		require.Contains(t, got, "arrayMap(x -> x / 1e9, quantiles(0.5, 0.9)(main.duration_ns)) as value, main.name as by_0")
+		require.True(t, strings.HasSuffix(got, "GROUP BY by_0"), got)
 	}
 }
 
-// avg, sum and quantiles read one row per span hash, listing only what they read.
-func TestEverySpanValuesReadOneRowPerSpanHash(t *testing.T) {
-	const hashGroup = "GROUP BY cityHash64(main.trace_id, main.span_id)"
-	groupRe := regexp.QuoteMeta(hashGroup)
-	for _, query := range []string{`{} | avg_over_time(duration)`, `{} | sum_over_time(duration)`} {
-		got := renderEverySpan(t, query, true, false)
-		require.Regexp(t, `FROM cluster\('c', view\( SELECT any\(main\.duration_ns\) as duration_ns, any\(main\.timestamp_ns\) as timestamp_ns FROM tempo_traces as main .*`+
-			groupRe+`\)\) as main GROUP BY`, got.series, query)
-		require.NotContains(t, got.series, "SETTINGS", query)
-		require.NotContains(t, got.series, "metrics_spans", query)
-		require.NotContains(t, got.instant, "timestamp_ns) as timestamp_ns", query)
-
-		skip := renderEverySpan(t, query, true, true).series
-		require.Regexp(t, `metrics_spans as \( SELECT \* FROM cluster\('c', view\(.*`+groupRe+`\)\)\s+SETTINGS skip_unavailable_shards\s*=\s*.?1.?\s*\) SELECT`, skip, query)
-
-		single := renderEverySpan(t, query, false, false).series
-		require.Contains(t, single, hashGroup, query)
-		require.Contains(t, single, "FROM metrics_spans as main", query)
-		require.NotContains(t, single, "cluster(", query)
+// A range quantile of one level reads the rows per bucket, with no query-wide row.
+func TestEverySpanRangeQuantileReadsTheRows(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		got := renderEverySpan(t, `{} | quantile_over_time(duration, .5) by (name)`, true, skip).series
+		requireReadsTheRows(t, got, "tempo_traces_dist", "range quantile")
+		require.Contains(t, got, "arrayMap(x -> x / 1e9, quantiles(0.5)(main.duration_ns)) as value, main.name as by_0")
+		require.Contains(t, got, "GROUP BY ts, by_0 ORDER BY ts")
+		require.NotContains(t, got, "query_wide")
+		require.NotContains(t, got, "GROUPING SETS")
 	}
-	got := renderEverySpan(t, `{} | avg_over_time(duration) by (name, resource.service.name)`, true, false).series
-	require.Contains(t, got, "any(main.name) as name")
-	require.Contains(t, got, "any(main.service_name) as service_name")
+	single := renderEverySpan(t, `{} | quantile_over_time(duration, .5)`, false, false).series
+	requireReadsTheRows(t, single, "tempo_traces", "range quantile")
 }
 
-// A range quantile takes one state per bucket from each shard's span hashes and
-// merges them on the coordinator, query-wide row included.
-func TestEverySpanRangeQuantileMergesShardStates(t *testing.T) {
-	got := renderEverySpan(t, `{} | quantile_over_time(duration, .5, .9) by (name)`, true, false)
-	require.Regexp(t, `shard_rows as \( SELECT \* FROM cluster\('c', view\(.*GROUP BY cityHash64\(main\.trace_id, main\.span_id\).*quantilesState\(0\.5, 0\.9\)\(main\.duration_ns\) as q_state.*GROUP BY ts, by_0`, got.series)
-	require.Contains(t, got.series, "arrayMap(x -> x / 1e9, quantilesMerge(0.5, 0.9)(q_state)) as value, grouping(ts) as query_wide, by_0 FROM shard_rows")
-	require.Contains(t, got.series, "GROUP BY GROUPING SETS ((ts, by_0), ()) ORDER BY ts")
-	require.NotContains(t, got.series, "SETTINGS")
+// A range quantile of several levels takes one state per bucket from each
+// shard's rows and merges them on the coordinator, query-wide row included.
+func TestEverySpanRangeQuantilesMergeShardStates(t *testing.T) {
+	got := renderEverySpan(t, `{} | quantile_over_time(duration, .5, .9) by (name)`, true, false).series
+	require.Regexp(t, `shard_rows as \( SELECT \* FROM cluster\('c', view\( SELECT .*quantilesState\(0\.5, 0\.9\)\(main\.duration_ns\) as q_state.* FROM tempo_traces as main WHERE .* GROUP BY ts, by_0\)\)\)`, got)
+	require.Contains(t, got, "arrayMap(x -> x / 1e9, quantilesMerge(0.5, 0.9)(q_state)) as value, grouping(ts) as query_wide, by_0 FROM shard_rows")
+	require.Contains(t, got, "GROUP BY GROUPING SETS ((ts, by_0), ()) ORDER BY ts")
+	require.NotContains(t, got, "cityHash64")
+	require.NotContains(t, got, "metrics_spans")
+	require.NotContains(t, got, "SETTINGS")
 
-	// An instant quantile has no query-wide row and reads the shards' span hashes directly.
-	require.Regexp(t, `quantiles\(0\.5, 0\.9\)\(main\.duration_ns\).*FROM cluster\('c', view\(.*\)\) as main GROUP BY by_0`, got.instant)
-
-	skip := renderEverySpan(t, `{} | quantile_over_time(duration, .5)`, true, true).series
+	skip := renderEverySpan(t, `{} | quantile_over_time(duration, .5, .9)`, true, true).series
 	require.Regexp(t, `\)\)\s+SETTINGS skip_unavailable_shards\s*=\s*.?1.?\s*\) SELECT`, skip)
 
-	single := renderEverySpan(t, `{} | quantile_over_time(duration, .5)`, false, false).series
-	require.Contains(t, single, "quantilesMerge(0.5)(q_state)")
+	single := renderEverySpan(t, `{} | quantile_over_time(duration, .5, .9)`, false, false).series
+	require.Contains(t, single, "quantilesMerge(0.5, 0.9)(q_state)")
+	require.Contains(t, single, "FROM tempo_traces as main")
 	require.NotContains(t, single, "cluster(")
+	require.NotContains(t, single, "cityHash64")
 }
 
 // A custom by-label pivots on each shard over its local attributes.
 func TestEverySpanCustomByStaysOnTheShard(t *testing.T) {
 	got := renderEverySpan(t, `{} | rate() by (.a, name) with(sample=0.5)`, true, false)
-	require.Regexp(t, spanCount, got.series)
+	require.Regexp(t, countOnShards, got.series)
+	require.Contains(t, got.series, "count() as n")
+	require.NotContains(t, got.series, "cityHash64(main.trace_id")
 	require.Contains(t, got.series, "FROM tempo_traces_attrs_gin FINAL")
 	require.NotContains(t, got.series, "_dist")
 	require.Contains(t, got.series, "cityHash64(main.span_id) <")
@@ -241,11 +259,50 @@ func TestEverySpanCustomByStaysOnTheShard(t *testing.T) {
 	require.NotContains(t, got.exemplars, "SETTINGS")
 }
 
-// Functions that read a span's value keep the grouped read under a custom by-label.
-func TestEverySpanValuesKeepTheGroupedReadUnderCustomBy(t *testing.T) {
-	for _, query := range []string{`{} | avg_over_time(duration) by (.a)`, `{} | max_over_time(duration) by (.a)`,
-		`{} | quantile_over_time(duration, .5) by (.a)`} {
-		got := renderEverySpan(t, query, true, false).series
-		require.Regexp(t, groupedByPair, got, query)
+// A value function under a custom by-label reads the rows as stored and pivots
+// the attributes once on the coordinator, whatever the skip setting.
+func TestEverySpanValuesReadTheRowsUnderCustomBy(t *testing.T) {
+	for _, tc := range []struct{ query, value string }{
+		{`{} | avg_over_time(duration) by (.a)`, `avg(main.duration_ns) / 1e9 as value, by_attrs.by_lbl_0 as by_custom_0`},
+		{`{} | sum_over_time(duration) by (.a, name)`, `sum(main.duration_ns) / 1e9 as value, main.name as by_1, by_attrs.by_lbl_0 as by_custom_0`},
+		{`{} | min_over_time(duration) by (.a)`, `min(main.duration_ns) / 1e9 as value`},
+		{`{} | max_over_time(duration) by (.a)`, `max(main.duration_ns) / 1e9 as value`},
+		{`{} | quantile_over_time(duration, .5) by (.a)`, `quantiles(0.5)(main.duration_ns)`},
+	} {
+		for _, skip := range []bool{false, true} {
+			got := renderEverySpan(t, tc.query, true, skip)
+			for _, stmt := range []string{got.series, got.instant} {
+				requireReadsTheRows(t, stmt, "tempo_traces_dist", tc.query)
+				require.Contains(t, stmt, tc.value, tc.query)
+				require.Contains(t, stmt, "FROM tempo_traces_attrs_gin_dist FINAL", tc.query)
+				require.Contains(t, stmt, "GLOBAL LEFT JOIN by_attrs as by_attrs ON", tc.query)
+			}
+		}
+		single := renderEverySpan(t, tc.query, false, false)
+		for _, stmt := range []string{single.series, single.instant} {
+			requireReadsTheRows(t, stmt, "tempo_traces", tc.query)
+			require.Contains(t, stmt, "FROM tempo_traces_attrs_gin FINAL", tc.query)
+			require.Contains(t, stmt, " LEFT JOIN by_attrs as by_attrs ON", tc.query)
+			require.NotContains(t, stmt, "GLOBAL", tc.query)
+		}
 	}
+}
+
+// A quantile list under a custom by-label merges shard states over each
+// shard's attributes in range, and reads the rows when instant.
+func TestEverySpanQuantileListUnderCustomBy(t *testing.T) {
+	const query = `{} | quantile_over_time(duration, .5, .9) by (.a)`
+	got := renderEverySpan(t, query, true, false)
+	require.Regexp(t, `shard_rows as \( SELECT \* FROM cluster\('c', view\(.*quantilesState\(0\.5, 0\.9\)\(main\.duration_ns\) as q_state.*FROM tempo_traces as main`, got.series)
+	require.Contains(t, got.series, "FROM tempo_traces_attrs_gin FINAL")
+	require.NotContains(t, got.series, "_dist")
+	require.Contains(t, got.series, "GROUP BY GROUPING SETS ((ts, by_custom_0), ())")
+	require.NotRegexp(t, groupedByPair, got.series)
+
+	requireReadsTheRows(t, got.instant, "tempo_traces_dist", query)
+	require.Contains(t, got.instant, "GLOBAL LEFT JOIN by_attrs as by_attrs ON")
+
+	single := renderEverySpan(t, query, false, false).series
+	require.Contains(t, single, "quantilesMerge(0.5, 0.9)(q_state)")
+	require.NotRegexp(t, groupedByPair, single)
 }

@@ -197,15 +197,32 @@ func TestQuantileWithoutByCarriesOnlyP(t *testing.T) {
 // A span in the bucket at time 0 is a sample, not the query-wide row.
 func TestQuantileBucketAtTimeZeroIsASample(t *testing.T) {
 	svc := serviceOver("fake", newFakeReader([][]driver.Value{
-		{int64(0), []float64{1}, uint64(1)},
-		{int64(0), []float64{0.5}, uint64(0)},
+		{int64(0), []float64{1, 1}, uint64(1)},
+		{int64(0), []float64{0.5, 0.9}, uint64(0)},
 	}, nil))
 	res, err := svc.MetricsQueryRange(context.Background(), &model.MetricsQueryRequest{
-		Query: `{} | quantile_over_time(duration, .5)`,
+		Query: `{} | quantile_over_time(duration, .5, .9)`,
 		From:  time.Unix(0, 0), To: time.Unix(19, 0), Step: 20 * time.Second})
 	require.NoError(t, err)
-	require.Len(t, res.Series, 1)
-	require.Equal(t, 0.5, res.Series[0].Samples[0].Value)
+	require.Len(t, res.Series, 2)
+	for _, series := range res.Series {
+		require.Len(t, series.Samples, 1)
+		require.Equal(t, *series.Labels[0].Value.DoubleValue, series.Samples[0].Value)
+	}
+}
+
+// A quantile of one level reads a value per bucket and no query-wide row, and
+// every exemplar goes to its one series.
+func TestSingleQuantileHasNoQueryWideRow(t *testing.T) {
+	ts := quantileStart.UnixNano()
+	svc := serviceOver("fake", newFakeReader([][]driver.Value{{ts, []float64{0.25}}},
+		[][]driver.Value{exemplarRow("", 0.3), exemplarRow("", 0.9)}))
+	got := rangeSeries(t, svc, `{} | quantile_over_time(duration, .5)`)
+	require.Len(t, got, 1)
+	series := got[`{p="0.5"}`]
+	require.Len(t, series.Samples, 1)
+	require.Equal(t, 0.25, series.Samples[0].Value)
+	require.Equal(t, []float64{0.3, 0.9}, seriesExemplars(t, series))
 }
 
 func TestExemplarGoesToNearestQueryWideQuantile(t *testing.T) {

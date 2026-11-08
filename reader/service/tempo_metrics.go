@@ -61,6 +61,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	seriesMap := make(map[string]*model.MetricsTimeSeries)
 	hasByLabels := len(metricsFn.By) > 0
 	isQuantile := metricsFn.Fn == "quantile_over_time"
+	hasQueryWide := tempo.HasQueryWideRow(&mreq)
 	var queryWideValues []float64
 
 	addSample := func(byVals []string, quantile *float64, ts int64, value float64) {
@@ -117,7 +118,10 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 
 		scanArgs := []any{&ts, &value}
 		if isQuantile {
-			scanArgs = []any{&ts, &values, &queryWide}
+			scanArgs = []any{&ts, &values}
+		}
+		if hasQueryWide {
+			scanArgs = append(scanArgs, &queryWide)
 		}
 		for i := range byVals {
 			scanArgs = append(scanArgs, &byVals[i])
@@ -233,7 +237,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			if len(exByLabels) == 0 {
 				groupExemplars = exemplarRows
 			}
-			if isQuantile {
+			if hasQueryWide {
 				p := *result[i].Labels[len(byLabels)].Value.DoubleValue
 				groupExemplars = slices.DeleteFunc(slices.Clone(groupExemplars), func(ex exRow) bool {
 					return metricsFn.Quantiles[nearestQuantile(queryWideValues, ex.argValue)] != p
