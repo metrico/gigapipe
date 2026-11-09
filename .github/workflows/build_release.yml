@@ -18,7 +18,30 @@ on:
     types: [created]
 
 jobs:
+  # Refuses to publish unless every lane in PUBLISH_REQUIRED_LANES passed on
+  # the commit being released. Lanes are workflow names.
+  preflight:
+    runs-on: ubuntu-latest
+    name: 'Publish preflight'
+    permissions:
+      actions: read
+      contents: read
+    env:
+      PUBLISH_REQUIRED_LANES: |
+        Go Build CI
+        Gigapipe CI Cluster
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
+      - name: Check required lanes on the released commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: SHA=$(git rev-parse HEAD) .github/scripts/publish-preflight.sh
+
   validate_module_path:
+    needs: preflight
     runs-on: ubuntu-latest
     name: 'Validate go.mod major version'
     steps:
