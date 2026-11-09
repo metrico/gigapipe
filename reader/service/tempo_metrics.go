@@ -42,7 +42,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		return executeHistogramRange(tq, req, planCtx)
 	}
 
-	mreq := metricsRequest(metricsFn, req, planCtx)
+	mreq := metricsRequest(tq, req, planCtx)
 	var resolvedByLabels []string
 	planner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
 		query, byLabels, err := tempo.BuildMetricsRangeQuery(over(mreq, spans))
@@ -206,7 +206,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	}
 
 	if len(exemplarRows) > 0 {
-		includeDuration := metricsFn.Fn != "rate" && metricsFn.Fn != "count_over_time"
+		includeDuration := exemplarHasDuration(metricsFn.Fn)
 
 		exByGroup := make(map[string][]exRow)
 		for _, ex := range exemplarRows {
@@ -254,20 +254,14 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 					})
 				}
 				exTsMs := ex.spanTs / 1e6
-				val := float64(0)
-				if stepMs > 0 {
-					bucketMs := (exTsMs / stepMs) * stepMs
-					val = tsToValue[bucketMs]
-				}
 				if includeDuration {
 					labels = append(labels, model.MetricsKeyValue{
 						Key: "duration", Value: model.MetricsLabelValue{StringValue: metricsFormatDuration(ex.durNs)},
 					})
-					val = float64(ex.durNs) / 1e9
 				}
 				exList = append(exList, tempo.HistogramExemplar{
 					Labels:      labels,
-					Value:       val,
+					Value:       exemplarValue(includeDuration, ex.durNs, exTsMs, stepMs, tsToValue),
 					TimestampMs: strconv.FormatInt(exTsMs, 10),
 				})
 			}
@@ -304,7 +298,7 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		return executeCompareInstant(tq, req, planCtx)
 	}
 
-	mreq := metricsRequest(metricsFn, req, planCtx)
+	mreq := metricsRequest(tq, req, planCtx)
 	var resolvedByLabels []string
 	planner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
 		query, byLabels, err := tempo.BuildMetricsInstantQuery(over(mreq, spans))
@@ -382,8 +376,9 @@ func (t *TempoService) metricsPlannerContext(ctx context.Context, req *model.Met
 	return tq, planCtx, nil
 }
 
-// metricsRequest is the metrics request of fn over the planner context's range.
-func metricsRequest(fn *traceql_ir.MetricsFn, req *model.MetricsQueryRequest, planCtx *shared.PlannerContext) tempo.MetricsRequest {
+// metricsRequest is the metrics request of tq over the planner context's range.
+func metricsRequest(tq *traceql_ir.Query, req *model.MetricsQueryRequest, planCtx *shared.PlannerContext) tempo.MetricsRequest {
+	fn := tq.Metrics
 	return tempo.MetricsRequest{
 		Fn:         fn.Fn,
 		Attr:       fn.Attr,
@@ -393,6 +388,7 @@ func metricsRequest(fn *traceql_ir.MetricsFn, req *model.MetricsQueryRequest, pl
 		ToNS:       planCtx.To.UnixNano(),
 		StepNS:     req.Step.Nanoseconds(),
 		AttrsTable: attrsTable(planCtx),
+		Scale:      clickhouse_transpiler.SampleScale(tq),
 	}
 }
 
@@ -439,7 +435,7 @@ func executeHistogramRange(
 	req *model.MetricsQueryRequest,
 	planCtx *shared.PlannerContext,
 ) (*model.MetricsQueryRangeResponse, error) {
-	mreq := metricsRequest(tq.Metrics, req, planCtx)
+	mreq := metricsRequest(tq, req, planCtx)
 	planner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
 		return tempo.BuildHistogramRangeQuery(over(mreq, spans))
 	})
@@ -453,7 +449,7 @@ func executeHistogramRange(
 	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
 		var ts int64
 		var bucketNs uint64
-		var count uint64
+		var count float64
 		if err := rows.Scan(&ts, &bucketNs, &count); err != nil {
 			return err
 		}
@@ -474,7 +470,7 @@ func executeHistogramRange(
 
 		series.Samples = append(series.Samples, model.MetricsSample{
 			TimestampMs: strconv.FormatInt(ts/1e6, 10),
-			Value:       float64(count),
+			Value:       count,
 		})
 		return nil
 	})
@@ -579,6 +575,24 @@ func executeHistogramRange(
 	}, nil
 }
 
+// exemplarHasDuration reports whether fn's exemplars carry their span's duration.
+func exemplarHasDuration(fn string) bool {
+	return fn != "rate" && fn != "count_over_time"
+}
+
+// exemplarValue is the span's duration in seconds, unscaled, when the exemplar
+// carries one. Otherwise it is the series point of the exemplar's step, scaled
+// like the series, so the exemplar sits on the plotted line.
+func exemplarValue(hasDuration bool, durNs, tsMs, stepMs int64, series map[int64]float64) float64 {
+	if hasDuration {
+		return float64(durNs) / 1e9
+	}
+	if stepMs <= 0 {
+		return 0
+	}
+	return series[(tsMs/stepMs)*stepMs]
+}
+
 // wantsExemplars reports whether tq's exemplars hint allows any exemplar.
 func wantsExemplars(tq *traceql_ir.Query) bool {
 	limit, ok := tq.ExemplarLimit()
@@ -619,7 +633,7 @@ func executeCompareRange(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "selection"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: float64(row.SelectionCount)}},
+				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: row.SelectionCount}},
 				Exemplars: []any{},
 			})
 		}
@@ -629,7 +643,7 @@ func executeCompareRange(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "baseline"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: float64(row.BaselineCount)}},
+				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: row.BaselineCount}},
 				Exemplars: []any{},
 			})
 		}
@@ -660,7 +674,7 @@ func executeCompareInstant(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "selection"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Value: float64(row.SelectionCount),
+				Value: row.SelectionCount,
 			})
 		}
 		if row.BaselineCount > 0 {
@@ -669,7 +683,7 @@ func executeCompareInstant(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "baseline"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Value: float64(row.BaselineCount),
+				Value: row.BaselineCount,
 			})
 		}
 	})
@@ -686,7 +700,7 @@ func executeCompareInstant(
 
 // queryCompare runs the compare() query of tq, passing each row to add.
 func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func(tempo.CompareResultRow)) error {
-	creq := compareRequest(tq.Metrics, planCtx)
+	creq := compareRequest(tq, planCtx)
 	var selection traceql_ir.FieldExpr
 	if tq.Metrics.Compare != nil {
 		selection = tq.Metrics.Compare.Filter
@@ -710,17 +724,18 @@ func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func
 	})
 }
 
-// compareRequest is the compare() request of fn over the planner context's
+// compareRequest is the compare() request of tq over the planner context's
 // range. The baseline window defaults to that range.
-func compareRequest(fn *traceql_ir.MetricsFn, planCtx *shared.PlannerContext) tempo.CompareRequest {
+func compareRequest(tq *traceql_ir.Query, planCtx *shared.PlannerContext) tempo.CompareRequest {
 	res := tempo.CompareRequest{
 		FromNS:         planCtx.From.UnixNano(),
 		ToNS:           planCtx.To.UnixNano(),
 		BaselineFromNS: planCtx.From.UnixNano(),
 		BaselineToNS:   planCtx.To.UnixNano(),
 		AttrsTable:     attrsTable(planCtx),
+		Scale:          clickhouse_transpiler.SampleScale(tq),
 	}
-	if c := fn.Compare; c != nil {
+	if c := tq.Metrics.Compare; c != nil {
 		res.TopN = c.Count
 		if c.BaselineFrom != nil && *c.BaselineFrom > 0 {
 			res.BaselineFromNS = *c.BaselineFrom
@@ -738,7 +753,7 @@ func unresolvedProbeContext(tq *traceql_ir.Query, planCtx *shared.PlannerContext
 	if tq.Metrics == nil || tq.Metrics.Fn != "compare" {
 		return planCtx
 	}
-	creq := compareRequest(tq.Metrics, planCtx)
+	creq := compareRequest(tq, planCtx)
 	res := *planCtx
 	res.From, res.To = time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS)
 	return &res
