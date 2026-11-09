@@ -166,6 +166,15 @@ TraceQL structural query: N trace(s) have unresolved ancestry (deeper than 2^R s
 The line lists up to 20 trace IDs. Raising the round limit helps only with
 deep traces, not cycles.
 
+The warning comes from a background probe with a time limit. The probe reads the
+reader's `readonly` setting each time it runs. When that read returns 0, the
+server stops any probe statement started with more than a second of the limit
+left, shortly after the limit. In every other case the reader stops waiting at
+the limit. Over the native protocol that also stops the query on the server.
+Over HTTP the server stops it only if `readonly` is not 0 and the reader's
+profile holds `cancel_http_readonly_queries_on_client_close=1`; otherwise it
+runs on to its end.
+
 ### Large queries
 
 A TraceQL search or tag autocomplete whose estimate exceeds
