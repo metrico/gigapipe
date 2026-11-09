@@ -34,12 +34,15 @@ func idsStatements(t *testing.T, query string) map[string]shared.SQLRequestPlann
 	if err != nil {
 		t.Fatal(err)
 	}
-	return map[string]shared.SQLRequestPlanner{
-		"metrics": planMetrics(t, query).Ids[0].Statement,
-		"compare": cmp.Ids[0].Statement,
-		"tags":    tags.Ids[0].Statement,
-		"values":  values.Ids[0].Statement,
+	res := map[string]shared.SQLRequestPlanner{
+		"tags":   tags.Ids[0].Statement,
+		"values": values.Ids[0].Statement,
 	}
+	if metrics := planMetrics(t, query); len(metrics.Ids) > 0 {
+		res["metrics"] = metrics.Ids[0].Statement
+		res["compare"] = cmp.Ids[0].Statement
+	}
+	return res
 }
 
 // idsShardView splits a cluster's ids statement.

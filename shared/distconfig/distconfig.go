@@ -43,6 +43,6 @@ func CrossClusterWarning(suffix, readCluster string) string {
 		return ""
 	}
 	return fmt.Sprintf("CLICKHOUSE_READ_DIST_SUFFIX=%q is set without CLICKHOUSE_READ_CLUSTER: "+
-		"TraceQL structural queries and compare() will read only the local cluster (CLUSTER_NAME). "+
+		"structural queries, compare() and TraceQL metrics with no spanset operator (&&, ||, structural), scalar filter or by() stage will read only the local cluster (CLUSTER_NAME). "+
 		"Set CLICKHOUSE_READ_CLUSTER to the cluster the read tables span.", suffix)
 }

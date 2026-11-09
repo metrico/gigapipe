@@ -28,7 +28,7 @@ func narrowingPlans(t *testing.T, query string) map[string]shared.SQLRequestPlan
 		plans[kind] = plan.Ids[0].Statement
 	}
 	plans["search"] = planSearch(t, query).Ids[0].Statement
-	plans["metrics"] = planMetrics(t, query).Ids[0].Statement
+	plans["metrics"] = spansStatement(planMetrics(t, query))
 	return plans
 }
 

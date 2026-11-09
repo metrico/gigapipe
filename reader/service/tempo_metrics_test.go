@@ -77,7 +77,7 @@ func TestCompareCountsOnEachShardThenRanks(t *testing.T) {
 		require.Regexp(t, attrs, shard, query)
 		require.Regexp(t, `sel_n.*base_n.* GROUP BY attr_key, attr_val$`, shard, query)
 		require.True(t, strings.HasSuffix(before, "compare_counts as ( SELECT attr_key, attr_val, sel_n, base_n "), "%s:\n%s", query, res)
-		for _, coord := range []string{"sum(sel_n) as selection_count", "sum(base_n) as baseline_count", " HAVING ", "ranked as (", "(rn) <= (10)"} {
+		for _, coord := range []string{"sum(sel_n) as selection_count", "sum(base_n) as baseline_count", " HAVING (((selection_count)", "ranked as (", "(rn) <= (10)"} {
 			require.Contains(t, after, coord, query)
 			require.NotContains(t, shard, coord, query)
 		}

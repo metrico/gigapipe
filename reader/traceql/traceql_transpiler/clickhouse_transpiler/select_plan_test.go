@@ -25,8 +25,22 @@ func TestSelectStagesPlanNoStage(t *testing.T) {
 			if got := describePlan(t, expr); got != c.search {
 				t.Errorf("search plan = %s, want %s", got, c.search)
 			}
-			_, expr = metricsResult(t, planMetrics(t, c.query))
-			if got := describePlan(t, expr); got != c.metrics {
+			plan := planMetrics(t, c.query)
+			if len(plan.Ids) > 0 {
+				_, expr = metricsResult(t, plan)
+				if got := describePlan(t, expr); got != c.metrics {
+					t.Errorf("metrics plan = %s, want %s", got, c.metrics)
+				}
+				return
+			}
+			read := plan.spans.OnePass
+			if read.Result == nil {
+				if c.metrics != "{}" {
+					t.Errorf("metrics read every span, want %s", c.metrics)
+				}
+				return
+			}
+			if got := describePlan(t, read.Result); got != c.metrics {
 				t.Errorf("metrics plan = %s, want %s", got, c.metrics)
 			}
 		})

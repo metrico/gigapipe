@@ -27,46 +27,51 @@ type CompareBuild struct {
 	Result func(counts *sql.With) (sql.ISelect, error)
 }
 
-// MetricsPlan is a metrics query in steps: each Ids statement lists span ids,
-// and Metrics reads the spans of those ids from the Ids external tables.
+// MetricsPlan is a metrics query in steps: Ids statements list span ids for
+// Metrics to read. A side that needs no whole trace has none.
 type MetricsPlan struct {
 	Ids     []IdsStatement
 	Metrics shared.SQLRequestPlanner
 	// spans are a PlanMetrics plan's spans, nil for compare().
 	spans *metricsSpansPlanner
+	// mainSample is the query's hash sample over rows aliased main.
+	mainSample sql.SQLCondition
 }
 
-// PlanMetrics plans a metrics query over the result spans of the query's
-// spanset expression in the query range: the spans a search for it returns,
-// uncapped, listed into SearchResultTable.
+// PlanMetrics plans a metrics query over the spans a search for it returns in the
+// query range, uncapped; one that needs the whole trace lists them into SearchResultTable.
 func PlanMetrics(query *traceql_ir.Query, build MetricsBuild) (*MetricsPlan, error) {
 	p := &planner{query: query}
 	result, err := p.planQuery()
 	if err != nil {
 		return nil, err
 	}
-	spans := &metricsSpansPlanner{Ids: SearchResultTable, Prefix: p.getPrefix(), NestedSet: metricsNestedSet(query.Metrics)}
-	return &MetricsPlan{
-		Ids: []IdsStatement{{
+	spans := &metricsSpansPlanner{Prefix: p.getPrefix(), NestedSet: metricsNestedSet(query.Metrics)}
+	plan := &MetricsPlan{Metrics: &metricsPlanner{Spans: spans, Build: build}, spans: spans,
+		mainSample: sampleOf(query, "main.")}
+	if query.NeedsWholeTrace() {
+		spans.Ids = SearchResultTable
+		plan.Ids = []IdsStatement{{
 			Table:     SearchResultTable,
 			Statement: p.structuralIds(&spanIdsPlanner{Result: result, Sample: sampleFilter(query)}),
-		}},
-		Metrics: &metricsPlanner{Spans: spans, Build: build},
-		spans:   spans,
-	}, nil
+		}}
+	} else {
+		spans.OnePass = onePassOf(&query.Pipeline, result, sampleFilter(query))
+	}
+	return plan, nil
 }
 
-// Over is a metrics statement built by build over the spans of m's Ids
-// tables, like m.Metrics; m is a PlanMetrics plan.
+// Over is a metrics statement built by build over m's spans, like m.Metrics;
+// m is a PlanMetrics plan.
 func (m *MetricsPlan) Over(build MetricsBuild) (shared.SQLRequestPlanner, error) {
 	if m.spans == nil {
-		return nil, errors.New("compare() has no metrics statement over its ids")
+		return nil, errors.New("compare() has no metrics statement over its spans")
 	}
 	return &metricsPlanner{Spans: m.spans, Build: build}, nil
 }
 
-// PlanCompare plans compare() over the baseline, the result spans in [baselineFrom,
-// baselineTo], and the selection filter's spans, in their own ids tables.
+// PlanCompare plans compare() over the result spans in [baselineFrom, baselineTo]
+// and the selection's; a baseline that needs the whole trace lists its into SearchResultTable.
 func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 	baselineFrom, baselineTo time.Time, build CompareBuild) (*MetricsPlan, error) {
 	p := &planner{query: query}
@@ -75,10 +80,16 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 		return nil, err
 	}
 	sample := sampleFilter(query)
-	baseline := &windowPlanner{Main: &spanIdsPlanner{Result: result, Sample: sample}, From: baselineFrom, To: baselineTo}
-	res := &MetricsPlan{Ids: []IdsStatement{{Table: SearchResultTable, Statement: p.structuralIds(baseline)}}}
-	cmp := &comparePlanner{Baseline: &metricsSpansPlanner{Ids: SearchResultTable, Prefix: p.getPrefix()},
+	res := &MetricsPlan{}
+	cmp := &comparePlanner{Baseline: &metricsSpansPlanner{Prefix: p.getPrefix()},
 		BaselineFrom: baselineFrom, BaselineTo: baselineTo, Build: build}
+	if query.NeedsWholeTrace() {
+		baseline := &windowPlanner{Main: &spanIdsPlanner{Result: result, Sample: sample}, From: baselineFrom, To: baselineTo}
+		res.Ids = []IdsStatement{{Table: SearchResultTable, Statement: p.structuralIds(baseline)}}
+		cmp.Baseline.Ids = SearchResultTable
+	} else {
+		cmp.Baseline.OnePass = onePassOf(&query.Pipeline, result, sample)
+	}
 	if selection != nil {
 		expr, err := p.operand(&traceql_ir.Selector{Filter: selection}).planner()
 		if err != nil {
@@ -88,9 +99,8 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 			Stages: []pipelineStage{&spansetStage{Expr: expr}},
 			Prefix: p.getPrefix(),
 		}
-		res.Ids = append(res.Ids, IdsStatement{Table: selectionResultTable,
-			Statement: &spanIdsPlanner{Result: filter, Sample: sample}})
-		cmp.Selection = &metricsSpansPlanner{Ids: selectionResultTable, Prefix: p.getPrefix()}
+		selector := &traceql_ir.Pipeline{Elements: []traceql_ir.Element{&traceql_ir.Selector{Filter: selection}}}
+		cmp.Selection = &metricsSpansPlanner{OnePass: onePassOf(selector, filter, sample), Prefix: p.getPrefix()}
 	}
 	res.Metrics = cmp
 	return res, nil
@@ -99,6 +109,11 @@ func PlanCompare(query *traceql_ir.Query, selection traceql_ir.FieldExpr,
 // sampleFilter is the hash sample of the query's sample hint, or nil without
 // one: by trace when the query relates spans across a trace, else by span.
 func sampleFilter(query *traceql_ir.Query) sql.SQLCondition {
+	return sampleOf(query, "")
+}
+
+// sampleOf is sampleFilter over columns with prefix.
+func sampleOf(query *traceql_ir.Query, prefix string) sql.SQLCondition {
 	f, ok := query.SampleFraction()
 	if !ok {
 		return nil
@@ -107,7 +122,7 @@ func sampleFilter(query *traceql_ir.Query) sql.SQLCondition {
 	if query.NeedsWholeTrace() {
 		col = "trace_id"
 	}
-	return rawCond(fmt.Sprintf("cityHash64(%s) < %d", col, sampleThreshold(f)))
+	return rawCond(fmt.Sprintf("cityHash64(%s%s) < %d", prefix, col, sampleThreshold(f)))
 }
 
 // SampleScale is the factor that scales a sampled volume up to the whole: 1/f
@@ -153,33 +168,24 @@ func metricsNestedSet(fn *traceql_ir.MetricsFn) []nestedSetCol {
 	return cols
 }
 
-// metricsSpansPlanner reads the traces table for the spans of the ids table
-// Ids: one row per span, as MetricsBuild reads, with the stored values of the
-// NestedSet columns.
+// metricsSpansPlanner reads one traces row per span of OnePass, or else of the ids
+// table Ids, as MetricsBuild reads, with the stored values of the NestedSet columns.
 type metricsSpansPlanner struct {
 	Ids       string
+	OnePass   *onePassRead
 	Prefix    string
 	NestedSet []nestedSetCol
 }
 
 func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	if m.OnePass != nil {
+		return m.onePassOnEachShard(ctx)
+	}
 	withRows, withTraceIds, withSpanIds := idsOf(m.Ids, m.Prefix)
-	tsFrom, tsTo := timerange.SpanStart("traces.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
-	spans := sql.NewSelect().
-		Select(
-			sql.NewSimpleCol("traces.trace_id", "trace_id"),
-			sql.NewSimpleCol("traces.span_id", "span_id"),
-			sql.NewSimpleCol("any(traces.timestamp_ns)", "timestamp_ns"),
-			sql.NewSimpleCol("any(traces.duration_ns)", "duration_ns"),
-			sql.NewSimpleCol("any(traces.name)", "name"),
-			sql.NewSimpleCol("any(traces.service_name)", "service_name")).
-		From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
+	spans := metricsTracesRead(ctx).
 		AndWhere(
-			tsFrom,
-			tsTo,
 			plainIn(sql.NewRawObject("traces.trace_id"), sql.NewWithRef(withTraceIds)),
-			plainIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), sql.NewWithRef(withSpanIds))).
-		GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id"))
+			plainIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), sql.NewWithRef(withSpanIds)))
 	if len(m.NestedSet) == 0 {
 		return spans.With(withRows, withTraceIds, withSpanIds), nil
 	}
@@ -193,6 +199,22 @@ func (m *metricsSpansPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		Select(append(cols, ns.cols...)...).
 		From(sql.NewWithRef(withSpans)).
 		Join(ns.join), nil
+}
+
+// metricsTracesRead is one row per span of the traces table that starts in ctx's range.
+func metricsTracesRead(ctx *shared.PlannerContext) sql.ISelect {
+	tsFrom, tsTo := timerange.SpanStart("traces.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
+	return sql.NewSelect().
+		Select(
+			sql.NewSimpleCol("traces.trace_id", "trace_id"),
+			sql.NewSimpleCol("traces.span_id", "span_id"),
+			sql.NewSimpleCol("any(traces.timestamp_ns)", "timestamp_ns"),
+			sql.NewSimpleCol("any(traces.duration_ns)", "duration_ns"),
+			sql.NewSimpleCol("any(traces.name)", "name"),
+			sql.NewSimpleCol("any(traces.service_name)", "service_name")).
+		From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
+		AndWhere(tsFrom, tsTo).
+		GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id"))
 }
 
 // metricsPlanner builds a metrics query over the metrics spans.
@@ -256,7 +278,12 @@ func (c *comparePlanner) counts(ctx *shared.PlannerContext) (sql.ISelect, error)
 		}
 		selection = sql.NewWith(spans, "selection_spans")
 	}
+	withBaseline := sql.NewWith(baseline, "baseline_spans")
+	if c.Baseline.OnePass != nil {
+		traceIds := sql.NewWith(traceIdsOf(withBaseline), c.Baseline.Prefix+"trace_ids")
+		return c.Build.Counts(withBaseline, selection, traceIds, attrsTable(ctx))
+	}
 	rows, traceIds, _ := idsOf(c.Baseline.Ids, c.Baseline.Prefix)
 	traceIds.GetQuery().AddWith(rows)
-	return c.Build.Counts(sql.NewWith(baseline, "baseline_spans"), selection, traceIds, attrsTable(ctx))
+	return c.Build.Counts(withBaseline, selection, traceIds, attrsTable(ctx))
 }

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +24,7 @@ import (
 	"github.com/metrico/qryn/v5/ctrl/qryn/maintenance"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/tempo"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/shared/chtest"
@@ -348,6 +351,76 @@ var exemplarQueries = []string{
 	`{.a = "1"} >> {.b = "1"} | count_over_time() by (name) with(sample=0.3)`,
 }
 
+// onePassQueries are metrics queries that don't relate spans across a trace:
+// nested-set fields, root filters, pipelines, samples and every metric function.
+var onePassQueries = []string{
+	`{nestedSetParent < 0} | rate()`,
+	`{nestedSetLeft > 2} | count_over_time() by (name)`,
+	`{nestedSetParent < 0 && .a = "1"} | count_over_time()`,
+	`{nestedSetParent < 0 && .a = "1"} | avg_over_time(nestedSetRight)`,
+	`{nestedSetParent < 0 && nestedSetLeft > 0 && .a = "1"} | rate()`,
+	`{nestedSetParent < 0 || .a = "1"} | count_over_time() by (name)`,
+	`{nestedSetParent < 0 && duration > 1ms && .a = "1"} | rate()`,
+	`{nestedSetParent < 0 && .a = "1"} | rate() with(sample=0.5)`,
+	`{nestedSetRight - nestedSetLeft = 1 && .a = "1"} | rate()`,
+	`{duration * 2 > 1ms} | rate()`,
+	`{duration > 1ms} | rate()`,
+	`{.a = "1"} | select(.b) | rate()`,
+	`{} | select(.b) | rate()`,
+	`{nestedSetParent < 0} | select(.b) | rate()`,
+	`{.a = "1"} | {.b = "1"} | rate()`,
+	`select(.b) | {.a = "1"} | rate()`,
+	`{} | {.a = "1"} | rate()`,
+	`{.a = "1"} | coalesce() | rate()`,
+	`({.a = "1"}) | rate()`,
+	`{} | rate() with(sample=0.5)`,
+	`{nestedSetParent < 0} | rate() with(sample=0.5)`,
+	`{.a = "1"} | quantile_over_time(duration, .5, .9) by (name)`,
+	`{} | quantile_over_time(duration, .5, .9)`,
+	`{} | histogram_over_time(duration)`,
+	`{.b = "1"} | avg_over_time(nestedSetRight) by (nestedSetLeft)`,
+	`{nestedSetLeft > 2} | avg_over_time(nestedSetRight)`,
+	`{.a = "1"} | count_over_time() by (.b)`,
+}
+
+// everySpanQueries read every span of a lone `{}`: each function, by-label kind and sample.
+var everySpanQueries = []string{
+	`{} | count_over_time()`,
+	`({}) | count_over_time()`,
+	`{} | select(.b) | count_over_time()`,
+	`{} | rate() by (name)`,
+	`{} | count_over_time() by (resource.service.name)`,
+	`{} | count_over_time() with(sample=0.5)`,
+	`{} | rate() by (name) with(sample=0.5)`,
+	`{} | rate() by (.a)`,
+	`{} | rate() by (.a, name)`,
+	`{} | count_over_time() by (.a) with(sample=0.5)`,
+	`{} | histogram_over_time(duration) with(sample=0.5)`,
+	`{} | avg_over_time(duration)`,
+	`{} | avg_over_time(duration) by (name)`,
+	`{} | avg_over_time(duration) by (.a)`,
+	`{} | sum_over_time(duration)`,
+	`{} | sum_over_time(duration) with(sample=0.5)`,
+	`{} | min_over_time(duration)`,
+	`{} | min_over_time(duration) by (name) with(sample=0.5)`,
+	`{} | max_over_time(duration) by (name)`,
+	`{} | max_over_time(duration) by (.a)`,
+	`{} | quantile_over_time(duration, .5) by (name)`,
+	`{} | quantile_over_time(duration, .5) by (.a)`,
+}
+
+// onePassCompareQueries compare selections and baselines of those kinds.
+var onePassCompareQueries = []string{
+	`{nestedSetParent < 0} | compare({.a = "1"})`,
+	`{nestedSetParent < 0 && .a = "1"} | compare({.b = "1"})`,
+	`{} | compare({nestedSetParent < 0})`,
+	`{} | compare({nestedSetParent < 0 && .a = "1"})`,
+	`{.a = "1"} >> {.b = "1"} | compare({nestedSetLeft > 2})`,
+	`{} | compare({.b = "1"}) with(sample=0.5)`,
+	`{.a = "1"} | compare({.b = "1"}) with(sample=0.7)`,
+	`{.a = "1"} >> {.b = "1"} | compare({.b = "1"}) with(sample=0.5)`,
+}
+
 // metricsRequestRange is the request of query over the seeded spans in 30 s steps.
 func metricsRequestRange(query string) *model.MetricsQueryRequest {
 	return &model.MetricsQueryRequest{
@@ -470,6 +543,9 @@ func (s *metricsStore) assertResults(t *testing.T, step string, queries []string
 					t.Errorf("%s: %s", key, l)
 				}
 			}
+			if key == exemplarTotalKey {
+				lines = exemplarTotal(t, lines)
+			}
 			if *updateMetricsGolden {
 				s.golden[key] = lines
 				continue
@@ -529,6 +605,11 @@ func testMetricsAndCompare(t *testing.T, cluster bool) {
 	s.assertResults(t, "metrics", metricsQueries())
 	s.assertResults(t, "compare", compareQueries())
 	s.assertResults(t, "exemplars", exemplarQueries)
+	s.assertResults(t, "metrics", onePassQueries)
+	s.assertResults(t, "compare", onePassCompareQueries)
+	s.assertResults(t, "exemplars", onePassQueries)
+	s.assertResults(t, "metrics", everySpanQueries)
+	s.assertResults(t, "exemplars", everySpanQueries)
 	s.assertSampleDrops(t)
 }
 
@@ -585,6 +666,178 @@ func testMetricsRoundLimit(t *testing.T, cluster bool) {
 // span under a missing parent.
 func TestMetricsRoundLimit(t *testing.T) { testMetricsRoundLimit(t, false) }
 
+// exemplarTotalKey's exemplars split between series by the span a shard picks,
+// so its results pin their total.
+const exemplarTotalKey = "metrics | range | {} | quantile_over_time(duration, .5, .9)"
+
+// exemplarTotal moves the exemplar counts of rangeResult lines into one total.
+func exemplarTotal(t *testing.T, lines []string) []string {
+	t.Helper()
+	total := 0
+	res := make([]string, 0, len(lines)+1)
+	for _, l := range lines {
+		rest, count, ok := strings.Cut(l, " exemplars=")
+		if !ok {
+			return lines
+		}
+		n, err := strconv.Atoi(count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += n
+		res = append(res, rest)
+	}
+	return append(res, fmt.Sprintf("exemplars=%d", total))
+}
+
+// metricsRangeTotal sums every sample of query at step.
+func (s *metricsStore) metricsRangeTotal(t *testing.T, query string, step time.Duration) float64 {
+	t.Helper()
+	req := metricsRequestRange(query)
+	req.Step = step
+	res, err := s.svc.MetricsQueryRange(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0.0
+	for _, series := range res.Series {
+		for _, p := range series.Samples {
+			total += p.Value
+		}
+	}
+	return total
+}
+
+// metricsInstantTotal sums every series of query over the seeded range.
+func (s *metricsStore) metricsInstantTotal(t *testing.T, query string) float64 {
+	t.Helper()
+	res, err := s.svc.MetricsQueryInstant(context.Background(), metricsRequestRange(query))
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0.0
+	for _, series := range res.Series {
+		total += series.Value
+	}
+	return total
+}
+
+// A span stored twice counts once per bucket holding a copy on a lone `{}`
+// count, and once for a function of its value.
+func testEverySpanCopies(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
+	s.seed(t, metricsTraces())
+	const countQ, histQ, sumQ = `{} | count_over_time()`, `{} | histogram_over_time(duration)`, `{} | sum_over_time(duration)`
+	const inOneBucket, inTwoBuckets = 30 * time.Second, time.Second
+	type totals struct{ oneCount, twoCount, instant, oneHist, twoHist, oneSum, twoSum, instantSum float64 }
+	read := func() totals {
+		return totals{
+			oneCount:   s.metricsRangeTotal(t, countQ, inOneBucket),
+			twoCount:   s.metricsRangeTotal(t, countQ, inTwoBuckets),
+			instant:    s.metricsInstantTotal(t, countQ),
+			oneHist:    s.metricsRangeTotal(t, histQ, inOneBucket),
+			twoHist:    s.metricsRangeTotal(t, histQ, inTwoBuckets),
+			oneSum:     s.metricsRangeTotal(t, sumQ, inOneBucket),
+			twoSum:     s.metricsRangeTotal(t, sumQ, inTwoBuckets),
+			instantSum: s.metricsInstantTotal(t, sumQ),
+		}
+	}
+	before := read()
+	// A second seed starts at metricsStart: the copies are 1 s apart in one 30 s bucket.
+	const spanMs = 9001
+	copied := metricsSpan{trace: 9000, id: spanMs}
+	s.seed(t, []metricsSpan{copied, copied})
+	after := read()
+	spanS := float64(spanMs) / 1000
+	for _, c := range []struct {
+		name               string
+		before, after, add float64
+	}{
+		{"count in one bucket", before.oneCount, after.oneCount, 1},
+		{"count in two buckets", before.twoCount, after.twoCount, 2},
+		{"instant count", before.instant, after.instant, 1},
+		{"histogram in one bucket", before.oneHist, after.oneHist, 1},
+		{"histogram in two buckets", before.twoHist, after.twoHist, 2},
+		{"sum in one bucket", before.oneSum, after.oneSum, spanS},
+		{"sum in two buckets", before.twoSum, after.twoSum, spanS},
+		{"instant sum", before.instantSum, after.instantSum, spanS},
+	} {
+		if got := c.after - c.before; math.Abs(got-c.add) > 1e-9 {
+			t.Errorf("%s: grew by %v, want %v", c.name, got, c.add)
+		}
+	}
+}
+
+// A lone `{}` count takes a span once per service-name by-label value and
+// histogram bucket its copies hold, and once with neither.
+func testEverySpanCopiesDiffer(t *testing.T, cluster bool) {
+	s := openMetricsStore(t, cluster, false)
+	table := "tempo_traces"
+	if cluster {
+		table = "tempo_traces_dist"
+	}
+	insert := func(service string, durationMs int) {
+		s.exec(t, fmt.Sprintf(`INSERT INTO %s (oid, trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, service_name)
+			SELECT '', unhex('%032x')::FixedString(16), unhex('%016x')::FixedString(8), '', 's', %d, %d, '%s'`,
+			table, 9000, 9001, metricsSpanStart(1), durationMs*1000000, service))
+	}
+	insert("a", 1)
+	insert("b", 4)
+	if cluster {
+		s.exec(t, "SYSTEM FLUSH DISTRIBUTED "+table)
+	}
+	const step = 30 * time.Second
+	for _, c := range []struct {
+		query string
+		want  float64
+	}{
+		{`{} | count_over_time()`, 1},
+		{`{} | count_over_time() by (resource.service.name)`, 2},
+		{`{} | rate() by (resource.service.name)`, 2 / step.Seconds()},
+		{`{} | histogram_over_time(duration)`, 2},
+	} {
+		if got := s.metricsRangeTotal(t, c.query, step); math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("range %s: %v, want %v", c.query, got, c.want)
+		}
+	}
+	if got := s.metricsInstantTotal(t, `{} | count_over_time()`); got != 1 {
+		t.Errorf("instant count: %v, want 1", got)
+	}
+	if got := s.metricsInstantTotal(t, `{} | count_over_time() by (resource.service.name)`); got != 2 {
+		t.Errorf("instant count by service: %v, want 2", got)
+	}
+}
+
+func TestEverySpanCopiesDiffer(t *testing.T) { testEverySpanCopiesDiffer(t, false) }
+
+func TestEverySpanCopiesDifferOnCluster(t *testing.T) { testEverySpanCopiesDiffer(t, true) }
+
+// A lone `{}` on a one-shard cluster gives the results of a single node.
+func TestEverySpanOnOneShardCluster(t *testing.T) {
+	s := openMetricsStore(t, false, false)
+	s.seed(t, metricsTraces())
+	const cluster = "default"
+	var shards uint64
+	if err := s.conn.QueryRow(context.Background(),
+		"SELECT count() FROM system.clusters WHERE cluster = '"+cluster+"'").Scan(&shards); err != nil {
+		t.Fatal(err)
+	}
+	if shards != 1 {
+		t.Skipf("cluster %s has %d shards", cluster, shards)
+	}
+	for _, table := range []string{"tempo_traces", "tempo_traces_attrs_gin", "tempo_traces_nested_set", "settings"} {
+		s.exec(t, "CREATE TABLE "+table+"_dist AS "+table+" ENGINE = Distributed('"+cluster+"', currentDatabase(), "+table+")")
+	}
+	s.svc.Session.(testRegistry).db.Config.ClusterName = cluster
+	queries := append([]string{`{} | quantile_over_time(duration, .5, .9)`, `{} | histogram_over_time(duration)`}, everySpanQueries...)
+	s.assertResults(t, "metrics", queries)
+	s.assertResults(t, "exemplars", everySpanQueries)
+}
+
+func TestEverySpanCopies(t *testing.T) { testEverySpanCopies(t, false) }
+
+func TestEverySpanCopiesOnCluster(t *testing.T) { testEverySpanCopies(t, true) }
+
 func TestMetricsRoundLimitOnCluster(t *testing.T) { testMetricsRoundLimit(t, true) }
 
 // Metrics and compare() return the golden series on numbered, dangling,
@@ -627,7 +880,7 @@ func (r *queryRecorder) take() []string {
 }
 
 // Each ids statement runs once per request, also when the series and their
-// exemplars both read its ids.
+// exemplars both read its ids, and only the baseline of whole-trace queries has one.
 func TestMetricsRunEachIdsStatementOncePerRequest(t *testing.T) {
 	testMetricsRunEachIdsStatementOncePerRequest(t, false)
 }
@@ -660,12 +913,24 @@ func testMetricsRunEachIdsStatementOncePerRequest(t *testing.T, cluster bool) {
 			}
 		}
 	}
+	// idsOf is 1 for a query that relates spans across a trace, else 0.
+	idsOf := func(query string) int {
+		t.Helper()
+		q, err := traceql_ir.Parse(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.NeedsWholeTrace() {
+			return 1
+		}
+		return 0
+	}
 	for _, query := range exemplarQueries {
 		s.exemplarResult(t, query)
-		check("range", query, 1)
+		check("range", query, idsOf(query))
 	}
 	for _, query := range metricsQueries() {
-		want := 1
+		want := idsOf(query)
 		if strings.Contains(query, "histogram_over_time") {
 			want = 0
 		}
@@ -673,10 +938,7 @@ func testMetricsRunEachIdsStatementOncePerRequest(t *testing.T, cluster bool) {
 		check("instant", query, want)
 	}
 	for _, query := range compareQueries() {
-		want := 2
-		if strings.Contains(query, "compare({})") {
-			want = 1
-		}
+		want := idsOf(query)
 		s.rangeResult(t, query)
 		check("range", query, want)
 		s.instantResult(t, query)

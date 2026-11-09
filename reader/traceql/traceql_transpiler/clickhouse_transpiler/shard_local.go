@@ -59,12 +59,36 @@ func (s *shardLocalPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 }
 
 // onEachShard selects cols of shard, a statement over localContext(ctx), run on
-// every shard of ctx's cluster, the local one included.
+// every shard of ctx's cluster, the local one included, on a remote connection.
 func onEachShard(ctx *shared.PlannerContext, shard sql.ISelect, cols ...string) (sql.ISelect, error) {
+	res, err := selectOnEachShard(ctx, shard, cols...)
+	if err != nil {
+		return nil, err
+	}
+	return res.SetSetting("prefer_localhost_replica", "0"), nil
+}
+
+// selectOnEachShard selects cols of shard, a statement over localContext(ctx),
+// run on every shard of ctx's cluster.
+func selectOnEachShard(ctx *shared.PlannerContext, shard sql.ISelect, cols ...string) (sql.ISelect, error) {
+	view, err := clusterView(ctx, shard)
+	if err != nil {
+		return nil, err
+	}
+	sel := make([]sql.SQLObject, len(cols))
+	for i, c := range cols {
+		sel[i] = sql.NewRawObject(c)
+	}
+	return sql.NewSelect().Select(sel...).From(view), nil
+}
+
+// clusterView is shard, a statement over localContext(ctx), as a table function
+// over every shard of ctx's cluster.
+func clusterView(ctx *shared.PlannerContext, shard sql.ISelect) (sql.SQLObject, error) {
 	if ctx.ClusterName == "" {
 		return nil, fmt.Errorf("shard-local statement on a cluster without a cluster name")
 	}
-	view := sql.NewCustomCol(func(c *sql.Ctx, options ...int) (string, error) {
+	return sql.NewCustomCol(func(c *sql.Ctx, options ...int) (string, error) {
 		name, err := sql.NewStringVal(ctx.ClusterName).String(c)
 		if err != nil {
 			return "", err
@@ -74,15 +98,10 @@ func onEachShard(ctx *shared.PlannerContext, shard sql.ISelect, cols ...string) 
 			return "", err
 		}
 		return fmt.Sprintf("cluster(%s, view(%s))", name, body), nil
-	})
-	sel := make([]sql.SQLObject, len(cols))
-	for i, c := range cols {
-		sel[i] = sql.NewRawObject(c)
-	}
-	return sql.NewSelect().Select(sel...).From(view).SetSetting("prefer_localhost_replica", "0"), nil
+	}), nil
 }
 
-// clusterSettings sets stmt's statement-level settings for ctx's cluster:
+// clusterSettings sets stmt's settings for ctx's cluster:
 // unavailable shards are skipped when the read tables skip them.
 func clusterSettings(ctx *shared.PlannerContext, stmt sql.ISelect) sql.ISelect {
 	if ctx.IsCluster && ctx.SkipUnavailableShards {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/tempo"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	ct "github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
@@ -123,10 +124,69 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 			return q, err
 		},
 	}
-	for _, query := range ct.SearchQueries {
+	builds["nested-set argument"] = func(spans *sql.With) (sql.ISelect, error) {
+		req := request(spans, "nestedSetLeft")
+		req.Fn, req.Attr = "avg_over_time", "nestedSetRight"
+		q, _, err := tempo.BuildMetricsRangeQuery(req)
+		return q, err
+	}
+	for _, fn := range []string{"rate()", "rate() by (span.env, name)", "count_over_time() with(sample=0.5)",
+		"avg_over_time(duration) by (name)", "avg_over_time(duration) by (span.env)", "quantile_over_time(duration, .5)",
+		"max_over_time(duration)", "max_over_time(duration) by (span.env)", "histogram_over_time(duration)"} {
+		t.Run("every span/"+fn, func(t *testing.T) {
+			q, err := traceql_ir.Parse("{} | " + fn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := tempo.MetricsRequest{Fn: q.Metrics.Fn, Attr: q.Metrics.Attr, By: q.Metrics.By, Quantiles: q.Metrics.Quantiles,
+				FromNS: fromNS, ToNS: toNS, StepNS: 1e9, AttrsTable: attrs}
+			var grouped ct.MetricsBuild = func(spans *sql.With) (sql.ISelect, error) {
+				r := req
+				r.Spans = spans
+				if req.Fn == "histogram_over_time" {
+					return tempo.BuildHistogramRangeQuery(&r)
+				}
+				sel, _, err := tempo.BuildMetricsRangeQuery(&r)
+				return sel, err
+			}
+			plan, err := ct.PlanMetrics(q, grouped)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var labels []string
+			var statements []func() (shared.SQLRequestPlanner, error)
+			if req.Fn == "histogram_over_time" {
+				statements = append(statements,
+					func() (shared.SQLRequestPlanner, error) { return tempo.HistogramRange(plan, req) },
+					func() (shared.SQLRequestPlanner, error) { return tempo.HistogramExemplars(plan, req) })
+			} else {
+				statements = append(statements,
+					func() (shared.SQLRequestPlanner, error) { return tempo.RangeSeries(plan, req, &labels) },
+					func() (shared.SQLRequestPlanner, error) { return tempo.InstantSeries(plan, req, &labels) },
+					func() (shared.SQLRequestPlanner, error) { return tempo.GenericExemplars(plan, req, &labels) })
+			}
+			for _, statement := range statements {
+				planner, err := statement()
+				if err != nil {
+					t.Fatal(err)
+				}
+				check(t, ct.RenderPlan(t, planner, ctx))
+			}
+		})
+	}
+	selectors := append(slices.Clone(ct.SearchQueries),
+		`{nestedSetParent < 0}`,
+		`{nestedSetParent < 0 && .a = 1}`,
+		`{.a = 1} | select(.x)`,
+		`{.a = 1} | avg_over_time(nestedSetRight)`)
+	for _, query := range selectors {
 		for name, build := range builds {
 			t.Run(name+"/"+query, func(t *testing.T) {
-				q, err := traceql_ir.Parse(query + " | rate()")
+				text := query
+				if !strings.Contains(query, "_over_time") {
+					text += " | rate()"
+				}
+				q, err := traceql_ir.Parse(text)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -141,7 +201,10 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 				check(t, rendered)
 			})
 		}
-		for _, selection := range []string{"{.c = 3}", "{}"} {
+		if strings.Contains(query, "_over_time") {
+			continue
+		}
+		for _, selection := range []string{"{.c = 3}", "{}", "{nestedSetParent < 0}"} {
 			t.Run("compare "+selection+"/"+query, func(t *testing.T) {
 				q, err := traceql_ir.Parse(query + " | compare(" + selection + ")")
 				if err != nil {

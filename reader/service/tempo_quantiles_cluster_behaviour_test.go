@@ -363,7 +363,7 @@ func checkAllShapes(t *testing.T, s *clusterStore, svc *TempoService, rec *recor
 	})
 	require.Empty(t, rec.errs)
 	joined := strings.Join(rec.queries, "\n")
-	require.Contains(t, joined, "tempo_traces_dist")
+	require.Contains(t, joined, "cluster(")
 	require.Contains(t, joined, "GROUPING SETS")
 }
 
