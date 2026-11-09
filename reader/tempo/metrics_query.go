@@ -222,10 +222,16 @@ func buildByPivotCTE(labels []string, window sql.SQLCondition, attrsTable string
 	for i, label := range labels {
 		ginKeys[i] = stripAttrPrefix(label)
 		aliases[i] = fmt.Sprintf("by_lbl_%d", i)
+		key := sql.NewStringVal(ginKeys[i])
 		selectCols = append(selectCols,
 			sql.NewCol(
-				sql.NewRawObject(fmt.Sprintf("anyIf(val, key = '%s')",
-					strings.ReplaceAll(ginKeys[i], "'", "\\'"))),
+				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+					strKey, err := key.String(ctx, options...)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("anyIf(val, key = %s)", strKey), nil
+				}),
 				aliases[i],
 			),
 		)

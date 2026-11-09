@@ -55,7 +55,7 @@ jobs:
         with:
           repository: metrico/qryn-bench
           path: .
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
       - name: Download k6 for Prometheus
@@ -79,7 +79,7 @@ jobs:
           fi
         
       - name: Wait for Loki API
-        uses: mydea/action-wait-for-api@v1
+        uses: mydea/action-wait-for-api@v2
         with:
           url: "http://localhost:3100/loki/api/v1/label"
           expected-response-field: "status"
@@ -92,7 +92,7 @@ jobs:
           K6_ITERACTIONS: 50
       - run: mv summary.txt loki_summary.txt
       - name: Wait for Prom API
-        uses: mydea/action-wait-for-api@v1
+        uses: mydea/action-wait-for-api@v2
         with:
           url: "http://localhost:3100/api/v1/query"
           expected-response-field: "status"
@@ -111,7 +111,7 @@ jobs:
           RAMP_UP_MIN: 0
       - run: mv summary.txt prom_summary.txt
       - name: Wait for Tempo API
-        uses: mydea/action-wait-for-api@v1
+        uses: mydea/action-wait-for-api@v2
         with:
           url: "http://localhost:3100/api/search/tags"
       - name: Run k6 tempo test

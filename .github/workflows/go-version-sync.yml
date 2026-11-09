@@ -77,7 +77,7 @@ jobs:
 
       - name: Set up Go ${{ steps.go-latest.outputs.version }}
         if: steps.check.outputs.needed == 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ steps.go-latest.outputs.version }}
 
