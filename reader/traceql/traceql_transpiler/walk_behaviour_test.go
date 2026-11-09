@@ -44,7 +44,7 @@ var (
 func (s *searchStore) walkContext(from, to time.Time, limit int) *shared.PlannerContext {
 	ctx := &shared.PlannerContext{
 		Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
-		From: from, To: to, Limit: int64(limit), SpansPerSpanSet: 100, AncestryRounds: 8,
+		From: from, To: to, QueryTo: to, Limit: int64(limit), SpansPerSpanSet: 100, AncestryRounds: 8,
 		VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
 	}
 	distconfig.Init()
@@ -154,6 +154,38 @@ func testWalkMatchesTheWholeRange(t *testing.T, cluster bool, seeds ...int64) {
 func TestWalkMatchesTheWholeRange(t *testing.T) { testWalkMatchesTheWholeRange(t, false, 1, 2, 3, 4) }
 
 func TestWalkMatchesTheWholeRangeOnCluster(t *testing.T) { testWalkMatchesTheWholeRange(t, true, 1) }
+
+// A slice's tree read reaches as far as the query's end plus the hour, so a
+// parent between the query's end and that bound links spans of an older slice.
+func testWalkReadsAParentPastTheQueryEnd(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	child := walkBegin.Add(2 * time.Minute)
+	spans := []span{{1, 1, 0, []string{"a"}}, {1, 2, 1, nil}, {1, 3, 2, []string{"b"}}}
+	starts := []time.Time{child, walkEnd.Add(50 * time.Minute), child.Add(time.Second)}
+	s.seedStarts(t, spans, func(i int) int64 { return starts[i].UnixNano() })
+	for _, query := range []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} << {.a = "1"}`, `{.a = "1"} &>> {.b = "1"}`} {
+		walk, _ := planWalk(t, query)
+		ctx := s.walkContext(walkBegin, walkEnd, 10)
+		got := s.walkLines(t, walk, query, ctx)
+		want := s.wholeLines(t, query, walkBegin, walkEnd, 10)
+		if len(want) == 0 {
+			t.Errorf("%s: whole range found nothing", query)
+		}
+		if ctx.Portions < 2 {
+			t.Errorf("%s: walk ran in %d slices", query, ctx.Portions)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s in %d slices:\nwalk:\n%s\nwhole:\n%s", query, ctx.Portions,
+				strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
+}
+
+func TestWalkReadsAParentPastTheQueryEnd(t *testing.T) { testWalkReadsAParentPastTheQueryEnd(t, false) }
+
+func TestWalkReadsAParentPastTheQueryEndOnCluster(t *testing.T) {
+	testWalkReadsAParentPastTheQueryEnd(t, true)
+}
 
 // A walk halving its slices to a low budget returns what one statement over the
 // whole range returns.
