@@ -7,6 +7,7 @@ import (
 
 	model "github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/timerange"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -197,13 +198,10 @@ func resolveAttrColumn(label string) string {
 	return ""
 }
 
-// stripAttrPrefix removes "span.", "resource." prefixes from attribute names for GIN lookup.
+// stripAttrPrefix returns the storage key of a by label, without its scope.
 func stripAttrPrefix(label string) string {
-	if strings.HasPrefix(label, "span.") {
-		return label[5:]
-	}
-	if strings.HasPrefix(label, "resource.") {
-		return label[9:]
+	if key, ok := traceql_ir.AttributeKey(label); ok {
+		return key
 	}
 	return label
 }
@@ -222,12 +220,9 @@ func buildByPivotCTE(labels []string, window sql.SQLCondition, attrsTable string
 	for i, label := range labels {
 		ginKeys[i] = stripAttrPrefix(label)
 		aliases[i] = fmt.Sprintf("by_lbl_%d", i)
+		key, _ := sql.NewStringVal(ginKeys[i]).String(nil)
 		selectCols = append(selectCols,
-			sql.NewCol(
-				sql.NewRawObject(fmt.Sprintf("anyIf(val, key = '%s')",
-					strings.ReplaceAll(ginKeys[i], "'", "\\'"))),
-				aliases[i],
-			),
+			sql.NewCol(sql.NewRawObject("anyIf(val, key = "+key+")"), aliases[i]),
 		)
 	}
 

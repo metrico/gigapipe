@@ -14,8 +14,8 @@ func str(s string) FieldOperand { return FieldOperand{Atom: FieldAtom{Str: &Quot
 
 func num(n string) FieldOperand { return FieldOperand{Atom: FieldAtom{Number: &NumberLiteral{Num: n}}} }
 
-func dur(n, unit string) FieldOperand {
-	return FieldOperand{Atom: FieldAtom{Number: &NumberLiteral{Num: n, Unit: unit}}}
+func dur(d string) FieldOperand {
+	return FieldOperand{Atom: FieldAtom{Number: &NumberLiteral{Duration: d}}}
 }
 
 func unary(ops string, o FieldOperand) FieldOperand {
@@ -76,8 +76,12 @@ func agg(fn, attr string) ScalarExpr {
 	return scalar(ScalarAtom{Aggregate: a})
 }
 
-func lit(num, unit string) ScalarExpr {
-	return scalar(ScalarAtom{Literal: &ScalarLiteral{Num: num, Unit: unit}})
+func lit(num string) ScalarExpr {
+	return scalar(ScalarAtom{Literal: &ScalarLiteral{Num: num}})
+}
+
+func litDur(d string) ScalarExpr {
+	return scalar(ScalarAtom{Literal: &ScalarLiteral{Duration: d}})
 }
 
 func filter(lhs ScalarExpr, op string, rhs ScalarExpr) PipelineElement {
@@ -120,13 +124,16 @@ func TestParseSelectors(t *testing.T) {
 		{`{.a = 1.5e-3}`, term(".a", "=", num("1.5e-3"))},
 		{`{.a = .5e2}`, term(".a", "=", num(".5e2"))},
 		{`{.a = -.5}`, term(".a", "=", unary("-", num(".5")))},
-		{`{duration > .5s}`, term("duration", ">", dur(".5", "s"))},
-		{`{duration > 5.s}`, term("duration", ">", dur("5.", "s"))},
+		{`{duration > .5s}`, term("duration", ">", dur(".5s"))},
+		{`{duration > 5.s}`, term("duration", ">", dur("5.s"))},
 		{`{.foo.95 = 1}`, term(".foo.95", "=", num("1"))},
 		{`{span.5xx = 1}`, term("span.5xx", "=", num("1"))},
 		{`{.a <= 0}`, term(".a", "<=", num("0"))},
-		{`{duration > 1.5ms}`, term("duration", ">", dur("1.5", "ms"))},
-		{`{span:duration < 2s}`, term("span:duration", "<", dur("2", "s"))},
+		{`{duration > 1.5ms}`, term("duration", ">", dur("1.5ms"))},
+		{`{span:duration < 2s}`, term("span:duration", "<", dur("2s"))},
+		{`{duration > 1h30m}`, term("duration", ">", dur("1h30m"))},
+		{`{duration > 1d12h}`, term("duration", ">", dur("1d12h"))},
+		{`{duration > 1µs}`, term("duration", ">", dur("1µs"))},
 		{`{.a = nil}`, term(".a", "=", name("nil"))},
 		{`{.a != nil}`, term(".a", "!=", name("nil"))},
 		{`{.a = true}`, term(".a", "=", name("true"))},
@@ -177,7 +184,7 @@ func TestParseFieldExpressions(t *testing.T) {
 		{`{!-.a > 1}`, field(unary("!-", name(".a")), ">", num("1"))},
 		{`{nil != .a}`, field(name("nil"), "!=", name(".a"))},
 		{`{.a = .b || .c <= .d}`, field(name(".a"), "=", name(".b"), "||", name(".c"), "<=", name(".d"))},
-		{`{(.a + .b) * 2 >= 1ms}`, field(parenField(field(name(".a"), "+", name(".b"))), "*", num("2"), ">=", dur("1", "ms"))},
+		{`{(.a + .b) * 2 >= 1ms}`, field(parenField(field(name(".a"), "+", name(".b"))), "*", num("2"), ">=", dur("1ms"))},
 	} {
 		t.Run(c.query, func(t *testing.T) {
 			got, err := Parse(c.query)
@@ -190,7 +197,7 @@ func TestParseFieldExpressions(t *testing.T) {
 		got, err := Parse(`{} | avg(.a + -.b) > 2`)
 		require.NoError(t, err)
 		arg := field(name(".a"), "+", unary("-", name(".b")))
-		require.Equal(t, script(expr(sel(nil)), filter(scalar(ScalarAtom{Aggregate: &Aggregate{Fn: "avg", Arg: arg}}), ">", lit("2", ""))), got)
+		require.Equal(t, script(expr(sel(nil)), filter(scalar(ScalarAtom{Aggregate: &Aggregate{Fn: "avg", Arg: arg}}), ">", lit("2"))), got)
 	})
 
 	for _, q := range []string{
@@ -302,28 +309,29 @@ func TestParseScalarFilters(t *testing.T) {
 		query string
 		want  *TraceQLScript
 	}{
-		{`{.a = "b"} | count() > 2`, script(expr(sel(a)), filter(agg("count", ""), ">", lit("2", "")))},
-		{`{} | count() = 3.5`, script(expr(sel(nil)), filter(agg("count", ""), "=", lit("3.5", "")))},
-		{`{} | avg(duration) >= 1.5ms`, script(expr(sel(nil)), filter(agg("avg", "duration"), ">=", lit("1.5", "ms")))},
-		{`{} | max(span.x) < -3`, script(expr(sel(nil)), filter(agg("max", "span.x"), "<", lit("-3", "")))},
-		{`{} | min(.x) != 0`, script(expr(sel(nil)), filter(agg("min", ".x"), "!=", lit("0", "")))},
-		{`{} | sum(resource.x) <= 10s`, script(expr(sel(nil)), filter(agg("sum", "resource.x"), "<=", lit("10", "s")))},
-		{`{} | avg(span:duration) > 1.5`, script(expr(sel(nil)), filter(agg("avg", "span:duration"), ">", lit("1.5", "")))},
-		{`{} | avg(.foo) > .5`, script(expr(sel(nil)), filter(agg("avg", ".foo"), ">", lit(".5", "")))},
-		{`{} | count() > -.5`, script(expr(sel(nil)), filter(agg("count", ""), ">", lit("-.5", "")))},
-		{`{} | avg(duration) > .5s`, script(expr(sel(nil)), filter(agg("avg", "duration"), ">", lit(".5", "s")))},
+		{`{.a = "b"} | count() > 2`, script(expr(sel(a)), filter(agg("count", ""), ">", lit("2")))},
+		{`{} | count() = 3.5`, script(expr(sel(nil)), filter(agg("count", ""), "=", lit("3.5")))},
+		{`{} | avg(duration) >= 1.5ms`, script(expr(sel(nil)), filter(agg("avg", "duration"), ">=", litDur("1.5ms")))},
+		{`{} | max(span.x) < -3`, script(expr(sel(nil)), filter(agg("max", "span.x"), "<", lit("-3")))},
+		{`{} | min(.x) != 0`, script(expr(sel(nil)), filter(agg("min", ".x"), "!=", lit("0")))},
+		{`{} | sum(resource.x) <= 10s`, script(expr(sel(nil)), filter(agg("sum", "resource.x"), "<=", litDur("10s")))},
+		{`{} | avg(span:duration) > 1.5`, script(expr(sel(nil)), filter(agg("avg", "span:duration"), ">", lit("1.5")))},
+		{`{} | avg(.foo) > .5`, script(expr(sel(nil)), filter(agg("avg", ".foo"), ">", lit(".5")))},
+		{`{} | count() > -.5`, script(expr(sel(nil)), filter(agg("count", ""), ">", lit("-.5")))},
+		{`{} | avg(duration) > .5s`, script(expr(sel(nil)), filter(agg("avg", "duration"), ">", litDur(".5s")))},
+		{`{} | avg(duration) > -1h30m`, script(expr(sel(nil)), filter(agg("avg", "duration"), ">", litDur("-1h30m")))},
 		// A scalar filter applies to the whole expression before it.
 		{`{.a = "b"} && {} | count() > 1`, script(expr(sel(a), then("&&", sel(nil))),
-			filter(agg("count", ""), ">", lit("1", "")))},
+			filter(agg("count", ""), ">", lit("1")))},
 		{`{.a = "b"} >> {} | count() > 1 | avg(duration) > 2ms`, script(expr(sel(a), then(">>", sel(nil))),
-			filter(agg("count", ""), ">", lit("1", "")), filter(agg("avg", "duration"), ">", lit("2", "ms")))},
+			filter(agg("count", ""), ">", lit("1")), filter(agg("avg", "duration"), ">", litDur("2ms")))},
 		// Forms that parse and fail validation.
-		{`{} | 2 < count()`, script(expr(sel(nil)), filter(lit("2", ""), "<", agg("count", "")))},
+		{`{} | 2 < count()`, script(expr(sel(nil)), filter(lit("2"), "<", agg("count", "")))},
 		{`{} | count() > count()`, script(expr(sel(nil)), filter(agg("count", ""), ">", agg("count", "")))},
 		{`{} | sum(.a) + 1 > 0`, script(expr(sel(nil)), filter(ScalarExpr{
 			Head: ScalarTerm{Head: ScalarFactor{Base: ScalarAtom{Aggregate: &Aggregate{Fn: "sum", Arg: field(name(".a"))}}}},
 			Ops:  []ScalarSumOp{{Op: "+", Term: ScalarTerm{Head: ScalarFactor{Base: ScalarAtom{Literal: &ScalarLiteral{Num: "1"}}}}}},
-		}, ">", lit("0", "")))},
+		}, ">", lit("0")))},
 	} {
 		t.Run(c.query, func(t *testing.T) {
 			got, err := Parse(c.query)
@@ -335,7 +343,7 @@ func TestParseScalarFilters(t *testing.T) {
 	t.Run("a bare scalar filter", func(t *testing.T) {
 		got, err := Parse(`count() > 2`)
 		require.NoError(t, err)
-		require.Equal(t, &TraceQLScript{Pipeline: Pipeline{Head: filter(agg("count", ""), ">", lit("2", ""))}}, got)
+		require.Equal(t, &TraceQLScript{Pipeline: Pipeline{Head: filter(agg("count", ""), ">", lit("2"))}}, got)
 	})
 
 	t.Run("arithmetic precedence", func(t *testing.T) {
@@ -376,7 +384,7 @@ func TestParseScalarFilters(t *testing.T) {
 func TestParsePipelines(t *testing.T) {
 	a := func() Operand { return sel(term(".a", "=", str(`"b"`))) }
 	c := func() Operand { return sel(term(".c", "=", str(`"d"`))) }
-	count := filter(agg("count", ""), ">", lit("2", ""))
+	count := filter(agg("count", ""), ">", lit("2"))
 	for _, tc := range []struct {
 		query string
 		want  *TraceQLScript
@@ -402,7 +410,7 @@ func TestParsePipelines(t *testing.T) {
 
 func TestParseGroupingStages(t *testing.T) {
 	a := func() Operand { return sel(term(".a", "=", str(`"b"`))) }
-	count := filter(agg("count", ""), ">", lit("2", ""))
+	count := filter(agg("count", ""), ">", lit("2"))
 	for _, tc := range []struct {
 		query string
 		want  *TraceQLScript
@@ -452,7 +460,7 @@ func TestParseSelectStages(t *testing.T) {
 		{`{.a = "b"} | select(.x)`, script(expr(a()), selectOf(field(name(".x"))))},
 		{`{} | select(span.x, resource.y, duration, span:name) | count() > 2`, script(expr(sel(nil)),
 			selectOf(field(name("span.x")), field(name("resource.y")), field(name("duration")), field(name("span:name"))),
-			filter(agg("count", ""), ">", lit("2", "")))},
+			filter(agg("count", ""), ">", lit("2")))},
 		{`select(.x)`, &TraceQLScript{Pipeline: Pipeline{Head: selectOf(field(name(".x")))}}},
 		{`select(.x) | {.a = "b"}`, &TraceQLScript{Pipeline: Pipeline{Head: selectOf(field(name(".x"))), Stages: []PipelineElement{spanset(expr(a()))}}}},
 		{`({.a = "b"} | select(.x)) >> {}`, script(expr(paren(expr(a()), selectOf(field(name(".x")))), then(">>", sel(nil))))},
@@ -500,9 +508,9 @@ func TestParseMetricsFunctions(t *testing.T) {
 		}})},
 		{`{} | compare({})`, metrics(empty(), &MetricsPipelineStage{Fn: "compare", CompSel: &CompareSelector{}})},
 		{`{.a = "b"} | count() > 2 | rate()`, metrics(a(), &MetricsPipelineStage{Fn: "rate"},
-			filter(agg("count", ""), ">", lit("2", "")))},
+			filter(agg("count", ""), ">", lit("2")))},
 		{`count() > 2 | rate()`, &TraceQLScript{
-			Pipeline:  Pipeline{Head: filter(agg("count", ""), ">", lit("2", ""))},
+			Pipeline:  Pipeline{Head: filter(agg("count", ""), ">", lit("2"))},
 			MetricsFn: &MetricsPipelineStage{Fn: "rate"},
 		}},
 		{`({} &>> {}) | rate()`, metrics(expr(paren(expr(sel(nil), then("&>>", sel(nil))))),
@@ -580,10 +588,34 @@ func TestParseRejects(t *testing.T) {
 		`{.a = "b"`,
 		`{.a = "b"} {.c = "d"}`,
 		`({.a = "b"}) ({.c = "d"})`,
+		`{duration > 5 s}`,
+		`{duration > .5 s}`,
+		`{duration > 5. s}`,
+		`{} | avg(duration) > 5 s`,
+		`{duration > 1μs}`,
+		`{duration > 1.5.5s}`,
 	} {
 		t.Run(q, func(t *testing.T) {
 			_, err := Parse(q)
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestParseNamesNumberFollowedByLetter(t *testing.T) {
+	for q, literal := range map[string]string{
+		`{ .a = 1x }`:                    `"1x"`,
+		`{ duration > 1e3s }`:            `"1e3s"`,
+		`{ duration > 1hx }`:             `"1hx"`,
+		`{ .a = .5xx }`:                  `".5xx"`,
+		`{} | topk(5x)`:                  `"5x"`,
+		`{} | count() > 1by(x)`:          `"1by"`,
+		`{} | count() > 1with(sample=1)`: `"1with"`,
+		`{} | avg(duration) > 1x`:        `"1x"`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			_, err := Parse(q)
+			require.ErrorContains(t, err, literal)
 		})
 	}
 }
@@ -600,4 +632,58 @@ func TestParseConcurrent(t *testing.T) {
 		}(queries[i%len(queries)])
 	}
 	wg.Wait()
+}
+
+func TestParseRejectsQuotedAttributeNames(t *testing.T) {
+	for q, want := range map[string]string{
+		`{ ."5xx`:                 `1:3: unexpected EOF, expecting "`,
+		`{ ."5xx = 1 }`:           `1:3: unexpected EOF, expecting "`,
+		`{ span."5xx`:             `1:3: unexpected EOF, expecting "`,
+		`{ .foo."5xx`:             `1:3: unexpected EOF, expecting "`,
+		`."5xx`:                   `1:1: unexpected EOF, expecting "`,
+		`{ ."a\b" = 1 }`:          `1:3: invalid escape sequence`,
+		`{ ."a\n" = 1 }`:          `1:3: invalid escape sequence`,
+		`{ ."a\`:                  `1:3: invalid escape sequence`,
+		"{ .\"a\\\nb\" = 1 }":     `1:3: invalid escape sequence`,
+		`{} | rate() by (."a\b")`: `1:17: invalid escape sequence`,
+		`{ span:"name" = 1 }`:     `syntax error: unexpected STRING`,
+		`{ span: "name" = 1 }`:    `syntax error: unexpected STRING`,
+		"{ span:`name` = 1 }":     `syntax error: unexpected STRING`,
+		`{ resource:"x" = 1 }`:    `syntax error: unexpected STRING`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			_, err := Parse(q)
+			require.EqualError(t, err, want)
+		})
+	}
+}
+
+// Only the scopes Gigapipe parses take a quoted name.
+func TestParseRejectsQuotedNamesOutsideDotScopes(t *testing.T) {
+	for _, q := range []string{
+		`{ parent."x" = 1 }`,
+		`{ parent.span."x" = 1 }`,
+		`{ event."x" = 1 }`,
+		`{ link."x" = 1 }`,
+		`{ instrumentation."x" = 1 }`,
+		`{ foo."x" = 1 }`,
+		`{ name"x" = 1 }`,
+		`{ .foo "x" = 1 }`,
+		`{ . "x" = 1 }`,
+		`{ .foo. "x" = 1 }`,
+		`{ ."x" "y" = 1 }`,
+		`{ 1."x" = 1 }`,
+		`{ .5"x" = 1 }`,
+	} {
+		t.Run(q, func(t *testing.T) {
+			_, err := Parse(q)
+			require.Error(t, err)
+		})
+	}
+}
+
+// A number directly followed by a quoted name is named by its raw spelling.
+func TestParseNamesNumberFollowedByQuotedName(t *testing.T) {
+	_, err := Parse(`{ 1.5."x" = 1 }`)
+	require.ErrorContains(t, err, `invalid literal "1.5.\"x\""`)
 }

@@ -94,6 +94,65 @@ func TestByLabelsComeInColumnOrder(t *testing.T) {
 	}
 }
 
+// A by attribute is pivoted on its storage key, without its scope.
+func TestByAttributeReadsItsStorageKey(t *testing.T) {
+	for label, key := range map[string]string{
+		".foo": "foo", "span.foo": "foo", "resource.foo": "foo", ".5xx": "5xx", ".span.foo": "span.foo",
+	} {
+		t.Run(label, func(t *testing.T) {
+			r := &MetricsRequest{Spans: testSpans(), Fn: "rate", By: []string{label},
+				FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "attrs"}
+			q, labels, err := BuildMetricsRangeQuery(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if labels[0] != label {
+				t.Errorf("label %s", labels[0])
+			}
+			res := render(t, q)
+			if want := "anyIf(val, key = '" + key + "')"; !strings.Contains(res, want) {
+				t.Errorf("want %s in:\n%s", want, res)
+			}
+			if want := "key IN ('" + key + "')"; !strings.Contains(res, want) {
+				t.Errorf("want %s in:\n%s", want, res)
+			}
+		})
+	}
+}
+
+// Series labels hold the plain name; the pivot reads its key.
+func TestByLabelsHoldThePlainName(t *testing.T) {
+	r := &MetricsRequest{Spans: testSpans(), Fn: "rate", By: []string{"span.http status", ".5xx", `.a"b`},
+		FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "attrs"}
+	for _, build := range []func(*MetricsRequest) (sql.ISelect, []string, error){
+		BuildMetricsRangeQuery, BuildMetricsInstantQuery, BuildGenericExemplarsQuery} {
+		q, labels, err := build(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(labels, ","); got != `span.http status,.5xx,.a"b` {
+			t.Errorf("labels %s", got)
+		}
+		if res := render(t, q); !strings.Contains(res, `key IN ('http status','5xx','a"b')`) {
+			t.Errorf("pivot keys in:\n%s", res)
+		}
+	}
+}
+
+// A by key holding a backslash and a quote stays one string literal.
+func TestByKeyRendersAsOneStringLiteral(t *testing.T) {
+	r := &MetricsRequest{Spans: testSpans(), Fn: "rate", By: []string{`span.a\' OR 1=1 --`},
+		FromNS: 10e9, ToNS: 20e9, StepNS: 1e9, AttrsTable: "attrs"}
+	q, _, err := BuildMetricsRangeQuery(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := render(t, q)
+	if want := `anyIf(val, key = 'a\\\' OR 1=1 --')`; !strings.Contains(res, want) {
+		t.Errorf("want %s in:\n%s", want, res)
+	}
+}
+
 func TestCompareReadsBaselineAndSelection(t *testing.T) {
 	baseline := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("b")), "baseline_spans")
 	selection := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("s")), "selection_spans")

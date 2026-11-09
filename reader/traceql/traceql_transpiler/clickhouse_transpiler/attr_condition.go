@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -306,17 +305,12 @@ func (a *AttrConditionPlanner) getTermDuration(t *attrComparison) (sql.SQLCondit
 	if t.Value.Kind != traceql_ir.ValueDuration {
 		return nil, fmt.Errorf(" is not a time duration value (%s)", t.String())
 	}
-	fVal, err := time.ParseDuration(t.Value.Text)
-	if err != nil {
-		return nil, err
-	}
-
 	fn, err := getComparisonFn(t.Op)
 	if err != nil {
 		return nil, err
 	}
 
-	return fn(sql.NewRawObject("traces_idx.duration"), sql.NewIntVal(fVal.Nanoseconds())), nil
+	return fn(sql.NewRawObject("traces_idx.duration"), sql.NewIntVal(t.Value.Duration.Nanoseconds())), nil
 }
 
 type bitSet struct {

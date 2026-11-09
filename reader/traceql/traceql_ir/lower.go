@@ -197,8 +197,8 @@ func lowerScalarAtom(a traceql_parser.ScalarAtom) (ScalarExpr, error) {
 	case a.Aggregate != nil:
 		return lowerAggregate(a.Aggregate)
 	case a.Literal != nil:
-		if a.Literal.Unit != "" {
-			return &Static{Kind: ValueDuration, Text: a.Literal.Num + a.Literal.Unit}, nil
+		if a.Literal.Duration != "" {
+			return newDuration(a.Literal.Duration)
 		}
 		return &Static{Kind: ValueNumber, Text: a.Literal.Num}, nil
 	}

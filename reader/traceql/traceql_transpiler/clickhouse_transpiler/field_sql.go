@@ -3,7 +3,6 @@ package clickhouse_transpiler
 import (
 	"fmt"
 	"strconv"
-	"time"
 
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
@@ -343,11 +342,7 @@ func domainOf(e traceql_ir.FieldExpr) domain {
 func staticNumber(s *traceql_ir.Static) (number, error) {
 	switch s.Kind {
 	case traceql_ir.ValueDuration:
-		d, err := time.ParseDuration(s.Text)
-		if err != nil {
-			return number{}, err
-		}
-		return number{val: floatLiteral(float64(d.Nanoseconds())), isInt: "0"}, nil
+		return number{val: floatLiteral(float64(s.Duration.Nanoseconds())), isInt: "0"}, nil
 	case traceql_ir.ValueNumber:
 		f, err := strconv.ParseFloat(s.Text, 64)
 		if err != nil {
