@@ -163,7 +163,7 @@ func TestCompareReadsBaselineAndSelection(t *testing.T) {
 		"WITH baseline_spans as (", "selection_spans as (",
 		"all_spans as ( SELECT trace_id, span_id FROM baseline_spans)",
 		"selection as ( SELECT trace_id, span_id FROM selection_spans)",
-		"(date) >= (toDate('1970-01-01'))", "(date) <= (toDate('1970-01-01'))", "(rn) <= (3)",
+		"(date) >= ('1969-12-31')", "(date) <= ('1970-01-02')", "(rn) <= (3)",
 	} {
 		if !strings.Contains(res, want) {
 			t.Errorf("missing %q:\n%s", want, res)

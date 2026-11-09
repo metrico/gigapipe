@@ -24,6 +24,7 @@ func (i *InitIndexPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 	if i.dist {
 		table = ctx.TracesAttrsDistTable
 	}
+	dateFrom, dateTo := timerange.SpanDate("date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	return sql.NewSelect().Select(
 		sql.NewSimpleCol("trace_id", "trace_id"),
@@ -32,8 +33,7 @@ func (i *InitIndexPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 		sql.NewSimpleCol("any(timestamp_ns)", "timestamp_ns")).
 		From(sql.NewSimpleCol(table, "traces_idx")).
 		AndWhere(sql.And(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+			dateFrom, dateTo,
 			tsFrom,
 			tsTo,
 		)).GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).

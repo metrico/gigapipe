@@ -123,6 +123,7 @@ func (t *TracesDataPlanner) selectedAttrs(ctx *shared.PlannerContext, traceIds, 
 	for i, key := range t.Selected {
 		keys[i] = sql.NewStringVal(key)
 	}
+	dateFrom, dateTo := timerange.SpanDate("traces_idx.date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	values := sql.NewSelect().
 		Select(
@@ -132,8 +133,7 @@ func (t *TracesDataPlanner) selectedAttrs(ctx *shared.PlannerContext, traceIds, 
 			sql.NewSimpleCol("any(traces_idx.val)", "val")).
 		From(sql.NewSimpleCol(attrsTable(ctx), "traces_idx")).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+			dateFrom, dateTo,
 			tsFrom,
 			tsTo,
 			inSubquery(ctx, sql.NewRawObject("traces_idx.trace_id"), traceIds),
