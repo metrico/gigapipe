@@ -9,13 +9,10 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-// spanHashCount counts a shard's distinct spans.
-const spanHashCount = "uniqExact(cityHash64(main.trace_id, main.span_id))"
-
 // everySpanKey is a key column of a shard count.
 type everySpanKey struct{ alias, expr string }
 
-// counts counts spans on each shard per keys and by-labels, and sums them into
+// counts counts rows on each shard per keys and by-labels, and sums them into
 // a column alias with value of the summed count. Results read keys, the value, by-labels.
 func counts(req MetricsRequest, keys []everySpanKey, alias string, value func(count string) string,
 	labels *[]string) ct.ShardBuild {
@@ -28,9 +25,9 @@ func counts(req MetricsRequest, keys []everySpanKey, alias string, value func(co
 				columns = append(columns, sql.NewCol(sql.NewRawObject(key.expr), key.alias))
 				group = append(group, sql.NewRawObject(key.alias))
 			}
-			columns = append(columns, sql.NewCol(sql.NewRawObject(spanHashCount), "n"))
+			columns = append(columns, sql.NewCol(sql.NewRawObject("count()"), "n"))
 			query := read().Select(columns...)
-			resolved := addByLabels(query, &group, req.By, req.FromNS, req.ToNS, attrs)
+			resolved := addByLabels(query, &group, req.By, req.FromNS, req.ToNS, attrs, false)
 			if labels != nil {
 				*labels = resolved
 			}
@@ -66,33 +63,29 @@ type everySpanShape int
 const (
 	// groupedSpans reads one row per span pair through the plan's CTE.
 	groupedSpans everySpanShape = iota
-	// shardCounts counts span hashes per bucket on each shard.
+	// shardCounts counts rows per bucket on each shard.
 	shardCounts
 	// spanRows reads the rows as stored.
 	spanRows
-	// distinctSpans reads one row per span hash.
-	distinctSpans
+	// shardQuantileStates merges each shard's quantile states over its rows.
+	shardQuantileStates
 )
 
-// shapeOf is the shape of req's series under plan. A custom by-label on a
-// function that reads a span's value takes the grouped read.
-func shapeOf(plan *ct.MetricsPlan, req *MetricsRequest) everySpanShape {
+// shapeOf is the shape of req's series under plan; ranged reports whether
+// the shape is for the range statement. A range quantile of several levels
+// merges shard states, a count under a custom by-label runs on each shard,
+// and anything else reads the rows.
+func shapeOf(plan *ct.MetricsPlan, req *MetricsRequest, ranged bool) everySpanShape {
 	if !plan.EverySpan() {
 		return groupedSpans
 	}
-	switch req.Fn {
-	case "rate", "count_over_time":
-		return shardCounts
-	case "min_over_time", "max_over_time":
-		if !hasCustomBy(req.By) {
-			return spanRows
-		}
-	case "avg_over_time", "sum_over_time", "quantile_over_time":
-		if !hasCustomBy(req.By) {
-			return distinctSpans
-		}
+	if ranged && HasQueryWideRow(req) {
+		return shardQuantileStates
 	}
-	return groupedSpans
+	if hasCustomBy(req.By) && (req.Fn == "rate" || req.Fn == "count_over_time") {
+		return shardCounts
+	}
+	return spanRows
 }
 
 // hasCustomBy reports whether a by-label needs the attributes table.
@@ -118,68 +111,45 @@ func byAliases(by []string) []sql.SQLObject {
 	return res
 }
 
-// spanColumns are the traces columns req's value and by-labels read.
-func spanColumns(req *MetricsRequest, bucketed bool) []string {
-	var cols []string
-	add := func(col string) {
-		if col != "" && !slices.Contains(cols, col) {
-			cols = append(cols, col)
-		}
-	}
-	add(IntrinsicAttr[req.Attr])
-	for _, label := range req.By {
-		add(resolveAttrColumn(label))
-	}
-	if bucketed {
-		add("timestamp_ns")
-	}
-	return cols
-}
-
 // RangeSeries is req's range statement under plan, and sets labels to the
 // statement's by-labels in column order when it runs.
 func RangeSeries(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (shared.SQLRequestPlanner, error) {
-	build := func(read ct.SpanRead) (sql.ISelect, error) {
+	build := func(read ct.SpanRead, cluster bool) (sql.ISelect, error) {
 		r := req
-		r.Read = read
+		r.Read, r.GlobalAttrsJoin = read, cluster
 		query, resolved, err := BuildMetricsRangeQuery(&r)
 		*labels = resolved
 		return query, err
 	}
-	if req.Fn == "quantile_over_time" && shapeOf(plan, &req) == distinctSpans {
-		return plan.OverDistinctSpanShards(spanColumns(&req, true), quantileStates(req, labels)), nil
-	}
-	switch shapeOf(plan, &req) {
+	switch shapeOf(plan, &req, true) {
+	case shardQuantileStates:
+		return plan.OverShards(quantileStates(req, labels)), nil
 	case shardCounts:
 		divisor := float64(req.StepNS) / 1e9
 		return plan.OverShards(counts(req, []everySpanKey{{"ts", tsBucket(&req)}}, "value",
 			func(count string) string { return countExpr(req.Fn, count, divisor, req.Scale) }, labels)), nil
 	case spanRows:
 		return plan.OverRows(build), nil
-	case distinctSpans:
-		return plan.OverDistinctSpans(spanColumns(&req, true), build), nil
 	}
 	return plan.Metrics, nil
 }
 
 // InstantSeries is req's instant statement under plan; its window is its one bucket.
 func InstantSeries(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string) (shared.SQLRequestPlanner, error) {
-	build := func(read ct.SpanRead) (sql.ISelect, error) {
+	build := func(read ct.SpanRead, cluster bool) (sql.ISelect, error) {
 		r := req
-		r.Read = read
+		r.Read, r.GlobalAttrsJoin = read, cluster
 		query, resolved, err := BuildMetricsInstantQuery(&r)
 		*labels = resolved
 		return query, err
 	}
-	switch shapeOf(plan, &req) {
+	switch shapeOf(plan, &req, false) {
 	case shardCounts:
 		return plan.OverShards(counts(req, nil, "value", func(count string) string {
 			return countExpr(req.Fn, count, instantWindowS(&req), req.Scale)
 		}, labels)), nil
 	case spanRows:
 		return plan.OverRows(build), nil
-	case distinctSpans:
-		return plan.OverDistinctSpans(spanColumns(&req, false), build), nil
 	}
 	return plan.Metrics, nil
 }
@@ -198,7 +168,7 @@ func quantileStates(req MetricsRequest, labels *[]string) ct.ShardBuild {
 				sql.NewCol(sql.NewRawObject(tsBucket(&req)), "ts"),
 				sql.NewCol(sql.NewRawObject(fmt.Sprintf("quantilesState(%s)(%s)", levels, col)), "q_state"))
 			group := []sql.SQLObject{sql.NewRawObject("ts")}
-			*labels = addByLabels(query, &group, req.By, req.FromNS, req.ToNS, attrs)
+			*labels = addByLabels(query, &group, req.By, req.FromNS, req.ToNS, attrs, false)
 			return query.GroupBy(group...), nil
 		},
 		Result: func(rows *sql.With) (sql.ISelect, error) {
@@ -221,13 +191,12 @@ func HistogramRange(plan *ct.MetricsPlan, req MetricsRequest) (shared.SQLRequest
 	if !plan.EverySpan() {
 		return plan.Metrics, nil
 	}
-	bucket, err := histogramBucket(req.Attr)
-	if err != nil {
-		return nil, err
-	}
 	req.By = nil
-	return plan.OverShards(counts(req, []everySpanKey{{"ts", tsBucket(&req)}, {"bucket_ns", bucket}}, "cnt",
-		func(count string) string { return scaledExpr(count, req.Scale) }, nil)), nil
+	return plan.OverRows(func(read ct.SpanRead, _ bool) (sql.ISelect, error) {
+		r := req
+		r.Read = read
+		return BuildHistogramRangeQuery(&r)
+	}), nil
 }
 
 // GenericExemplars is the statement of req's exemplars under plan. A lone `{}`
@@ -261,7 +230,7 @@ func GenericExemplars(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string
 			},
 		}), nil
 	}
-	return plan.OverRows(func(read ct.SpanRead) (sql.ISelect, error) {
+	return plan.OverRows(func(read ct.SpanRead, _ bool) (sql.ISelect, error) {
 		r := req
 		r.Read = read
 		query, resolved, err := BuildGenericExemplarsQuery(&r)
@@ -273,7 +242,7 @@ func GenericExemplars(plan *ct.MetricsPlan, req MetricsRequest, labels *[]string
 // HistogramExemplars is the statement of req's histogram exemplars under plan.
 func HistogramExemplars(plan *ct.MetricsPlan, req MetricsRequest) (shared.SQLRequestPlanner, error) {
 	if plan.EverySpan() {
-		return plan.OverRows(func(read ct.SpanRead) (sql.ISelect, error) {
+		return plan.OverRows(func(read ct.SpanRead, _ bool) (sql.ISelect, error) {
 			r := req
 			r.Read = read
 			return BuildHistogramExemplarsQuery(&r)

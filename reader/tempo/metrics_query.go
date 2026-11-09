@@ -45,14 +45,17 @@ type MetricsRequest struct {
 	ToNS       int64
 	StepNS     int64
 	AttrsTable string
+	// GlobalAttrsJoin joins the by-label pivot GLOBAL: Read is a Distributed table.
+	GlobalAttrsJoin bool
 	// Scale multiplies volume results; 1 or unset leaves them as counted.
 	Scale float64
 }
 
 // BuildMetricsRangeQuery builds a ClickHouse SQL query for a metrics range request.
 // It returns the query and the list of by-label keys (for result grouping).
-// A quantile_over_time query also returns one query-wide row, marked by a
-// query_wide column of 1 after value: its value is the list over all the spans.
+// A quantile_over_time query of several levels also returns one query-wide row,
+// marked by a query_wide column of 1 after value: its value is the list over all
+// the spans.
 func BuildMetricsRangeQuery(req *MetricsRequest) (sql.ISelect, []string, error) {
 	valueExpr, err := buildAggExpr(req.Fn, req.Attr, float64(req.StepNS)/1e9, req.Quantiles, req.Scale)
 	if err != nil {
@@ -63,19 +66,24 @@ func BuildMetricsRangeQuery(req *MetricsRequest) (sql.ISelect, []string, error) 
 		sql.NewCol(sql.NewRawObject(tsBucket), "ts"),
 		sql.NewCol(sql.NewRawObject(valueExpr), "value"),
 	}
-	queryWide := req.Fn == "quantile_over_time"
+	queryWide := HasQueryWideRow(req)
 	if queryWide {
 		columns = append(columns, sql.NewCol(sql.NewRawObject("grouping(ts)"), "query_wide"))
 	}
 	query := spansQuery(req).Select(columns...)
 	groupBy := []sql.SQLObject{sql.NewRawObject("ts")}
-	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable)
+	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable, req.GlobalAttrsJoin)
 	if queryWide {
 		groupBy = []sql.SQLObject{groupingWithQueryWide(groupBy)}
 	}
 	query.GroupBy(groupBy...).
 		OrderBy(sql.NewOrderBy(sql.NewRawObject("ts"), sql.ORDER_BY_DIRECTION_ASC))
 	return query, resolvedByLabels, nil
+}
+
+// HasQueryWideRow reports whether req's range statement returns a query-wide row.
+func HasQueryWideRow(req *MetricsRequest) bool {
+	return req.Fn == "quantile_over_time" && len(req.Quantiles) > 1
 }
 
 // groupingWithQueryWide groups by keys and over the whole query.
@@ -101,7 +109,7 @@ func BuildMetricsInstantQuery(req *MetricsRequest) (sql.ISelect, []string, error
 	}
 	query := spansQuery(req).Select(sql.NewCol(sql.NewRawObject(valueExpr), "value"))
 	var groupBy []sql.SQLObject
-	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable)
+	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable, req.GlobalAttrsJoin)
 	if len(groupBy) > 0 {
 		query.GroupBy(groupBy...)
 	}
@@ -128,9 +136,9 @@ func spansQuery(req *MetricsRequest) sql.ISelect {
 
 // addByLabels adds a column and a group-by key to query per by-label:
 // intrinsics from main, then other attributes pivoted from the attributes
-// table. It returns the labels in column order.
+// table, GLOBAL when globalJoin. It returns the labels in column order.
 func addByLabels(query sql.ISelect, groupBy *[]sql.SQLObject, byLabels []string,
-	fromNS, toNS int64, attrsTable string) []string {
+	fromNS, toNS int64, attrsTable string, globalJoin bool) []string {
 	resolved := make([]string, 0, len(byLabels))
 	var custom []string
 	for i, label := range byLabels {
@@ -151,7 +159,11 @@ func addByLabels(query sql.ISelect, groupBy *[]sql.SQLObject, byLabels []string,
 	tsFrom, tsTo := timerange.SpanStart("timestamp_ns", fromNS, toNS)
 	byWith, byAliases := buildByPivotCTE(custom, sql.And(dateFrom, dateTo, tsFrom, tsTo), attrsTable)
 	query.AddWith(byWith)
-	query.AddJoin(sql.NewJoin("LEFT",
+	join := "LEFT"
+	if globalJoin {
+		join = "GLOBAL LEFT"
+	}
+	query.AddJoin(sql.NewJoin(join,
 		sql.NewCol(sql.NewWithRef(byWith), "by_attrs"),
 		sql.And(
 			sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("by_attrs.trace_id")),
@@ -418,7 +430,7 @@ func BuildGenericExemplarsQuery(req *MetricsRequest) (sql.ISelect, []string, err
 		append([]sql.SQLObject{sql.NewCol(sql.NewRawObject(tsBucket), "ts")}, exemplarCols(req.Attr)...)...,
 	)
 	groupBy := []sql.SQLObject{sql.NewRawObject("ts")}
-	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable)
+	resolvedByLabels := addByLabels(query, &groupBy, req.By, req.FromNS, req.ToNS, req.AttrsTable, req.GlobalAttrsJoin)
 	query.GroupBy(groupBy...).
 		OrderBy(sql.NewOrderBy(sql.NewRawObject("ts"), sql.ORDER_BY_DIRECTION_ASC))
 	return query, resolvedByLabels, nil

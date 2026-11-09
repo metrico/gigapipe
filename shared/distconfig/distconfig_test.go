@@ -4,7 +4,7 @@ import "testing"
 
 func TestCrossClusterWarningNamesTheSettingAndWhatReadsLocally(t *testing.T) {
 	want := `CLICKHOUSE_READ_DIST_SUFFIX="_dist_reads" is set without CLICKHOUSE_READ_CLUSTER: ` +
-		`structural queries, compare() and TraceQL metrics with no spanset operator (&&, ||, structural), scalar filter or by() stage will read only the local cluster (CLUSTER_NAME). ` +
+		`structural queries, compare() and TraceQL metrics with no spanset operator (&&, ||, structural), scalar filter or by() stage will read only the local cluster (CLUSTER_NAME); a lone {} reads every cluster except for rate() and count_over_time() and exemplars other than histogram_over_time()'s under a custom by label, and the range series of a quantile_over_time() of several levels. ` +
 		`Set CLICKHOUSE_READ_CLUSTER to the cluster the read tables span.`
 	if got := CrossClusterWarning("_dist_reads", ""); got != want {
 		t.Errorf("CrossClusterWarning = %q, want %q", got, want)
