@@ -43,13 +43,13 @@ func selectAttrs(ctx *shared.PlannerContext, prefix string, col string,
 // selectRows reads the distinct values of col of the attribute rows in range
 // that pass where, in order and up to ctx.Limit.
 func selectRows(ctx *shared.PlannerContext, col string, where ...sql.SQLCondition) sql.ISelect {
+	dateFrom, dateTo := timerange.SpanDate("date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	res := sql.NewSelect().
 		Select(sql.NewSimpleCol(col, col)).
 		From(sql.NewSimpleCol(attrsTable(ctx), "traces_idx")).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+			dateFrom, dateTo,
 			tsFrom,
 			tsTo).
 		AndWhere(where...).

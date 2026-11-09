@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/metrico/qryn/v5/reader/traceql/timerange"
 	"github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/metrico/qryn/v5/shared/distconfig"
@@ -65,10 +66,8 @@ func (s *SQLIndexQuery) String(ctx *sql.Ctx, options ...int) (string, error) {
 		}
 		if s.FromNS > 0 {
 			from := time.Unix(s.FromNS/1e9, s.FromNS%1e9)
-			date := fmt.Sprintf("toDate('%s')", from.Format("2006-01-02"))
-			sqlTagRequests[i].AndWhere(
-				sql.Ge(sql.NewRawObject("date"), sql.NewRawObject(date)),
-			)
+			dateFrom, _ := timerange.SpanDate("date", from, from)
+			sqlTagRequests[i].AndWhere(dateFrom)
 			if s.Ver.IsVersionSupported("tempo_v2", s.FromNS, s.ToNS) {
 				sqlTagRequests[i].AndWhere(
 					sql.Ge(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(s.FromNS)))
@@ -76,10 +75,8 @@ func (s *SQLIndexQuery) String(ctx *sql.Ctx, options ...int) (string, error) {
 		}
 		if s.ToNS > 0 {
 			to := time.Unix(s.ToNS/1e9, s.ToNS%1e9)
-			date := fmt.Sprintf("toDate('%s')", to.Format("2006-01-02"))
-			sqlTagRequests[i].AndWhere(
-				sql.Le(sql.NewRawObject("date"), sql.NewRawObject(date)),
-			)
+			_, dateTo := timerange.SpanDate("date", to, to)
+			sqlTagRequests[i].AndWhere(dateTo)
 			if s.Ver.IsVersionSupported("tempo_v2", s.FromNS, s.ToNS) {
 				sqlTagRequests[i].AndWhere(
 					sql.Le(sql.NewRawObject("timestamp_ns"), sql.NewIntVal(s.ToNS)))

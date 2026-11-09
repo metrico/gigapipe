@@ -25,3 +25,11 @@ const TreeReadSkew = time.Hour
 func TreeRead(col string, toNs int64) sql.SQLCondition {
 	return sql.Le(sql.NewRawObject(col), sql.NewIntVal(toNs+int64(TreeReadSkew)))
 }
+
+// SpanDate returns bounds on col, a span's stored date in any time zone: a day
+// either side of the UTC dates of from and to, a superset of (from, to].
+func SpanDate(col string, from, to time.Time) (lower, upper sql.SQLCondition) {
+	c := sql.NewRawObject(col)
+	return sql.Ge(c, sql.NewStringVal(from.UTC().AddDate(0, 0, -1).Format(time.DateOnly))),
+		sql.Le(c, sql.NewStringVal(to.UTC().AddDate(0, 0, 1).Format(time.DateOnly)))
+}
