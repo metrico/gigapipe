@@ -6,6 +6,7 @@ import (
 	"time"
 
 	model "github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/timerange"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -134,9 +135,9 @@ func addByLabels(query sql.ISelect, groupBy *[]sql.SQLObject, byLabels []string,
 	if len(custom) == 0 {
 		return resolved
 	}
-	fromDate := time.Unix(fromNS/1e9, 0).Format("2006-01-02")
-	toDate := time.Unix(toNS/1e9, 0).Format("2006-01-02")
-	byWith, byAliases := buildByPivotCTE(custom, fromDate, toDate, attrsTable)
+	dateFrom, dateTo := timerange.SpanDate("date", time.Unix(0, fromNS), time.Unix(0, toNS))
+	tsFrom, tsTo := timerange.SpanStart("timestamp_ns", fromNS, toNS)
+	byWith, byAliases := buildByPivotCTE(custom, sql.And(dateFrom, dateTo, tsFrom, tsTo), attrsTable)
 	query.AddWith(byWith)
 	query.AddJoin(sql.NewJoin("LEFT",
 		sql.NewCol(sql.NewWithRef(byWith), "by_attrs"),
@@ -231,7 +232,8 @@ func stripAttrPrefix(label string) string {
 }
 
 // buildByPivotCTE builds a CTE that pivots attribute values into columns, one row per span.
-func buildByPivotCTE(labels []string, fromDate string, toDate string, attrsTable string) (*sql.With, []string) {
+// window selects the attribute rows it reads.
+func buildByPivotCTE(labels []string, window sql.SQLCondition, attrsTable string) (*sql.With, []string) {
 	ginKeys := make([]string, len(labels))
 	aliases := make([]string, len(labels))
 
@@ -252,10 +254,7 @@ func buildByPivotCTE(labels []string, fromDate string, toDate string, attrsTable
 	pivot := sql.NewSelect().
 		Select(selectCols...).
 		From(sql.NewRawObject(attrsTable+" FINAL")).
-		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewRawObject(fmt.Sprintf("toDate('%s')", fromDate))),
-			sql.Le(sql.NewRawObject("date"), sql.NewRawObject(fmt.Sprintf("toDate('%s')", toDate))),
-		).
+		AndWhere(window).
 		AndWhere(sql.NewIn(sql.NewRawObject("key"), stringsToSQLObjects(ginKeys)...)).
 		GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"))
 
@@ -380,9 +379,10 @@ type CompareResultRow struct {
 
 // BuildCompareQuery builds a ClickHouse SQL query for compare().
 func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
-	// Expand to the widest date range for partition pruning.
-	fromDate := time.Unix(min(req.FromNS, req.BaselineFromNS)/1e9, 0).Format("2006-01-02")
-	toDate := time.Unix(max(req.ToNS, req.BaselineToNS)/1e9, 0).Format("2006-01-02")
+	// Attribute rows are read over the widest range of both windows.
+	fromNS, toNS := min(req.FromNS, req.BaselineFromNS), max(req.ToNS, req.BaselineToNS)
+	dateFrom, dateTo := timerange.SpanDate("date", time.Unix(0, fromNS), time.Unix(0, toNS))
+	tsFrom, tsTo := timerange.SpanStart("timestamp_ns", fromNS, toNS)
 
 	topN := req.TopN
 	if topN <= 0 {
@@ -408,15 +408,12 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 		"selection")
 
 	// CTE: attrs_sub — filtered attrs_gin rows
-	ginDateWhere := sql.And(
-		sql.Ge(sql.NewRawObject("date"), sql.NewRawObject(fmt.Sprintf("toDate('%s')", fromDate))),
-		sql.Le(sql.NewRawObject("date"), sql.NewRawObject(fmt.Sprintf("toDate('%s')", toDate))),
-	)
+	attrsWindow := sql.And(dateFrom, dateTo, tsFrom, tsTo)
 
 	attrsSubquery := sql.NewSelect().
 		Select(sql.NewRawObject("*")).
 		From(sql.NewRawObject(req.AttrsTable + " FINAL")).
-		AndWhere(ginDateWhere)
+		AndWhere(attrsWindow)
 	attrsSubWith := sql.NewWith(attrsSubquery, "attrs_sub")
 
 	// CTE: counted — enumerate attrs, classify, count
