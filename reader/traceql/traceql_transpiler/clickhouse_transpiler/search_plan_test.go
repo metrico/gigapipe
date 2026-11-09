@@ -219,8 +219,8 @@ func TestSearchSpanStartIsLeftOpenRightClosed(t *testing.T) {
 			}
 		}
 		if strings.Contains(res, "(date)") &&
-			(!strings.Contains(res, "(date) >= ('1970-01-01')") || !strings.Contains(res, "(date) <= ('1970-01-02')")) {
-			t.Errorf("date pruning is not toDate(from)..toDate(to):\n%s", res)
+			(!strings.Contains(res, "(date) >= ('1969-12-31')") || !strings.Contains(res, "(date) <= ('1970-01-03')")) {
+			t.Errorf("date pruning is not a day either side of the UTC dates of from and to:\n%s", res)
 		}
 	}
 	for _, query := range searchQueries {
