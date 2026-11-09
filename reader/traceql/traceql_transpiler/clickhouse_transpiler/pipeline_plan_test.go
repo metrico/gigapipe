@@ -36,8 +36,8 @@ func TestPipelinePlansOneCTEPerStage(t *testing.T) {
 	} {
 		t.Run(c.query, func(t *testing.T) {
 			for kind, plan := range map[string]shared.SQLRequestPlanner{
-				"search":  planSearch(t, c.query),
-				"metrics": planMetrics(t, c.query),
+				"search":  planSearch(t, c.query).Ids[0].Statement,
+				"metrics": planMetrics(t, c.query).Ids[0].Statement,
 			} {
 				res := renderPlan(t, plan, testPlannerContext(3))
 				stages := stageCTEs(res)
@@ -80,7 +80,7 @@ func TestScalarFiltersComeBeforeTheSpanCap(t *testing.T) {
 	if got := describePlan(t, expr); got != `>>({.a},{.b})|count() > 2` {
 		t.Errorf("plan = %s", got)
 	}
-	res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+	res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 	if strings.Index(res, "arraySlice(") < strings.Index(res, "count()") {
 		t.Errorf("span cap before the scalar filter:\n%s", res)
 	}
@@ -111,7 +111,7 @@ func TestScalarFilterLiterals(t *testing.T) {
 // Every scalar filter compares NaN as false and drops spansets without a value.
 func TestScalarFiltersDropNaNAndValuelessSpansets(t *testing.T) {
 	for _, query := range []string{`{} | count() != 1`, `{} | avg(.a) != 1`, `{} | min(duration) != 1ms`} {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if !strings.Contains(res, "n_present > 0 AND NOT isNaN(value) AND value != ") {
 			t.Errorf("%s: comparison does not guard NaN and missing values:\n%s", query, res)
 		}
@@ -162,7 +162,7 @@ func TestScalarFiltersGateMetrics(t *testing.T) {
 func TestScalarFilterValuesReadTheQueryRange(t *testing.T) {
 	queries := []string{`{.a = 1} | avg(.b) > 1`, `{.a = 1} | avg(b) > 1`, `{.a = 1} | max(duration) > 1ms`}
 	for _, query := range queries {
-		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 		if slices.Contains(spanStartBounds(res), ">=86390") {
 			t.Errorf("%s reads spans starting at from:\n%s", query, res)
 		}

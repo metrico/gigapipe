@@ -46,7 +46,8 @@ func dateBoundContexts() map[string]*shared.PlannerContext {
 func TestSearchDateBoundsDoNotDependOnTheReaderZone(t *testing.T) {
 	for _, query := range []string{`{.a = 1}`, `{.a = 1} >> {.b = 2}`, `{.a = .b}`, `{.a = 1} | avg(.b) > 1`, `{.a = 1} | select(.b)`} {
 		for zone, ctx := range dateBoundContexts() {
-			res := renderPlan(t, planSearch(t, query), ctx)
+			plan := planSearch(t, query)
+			res := renderSearch(t, plan, ctx)
 			checkDateBounds(t, res, strings.Count(res, "tempo_traces_attrs_gin"))
 			if t.Failed() {
 				t.Fatalf("%s, %s", query, zone)
@@ -69,9 +70,14 @@ func TestAutocompleteDateBoundsDoNotDependOnTheReaderZone(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, plan := range []shared.SQLRequestPlanner{tags, values} {
+		for _, plan := range []*SearchPlan{tags, values} {
 			for zone, ctx := range dateBoundContexts() {
-				res := renderPlan(t, plan, ctx)
+				var res string
+				if len(plan.Ids) > 0 {
+					res = renderSearch(t, plan, ctx)
+				} else {
+					res = renderPlan(t, plan.Data, ctx)
+				}
 				reads := strings.Count(res, "tempo_traces_attrs_gin") + strings.Count(res, "tempo_traces_kv")
 				checkDateBounds(t, res, reads)
 				if t.Failed() {

@@ -2,6 +2,7 @@ package traceql_transpiler
 
 import (
 	"context"
+	stdsql "database/sql"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +19,19 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/tables"
 	"github.com/metrico/qryn/v5/shared/distconfig"
 )
+
+// distinctBy is the distinct first by() values of main's rows.
+type distinctBy struct{ main shared.SQLRequestPlanner }
+
+func (d distinctBy) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	main, err := d.main.Process(ctx)
+	if err != nil {
+		return nil, err
+	}
+	w := sql.NewWith(main, "m")
+	return sql.NewSelect().With(w).Distinct(true).Select(sql.NewSimpleCol("toString(by_custom_0)", "v")).
+		From(sql.NewWithRef(w)), nil
+}
 
 // byValues runs the instant metrics query and returns the values of its first
 // by label.
@@ -46,27 +60,18 @@ func (s *searchStore) byValues(t *testing.T, query string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := planner.Process(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text, err := req.String(sql.DefaultCtx())
-	if err != nil {
-		t.Fatal(err)
-	}
-	rows, err := s.conn.Query(context.Background(),
-		"SELECT DISTINCT toString(by_custom_0) FROM ("+text+")")
-	if err != nil {
-		t.Fatalf("%v\n%s", err, text)
-	}
-	defer rows.Close()
 	var res []string
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			t.Fatal(err)
-		}
-		res = append(res, v)
+	err = clickhouse_transpiler.Query(ctx, planner.Ids, nil, distinctBy{planner.Metrics}, clickhouse_transpiler.RunOnEmptyIds,
+		func(rows *stdsql.Rows) error {
+			var v string
+			if err := rows.Scan(&v); err != nil {
+				return err
+			}
+			res = append(res, v)
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
 	}
 	slices.Sort(res)
 	return res

@@ -71,6 +71,14 @@ func GetTableName(name string) string {
 }
 
 func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) *shared.PlannerContext {
+	return populateTableNames(ctx, db, distconfig.ReadCluster(), distconfig.Suffix())
+}
+
+// populateTableNames sets ctx's table names and DistSuffix; ClusterName and
+// SkipUnavailableShards follow readCluster when it differs from the home
+// cluster and suffix is not "_dist".
+func populateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap,
+	readCluster, suffix string) *shared.PlannerContext {
 	ctx.SamplesTableName = GetTableName("samples_v3")
 	ctx.SamplesDistTableName = GetTableName("samples_v3")
 	ctx.TimeSeriesTableName = GetTableName("time_series")
@@ -100,7 +108,13 @@ func PopulateTableNames(ctx *shared.PlannerContext, db *model.DataDatabasesMap) 
 	ctx.TracesNestedSetDistTable = GetTableName("tempo_traces_nested_set")
 
 	if db.Config.ClusterName != "" {
-		suffix := distconfig.Suffix()
+		ctx.ClusterName = db.Config.ClusterName
+		ctx.DistSuffix = suffix
+		ctx.SkipUnavailableShards = db.Config.SkipUnavailableShards
+		if readCluster != "" && readCluster != db.Config.ClusterName && suffix != "_dist" {
+			ctx.ClusterName = readCluster
+			ctx.SkipUnavailableShards = true
+		}
 		ctx.SamplesDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.SamplesTableName, suffix)
 		ctx.TimeSeriesDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TimeSeriesTableName, suffix)
 		ctx.TimeSeriesGinDistTableName = fmt.Sprintf("`%s`.%s%s", db.Config.Name, ctx.TimeSeriesGinTableName, suffix)

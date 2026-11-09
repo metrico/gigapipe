@@ -1,17 +1,19 @@
 package clickhouse_transpiler
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/plugins"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
 // autocompletePlans plans tags v2 and values v2 of key x for query.
-func autocompletePlans(t *testing.T, query string) map[string]shared.SQLRequestPlanner {
+func autocompletePlans(t *testing.T, query string) map[string]*SearchPlan {
 	t.Helper()
 	q, err := traceql_ir.Parse(query)
 	if err != nil {
@@ -25,24 +27,7 @@ func autocompletePlans(t *testing.T, query string) map[string]shared.SQLRequestP
 	if err != nil {
 		t.Fatal(err)
 	}
-	return map[string]shared.SQLRequestPlanner{"tags": tags, "values": values}
-}
-
-// unwrapAutocompletePlan unwraps an autocomplete plan down to its evaluated expression.
-func unwrapAutocompletePlan(t *testing.T, plan shared.SQLRequestPlanner) (structural bool, expr shared.SQLRequestPlanner) {
-	t.Helper()
-	if s, ok := plan.(*StructuralQueryPlanner); ok {
-		structural = true
-		plan = s.Main
-	}
-	switch p := plan.(type) {
-	case *SelectTagsPlanner:
-		return structural, p.Result
-	case *SelectValuesPlanner:
-		return structural, p.Result
-	}
-	t.Fatalf("autocomplete plan is %T", plan)
-	return false, nil
+	return map[string]*SearchPlan{"tags": tags, "values": values}
 }
 
 // filteredQueries are the search queries that select some spans.
@@ -57,7 +42,7 @@ func TestAutocompleteReadsTheSearchResultSpans(t *testing.T) {
 		want := describePlan(t, searchExpr)
 		for kind, plan := range autocompletePlans(t, query) {
 			t.Run(kind+" "+query, func(t *testing.T) {
-				structural, expr := unwrapAutocompletePlan(t, plan)
+				structural, expr := idsResult(t, plan.Ids[0].Statement)
 				if got := describePlan(t, expr); got != want {
 					t.Errorf("autocomplete plan %s, search plan %s", got, want)
 				}
@@ -85,15 +70,15 @@ func TestAutocompleteWithoutSelectorReadsEverySpan(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := tags.(*AllTagsRequestPlanner); !ok {
-			t.Errorf("tags v2 of %q is %T, want every key", query, tags)
+		if _, ok := tags.Data.(*AllTagsRequestPlanner); !ok || len(tags.Ids) != 0 {
+			t.Errorf("tags v2 of %q is %#v, want every key in one statement", query, tags)
 		}
 		values, err := PlanValuesV2(q, "x")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v, ok := values.(*AllValuesRequestPlanner); !ok || v.Key != "x" {
-			t.Errorf("values v2 of %q is %#v, want every value of x", query, values)
+		if v, ok := values.Data.(*AllValuesRequestPlanner); !ok || v.Key != "x" || len(values.Ids) != 0 {
+			t.Errorf("values v2 of %q is %#v, want every value of x in one statement", query, values)
 		}
 	}
 	for _, query := range filteredQueries() {
@@ -107,12 +92,73 @@ func TestAutocompleteWithoutSelectorReadsEverySpan(t *testing.T) {
 	}
 }
 
+// The search statement lists the result span ids by trace and never reads SearchResultTable.
+func TestAutocompleteSearchListsSpanIdsByTrace(t *testing.T) {
+	ids := regexp.MustCompile(`SELECT trace_id, groupArray\(span_id\) as span_ids FROM \w+ GROUP BY trace_id( SETTINGS enable_analyzer=1)?$`)
+	for _, query := range filteredQueries() {
+		for kind, plan := range autocompletePlans(t, query) {
+			for _, cluster := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s %s/cluster=%t", kind, query, cluster), func(t *testing.T) {
+					if cluster && slices.Contains(structuralQueries, query) {
+						t.Skip("on a cluster TestStructuralIdsStatementsRunWholeOnEachShard covers it")
+					}
+					ctx := testPlannerContext(3)
+					ctx.IsCluster = cluster
+					res := renderPlan(t, plan.Ids[0].Statement, ctx)
+					if !strings.HasPrefix(res, "WITH") || !ids.MatchString(res) {
+						t.Errorf("search is not (trace_id, groupArray(span_id)) by trace:\n%s", res)
+					}
+					if strings.Contains(res, SearchResultTable) {
+						t.Errorf("search reads %s:\n%s", SearchResultTable, res)
+					}
+				})
+			}
+		}
+	}
+}
+
+// The data statement reads the attributes of SearchResultTable's spans alone,
+// with plain IN on a cluster.
+func TestAutocompleteDataReadsOnlySearchResult(t *testing.T) {
+	plainInRe := regexp.MustCompile(`[^L] IN \(_\d+(trace_ids|trace_span_ids)\)`)
+	spansTable := regexp.MustCompile(`\btempo_traces(_dist)?\b`)
+	for _, query := range filteredQueries() {
+		for kind, plan := range autocompletePlans(t, query) {
+			for _, cluster := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s %s/cluster=%t", kind, query, cluster), func(t *testing.T) {
+					ctx := testPlannerContext(3)
+					ctx.IsCluster = cluster
+					res := renderPlan(t, plan.Data, ctx)
+					if !strings.Contains(res, "FROM "+SearchResultTable) {
+						t.Errorf("does not read %s:\n%s", SearchResultTable, res)
+					}
+					for _, banned := range []string{"result_spans", "spansets", "index_grouped", "GLOBAL", "enable_analyzer"} {
+						if strings.Contains(res, banned) {
+							t.Errorf("reads %s:\n%s", banned, res)
+						}
+					}
+					if m := spansTable.FindString(res); m != "" {
+						t.Errorf("reads %s:\n%s", m, res)
+					}
+					if n := len(plainInRe.FindAllString(res, -1)); n != 2 {
+						t.Errorf("%d plain IN over the search result, want trace and span:\n%s", n, res)
+					}
+					attrs := map[bool]string{false: "tempo_traces_attrs_gin as", true: "tempo_traces_attrs_gin_dist as"}[cluster]
+					if !strings.Contains(res, attrs) {
+						t.Errorf("does not read %s:\n%s", attrs, res)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestAutocompleteJoinsResultSpansOnTraceAndSpan(t *testing.T) {
-	join := regexp.MustCompile(`\(traces_idx\.trace_id, traces_idx\.span_id\) IN \(_\d+result_span_ids\)`)
+	join := regexp.MustCompile(`\(traces_idx\.trace_id, traces_idx\.span_id\) IN \(_\d+trace_span_ids\)`)
 	for _, query := range filteredQueries() {
 		for kind, plan := range autocompletePlans(t, query) {
 			t.Run(kind+" "+query, func(t *testing.T) {
-				res := renderPlan(t, plan, testPlannerContext(3))
+				res := renderPlan(t, plan.Data, testPlannerContext(3))
 				if !join.MatchString(res) {
 					t.Errorf("attributes are not read by (trace_id, span_id):\n%s", res)
 				}
@@ -122,16 +168,17 @@ func TestAutocompleteJoinsResultSpansOnTraceAndSpan(t *testing.T) {
 }
 
 func TestAutocompleteSpansAreUncapped(t *testing.T) {
-	capped := regexp.MustCompile(`group(Uniq)?Array\(\d+\)|arraySlice\(`)
+	capped := regexp.MustCompile(`group(Uniq)?Array\(\d+\)|arraySlice\(|LIMIT`)
 	for _, query := range filteredQueries() {
 		for kind, plan := range autocompletePlans(t, query) {
 			t.Run(kind+" "+query, func(t *testing.T) {
-				res := renderPlan(t, plan, testPlannerContext(3))
+				res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
 				if m := capped.FindString(res); m != "" {
 					t.Errorf("result spans capped by %s:\n%s", m, res)
 				}
-				if n := strings.Count(res, "LIMIT"); n != 1 || !strings.HasSuffix(strings.TrimSuffix(res, " SETTINGS enable_analyzer=1"), " LIMIT 5") {
-					t.Errorf("want only the suggestion limit, got %d limits:\n%s", n, res)
+				data := renderPlan(t, plan.Data, testPlannerContext(3))
+				if n := strings.Count(data, "LIMIT"); n != 1 || !strings.HasSuffix(data, " LIMIT 5") {
+					t.Errorf("want only the suggestion limit, got %d limits:\n%s", n, data)
 				}
 			})
 		}
@@ -140,11 +187,11 @@ func TestAutocompleteSpansAreUncapped(t *testing.T) {
 
 func TestAutocompleteSuggestsDistinctSortedKeysAndValues(t *testing.T) {
 	plans := autocompletePlans(t, `{.a = 1} >> {.b = 2}`)
-	tags := renderPlan(t, plans["tags"], testPlannerContext(3))
+	tags := renderPlan(t, plans["tags"].Data, testPlannerContext(3))
 	if !regexp.MustCompile(`GROUP BY key ORDER BY key asc +LIMIT 5`).MatchString(tags) {
 		t.Errorf("tags are not distinct keys in order:\n%s", tags)
 	}
-	values := renderPlan(t, plans["values"], testPlannerContext(3))
+	values := renderPlan(t, plans["values"].Data, testPlannerContext(3))
 	if !regexp.MustCompile(`GROUP BY val ORDER BY val asc +LIMIT 5`).MatchString(values) || !strings.Contains(values, "(key) == ('x')") {
 		t.Errorf("values are not distinct values of x in order:\n%s", values)
 	}
@@ -153,18 +200,20 @@ func TestAutocompleteSuggestsDistinctSortedKeysAndValues(t *testing.T) {
 func TestAutocompleteSpanStartIsLeftOpenRightClosed(t *testing.T) {
 	for _, query := range filteredQueries() {
 		for kind, plan := range autocompletePlans(t, query) {
-			t.Run(kind+" "+query, func(t *testing.T) {
-				res := renderPlan(t, plan, testPlannerContext(3))
-				bounds := spanStartBounds(res)
-				if len(bounds) == 0 {
-					t.Fatalf("no span start bounds:\n%s", res)
-				}
-				for _, b := range bounds {
-					if b != ">86390" && b != "<=86410" {
-						t.Errorf("span start bound %s, want >86390 or <=86410:\n%s", b, res)
+			for statement, p := range map[string]shared.SQLRequestPlanner{"search": plan.Ids[0].Statement, "data": plan.Data} {
+				t.Run(kind+" "+statement+" "+query, func(t *testing.T) {
+					res := renderPlan(t, p, testPlannerContext(3))
+					bounds := spanStartBounds(res)
+					if len(bounds) == 0 {
+						t.Fatalf("no span start bounds:\n%s", res)
 					}
-				}
-			})
+					for _, b := range bounds {
+						if b != ">86390" && b != "<=86410" {
+							t.Errorf("span start bound %s, want >86390 or <=86410:\n%s", b, res)
+						}
+					}
+				})
+			}
 		}
 	}
 }
@@ -173,7 +222,7 @@ func TestAutocompleteSpanStartIsLeftOpenRightClosed(t *testing.T) {
 func TestAutocompleteRootFilterAppliesToTheResultSpans(t *testing.T) {
 	for kind, plan := range autocompletePlans(t, `{nestedSetParent < 0 && .a = 1}`) {
 		for i := 0; i < 2; i++ {
-			res := renderPlan(t, plan, testPlannerContext(3))
+			res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
 			if !strings.Contains(res, rootColumn) {
 				t.Errorf("%s, evaluation %d: root filter missing from the result spans:\n%s", kind, i+1, res)
 			}
@@ -187,14 +236,17 @@ func TestAutocompleteStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing
 	for _, query := range filteredQueries() {
 		structural := slices.Contains(structuralQueries, query)
 		for kind, plan := range autocompletePlans(t, query) {
-			_, err := plan.Process(old)
+			_, err := plan.Ids[0].Statement.Process(old)
 			if structural && err != errStructuralVersion {
 				t.Errorf("%s %s: error = %v, want %v", kind, query, err, errStructuralVersion)
 			}
 			if !structural && err != nil {
 				t.Errorf("%s %s: %v", kind, query, err)
 			}
-			res := renderPlan(t, plan, testPlannerContext(3))
+			if _, err := plan.Data.Process(old); err != nil {
+				t.Errorf("%s %s: data: %v", kind, query, err)
+			}
+			res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
 			if strings.HasSuffix(res, " SETTINGS enable_analyzer=1") != structural ||
 				strings.Count(res, "enable_analyzer") != map[bool]int{true: 1}[structural] {
 				t.Errorf("%s %s: enable_analyzer pinned wrongly:\n%s", kind, query, res)
@@ -203,20 +255,28 @@ func TestAutocompleteStructuralQueriesNeedClickHouse249AndTheAnalyzer(t *testing
 	}
 }
 
+// The search statement of a non-structural query reads Distributed tables on
+// a cluster; TestStructuralIdsStatementsRunWholeOnEachShard covers the others.
 func TestAutocompleteReadsDistributedTablesOnClusters(t *testing.T) {
 	local := regexp.MustCompile(`\btempo_traces(_attrs_gin)?\b[^_]`)
-	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|\w*result_span_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
+	plainIn := regexp.MustCompile(`[^L] IN \((trace_ids|attrless_trace_ids| SELECT trace_id FROM \w+)\)`)
 	for _, query := range filteredQueries() {
+		if slices.Contains(structuralQueries, query) {
+			continue
+		}
 		for kind, plan := range autocompletePlans(t, query) {
 			t.Run(kind+" "+query, func(t *testing.T) {
 				ctx := testPlannerContext(3)
 				ctx.IsCluster = true
-				res := renderPlan(t, plan, ctx)
+				res := renderPlan(t, plan.Ids[0].Statement, ctx)
 				if m := local.FindString(res); m != "" {
-					t.Errorf("reads a local table (%q):\n%s", m, res)
+					t.Errorf("search reads a local table (%q):\n%s", m, res)
 				}
 				if m := plainIn.FindString(res); m != "" {
 					t.Errorf("distributed subquery under a plain IN (%q):\n%s", m, res)
+				}
+				if res := renderPlan(t, plan.Data, ctx); local.MatchString(res) {
+					t.Errorf("data reads a local table:\n%s", res)
 				}
 			})
 		}
@@ -233,11 +293,92 @@ func TestAutocompleteTreatsQuotedNamesLikeBareOnes(t *testing.T) {
 		bares := autocompletePlans(t, bare)
 		for kind, plan := range autocompletePlans(t, quoted) {
 			t.Run(kind+" "+quoted, func(t *testing.T) {
-				got, want := renderPlan(t, plan, testPlannerContext(7)), renderPlan(t, bares[kind], testPlannerContext(7))
+				got, want := renderSearch(t, plan, testPlannerContext(7)), renderSearch(t, bares[kind], testPlannerContext(7))
 				if got != want {
 					t.Errorf("got:\n%s\nwant:\n%s", got, want)
 				}
 			})
+		}
+	}
+}
+
+// durationOnlyQueries have a filter of duration comparisons alone.
+var durationOnlyQueries = []string{
+	`{duration > 0ms}`, `{span:duration > 0ms}`, `{duration >= 1s && duration < 2s}`,
+	`{duration = 1ms || duration != 2ms}`, `({duration > 0ms})`, `{duration > 1ms} | select(.x)`,
+	`{duration > 1ms && duration < 1s || span:duration != 5ms}`,
+	`{(duration > 1ms || duration < 1ns) && span:duration != 5ms}`,
+}
+
+// A duration-only filter is decided on each attribute row: one statement over
+// the attribute index with no ids stage.
+func TestAutocompleteDurationOnlyIsOneStatement(t *testing.T) {
+	for _, query := range durationOnlyQueries {
+		for kind, plan := range autocompletePlans(t, query) {
+			t.Run(kind+" "+query, func(t *testing.T) {
+				if len(plan.Ids) != 0 {
+					t.Fatalf("%d ids statements", len(plan.Ids))
+				}
+				got := renderPlan(t, plan.Data, testPlannerContext(3))
+				for _, want := range []string{"FROM tempo_traces_attrs_gin", "traces_idx.duration", "(date) >=", "(date) <=",
+					"traces_idx.timestamp_ns", "LIMIT 5"} {
+					if !strings.Contains(got, want) {
+						t.Errorf("no %q in %s", want, got)
+					}
+				}
+				if strings.Contains(got, SearchResultTable) {
+					t.Errorf("reads the ids table: %s", got)
+				}
+				if wantKey := kind == "values"; strings.Contains(got, "(key) == ('x')") != wantKey {
+					t.Errorf("key filter is not %v: %s", wantKey, got)
+				}
+			})
+		}
+	}
+}
+
+// A registered InitIndexPlannerPlugin scopes autocomplete through the ids stage.
+func TestAutocompleteDurationOnlyKeepsIdsStageUnderInitIndexPlugin(t *testing.T) {
+	called := 0
+	plugins.RegisterInitIndexPlannerPlugin(func() shared.SQLRequestPlanner {
+		called++
+		return &InitIndexPlanner{dist: true}
+	})
+	t.Cleanup(func() { plugins.RegisterInitIndexPlannerPlugin(nil) })
+	for _, query := range durationOnlyQueries {
+		for kind, plan := range autocompletePlans(t, query) {
+			if len(plan.Ids) == 0 {
+				t.Errorf("%s %s: no ids stage", kind, query)
+			}
+		}
+	}
+	if called == 0 {
+		t.Error("plugin not called")
+	}
+}
+
+func TestAutocompleteDurationFilterTermsApplyToTheRow(t *testing.T) {
+	for query, want := range map[string]string{
+		`{duration >= 1s && duration < 2s}`:   "(((traces_idx.duration) >= (1000000000)) and ((traces_idx.duration) < (2000000000)))",
+		`{duration = 1ms || duration != 2ms}`: "(((traces_idx.duration) == (1000000)) or ((traces_idx.duration) != (2000000)))",
+	} {
+		got := renderPlan(t, autocompletePlans(t, query)["tags"].Data, testPlannerContext(3))
+		if !strings.Contains(got, want) {
+			t.Errorf("%s:\nwant %s in\n%s", query, want, got)
+		}
+	}
+}
+
+func TestAutocompleteOtherFiltersKeepTheirIdsStage(t *testing.T) {
+	for _, query := range []string{
+		`{.a = 1}`, `{.a = 1 || duration > 0ms}`, `{.a = 1 && duration > 0ms}`, `{duration > 0ms && true}`,
+		`{true}`, `{duration * 2 > 1s}`, `{duration > 1ms} | count() > 2`, `{duration > 1ms} >> {duration > 2ms}`,
+		`{duration > 1ms} && {duration > 2ms}`, `{.duration > 1ms}`,
+	} {
+		for kind, plan := range autocompletePlans(t, query) {
+			if len(plan.Ids) != 1 {
+				t.Errorf("%s %s: %d ids statements", kind, query, len(plan.Ids))
+			}
 		}
 	}
 }

@@ -18,18 +18,30 @@ type RequestProcessor interface {
 	Process(*PlannerContext, chan []LogEntry) (chan []LogEntry, error)
 }
 
+// RandomFilter is portion I of Max portions of the traces; Max 0 is every trace.
 type RandomFilter struct {
 	Max int
 	I   int
+	// TraceIDRanges cuts the portions into trace_id ranges, not hash buckets.
+	TraceIDRanges bool
 }
 
 type PlannerContext struct {
 	IsCluster bool
-	From      time.Time
-	To        time.Time
-	OrderASC  bool
-	Limit     int64
-	Offset    time.Duration
+	// ClusterName is the cluster the Distributed tables span; empty on a single node.
+	ClusterName string
+	// SkipUnavailableShards is whether the read Distributed tables skip unavailable shards.
+	SkipUnavailableShards bool
+	// DistSuffix ends the name of each Distributed table on a cluster.
+	DistSuffix string
+	From       time.Time
+	To         time.Time
+	// QueryTo is the end of the request's range, set once per request. Planners
+	// that narrow From and To leave it unchanged. Zero means it is unknown.
+	QueryTo  time.Time
+	OrderASC bool
+	Limit    int64
+	Offset   time.Duration
 	// SpansPerSpanSet caps the spans listed per TraceQL search spanset; 0 means the default.
 	SpansPerSpanSet int64
 	// AncestryRounds is the pointer-jumping rounds of TraceQL structural

@@ -17,6 +17,8 @@ const DefaultSpansPerSpanSet = 3
 // their rank.
 type SearchSpansetPlanner struct {
 	Main shared.SQLRequestPlanner
+	// Newest adds each trace's newest span timestamp as trace_newest.
+	Newest bool
 }
 
 func (s *SearchSpansetPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -42,13 +44,17 @@ func (s *SearchSpansetPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 			sql.NewSimpleCol("max(result_spans.timestamp_ns)", "newest")).
 		From(sql.NewWithRef(withSpans)).
 		GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("grp")), "result_spansets")
+	cols := []sql.SQLObject{
+		sql.NewSimpleCol("trace_id", "trace_id"),
+		sql.NewSimpleCol("arrayFlatten(arrayMap(x -> x.2, spansets))", "span_id"),
+	}
+	if s.Newest {
+		cols = append(cols, sql.NewSimpleCol("max(newest)", "trace_newest"))
+	}
+	cols = append(cols, sql.NewSimpleCol("arraySort(x -> x.1, groupArray((grp, span_ids, matched, attrs)))", "spansets"))
 	res := sql.NewSelect().
 		With(withSpans, withSpansets).
-		Select(
-			sql.NewSimpleCol("trace_id", "trace_id"),
-			sql.NewSimpleCol("arrayFlatten(arrayMap(x -> x.2, spansets))", "span_id"),
-			sql.NewSimpleCol("max(newest)", "trace_newest"),
-			sql.NewSimpleCol("arraySort(x -> x.1, groupArray((grp, span_ids, matched, attrs)))", "spansets")).
+		Select(cols...).
 		From(sql.NewWithRef(withSpansets)).
 		GroupBy(sql.NewRawObject("trace_id")).
 		OrderBy(

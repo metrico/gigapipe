@@ -2,12 +2,16 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/plugins"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-func Plan(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+// Plan plans a search for query in two statements.
+func Plan(query *traceql_ir.Query) (*SearchPlan, error) {
 	return (&planner{query: query}).plan()
 }
 
@@ -16,36 +20,49 @@ func PlanEval(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
 }
 
 // PlanTagsV2 plans the attribute keys of the spans a search for query
-// returns, or of every span in range when AllSpans(query).
-func PlanTagsV2(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+// returns, or, without Ids, of every span in range when AllSpans(query) and
+// of the attribute rows that pass a duration-only filter.
+func PlanTagsV2(query *traceql_ir.Query) (*SearchPlan, error) {
 	if AllSpans(query) {
-		return &AllTagsRequestPlanner{}, nil
+		return &SearchPlan{Data: &AllTagsRequestPlanner{}}, nil
 	}
-	return planAutocomplete(query, func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner {
-		return &SelectTagsPlanner{Result: result, Prefix: prefix}
+	if filter, err := durationOnlyFilter(query); filter != nil || err != nil {
+		return &SearchPlan{Data: &RowAttrsPlanner{Col: "key", Where: []sql.SQLCondition{filter}}}, err
+	}
+	return planAutocomplete(query, func(prefix string) shared.SQLRequestPlanner {
+		return &SelectTagsPlanner{Prefix: prefix}
 	})
 }
 
 // PlanValuesV2 plans the values of attribute key of the spans a search for
-// query returns, or of every span in range when AllSpans(query).
-func PlanValuesV2(query *traceql_ir.Query, key string) (shared.SQLRequestPlanner, error) {
+// query returns, or, without Ids, of every span in range when AllSpans(query)
+// and of the attribute rows that pass a duration-only filter.
+func PlanValuesV2(query *traceql_ir.Query, key string) (*SearchPlan, error) {
 	if AllSpans(query) {
-		return &AllValuesRequestPlanner{Key: key}, nil
+		return &SearchPlan{Data: &AllValuesRequestPlanner{Key: key}}, nil
 	}
-	return planAutocomplete(query, func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner {
-		return &SelectValuesPlanner{Result: result, Prefix: prefix, Key: key}
+	if filter, err := durationOnlyFilter(query); filter != nil || err != nil {
+		return &SearchPlan{Data: &RowAttrsPlanner{Col: "val", Where: []sql.SQLCondition{
+			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(key)), filter,
+		}}}, err
+	}
+	return planAutocomplete(query, func(prefix string) shared.SQLRequestPlanner {
+		return &SelectValuesPlanner{Prefix: prefix, Key: key}
 	})
 }
 
-// planAutocomplete plans the result spans of query and reads them with attrs.
-func planAutocomplete(query *traceql_ir.Query,
-	attrs func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner) (shared.SQLRequestPlanner, error) {
+// planAutocomplete plans Ids, the result span ids of query by trace, and
+// Data, attrs over them in SearchResultTable.
+func planAutocomplete(query *traceql_ir.Query, attrs func(prefix string) shared.SQLRequestPlanner) (*SearchPlan, error) {
 	p := &planner{query: query}
-	result, err := p.planResult(false)
+	result, err := p.planQuery()
 	if err != nil {
 		return nil, err
 	}
-	return p.structuralGate(attrs(result, p.getPrefix())), nil
+	return &SearchPlan{
+		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralIds(&spanIdsPlanner{Result: result})}},
+		Data: attrs(p.getPrefix()),
+	}, nil
 }
 
 // AllSpans reports whether query selects every span: no query, or a lone
@@ -54,17 +71,38 @@ func AllSpans(query *traceql_ir.Query) bool {
 	if query == nil {
 		return true
 	}
+	elements := withoutSelect(query)
+	if len(elements) == 0 {
+		return true
+	}
+	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: elements})
+	return ok && selector.Filter == nil
+}
+
+// withoutSelect returns the query's pipeline elements other than select().
+func withoutSelect(query *traceql_ir.Query) []traceql_ir.Element {
 	var elements []traceql_ir.Element
 	for _, e := range query.Pipeline.Elements {
 		if _, ok := e.(*traceql_ir.Select); !ok {
 			elements = append(elements, e)
 		}
 	}
-	if len(elements) == 0 {
-		return true
+	return elements
+}
+
+// durationOnlyFilter returns the filter of a lone selector, select() stages
+// aside, whose every term compares duration or span:duration, as a condition
+// on one attribute row. It is nil for any other query and when an
+// InitIndexPlannerPlugin is registered.
+func durationOnlyFilter(query *traceql_ir.Query) (sql.SQLCondition, error) {
+	if plugins.GetInitIndexPlannerPlugin() != nil {
+		return nil, nil
 	}
-	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: elements})
-	return ok && selector.Filter == nil
+	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: withoutSelect(query)})
+	if !ok {
+		return nil, nil
+	}
+	return (&simpleExpressionPlanner{selector: selector}).rowCondition()
 }
 
 // loneSelector returns the selector a one-element pipeline is, parenthesised or not.
@@ -89,7 +127,7 @@ type planner struct {
 	prefix int
 }
 
-func (p *planner) plan() (shared.SQLRequestPlanner, error) {
+func (p *planner) plan() (*SearchPlan, error) {
 	selected, err := spanValueKeys(p.query)
 	if err != nil {
 		return nil, err
@@ -98,15 +136,15 @@ func (p *planner) plan() (shared.SQLRequestPlanner, error) {
 	if err != nil {
 		return nil, err
 	}
-	res = &SearchSpansetPlanner{Main: res}
-
-	res = &IndexLimitPlanner{res}
-
-	res = NewTracesDataPlanner(res, selected)
-
-	res = &IndexLimitPlanner{res}
-
-	return p.structuralGate(res), nil
+	var spansets shared.SQLRequestPlanner = &IndexLimitPlanner{&SearchSpansetPlanner{Main: res, Newest: true}}
+	if p.query.HasStructural() {
+		spansets = newestShardLocal(res)
+	}
+	search := &searchRowsPlanner{Main: spansets}
+	return &SearchPlan{
+		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(search)}},
+		Data: &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},
+	}, nil
 }
 
 func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
@@ -114,7 +152,7 @@ func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	if AllSpans(p.query) {
 		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
 	} else if p.query.HasStructural() {
-		res = &AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}
+		res = shardLocal(&AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}, "_count")
 	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
 		var err error
 		if res, err = p.operand(selector).planEval(); err != nil {
@@ -127,7 +165,7 @@ func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 		}
 		res = &ComplexEvalOrPlanner{Operands: operands, Prefix: p.getPrefix()}
 	}
-	return &EvalFinalizerPlanner{Main: res}, nil
+	return p.structuralGate(&EvalFinalizerPlanner{Main: res}), nil
 }
 
 // planSpansetExpr plans a spanset operator tree into span rows.
@@ -135,11 +173,15 @@ func (p *planner) planSpansetExpr(expr traceql_ir.SpansetExpr) (shared.SQLReques
 	return planSpansetTree(p, expr,
 		func(op *simpleExpressionPlanner) (shared.SQLRequestPlanner, error) { return op.planner() },
 		p.planPipeline,
-		func(op traceql_ir.SpansetOperator, lhs, rhs shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+		func(expr *traceql_ir.SpansetOp, lhs, rhs shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+			op := expr.Op
 			switch op {
 			case traceql_ir.OpAnd:
 				return &TraceAndPlanner{LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
 			case traceql_ir.OpOr:
+				if structural, keep := repeatedOperand(expr, lhs, rhs); structural != nil {
+					return structural.keep(keep)
+				}
 				return &TraceOrPlanner{LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
 			}
 			if op.IsOneHop() {
@@ -164,7 +206,7 @@ func (p *planner) pipelineEvals(pipeline *traceql_ir.Pipeline) ([]shared.SQLRequ
 					return []shared.SQLRequestPlanner{res}, err
 				},
 				p.pipelineEvals,
-				func(_ traceql_ir.SpansetOperator, lhs, rhs []shared.SQLRequestPlanner) []shared.SQLRequestPlanner {
+				func(_ *traceql_ir.SpansetOp, lhs, rhs []shared.SQLRequestPlanner) []shared.SQLRequestPlanner {
 					return append(lhs, rhs...)
 				})
 			if err != nil {
@@ -182,7 +224,7 @@ func (p *planner) pipelineEvals(pipeline *traceql_ir.Pipeline) ([]shared.SQLRequ
 func planSpansetTree[T any](p *planner, expr traceql_ir.SpansetExpr,
 	leaf func(*simpleExpressionPlanner) (T, error),
 	pipeline func(*traceql_ir.Pipeline) (T, error),
-	join func(traceql_ir.SpansetOperator, T, T) T) (T, error) {
+	join func(*traceql_ir.SpansetOp, T, T) T) (T, error) {
 	switch expr := expr.(type) {
 	case *traceql_ir.Group:
 		return planSpansetTree(p, expr.Expr, leaf, pipeline, join)
@@ -198,9 +240,51 @@ func planSpansetTree[T any](p *planner, expr traceql_ir.SpansetExpr,
 		if err != nil {
 			return zero, err
 		}
-		return join(expr.Op, lhs, rhs), nil
+		return join(expr, lhs, rhs), nil
 	}
 	return leaf(p.operand(expr.(*traceql_ir.Selector)))
+}
+
+// keepingPlanner is a structural operator planner that can also return every
+// row of one operand.
+type keepingPlanner interface {
+	shared.SQLRequestPlanner
+	keep(operandSide) shared.SQLRequestPlanner
+}
+
+// repeatedOperand returns the planned structural side of `or`, an `X || Y`
+// whose other side repeats an operand of it, and that operand; else nil.
+func repeatedOperand(or *traceql_ir.SpansetOp, lhs, rhs shared.SQLRequestPlanner) (keepingPlanner, operandSide) {
+	for _, c := range []struct {
+		structural traceql_ir.SpansetExpr
+		other      traceql_ir.SpansetExpr
+		planned    shared.SQLRequestPlanner
+	}{{or.LHS, or.RHS, lhs}, {or.RHS, or.LHS, rhs}} {
+		op, ok := ungroup(c.structural).(*traceql_ir.SpansetOp)
+		planned, isKeeping := c.planned.(keepingPlanner)
+		if !ok || !op.Op.IsStructural() || !isKeeping {
+			continue
+		}
+		other := ungroup(c.other)
+		switch {
+		case reflect.DeepEqual(ungroup(op.LHS), other):
+			return planned, sideLHS
+		case reflect.DeepEqual(ungroup(op.RHS), other):
+			return planned, sideRHS
+		}
+	}
+	return nil, sideNone
+}
+
+// ungroup strips the parentheses around expr.
+func ungroup(expr traceql_ir.SpansetExpr) traceql_ir.SpansetExpr {
+	for {
+		g, ok := expr.(*traceql_ir.Group)
+		if !ok {
+			return expr
+		}
+		expr = g.Expr
+	}
 }
 
 // operand plans one selector of a spanset expression.
@@ -215,6 +299,15 @@ func (p *planner) structuralGate(res shared.SQLRequestPlanner) shared.SQLRequest
 		return &StructuralQueryPlanner{Main: res}
 	}
 	return res
+}
+
+// structuralIds gates a structural ids statement and runs it whole on each
+// shard of a cluster.
+func (p *planner) structuralIds(ids shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+	if p.query.HasStructural() {
+		ids = shardLocal(ids, "trace_id", "span_ids")
+	}
+	return p.structuralGate(ids)
 }
 
 func (p *planner) getPrefix() string {

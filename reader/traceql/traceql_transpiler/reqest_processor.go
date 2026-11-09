@@ -1,6 +1,8 @@
 package traceql_transpiler
 
 import (
+	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
@@ -10,28 +12,16 @@ import (
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
-	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// TraceQLRequestProcessor runs a search plan: its ids statement, then Data
+// over the ids, skipping Data when there are none.
 type TraceQLRequestProcessor struct {
-	sqlPlanner shared.SQLRequestPlanner
+	plan *clickhouse_transpiler.SearchPlan
 }
 
 func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []model.TraceInfo, error) {
-	sqlReq, err := t.sqlPlanner.Process(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	strReq, err := sqlReq.String(&sql_select.Ctx{
-		Params: map[string]sql_select.SQLObject{},
-		Result: map[string]sql_select.SQLObject{},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	traces, err := t.read(ctx, strReq)
+	traces, err := t.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -45,81 +35,129 @@ func (t TraceQLRequestProcessor) Process(ctx *shared.PlannerContext) (chan []mod
 	return res, nil
 }
 
-// read runs the search query and reads every trace, so that an error raised
-// while ClickHouse streams the result fails the request.
-func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string) ([]model.TraceInfo, error) {
-	rows, err := ctx.CHDb.QueryCtx(ctx.Ctx, strReq)
+// read reads every trace with its spansets before returning.
+func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext) ([]model.TraceInfo, error) {
+	spansets := map[string]searchTrace{}
+	idsScan := func(rows *sql.Rows) (string, []string, error) {
+		return scanSearch(rows, spansets)
+	}
+	var res []model.TraceInfo
+	err := clickhouse_transpiler.Query(ctx, t.plan.Ids, idsScan, t.plan.Data, clickhouse_transpiler.SkipOnEmptyIds,
+		func(rows *sql.Rows) error {
+			trace, err := scanTrace(rows, spansets)
+			if err != nil {
+				logger.Error("ERROR[TRP#1]: ", err)
+				return err
+			}
+			res = append(res, trace)
+			return nil
+		})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return res, nil
+}
 
-	var res []model.TraceInfo
-	for rows.Next() {
-		var (
-			traceId           string
-			spanIds           []string
-			durationsNs       []int64
-			timestampsNs      []int64
-			startTimeUnixNano int64
-			traceDurationMs   int64
-			rootServiceName   string
-			rootTraceName     string
-			spansetSpanIds    [][]string
-			matched           []int64
-			attrNames         [][]string
-			attrTypes         [][]string
-			attrValues        [][]float64
-			attrTexts         [][]string
-			spanAttrKeys      [][]string
-			spanAttrVals      [][]string
-			newest            int64
-		)
-		err = rows.Scan(&traceId, &spanIds, &durationsNs, &timestampsNs,
-			&startTimeUnixNano, &traceDurationMs, &rootServiceName, &rootTraceName,
-			&spansetSpanIds, &matched, &attrNames, &attrTypes, &attrValues, &attrTexts,
-			&spanAttrKeys, &spanAttrVals, &newest)
-		if err != nil {
-			logger.Error("ERROR[TRP#1]: ", err)
-			return nil, err
-		}
-		spans := make(map[string]model.SpanInfo, len(spanIds))
-		for i, spanId := range spanIds {
-			span := searchSpan(spanId, durationsNs[i], timestampsNs[i])
-			if i < len(spanAttrKeys) {
-				addSelected(&span, spanAttrKeys[i], spanAttrVals[i])
-			}
-			spans[spanId] = span
-		}
-		trace := model.TraceInfo{
-			TraceID:           traceId,
-			RootServiceName:   rootServiceName,
-			RootTraceName:     rootTraceName,
-			StartTimeUnixNano: fmt.Sprintf("%d", startTimeUnixNano),
-			DurationMs:        traceDurationMs,
-			SpanSets:          make([]model.SpanSet, len(spansetSpanIds)),
-			Newest:            newest,
-		}
-		for i, ids := range spansetSpanIds {
-			set := model.SpanSet{
-				Spans:      make([]model.SpanInfo, 0, len(ids)),
-				Matched:    int(matched[i]),
-				Attributes: spanSetAttrs(attrNames[i], attrTypes[i], attrValues[i], attrTexts[i]),
-			}
-			for _, id := range ids {
-				if span, ok := spans[id]; ok {
-					set.Spans = append(set.Spans, span)
-				}
-			}
-			sortSpans(set.Spans)
-			trace.SpanSets[i] = set
-		}
-		if len(trace.SpanSets) > 0 {
-			trace.SpanSet = trace.SpanSets[0]
-		}
-		res = append(res, trace)
+// scanSearch reads a search's ids row, adding the trace's spansets to
+// spansets by hex trace id.
+func scanSearch(rows *sql.Rows, spansets map[string]searchTrace) (string, []string, error) {
+	var (
+		traceId        string
+		spanIds        []string
+		spansetSpanIds [][]string
+		matched        []int64
+		attrNames      [][]string
+		attrTypes      [][]string
+		attrValues     [][]float64
+		attrTexts      [][]string
+		newest         int64
+	)
+	if err := rows.Scan(&traceId, &spanIds, &spansetSpanIds, &matched,
+		&attrNames, &attrTypes, &attrValues, &attrTexts, &newest); err != nil {
+		return "", nil, err
 	}
-	return res, rows.Err()
+	sets := make([]searchSpanset, len(spansetSpanIds))
+	for i, ids := range spansetSpanIds {
+		sets[i] = searchSpanset{
+			spanIds:    ids,
+			matched:    int(matched[i]),
+			attributes: spanSetAttrs(attrNames[i], attrTypes[i], attrValues[i], attrTexts[i]),
+		}
+	}
+	spansets[hex.EncodeToString([]byte(traceId))] = searchTrace{sets: sets, newest: newest}
+	return traceId, spanIds, nil
+}
+
+// searchTrace is a search's ids row: its spansets and its rank.
+type searchTrace struct {
+	sets   []searchSpanset
+	newest int64
+}
+
+// searchSpanset is a spanset of a search's ids row: its listed span ids in hex.
+type searchSpanset struct {
+	spanIds    []string
+	matched    int
+	attributes []model.SpanSetAttr
+}
+
+// scanTrace reads a Data row: a trace with its spansets.
+func scanTrace(rows *sql.Rows, spansets map[string]searchTrace) (model.TraceInfo, error) {
+	var (
+		traceId           string
+		spanIds           []string
+		durationsNs       []int64
+		timestampsNs      []int64
+		startTimeUnixNano int64
+		traceDurationMs   int64
+		rootServiceName   string
+		rootTraceName     string
+		spanAttrKeys      [][]string
+		spanAttrVals      [][]string
+	)
+	err := rows.Scan(&traceId, &spanIds, &durationsNs, &timestampsNs,
+		&startTimeUnixNano, &traceDurationMs, &rootServiceName, &rootTraceName,
+		&spanAttrKeys, &spanAttrVals)
+	if err != nil {
+		return model.TraceInfo{}, err
+	}
+	spans := make(map[string]model.SpanInfo, len(spanIds))
+	for i, spanId := range spanIds {
+		span := searchSpan(spanId, durationsNs[i], timestampsNs[i])
+		if i < len(spanAttrKeys) {
+			addSelected(&span, spanAttrKeys[i], spanAttrVals[i])
+		}
+		spans[spanId] = span
+	}
+	searched := spansets[traceId]
+	sets := searched.sets
+	trace := model.TraceInfo{
+		TraceID:           traceId,
+		RootServiceName:   rootServiceName,
+		RootTraceName:     rootTraceName,
+		StartTimeUnixNano: fmt.Sprintf("%d", startTimeUnixNano),
+		DurationMs:        traceDurationMs,
+		SpanSets:          make([]model.SpanSet, len(sets)),
+		Newest:            searched.newest,
+	}
+	for i, s := range sets {
+		set := model.SpanSet{
+			Spans:      make([]model.SpanInfo, 0, len(s.spanIds)),
+			Matched:    s.matched,
+			Attributes: s.attributes,
+		}
+		for _, id := range s.spanIds {
+			if span, ok := spans[id]; ok {
+				set.Spans = append(set.Spans, span)
+			}
+		}
+		sortSpans(set.Spans)
+		trace.SpanSets[i] = set
+	}
+	if len(trace.SpanSets) > 0 {
+		trace.SpanSet = trace.SpanSets[0]
+	}
+	return trace, nil
 }
 
 // searchSpan builds a search-result span without selected values.

@@ -55,7 +55,7 @@ func TestFilterPlansBitsetOrPivot(t *testing.T) {
 			if _, ok := plan.(*AttrConditionPlanner); !ok {
 				t.Fatalf("planned by %T", plan)
 			}
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 			if !strings.Contains(res, "groupBitOr(") || strings.Contains(res, "maxIfOrNull(") {
 				t.Errorf("not a bitset plan:\n%s", res)
 			}
@@ -67,7 +67,7 @@ func TestFilterPlansBitsetOrPivot(t *testing.T) {
 			if _, ok := plan.(*FieldFilterPlanner); !ok {
 				t.Fatalf("planned by %T", plan)
 			}
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 			if strings.Contains(res, "groupBitOr(") {
 				t.Errorf("not a pivot plan:\n%s", res)
 			}
@@ -95,7 +95,7 @@ func TestPivotReadsTheFilterKeys(t *testing.T) {
 		{`{!(duration > 1s)}`, ``},
 	} {
 		t.Run(c.query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			pivot := res[strings.Index(res, "_pivot as ("):]
 			pivot = pivot[:strings.Index(pivot, "GROUP BY")]
 			if c.keys == "" {
@@ -125,7 +125,7 @@ func TestAggregateArgumentsPivot(t *testing.T) {
 		{`{.a = 1} | min(duration * 2) > 1ms`, ``},
 	} {
 		t.Run(c.query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			m := regexp.MustCompile(`_\d+stage1_pivot as \((.*?)GROUP BY`).FindStringSubmatch(res)
 			if m == nil {
 				t.Fatalf("no value pivot:\n%s", res)
@@ -159,7 +159,7 @@ func TestBitsetReadsTheRowsOfItsKeyTerms(t *testing.T) {
 		{`{true || .a = 1}`, nil},
 	} {
 		t.Run(c.query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, c.query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, c.query), testPlannerContext(3))
 			m := where.FindStringSubmatch(res)
 			if m == nil {
 				t.Fatalf("no bitset stage:\n%s", res)
@@ -189,23 +189,23 @@ func TestFieldExpressionErrors(t *testing.T) {
 	} {
 		t.Run(c.query, func(t *testing.T) {
 			q := mustParseQuery(t, c.query)
-			plan, err := Plan(q)
+			search, err := Plan(q)
 			if err == nil {
-				_, err = plan.Process(testPlannerContext(3))
+				_, err = search.Ids[0].Statement.Process(testPlannerContext(3))
 			}
 			if err == nil || err.Error() != c.err {
 				t.Errorf("search error = %v, want %s", err, c.err)
 			}
-			plan, err = PlanMetrics(q, countSpans)
+			metrics, err := PlanMetrics(q, countSpans)
 			if err == nil {
-				_, err = plan.Process(testPlannerContext(3))
+				err = processMetrics(metrics, testPlannerContext(3))
 			}
 			if err == nil || err.Error() != c.err {
 				t.Errorf("metrics error = %v, want %s", err, c.err)
 			}
-			plan, err = PlanTagsV2(q)
+			plan, err := PlanTagsV2(q)
 			if err == nil {
-				_, err = plan.Process(testPlannerContext(3))
+				_, err = plan.Ids[0].Statement.Process(testPlannerContext(3))
 			}
 			if err == nil || err.Error() != c.err {
 				t.Errorf("tags error = %v, want %s", err, c.err)

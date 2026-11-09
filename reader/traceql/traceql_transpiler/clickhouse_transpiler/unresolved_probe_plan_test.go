@@ -2,6 +2,7 @@ package clickhouse_transpiler
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -53,7 +54,7 @@ func TestUnresolvedProbeReadsEachJump(t *testing.T) {
 				ctx.AncestryRounds = rounds
 				jumps, stmts := planProbes(t, query, ctx)
 
-				req, err := planSearch(t, query).Process(testPlannerContext(7))
+				req, err := planSearch(t, query).Ids[0].Statement.Process(testPlannerContext(7))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -71,8 +72,8 @@ func TestUnresolvedProbeReadsEachJump(t *testing.T) {
 					for _, part := range []string{
 						"groupUniqArray(20)(lower(hex(trace_id)))",
 						"FROM " + want[i] + " ",
-						fmt.Sprintf("k = %d", rounds),
-						unresolvedAnc,
+						finalJump,
+						unresolvedRow(rounds),
 						"enable_analyzer",
 					} {
 						if !strings.Contains(tail, part) {
@@ -85,6 +86,54 @@ func TestUnresolvedProbeReadsEachJump(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// On a cluster each probe runs whole on each shard over local tables and
+// returns a shard's count and ids; on a single node it stays a plain statement.
+func TestUnresolvedProbeRunsOnEachShard(t *testing.T) {
+	coordinator := regexp.MustCompile(`^\s*SELECT n,\s*ids\s*$`)
+	settings := regexp.MustCompile(`^ SETTINGS enable_analyzer=1, prefer_localhost_replica=0$`)
+	for _, query := range structuralQueries {
+		t.Run(query, func(t *testing.T) {
+			ctx := testPlannerContext(3)
+			ctx.IsCluster = true
+			jumps, stmts := planProbes(t, query, ctx)
+			if len(jumps) == 0 {
+				t.Fatal("no probes")
+			}
+			for i, stmt := range stmts {
+				m := shardViewThen(`(.*)`).FindStringSubmatch(stmt)
+				if m == nil {
+					t.Errorf("%s is not run on each shard:\n%s", jumps[i], stmt)
+					continue
+				}
+				if !coordinator.MatchString(m[1]) {
+					t.Errorf("%s: coordinator part %q, want n and ids", jumps[i], m[1])
+				}
+				shard := m[2]
+				for _, want := range []string{"groupUniqArray(20)", "FROM " + jumps[i] + " ", finalJump} {
+					if !strings.Contains(shard, want) {
+						t.Errorf("%s: shard statement lacks %q:\n%s", jumps[i], want, shard)
+					}
+				}
+				if strings.Contains(shard, "_dist") {
+					t.Errorf("%s: shard statement reads a Distributed table:\n%s", jumps[i], shard)
+				}
+				if !settings.MatchString(m[3]) {
+					t.Errorf("%s: coordinator settings %q, want the analyzer on every shard", jumps[i], m[3])
+				}
+			}
+			_, plain := planProbes(t, query, testPlannerContext(3))
+			for _, stmt := range plain {
+				if strings.Contains(stmt, "cluster(") || strings.Contains(stmt, "prefer_localhost_replica") {
+					t.Errorf("single-node probe holds a shard statement:\n%s", stmt)
+				}
+				if !strings.Contains(stmt, "enable_analyzer=1") {
+					t.Errorf("single-node probe does not set the analyzer:\n%s", stmt)
+				}
+			}
+		})
 	}
 }
 

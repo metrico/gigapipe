@@ -87,14 +87,27 @@ func requireNoEscape(t *testing.T, plan shared.SQLRequestPlanner) []string {
 
 // requireOneLiteral checks the name of plan's query reaches its SQL, only
 // inside string literals.
-func requireOneLiteral(t *testing.T, plan shared.SQLRequestPlanner) {
+func requireOneLiteral(t *testing.T, plans ...shared.SQLRequestPlanner) {
 	t.Helper()
-	for _, lit := range requireNoEscape(t, plan) {
-		if strings.Contains(lit, hostilePayload) {
-			return
+	found := false
+	for _, plan := range plans {
+		for _, lit := range requireNoEscape(t, plan) {
+			found = found || strings.Contains(lit, hostilePayload)
 		}
 	}
+	if found {
+		return
+	}
 	require.Fail(t, "name does not reach the SQL")
+}
+
+// statements are the planners of plan's ids statements and of main.
+func statements(ids []clickhouse_transpiler.IdsStatement, main shared.SQLRequestPlanner) []shared.SQLRequestPlanner {
+	res := []shared.SQLRequestPlanner{main}
+	for _, s := range ids {
+		res = append(res, s.Statement)
+	}
+	return res
 }
 
 func hostileQuery(t *testing.T, tmpl, name string) *traceql_ir.Query {
@@ -125,7 +138,7 @@ func TestQuotedNameStaysOneStringLiteralInSearch(t *testing.T) {
 				q := hostileQuery(t, tmpl, name.spelled)
 				plan, err := clickhouse_transpiler.Plan(q)
 				require.NoError(t, err)
-				requireOneLiteral(t, plan)
+				requireOneLiteral(t, statements(plan.Ids, plan.Data)...)
 				eval, err := clickhouse_transpiler.PlanEval(q)
 				require.NoError(t, err)
 				requireNoEscape(t, eval)
@@ -183,7 +196,7 @@ func TestQuotedNameStaysOneStringLiteralInMetricsBy(t *testing.T) {
 						return res, err
 					})
 					require.NoError(t, err)
-					requireOneLiteral(t, plan)
+					requireOneLiteral(t, statements(plan.Ids, plan.Metrics)...)
 				})
 			}
 		}
@@ -197,12 +210,9 @@ func TestQuotedNameStaysOneStringLiteralInCompare(t *testing.T) {
 			creq := compareRequest(q, hostileContext())
 			plan, err := clickhouse_transpiler.PlanCompare(q, q.Metrics.Compare.Filter,
 				time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS),
-				func(baseline, selection *sql.With) (sql.ISelect, error) {
-					creq.Baseline, creq.Selection = baseline, selection
-					return tempo.BuildCompareQuery(&creq)
-				})
+				compareBuild(creq))
 			require.NoError(t, err)
-			requireOneLiteral(t, plan)
+			requireOneLiteral(t, statements(plan.Ids, plan.Metrics)...)
 		})
 	}
 }
@@ -213,13 +223,13 @@ func TestQuotedNameStaysOneStringLiteralInTagValues(t *testing.T) {
 			q := hostileQuery(t, `{ NAME = 1 }`, name.spelled)
 			tags, err := clickhouse_transpiler.PlanTagsV2(q)
 			require.NoError(t, err)
-			requireOneLiteral(t, tags)
+			requireOneLiteral(t, statements(tags.Ids, tags.Data)...)
 			values, err := clickhouse_transpiler.PlanValuesV2(q, "x")
 			require.NoError(t, err)
-			requireOneLiteral(t, values)
+			requireOneLiteral(t, statements(values.Ids, values.Data)...)
 			values, err = clickhouse_transpiler.PlanValuesV2(nil, name.decoded)
 			require.NoError(t, err)
-			requireOneLiteral(t, values)
+			requireOneLiteral(t, statements(values.Ids, values.Data)...)
 		})
 	}
 }

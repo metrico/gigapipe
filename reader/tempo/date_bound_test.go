@@ -73,12 +73,13 @@ func TestCompareDateBoundsDoNotDependOnTheReaderZone(t *testing.T) {
 	early := time.Date(2026, 11, 4, 0, 30, 0, 0, time.UTC).UnixNano()
 	late := time.Date(2026, 11, 6, 23, 30, 0, 0, time.UTC).UnixNano()
 	baseline := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("b")), "baseline_spans")
+	traces := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("ids")), "_1trace_ids")
 	inEachReaderZone(t, func(t *testing.T) {
 		for _, req := range []*CompareRequest{
-			{Baseline: baseline, FromNS: late, ToNS: late + 60e9, BaselineFromNS: early, BaselineToNS: early + 60e9, AttrsTable: "attrs"},
-			{Baseline: baseline, FromNS: early, ToNS: early + 60e9, BaselineFromNS: late, BaselineToNS: late + 60e9, AttrsTable: "attrs"},
+			{Baseline: baseline, BaselineTraceIds: traces, FromNS: late, ToNS: late + 60e9, BaselineFromNS: early, BaselineToNS: early + 60e9, AttrsTable: "attrs"},
+			{Baseline: baseline, BaselineTraceIds: traces, FromNS: early, ToNS: early + 60e9, BaselineFromNS: late, BaselineToNS: late + 60e9, AttrsTable: "attrs"},
 		} {
-			res := render(t, mustCompare(t, req))
+			res := render(t, mustCompareCounts(t, req))
 			requireDateBounds(t, res, 1, "2026-11-03", "2026-11-07")
 			require.Contains(t, res, fmt.Sprintf("(timestamp_ns) > (%d)", early))
 			require.Contains(t, res, fmt.Sprintf("(timestamp_ns) <= (%d)", late+int64(60e9)))

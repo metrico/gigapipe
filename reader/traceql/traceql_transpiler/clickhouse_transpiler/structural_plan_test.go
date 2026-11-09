@@ -49,7 +49,7 @@ func TestSearchPlansStructuralOperators(t *testing.T) {
 // structuralWiths returns the CTEs of a rendered-ready search plan by alias.
 func structuralWiths(t *testing.T, query string, ctx *shared.PlannerContext) map[string]*sql.With {
 	t.Helper()
-	req, err := planSearch(t, query).Process(ctx)
+	req, err := planSearch(t, query).Ids[0].Statement.Process(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +89,6 @@ func recursiveWiths(withs map[string]*sql.With) []*sql.With {
 	return res
 }
 
-// unresolvedAnc is a jump row's ancestor pointer still being set.
-const unresolvedAnc = "anc != toFixedString('', 8)"
-
 // jumpReaders is the aliases of the CTEs other than the jumps that read jump.
 func jumpReaders(t *testing.T, withs map[string]*sql.With, jump *sql.With) []string {
 	t.Helper()
@@ -113,8 +110,16 @@ func renderSelect(t *testing.T, s sql.ISelect) string {
 	return res
 }
 
+// roundCount is the jump anchor's per-trace round count, capped at rounds + 1.
+func roundCount(rounds int) string {
+	return fmt.Sprintf("<= %[1]d, greatest(1, ceil(log2(countIf(found = 1) OVER (PARTITION BY trace_id) + 1))), %[1]d + 1)", rounds)
+}
+
+// incompleteRecurse is the anchor condition of traces with a found root and a missing parent.
+const incompleteRecurse = "found = 1 AND max(found = 1 AND parent = toFixedString('', 8)) OVER (PARTITION BY trace_id) = 1 AND max(found = 0) OVER (PARTITION BY trace_id) = 1"
+
 // One-hop operators relate spans in one pass over their keys; only root
-// reachability recurses, over traces with a missing parent.
+// reachability recurses, over traces with a root and a missing parent.
 func TestOneHopRecursesOnlyForIncompleteTraces(t *testing.T) {
 	for _, query := range oneHopQueries {
 		t.Run(query, func(t *testing.T) {
@@ -123,19 +128,15 @@ func TestOneHopRecursesOnlyForIncompleteTraces(t *testing.T) {
 			if len(recursive) != 1 || !strings.HasSuffix(recursive[0].GetAlias(), "_jump") {
 				t.Fatalf("want one recursive reachability CTE, got %d", len(recursive))
 			}
-			anchor, err := recursive[0].GetQuery().String(sql.DefaultCtx(), sql.STRING_OPT_SKIP_WITH)
-			if err != nil {
-				t.Fatal(err)
+			anchor := renderSelect(t, recursive[0].GetQuery())
+			if !strings.Contains(anchor, incompleteRecurse) {
+				t.Errorf("reachability is not limited to traces with a root and a missing parent:\n%s", anchor)
 			}
-			if !strings.Contains(anchor, "has_root = 1 AND has_dangling = 1") {
-				t.Errorf("reachability is not limited to traces with a missing parent:\n%s", anchor)
+			if !strings.Contains(anchor, roundCount(traceqlconfig.DefaultAncestryRounds)) {
+				t.Errorf("reachability rounds are unbounded:\n%s", anchor)
 			}
-			step, err := recursive[0].GetStep().String(sql.DefaultCtx(), sql.STRING_OPT_SKIP_WITH)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(step, fmt.Sprintf("((x.k) < (%d))", traceqlconfig.DefaultAncestryRounds)) {
-				t.Errorf("reachability rounds are unbounded:\n%s", step)
+			if step := renderSelect(t, recursive[0].GetStep()); !strings.Contains(step, "(x.jumps < x.rounds)") {
+				t.Errorf("reachability does not stop at the trace's round count:\n%s", step)
 			}
 			for _, w := range withSuffix(withs, "_counted") {
 				if res := renderWith(t, w); !strings.Contains(res, "OVER (PARTITION BY trace_id, reachable, key)") {
@@ -156,7 +157,7 @@ func TestTransitiveOperatorsJumpOverEveryCandidateSpan(t *testing.T) {
 				t.Fatalf("want only transitive jump CTEs to recurse, got %d of %d", len(jumps), len(recursiveWiths(withs)))
 			}
 			for _, jump := range jumps {
-				if anchor := renderSelect(t, jump.GetQuery()); strings.Contains(anchor, "has_dangling") {
+				if anchor := renderSelect(t, jump.GetQuery()); strings.Contains(anchor, "max(found = 0)") {
 					t.Errorf("transitive jump is limited to incomplete traces:\n%s", anchor)
 				}
 			}
@@ -164,8 +165,8 @@ func TestTransitiveOperatorsJumpOverEveryCandidateSpan(t *testing.T) {
 	}
 }
 
-// Every pointer jump runs the configured number of rounds, and a row whose
-// pointer is still set after the last one is unreachable.
+// Every pointer jump runs at most the configured number of rounds plus one,
+// and a recursing row whose chain is unresolved after the last one is unreachable.
 func TestAncestryRoundsLeaveUnresolvedRowsUnreachable(t *testing.T) {
 	for _, rounds := range []int{0, 3, 7} {
 		want := rounds
@@ -175,34 +176,24 @@ func TestAncestryRoundsLeaveUnresolvedRowsUnreachable(t *testing.T) {
 		for _, query := range structuralQueries {
 			ctx := testPlannerContext(3)
 			ctx.AncestryRounds = rounds
-			if plan := renderPlan(t, planSearch(t, query), ctx); strings.Contains(plan, "throwIf") {
+			if plan := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx); strings.Contains(plan, "throwIf") {
 				t.Errorf("rounds=%d %s: plan can fail the query:\n%s", rounds, query, plan)
 			}
 			withs := structuralWiths(t, query, ctx)
 			for _, jump := range recursiveWiths(withs) {
-				if step := renderSelect(t, jump.GetStep()); !strings.Contains(step, fmt.Sprintf("((x.k) < (%d))", want)) {
-					t.Errorf("rounds=%d %s: %s does not stop after %d rounds:\n%s", rounds, query, jump.GetAlias(), want, step)
+				if anchor := renderSelect(t, jump.GetQuery()); !strings.Contains(anchor, roundCount(want)) {
+					t.Errorf("rounds=%d %s: %s does not stop after %d rounds:\n%s", rounds, query, jump.GetAlias(), want, anchor)
+				}
+				if step := renderSelect(t, jump.GetStep()); !strings.Contains(step, fmt.Sprintf("x.jumps = %d AND", want)) {
+					t.Errorf("rounds=%d %s: %s does not flag chains past round %d:\n%s", rounds, query, jump.GetAlias(), want, step)
 				}
 				if readers := jumpReaders(t, withs, jump); len(readers) != 1 {
 					t.Errorf("rounds=%d %s: %s is read by %v, want one pass", rounds, query, jump.GetAlias(), readers)
 				}
 			}
-			resolved, unreachable := withSuffix(withs, "_resolved"), withSuffix(withs, "_unreachable")
-			if len(resolved)+len(unreachable) == 0 {
-				t.Errorf("rounds=%d %s: no ancestry reader in the plan", rounds, query)
-			}
-			for _, w := range resolved {
-				res := renderWith(t, w)
-				for _, part := range []string{"cut = 0 AND NOT (" + unresolvedAnc + ")", fmt.Sprintf("k = %d", want)} {
-					if !strings.Contains(res, part) {
-						t.Errorf("rounds=%d %s: %s lacks %q:\n%s", rounds, query, w.GetAlias(), part, res)
-					}
-				}
-			}
-			for _, w := range unreachable {
-				part := fmt.Sprintf("k = %d AND (cut = 1 OR %s)", want, unresolvedAnc)
-				if res := renderWith(t, w); !strings.Contains(res, part) {
-					t.Errorf("rounds=%d %s: %s lacks %q:\n%s", rounds, query, w.GetAlias(), part, res)
+			for _, w := range withSuffix(withs, "_resolved") {
+				if res := renderWith(t, w); !strings.Contains(res, "NOT "+unresolvedRow(want)) {
+					t.Errorf("rounds=%d %s: %s does not leave unresolved rows unreachable:\n%s", rounds, query, w.GetAlias(), res)
 				}
 			}
 		}
@@ -210,7 +201,7 @@ func TestAncestryRoundsLeaveUnresolvedRowsUnreachable(t *testing.T) {
 }
 
 // unresolvedTraceFlag is the per-trace flag on a transitive operator's jump.
-var unresolvedTraceFlag = "max(" + unresolvedAnc + ") OVER (PARTITION BY trace_id)"
+var unresolvedTraceFlag = "max(" + unresolvedRow(traceqlconfig.DefaultAncestryRounds) + ") OVER (PARTITION BY trace_id)"
 
 // assertUnresolvedTraceSkip checks that every transitive operator of the plan
 // carries the flag to its final condition, or that none has it.
@@ -251,7 +242,7 @@ func TestTransitiveOperatorsSkipUnresolvedTracesOnlyWhenReadingDownMarks(t *test
 		{"<<", true}, {"!<<", true}, {"&>>", true}, {"&<<", true},
 	} {
 		t.Run(c.op, func(t *testing.T) {
-			req, err := planSearch(t, "{.a = 1} "+c.op+" {.b = 2}").Process(testPlannerContext(3))
+			req, err := planSearch(t, "{.a = 1} "+c.op+" {.b = 2}").Ids[0].Statement.Process(testPlannerContext(3))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -270,7 +261,7 @@ func TestOneHopOperatorsHaveNoUnresolvedTraceFlag(t *testing.T) {
 					t.Errorf("%s has a window:\n%s", w.GetAlias(), res)
 				}
 			}
-			if plan := renderPlan(t, planSearch(t, query), testPlannerContext(3)); strings.Contains(plan, "unresolved") {
+			if plan := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3)); strings.Contains(plan, "unresolved") {
 				t.Errorf("plan has an unresolved flag:\n%s", plan)
 			}
 		})
@@ -281,26 +272,28 @@ func TestOneHopOperatorsHaveNoUnresolvedTraceFlag(t *testing.T) {
 func TestEveryEntryPointSkipsUnresolvedTraces(t *testing.T) {
 	const skipped, unskipped = `{.a = 1} !<< {.b = 2}`, `{.a = 1} !>> {.b = 2}`
 	entries := map[string]func(t *testing.T, query string) shared.SQLRequestPlanner{
-		"metrics": planMetrics,
+		"metrics": func(t *testing.T, query string) shared.SQLRequestPlanner {
+			return planMetrics(t, query).Ids[0].Statement
+		},
 		"count stage": func(t *testing.T, query string) shared.SQLRequestPlanner {
-			return planSearch(t, query+" | count() > 1")
+			return planSearch(t, query+" | count() > 1").Ids[0].Statement
 		},
 		"tags": func(t *testing.T, query string) shared.SQLRequestPlanner {
-			return autocompletePlans(t, query)["tags"]
+			return autocompletePlans(t, query)["tags"].Ids[0].Statement
 		},
 		"values": func(t *testing.T, query string) shared.SQLRequestPlanner {
-			return autocompletePlans(t, query)["values"]
+			return autocompletePlans(t, query)["values"].Ids[0].Statement
 		},
 		"compare": func(t *testing.T, query string) shared.SQLRequestPlanner {
 			q, err := traceql_ir.Parse("(" + query + ") | compare({.c = 3})")
 			if err != nil {
 				t.Fatal(err)
 			}
-			plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareSpans)
+			plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0), compareAttrRows)
 			if err != nil {
 				t.Fatal(err)
 			}
-			return plan
+			return plan.Ids[0].Statement
 		},
 	}
 	for name, plan := range entries {
@@ -322,27 +315,33 @@ func TestDefaultAncestryRoundsIs20(t *testing.T) {
 	}
 }
 
-func TestStructuralEdgesComeFromTheTracesTableWithoutTimeBound(t *testing.T) {
+// tracesRead is the traces-table read of a nodes CTE, up to its union with
+// the operand rows.
+var tracesRead = regexp.MustCompile(`FROM tempo_traces(?:_dist)? as traces.*?UNION ALL`)
+
+func TestStructuralTreeComesFromTheTracesTableByTraceId(t *testing.T) {
 	for _, cluster := range []bool{false, true} {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
-		table := "FROM tempo_traces as traces"
-		in := " IN ("
-		if cluster {
-			table = "FROM tempo_traces_dist as traces"
-			in = " GLOBAL IN ("
-		}
 		for _, query := range []string{`{.a = 1} > {.b = 2}`, `{.a = 1} << {.b = 2}`} {
-			edges := withSuffix(structuralWiths(t, query, ctx), "_edges")
-			if len(edges) != 1 {
-				t.Fatalf("cluster=%v %s: %d edge CTEs, want 1", cluster, query, len(edges))
+			statements := map[string]shared.SQLRequestPlanner{
+				"search":  planSearch(t, query).Ids[0].Statement,
+				"metrics": planMetrics(t, query).Ids[0].Statement,
 			}
-			res := renderWith(t, edges[0])
-			if !strings.Contains(res, table) || strings.Count(res, "traces.trace_id"+in) != 2 {
-				t.Errorf("cluster=%v %s: edges are not read from the traces table by trace id:\n%s", cluster, query, res)
-			}
-			if strings.Contains(res, "timestamp_ns") || strings.Contains(res, "date") {
-				t.Errorf("cluster=%v %s: edges are bounded in time:\n%s", cluster, query, res)
+			for name, statement := range statements {
+				// On a cluster both statements run on each shard over local tables.
+				res := renderPlan(t, statement, ctx)
+				reads := tracesRead.FindAllString(res, -1)
+				if len(reads) != 1 {
+					t.Fatalf("cluster=%v %s %s: %d traces reads, want 1:\n%s", cluster, name, query, len(reads), res)
+				}
+				read := reads[0]
+				if !strings.Contains(read, "FROM tempo_traces as traces") || strings.Count(read, "traces.trace_id IN (") != 1 {
+					t.Errorf("cluster=%v %s %s: nodes are not read from the traces table by trace id:\n%s", cluster, name, query, read)
+				}
+				if strings.Contains(read, "date") {
+					t.Errorf("cluster=%v %s %s: nodes are bounded by date:\n%s", cluster, name, query, read)
+				}
 			}
 		}
 	}
@@ -352,7 +351,7 @@ func TestEnableAnalyzerOnlyOnStructuralQueries(t *testing.T) {
 	setting := regexp.MustCompile(`enable_analyzer`)
 	for _, query := range searchQueries {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+			res := renderPlan(t, planSearch(t, query).Ids[0].Statement, testPlannerContext(3))
 			want := 0
 			for _, q := range structuralQueries {
 				if q == query {
@@ -373,13 +372,16 @@ func TestStructuralQueriesNeedClickHouse249(t *testing.T) {
 	ctx := testPlannerContext(3)
 	ctx.VersionInfo = map[string]int64{}
 	for _, query := range structuralQueries {
-		if _, err := planSearch(t, query).Process(ctx); err != errStructuralVersion {
+		if _, err := planSearch(t, query).Ids[0].Statement.Process(ctx); err != errStructuralVersion {
 			t.Errorf("%s: error = %v, want %v", query, err, errStructuralVersion)
 		}
 	}
 	for _, query := range plainSearchQueries {
-		if _, err := planSearch(t, query).Process(ctx); err != nil {
-			t.Errorf("%s: %v", query, err)
+		plan := planSearch(t, query)
+		for _, statement := range []shared.SQLRequestPlanner{plan.Ids[0].Statement, plan.Data} {
+			if _, err := statement.Process(ctx); err != nil {
+				t.Errorf("%s: %v", query, err)
+			}
 		}
 	}
 }
@@ -388,7 +390,7 @@ func TestStructuralQueriesNeedClickHouse249(t *testing.T) {
 func TestEmptyOperandReadsEverySpanInRange(t *testing.T) {
 	for _, query := range []string{`{} > {.a = 1}`, `{.a = 1} && {}`} {
 		t.Run(query, func(t *testing.T) {
-			res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+			res := renderSearch(t, planSearch(t, query), testPlannerContext(3))
 			if strings.Contains(res, "attrless_trace_ids") {
 				t.Errorf("operand {} uses the trace pre-pick:\n%s", res)
 			}
@@ -405,5 +407,125 @@ func TestEmptyOperandReadsEverySpanInRange(t *testing.T) {
 	operands := eval.(*EvalFinalizerPlanner).Main.(*ComplexEvalOrPlanner).Operands
 	if _, ok := operands[0].(*AllSpansEvaluatorPlanner); !ok {
 		t.Errorf("operand {} is estimated by %T", operands[0])
+	}
+}
+
+// treeReadBound is the upper timestamp_ns bound of the tree read under
+// testPlannerContext: its To plus one hour.
+const treeReadBound = "(traces.timestamp_ns) <= (90010000000000)"
+
+// The tree read of every structural operator stops an hour after the range
+// and has no lower bound.
+func TestTreeReadHasOnlyAnUpperBound(t *testing.T) {
+	for _, query := range structuralQueries {
+		nodes := withSuffix(structuralWiths(t, query, testPlannerContext(3)), "_nodes")
+		if len(nodes) == 0 {
+			t.Fatalf("%s: no tree read", query)
+		}
+		for _, w := range nodes {
+			read := renderWith(t, w)
+			if !strings.Contains(read, treeReadBound) {
+				t.Errorf("%s: %s has no %q:\n%s", query, w.GetAlias(), treeReadBound, read)
+			}
+			if strings.Contains(read, "(traces.timestamp_ns) >") {
+				t.Errorf("%s: %s has a lower bound:\n%s", query, w.GetAlias(), read)
+			}
+		}
+	}
+}
+
+// On a cluster the tree read keeps the bound inside the per-shard statement.
+func TestTreeReadIsBoundedOnCluster(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.IsCluster = true
+	for _, query := range structuralQueries {
+		if res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx); !strings.Contains(res, treeReadBound) {
+			t.Errorf("%s: no %q:\n%s", query, treeReadBound, res)
+		}
+	}
+}
+
+// compare()'s baseline ids bound the tree read by the end of the query, not of
+// the baseline window.
+func TestCompareTreeReadIsBoundedByTheQueryEnd(t *testing.T) {
+	q, err := traceql_ir.Parse(`({.a = 1} >> {.b = 2}) | compare({.c = 3})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(1000, 0), time.Unix(2000, 0), compareAttrRows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
+	if !strings.Contains(res, treeReadBound) {
+		t.Errorf("no %q:\n%s", treeReadBound, res)
+	}
+	if bad := "(traces.timestamp_ns) <= (5600000000000)"; strings.Contains(res, bad) {
+		t.Errorf("bounded by the baseline window:\n%s", res)
+	}
+}
+
+const lateTreeReadBound = "(traces.timestamp_ns) <= (103600000000000)"
+
+// A baseline ending after the query's end bounds the tree read at its own end.
+func TestCompareTreeReadCoversABaselineEndingAfterTheQuery(t *testing.T) {
+	q, err := traceql_ir.Parse(`({.a = 1} >> {.b = 2}) | compare({.c = 3})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(100000, 0), compareAttrRows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
+	if !strings.Contains(res, lateTreeReadBound) {
+		t.Errorf("no %q:\n%s", lateTreeReadBound, res)
+	}
+	if strings.Contains(res, treeReadBound) {
+		t.Errorf("bounded by the query end:\n%s", res)
+	}
+}
+
+// The probe of a window ending after the query's end bounds at the window's end.
+func TestUnresolvedProbeTreeReadCoversAWindowEndingAfterTheQuery(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.From, ctx.To = time.Unix(86000, 0).UTC(), time.Unix(100000, 0).UTC()
+	_, stmts := planProbes(t, `{.a = 1} >> {.b = 2}`, ctx)
+	if len(stmts) == 0 {
+		t.Fatal("no probes")
+	}
+	for _, stmt := range stmts {
+		if !strings.Contains(stmt, lateTreeReadBound) {
+			t.Errorf("no %q:\n%s", lateTreeReadBound, stmt)
+		}
+	}
+}
+
+// The bound follows QueryTo, not To.
+func TestTreeReadIgnoresANarrowedTo(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.To = ctx.To.Add(-time.Hour)
+	res := renderPlan(t, planSearch(t, `{.a = 1} >> {.b = 2}`).Ids[0].Statement, ctx)
+	if !strings.Contains(res, treeReadBound) {
+		t.Errorf("no %q:\n%s", treeReadBound, res)
+	}
+}
+
+// An unknown query end leaves the tree read unbounded.
+func TestTreeReadIsUnboundedWithoutAQueryEnd(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.QueryTo = time.Time{}
+	res := renderPlan(t, planSearch(t, `{.a = 1} >> {.b = 2}`).Ids[0].Statement, ctx)
+	if strings.Contains(res, "(traces.timestamp_ns) <=") {
+		t.Errorf("tree read is bounded:\n%s", res)
+	}
+}
+
+// Autocomplete ids statements bound the tree read like search.
+func TestAutocompleteTreeReadIsBounded(t *testing.T) {
+	for kind, plan := range autocompletePlans(t, `{.a} >> {.b}`) {
+		if res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3)); !strings.Contains(res, treeReadBound) {
+			t.Errorf("%s: no %q:\n%s", kind, treeReadBound, res)
+		}
 	}
 }

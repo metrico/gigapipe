@@ -192,7 +192,7 @@ func buildAggExpr(fn string, attr string, divisor float64, quantiles []float64, 
 	}
 	if fn == "compare" {
 		// compare() is handled at the service layer, not the generic metrics query builder
-		return "", fmt.Errorf("compare() should be handled by BuildCompareQuery")
+		return "", fmt.Errorf("compare() should be handled by BuildCompareCounts")
 	}
 	tmpl, ok := metricsAggFn[fn]
 	if !ok {
@@ -401,16 +401,18 @@ func BuildGenericExemplarsQuery(req *MetricsRequest) (sql.ISelect, []string, err
 // CompareRequest holds the parameters of compare(): Baseline holds the spans
 // over the baseline window and Selection the selected spans, or is nil when
 // every baseline span is selected. Both are CTEs shaped like
-// MetricsRequest.Spans.
+// MetricsRequest.Spans. BaselineTraceIds lists the trace ids of the baseline
+// spans.
 type CompareRequest struct {
-	Baseline       *sql.With
-	Selection      *sql.With
-	FromNS         int64
-	ToNS           int64
-	BaselineFromNS int64
-	BaselineToNS   int64
-	AttrsTable     string
-	TopN           int
+	Baseline         *sql.With
+	Selection        *sql.With
+	BaselineTraceIds *sql.With
+	FromNS           int64
+	ToNS             int64
+	BaselineFromNS   int64
+	BaselineToNS     int64
+	AttrsTable       string
+	TopN             int
 	// Scale multiplies both counts; 1 or unset leaves them as counted.
 	Scale float64
 }
@@ -423,26 +425,21 @@ type CompareResultRow struct {
 	BaselineCount  float64
 }
 
-// BuildCompareQuery builds a ClickHouse SQL query for compare().
-func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
+// BuildCompareCounts builds compare()'s counts: per attribute value, how many
+// baseline spans hold it, split into selected and other spans.
+func BuildCompareCounts(req *CompareRequest) (sql.ISelect, error) {
 	// Attribute rows are read over the widest range of both windows.
 	fromNS, toNS := min(req.FromNS, req.BaselineFromNS), max(req.ToNS, req.BaselineToNS)
 	dateFrom, dateTo := timerange.SpanDate("date", time.Unix(0, fromNS), time.Unix(0, toNS))
 	tsFrom, tsTo := timerange.SpanStart("timestamp_ns", fromNS, toNS)
 
-	topN := req.TopN
-	if topN <= 0 {
-		topN = 10
-	}
-
-	// CTE: all_spans — the baseline spans
 	allSpansWith := sql.NewWith(
 		sql.NewSelect().
 			Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).
 			From(sql.NewWithRef(req.Baseline)),
 		"all_spans")
 
-	// CTE: selection — the selected spans, every baseline span without a selection
+	// Every baseline span is selected without a selection.
 	selected := allSpansWith
 	if req.Selection != nil {
 		selected = req.Selection
@@ -453,38 +450,47 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 			From(sql.NewWithRef(selected)),
 		"selection")
 
-	// CTE: attrs_sub — filtered attrs_gin rows
-	attrsWindow := sql.And(dateFrom, dateTo, tsFrom, tsTo)
-
 	attrsSubquery := sql.NewSelect().
 		Select(sql.NewRawObject("*")).
-		From(sql.NewRawObject(req.AttrsTable + " FINAL")).
-		AndWhere(attrsWindow)
+		From(sql.NewRawObject(req.AttrsTable+" FINAL")).
+		AndWhere(
+			sql.And(dateFrom, dateTo, tsFrom, tsTo),
+			sql.NewIn(sql.NewRawObject("trace_id"), sql.NewWithRef(req.BaselineTraceIds)))
 	attrsSubWith := sql.NewWith(attrsSubquery, "attrs_sub")
 
-	// CTE: counted — enumerate attrs, classify, count
+	spanKey := sql.NewRawObject("(trace_id, span_id)")
+	query := sql.NewSelect().
+		With(req.Baseline).
+		Select(
+			sql.NewCol(sql.NewRawObject("key"), "attr_key"),
+			sql.NewCol(sql.NewRawObject("val"), "attr_val"),
+			sql.NewCol(sql.NewRawObject("countIf((trace_id, span_id) IN (selection))"), "sel_n"),
+			sql.NewCol(sql.NewRawObject("countIf((trace_id, span_id) NOT IN (selection))"), "base_n"),
+		).
+		From(sql.NewWithRef(attrsSubWith)).
+		AndWhere(sql.NewIn(spanKey, sql.NewWithRef(allSpansWith))).
+		GroupBy(sql.NewRawObject("attr_key"), sql.NewRawObject("attr_val"))
+	if req.Selection != nil {
+		query.AddWith(req.Selection)
+	}
+	query.AddWith(req.BaselineTraceIds, allSpansWith, selectionWith, attrsSubWith)
+	return query, nil
+}
+
+// BuildCompareResult sums counts per attribute value and keeps each attribute's topN values.
+func BuildCompareResult(counts *sql.With, topN int, scale float64) sql.ISelect {
+	if topN <= 0 {
+		topN = 10
+	}
+
 	countedQuery := sql.NewSelect().
 		Select(
-			sql.NewCol(sql.NewRawObject("attrs.key"), "attr_key"),
-			sql.NewCol(sql.NewRawObject("attrs.val"), "attr_val"),
-			sql.NewCol(sql.NewRawObject(scaledExpr("countIf(sel.trace_id != '')", req.Scale)), "selection_count"),
-			sql.NewCol(sql.NewRawObject(scaledExpr("countIf(sel.trace_id = '')", req.Scale)), "baseline_count"),
+			sql.NewRawObject("attr_key"),
+			sql.NewRawObject("attr_val"),
+			sql.NewCol(sql.NewRawObject(scaledExpr("sum(sel_n)", scale)), "selection_count"),
+			sql.NewCol(sql.NewRawObject(scaledExpr("sum(base_n)", scale)), "baseline_count"),
 		).
-		From(sql.NewCol(sql.NewWithRef(allSpansWith), "asp")).
-		AddJoin(sql.NewJoin("INNER",
-			sql.NewCol(sql.NewWithRef(attrsSubWith), "attrs"),
-			sql.And(
-				sql.Eq(sql.NewRawObject("asp.trace_id"), sql.NewRawObject("attrs.trace_id")),
-				sql.Eq(sql.NewRawObject("asp.span_id"), sql.NewRawObject("attrs.span_id")),
-			),
-		)).
-		AddJoin(sql.NewJoin("LEFT",
-			sql.NewCol(sql.NewWithRef(selectionWith), "sel"),
-			sql.And(
-				sql.Eq(sql.NewRawObject("asp.trace_id"), sql.NewRawObject("sel.trace_id")),
-				sql.Eq(sql.NewRawObject("asp.span_id"), sql.NewRawObject("sel.span_id")),
-			),
-		)).
+		From(sql.NewWithRef(counts)).
 		GroupBy(sql.NewRawObject("attr_key"), sql.NewRawObject("attr_val")).
 		AndHaving(sql.Or(
 			sql.Gt(sql.NewRawObject("selection_count"), sql.NewIntVal(0)),
@@ -492,7 +498,6 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 		))
 	countedWith := sql.NewWith(countedQuery, "counted")
 
-	// CTE: ranked — apply topN per key
 	rankedQuery := sql.NewSelect().
 		Select(
 			sql.NewRawObject("*"),
@@ -501,8 +506,8 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 		From(sql.NewWithRef(countedWith))
 	rankedWith := sql.NewWith(rankedQuery, "ranked")
 
-	// Final query
-	query := sql.NewSelect().
+	return sql.NewSelect().
+		With(counts, countedWith, rankedWith).
 		Select(
 			sql.NewRawObject("attr_key"),
 			sql.NewRawObject("attr_val"),
@@ -510,16 +515,9 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 			sql.NewRawObject("baseline_count"),
 		).
 		From(sql.NewWithRef(rankedWith)).
-		With(req.Baseline).
 		AndWhere(sql.Le(sql.NewRawObject("rn"), sql.NewIntVal(int64(topN)))).
 		OrderBy(
 			sql.NewOrderBy(sql.NewRawObject("attr_key"), sql.ORDER_BY_DIRECTION_ASC),
 			sql.NewOrderBy(sql.NewRawObject("selection_count + baseline_count"), sql.ORDER_BY_DIRECTION_DESC),
 		)
-	if req.Selection != nil {
-		query.AddWith(req.Selection)
-	}
-	query.AddWith(allSpansWith, selectionWith, attrsSubWith, countedWith, rankedWith)
-
-	return query, nil
 }

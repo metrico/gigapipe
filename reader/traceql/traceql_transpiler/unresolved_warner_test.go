@@ -91,6 +91,14 @@ func TestUnresolvedWarningMergesRows(t *testing.T) {
 			n: 3, ids: "a, b, c",
 		},
 		{
+			name: "two shards listing one id list it once",
+			found: []unresolvedFound{
+				{Jump: "j", N: 2, IDs: []string{"a", "b"}},
+				{Jump: "j", N: 2, IDs: []string{"a", "c"}},
+			},
+			n: 4, ids: "a, b, c",
+		},
+		{
 			name: "jumps sharing traces take the largest",
 			found: []unresolvedFound{
 				{Jump: "j", N: 3, IDs: []string{"a", "b", "c"}},

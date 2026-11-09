@@ -1,8 +1,6 @@
 package clickhouse_transpiler
 
 import (
-	"fmt"
-
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
@@ -37,12 +35,16 @@ func PlanUnresolvedProbes(query *traceql_ir.Query) (*UnresolvedProbes, error) {
 }
 
 // Process plans one statement per recursive CTE, in plan order; each runs on
-// its own.
+// its own and, on a cluster, returns one row per shard.
 func (u *UnresolvedProbes) Process(ctx *shared.PlannerContext) ([]UnresolvedProbe, error) {
 	if !ctx.VersionInfo.HasCapability(dbversion.CapStructuralQueries) {
 		return nil, errStructuralVersion
 	}
-	req, err := u.result.Process(sampled(ctx, u.sample))
+	planCtx := sampled(ctx, u.sample)
+	if ctx.IsCluster {
+		planCtx = localContext(planCtx)
+	}
+	req, err := u.result.Process(planCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -51,15 +53,18 @@ func (u *UnresolvedProbes) Process(ctx *shared.PlannerContext) ([]UnresolvedProb
 		if !w.IsRecursive() {
 			continue
 		}
-		res = append(res, UnresolvedProbe{
-			Jump: w.GetAlias(),
-			Select: sql.NewSelect().With(req.GetWith()...).
-				Select(sql.NewSimpleCol("uniqExact(trace_id)", "n"),
-					sql.NewSimpleCol("groupUniqArray(20)(lower(hex(trace_id)))", "ids")).
-				From(sql.NewWithRef(w)).
-				AndWhere(rawCond(fmt.Sprintf("k = %d AND %s", ancestryRounds(ctx), unresolvedRow))).
-				SetSetting("enable_analyzer", "1"),
-		})
+		stmt := sql.ISelect(sql.NewSelect().With(req.GetWith()...).
+			Select(sql.NewSimpleCol("uniqExact(trace_id)", "n"),
+				sql.NewSimpleCol("groupUniqArray(20)(lower(hex(trace_id)))", "ids")).
+			From(sql.NewWithRef(w)).
+			AndWhere(rawCond(finalJump), rawCond(unresolvedRow(ancestryRounds(ctx)))))
+		if ctx.IsCluster {
+			if stmt, err = onEachShard(ctx, stmt, "n", "ids"); err != nil {
+				return nil, err
+			}
+			stmt = clusterSettings(ctx, stmt)
+		}
+		res = append(res, UnresolvedProbe{Jump: w.GetAlias(), Select: stmt.SetSetting("enable_analyzer", "1")})
 	}
 	return res, nil
 }

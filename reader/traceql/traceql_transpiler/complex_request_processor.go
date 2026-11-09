@@ -7,14 +7,15 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 )
 
 // ComplexRequestProcessor reads main one portion of traces at a time and keeps
 // the top ctx.Limit by rank, so the result is the same at any portion count.
 // Every portion queries the requested time range.
 type ComplexRequestProcessor struct {
-	main shared.SQLRequestPlanner
-	read func(*shared.PlannerContext, shared.SQLRequestPlanner) ([]model.TraceInfo, error)
+	main *clickhouse_transpiler.SearchPlan
+	read func(*shared.PlannerContext, *clickhouse_transpiler.SearchPlan) ([]model.TraceInfo, error)
 }
 
 func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
@@ -57,12 +58,12 @@ func keepTop(traces []model.TraceInfo, limit int64) []model.TraceInfo {
 	return traces
 }
 
-func (c *ComplexRequestProcessor) SetMain(main shared.SQLRequestPlanner) {
+func (c *ComplexRequestProcessor) SetMain(main *clickhouse_transpiler.SearchPlan) {
 	c.main = main
 }
 
 // readTraces runs main and collects its traces.
-func readTraces(ctx *shared.PlannerContext, main shared.SQLRequestPlanner) ([]model.TraceInfo, error) {
+func readTraces(ctx *shared.PlannerContext, main *clickhouse_transpiler.SearchPlan) ([]model.TraceInfo, error) {
 	planner := &TraceQLRequestProcessor{main}
 	ch, err := planner.Process(ctx)
 	if err != nil {

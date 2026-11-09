@@ -15,6 +15,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/middleware"
 	"github.com/metrico/qryn/v5/reader/watchdog"
+	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
 // Init registers the reader routes on app. With a nil app the reader builds
@@ -33,6 +34,10 @@ func Init(cnf *clconfig.ClokiConfig, app *http.ServeMux) {
 	// initialize logger
 	//
 	logger.InitLogger()
+
+	if w := distconfig.CrossClusterWarning(distconfig.Suffix(), distconfig.ReadCluster()); w != "" {
+		logger.Warn(w)
+	}
 
 	if app != nil {
 		performV1APIRouting(app)

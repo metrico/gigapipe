@@ -134,7 +134,11 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 				if err != nil {
 					t.Fatal(err)
 				}
-				check(t, ct.RenderPlan(t, planner, ctx))
+				rendered := ct.RenderPlan(t, planner.Metrics, ctx)
+				for _, ids := range planner.Ids {
+					rendered += "\n" + ct.RenderPlan(t, ids.Statement, ctx)
+				}
+				check(t, rendered)
 			})
 		}
 		for _, selection := range []string{"{.c = 3}", "{}"} {
@@ -144,18 +148,27 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 					t.Fatal(err)
 				}
 				planner, err := ct.PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0),
-					func(baseline, selected *sql.With) (sql.ISelect, error) {
-						return tempo.BuildCompareQuery(&tempo.CompareRequest{
-							Baseline: baseline, Selection: selected,
-							FromNS: fromNS, ToNS: toNS,
-							BaselineFromNS: baselineFromNS, BaselineToNS: baselineToNS,
-							AttrsTable: attrs,
-						})
+					ct.CompareBuild{
+						Counts: func(baseline, selected, traceIds *sql.With, attrs string) (sql.ISelect, error) {
+							return tempo.BuildCompareCounts(&tempo.CompareRequest{
+								Baseline: baseline, Selection: selected, BaselineTraceIds: traceIds,
+								FromNS: fromNS, ToNS: toNS,
+								BaselineFromNS: baselineFromNS, BaselineToNS: baselineToNS,
+								AttrsTable: attrs,
+							})
+						},
+						Result: func(counts *sql.With) (sql.ISelect, error) {
+							return tempo.BuildCompareResult(counts, 0, 1), nil
+						},
 					})
 				if err != nil {
 					t.Fatal(err)
 				}
-				check(t, ct.RenderPlan(t, planner, ctx))
+				rendered := ct.RenderPlan(t, planner.Metrics, ctx)
+				for _, ids := range planner.Ids {
+					rendered += "\n" + ct.RenderPlan(t, ids.Statement, ctx)
+				}
+				check(t, rendered)
 			})
 		}
 	}
@@ -164,7 +177,7 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 // On a cluster, no plain JOIN hangs directly off a Distributed table.
 func TestMetricsPlannersHaveNoPlainDistributedJoin(t *testing.T) {
 	renderMetricsPlanners(t, true, func(t *testing.T, rendered string) {
-		if !strings.Contains(rendered, "tempo_traces_dist") {
+		if !strings.Contains(rendered, "tempo_traces_dist") && !strings.Contains(rendered, "cluster(") {
 			t.Fatalf("cluster plan reads no Distributed table:\n%s", rendered)
 		}
 		if plain := plainDistJoins(rendered); len(plain) > 0 {

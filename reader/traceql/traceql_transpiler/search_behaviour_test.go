@@ -2,13 +2,17 @@ package traceql_transpiler
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,8 +32,13 @@ import (
 	"github.com/metrico/qryn/v5/shared/distconfig"
 )
 
-// httpAddrEnv names the HTTP address (host:port) of the chtest.AddrEnv server.
-const httpAddrEnv = "GIGAPIPE_TEST_CLICKHOUSE_HTTP"
+// updateGolden rewrites searchGoldenFile from the results of this run.
+var updateGolden = flag.Bool("update-search-golden", false,
+	"rewrite "+searchGoldenFile+"; run it on the commit whose results the file pins")
+
+// searchGoldenFile holds the expected search results, as summary lines, by
+// test, step, query and ancestry rounds.
+const searchGoldenFile = "testdata/search_golden.json"
 
 // searchLimit is the trace limit of a search that the limit does not cut.
 const searchLimit = 50
@@ -41,7 +50,19 @@ type searchStore struct {
 	db      model.ISqlxDB
 	name    string
 	cluster string
+	golden  map[string][]string
+	// skipUnavailable is the reader's SkipUnavailableShards.
+	skipUnavailable bool
+	// user is the ClickHouse user reading s, when it is not the admin.
+	user string
+	// traceID is the hex trace id seeded for a span's trace; nil is the
+	// trace number, zero-padded.
+	traceID func(trace int) string
+	// duration is a span's seeded duration in ns; nil is 10.
+	duration func(spanID int) int64
 }
+
+var goldenMu sync.Mutex
 
 // openSearchStore migrates a database, on every shard of the
 // chtest.ClusterEnv cluster when cluster is set. Searches read it over HTTP
@@ -50,13 +71,13 @@ func openSearchStore(t *testing.T, cluster, http bool) *searchStore {
 	t.Helper()
 	opts := &clickhouse.Options{Addr: []string{os.Getenv(chtest.AddrEnv)}}
 	if http {
-		addr := os.Getenv(httpAddrEnv)
+		addr := os.Getenv(chtest.HTTPAddrEnv)
 		if addr == "" {
-			t.Skipf("%s is not set", httpAddrEnv)
+			t.Skipf("%s is not set", chtest.HTTPAddrEnv)
 		}
 		opts = &clickhouse.Options{Addr: []string{addr}, Protocol: clickhouse.HTTP}
 	}
-	s := &searchStore{}
+	s := &searchStore{golden: map[string][]string{}}
 	mode := maintenance.CLUST_MODE_SINGLE
 	if cluster {
 		s.conn, s.name, s.cluster = chtest.OpenCluster(t)
@@ -80,6 +101,13 @@ func openSearchStore(t *testing.T, cluster, http bool) *searchStore {
 		}
 	})
 	s.db = &dsn.StableSqlxDBWrapper{DB: open(), GetDB: open}
+	if b, err := os.ReadFile(searchGoldenFile); err == nil {
+		if err := json.Unmarshal(b, &s.golden); err != nil {
+			t.Fatal(err)
+		}
+	} else if !*updateGolden {
+		t.Fatal(err)
+	}
 	return s
 }
 
@@ -89,7 +117,8 @@ type span struct {
 	attrs             []string
 }
 
-// seed inserts spans, each starting one nanosecond after the one before it.
+// seed inserts spans, attribute "k" = "1" for each k in attrs. On a cluster
+// the spans go through Distributed tables, sharded by trace.
 func (s *searchStore) seed(t *testing.T, spans []span) {
 	t.Helper()
 	s.seedStarts(t, spans, func(i int) int64 { return spanStart.UnixNano() + int64(i) })
@@ -110,8 +139,16 @@ func (s *searchStore) seedStarts(t *testing.T, spans []span, start func(i int) i
 		for _, a := range sp.attrs {
 			tags = append(tags, fmt.Sprintf("('%s', '1')", a))
 		}
-		rows = append(rows, fmt.Sprintf("('%032x', '%016x', '%s', 's%d', %d, 10, [%s])",
-			sp.trace, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
+		traceID := fmt.Sprintf("%032x", sp.trace)
+		if s.traceID != nil {
+			traceID = s.traceID(sp.trace)
+		}
+		duration := int64(10)
+		if s.duration != nil {
+			duration = s.duration(sp.id)
+		}
+		rows = append(rows, fmt.Sprintf("('%s', '%016x', '%s', 's%d', %d, %d, [%s])",
+			traceID, sp.id, parent, sp.id, start(i), duration, strings.Join(tags, ", ")))
 	}
 	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
 	if s.cluster == "" {
@@ -153,13 +190,13 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 	}
 	ctx := &shared.PlannerContext{
 		Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
-		From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+		From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute), QueryTo: spanStart.Add(time.Minute),
 		Limit: int64(run.limit), SpansPerSpanSet: 100, AncestryRounds: run.rounds,
 		VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
 	}
 	distconfig.Init()
 	tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
-		Name: s.name, ClusterName: s.cluster,
+		Name: s.name, ClusterName: s.cluster, SkipUnavailableShards: s.skipUnavailable,
 	}})
 	var ch chan []model.TraceInfo
 	if run.portions == 0 {
@@ -180,7 +217,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 	return summary(t, res)
 }
 
-// summary is a comparable form of traces: a line per trace with its id, start
+// summary is the golden form of traces: a line per trace with its id, start
 // after spanStart, duration and root, then a line per spanset.
 func summary(t *testing.T, traces []model.TraceInfo) []string {
 	t.Helper()
@@ -235,6 +272,112 @@ func anyValue(v model.AnyValue) string {
 		return fmt.Sprintf("bool:%t", *v.BoolValue)
 	}
 	return "none"
+}
+
+// assertResults runs each query, which must not fail, and compares it with the
+// golden result of step. A search whose limit is below
+// searchLimit must return limit traces.
+func (s *searchStore) assertResults(t *testing.T, step string, queries []string, run searchRun) {
+	t.Helper()
+	if run.limit == 0 {
+		run.limit = searchLimit
+	}
+	test := strings.SplitN(t.Name(), "/", 2)[0]
+	test = strings.TrimSuffix(strings.TrimSuffix(test, "OnCluster"), "OverHTTP")
+	for _, query := range queries {
+		key := fmt.Sprintf("%s/%s/%s/%d", test, step, query, run.rounds)
+		got := s.result(t, query, run)
+		isErr := len(got) == 1 && strings.HasPrefix(got[0], "error: ")
+		if isErr {
+			t.Errorf("%s: got %.300q", key, got)
+		}
+		if traces := countTraces(got); !isErr && run.limit < searchLimit && traces != run.limit {
+			t.Errorf("%s: %d traces, want the limit %d", key, traces, run.limit)
+		}
+		if *updateGolden {
+			goldenMu.Lock()
+			s.golden[key] = got
+			goldenMu.Unlock()
+			continue
+		}
+		if want, ok := s.golden[key]; !ok {
+			t.Errorf("%s: no golden result", key)
+		} else if !slices.Equal(got, want) {
+			t.Errorf("%s:\ngot:  %q\nwant: %q", key, got, want)
+		}
+	}
+}
+
+// countTraces counts the traces of a summary.
+func countTraces(lines []string) int {
+	n := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, "trace ") {
+			n++
+		}
+	}
+	return n
+}
+
+// writeGolden merges s's results into searchGoldenFile under -update-search-golden.
+func (s *searchStore) writeGolden(t *testing.T) {
+	t.Helper()
+	if !*updateGolden {
+		return
+	}
+	goldenMu.Lock()
+	defer goldenMu.Unlock()
+	all := map[string][]string{}
+	if b, err := os.ReadFile(searchGoldenFile); err == nil {
+		if err := json.Unmarshal(b, &all); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for k, v := range s.golden {
+		all[k] = v
+	}
+	b, err := json.MarshalIndent(all, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(searchGoldenFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(searchGoldenFile, append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// structuralOps are the structural operators.
+var structuralOps = []string{">>", "<<", "!>>", "!<<", "&>>", "&<<", ">", "<", "~", "!>", "!<", "!~", "&>", "&<", "&~"}
+
+// structuralSearches relate .a and .b spans by every structural operator.
+func structuralSearches() []string {
+	var res []string
+	for _, op := range structuralOps {
+		res = append(res,
+			fmt.Sprintf("{.a = \"1\"} %s {.b = \"1\"}", op),
+			fmt.Sprintf("{.b = \"1\"} %s {.a = \"1\"}", op),
+			fmt.Sprintf("{.a = \"1\"} %s {}", op),
+			fmt.Sprintf("{.b = \"1\"} %s {.b = \"1\"}", op))
+	}
+	return append(res,
+		`({nestedSetParent < 0 && .a = "1"} &>> {.b = "1"}) || ({nestedSetParent < 0 && .a = "1"}) | select(name, nestedSetParent)`,
+		`{.a = "1"} >> {.b = "1"} >> {}`,
+		`({.a = "1"} > {}) ~ {.b = "1"}`,
+		`{.a = "1"} >> {.b = "1"} | select(.a)`)
+}
+
+// plainSearches are searches without structural operators.
+var plainSearches = []string{
+	`{}`,
+	`{.a = "1"}`,
+	`{.a = "1"} || {.b = "1"}`,
+	`{.a = "1"} && {.b = "1"}`,
+	`{.b = "1"} | count() > 1`,
+	`{} | by(.a)`,
+	`{.b = "1"} | by(.a) | select(name)`,
+	`{.c = "1"}`,
 }
 
 // structuralTraces are well formed, dangling, rootless, deep, duplicated,
@@ -301,6 +444,21 @@ func structuralTraces() []span {
 		span{42, 1, 0, []string{"a"}}, span{42, 2, 1, []string{"a"}}, span{42, 3, 1, nil})
 }
 
+// limitSearches match more traces than the limits they run with.
+var limitSearches = []string{
+	`{}`,
+	`{.a = "1"} >> {.b = "1"}`,
+	`{.a = "1"} >> {.b = "1"} | select(.a)`,
+}
+
+// portionedSearches run in complexity portions.
+var portionedSearches = []string{
+	`{}`,
+	`{.a = "1"} >> {.b = "1"} | select(.a)`,
+	`{.b = "1"} | by(.a) | select(name)`,
+	`({nestedSetParent < 0 && .a = "1"} &>> {.b = "1"}) || ({nestedSetParent < 0 && .a = "1"}) | select(name, nestedSetParent)`,
+}
+
 // seedStructural seeds structuralTraces; on a cluster each trace's spans sit
 // on one shard, and the traces span every shard.
 func (s *searchStore) seedStructural(t *testing.T) {
@@ -319,6 +477,171 @@ func (s *searchStore) seedStructural(t *testing.T) {
 		t.Fatalf("traces on %d shards with up to %d shards per trace, want 2 and 1", shards, perTrace)
 	}
 }
+
+func testSearchStructuralOperators(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	defer s.writeGolden(t)
+	s.seedStructural(t)
+	s.assertResults(t, "plain", plainSearches, searchRun{})
+	s.assertResults(t, "structural", structuralSearches(), searchRun{})
+	// 6 rounds resolve 64 deep; 5 rounds leave the 40-deep chain unresolved.
+	s.assertResults(t, "deep", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} > {.b = "1"}`}, searchRun{rounds: 6})
+	s.assertResults(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} &<< {.a = "1"}`}, searchRun{rounds: 5})
+	for _, limit := range []int{2, 3} {
+		s.assertResults(t, fmt.Sprintf("limit-%d", limit), limitSearches, searchRun{limit: limit})
+	}
+	for _, portions := range []int{2, 3} {
+		s.assertResults(t, fmt.Sprintf("portions-%d", portions), portionedSearches,
+			searchRun{portions: portions})
+		s.assertResults(t, fmt.Sprintf("portions-%d-limit-3", portions), portionedSearches,
+			searchRun{portions: portions, limit: 3})
+	}
+}
+
+// testSearchOverHTTP runs some of testSearchStructuralOperators' searches over
+// HTTP.
+func testSearchOverHTTP(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, true)
+	s.seedStructural(t)
+	s.assertResults(t, "plain", []string{`{}`, `{.b = "1"} | by(.a) | select(name)`}, searchRun{})
+	s.assertResults(t, "structural", []string{
+		`{.a = "1"} >> {.b = "1"} | select(.a)`,
+		`({nestedSetParent < 0 && .a = "1"} &>> {.b = "1"}) || ({nestedSetParent < 0 && .a = "1"}) | select(name, nestedSetParent)`,
+	}, searchRun{})
+	// 5 rounds leave the 40-deep chain unresolved.
+	s.assertResults(t, "shallow", []string{`{.a = "1"} >> {.b = "1"}`}, searchRun{rounds: 5})
+	s.assertResults(t, "limit-2", limitSearches, searchRun{limit: 2})
+	s.assertResults(t, "portions-2", portionedSearches[:2], searchRun{portions: 2})
+}
+
+// repeatedOperandSearches pair a search whose `||` repeats an operand of its
+// structural side with a spelling of it, `X && X` for X, that plans both sides.
+func repeatedOperandSearches() [][2]string {
+	const a, b = `{.a = "1"}`, `{.b = "1"}`
+	both := func(x string) string { return "(" + x + " && " + x + ")" }
+	var res [][2]string
+	for _, op := range structuralOps {
+		rel := fmt.Sprintf("(%s %s %s)", a, op, b)
+		res = append(res,
+			[2]string{rel + " || " + a, rel + " || " + both(a)},
+			[2]string{a + " || " + rel, both(a) + " || " + rel},
+			[2]string{rel + " || " + b, rel + " || " + both(b)},
+			[2]string{b + " || " + rel, both(b) + " || " + rel})
+	}
+	const root = `{nestedSetParent < 0 && .a = "1"}`
+	return append(res, [2]string{
+		fmt.Sprintf(`(%s &>> %s) || (%s) | select(name, nestedSetParent)`, root, b, root),
+		fmt.Sprintf(`(%s &>> %s) || %s | select(name, nestedSetParent)`, root, b, both(root)),
+	})
+}
+
+func testSearchRepeatedOperand(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	s.seedStructural(t)
+	assertSame := func(pairs [][2]string, run searchRun) {
+		t.Helper()
+		if run.limit == 0 {
+			run.limit = searchLimit
+		}
+		for _, c := range pairs {
+			got, want := s.result(t, c[0], run), s.result(t, c[1], run)
+			isErr := len(want) == 1 && strings.HasPrefix(want[0], "error: ")
+			if len(want) == 0 || isErr {
+				t.Errorf("%s %+v: %.300q", c[1], run, want)
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("%s %+v:\ngot:  %q\nwant: %q", c[0], run, got, want)
+			}
+		}
+	}
+	pairs := repeatedOperandSearches()
+	assertSame(pairs, searchRun{})
+	// 5 rounds leave the 40-deep chain unresolved.
+	assertSame([][2]string{
+		{`({.a = "1"} >> {.b = "1"}) || {.a = "1"}`, `({.a = "1"} >> {.b = "1"}) || ({.a = "1"} && {.a = "1"})`},
+		{`{.a = "1"} || ({.b = "1"} &<< {.a = "1"})`, `({.a = "1"} && {.a = "1"}) || ({.b = "1"} &<< {.a = "1"})`},
+	}, searchRun{rounds: 5})
+	assertSame(pairs, searchRun{limit: 2})
+	assertSame(pairs, searchRun{portions: 2})
+}
+
+func testSearchCycles(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	defer s.writeGolden(t)
+	s.seed(t, []span{
+		{20, 1, 0, []string{"a"}}, {20, 2, 1, []string{"b"}},
+		{20, 3, 4, []string{"a", "b"}}, {20, 4, 3, []string{"b"}},
+	})
+	s.assertResults(t, "one-hop", []string{`{.a = "1"} > {.b = "1"}`, `{.a = "1"} ~ {.b = "1"}`, `{.a = "1"} !< {.b = "1"}`}, searchRun{})
+	s.assertResults(t, "transitive", []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !<< {.b = "1"}`}, searchRun{})
+	s.seed(t, []span{{20, 5, 98, []string{"b"}}})
+	s.assertResults(t, "dangling", []string{`{.a = "1"} > {.b = "1"}`, `{.a = "1"} &~ {.b = "1"}`}, searchRun{})
+}
+
+func testSearchRoundLimit(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	defer s.writeGolden(t)
+	chain := func(trace, n, top int) []span {
+		var res []span
+		for i := 1; i <= n; i++ {
+			sp := span{trace: trace, id: i, parent: i - 1}
+			if i == 1 {
+				sp.parent = top
+			}
+			switch i {
+			case 1:
+				sp.attrs = []string{"a"}
+			case n:
+				sp.attrs = []string{"b"}
+			}
+			res = append(res, sp)
+		}
+		return res
+	}
+	queries := []string{`{.a = "1"} >> {.b = "1"}`, `{.a = "1"} !>> {.b = "1"}`, `{.a = "1"} > {}`, `{.b = "1"} &<< {.a = "1"}`,
+		`{.a = "1"} > {.b = "1"}`, `{.a = "1"} ~ {.b = "1"}`, `{.a = "1"} !> {.b = "1"}`}
+	// 33: a root with children, and a chain of 8 under a missing parent.
+	rooted := append(chain(33, 8, 99), span{33, 20, 0, []string{"a"}},
+		span{33, 21, 20, []string{"b"}}, span{33, 22, 20, []string{"a"}}, span{33, 23, 20, []string{"b"}})
+	s.seed(t, append(append(chain(30, 8, 99), chain(32, 8, 0)...), rooted...))
+	s.assertResults(t, "resolved", queries, searchRun{rounds: 3})
+	s.seed(t, chain(31, 9, 0))
+	s.assertResults(t, "unresolved", queries[:2], searchRun{rounds: 3})
+	// 34: a rooted chain of 9 and a span under a missing parent.
+	s.seed(t, append(chain(34, 9, 0), span{34, 20, 98, []string{"a"}}))
+	s.assertResults(t, "unresolved-one-hop", queries[4:7], searchRun{rounds: 3})
+}
+
+// Search returns the traces, spansets and selected values of the golden
+// results, on well formed, dangling, rootless, deep and duplicated traces,
+// under a limit that cuts the result and in complexity portions. On a
+// cluster each trace's spans sit on one shard.
+func TestSearchStructuralOperators(t *testing.T) { testSearchStructuralOperators(t, false) }
+
+func TestSearchStructuralOperatorsOnCluster(t *testing.T) { testSearchStructuralOperators(t, true) }
+
+// Search over HTTP returns the golden results.
+func TestSearchStructuralOperatorsOverHTTP(t *testing.T) { testSearchOverHTTP(t, false) }
+
+func TestSearchStructuralOperatorsOverHTTPOnCluster(t *testing.T) { testSearchOverHTTP(t, true) }
+
+// A search whose `||` repeats an operand of its structural side returns what
+// it returns with both sides planned.
+func TestSearchRepeatedOperand(t *testing.T) { testSearchRepeatedOperand(t, false) }
+
+func TestSearchRepeatedOperandOnCluster(t *testing.T) { testSearchRepeatedOperand(t, true) }
+
+// A cycle's spans are unreachable or skip the trace, by operator; a one-hop
+// operator checks them only in a trace with a root and a missing parent.
+func TestSearchCycles(t *testing.T) { testSearchCycles(t, false) }
+
+func TestSearchCyclesOnCluster(t *testing.T) { testSearchCycles(t, true) }
+
+// At 3 rounds, a chain of 8 spans under a missing parent resolves, in a
+// rooted trace too, and a rooted chain of 9 does not.
+func TestSearchRoundLimit(t *testing.T) { testSearchRoundLimit(t, false) }
+
+func TestSearchRoundLimitOnCluster(t *testing.T) { testSearchRoundLimit(t, true) }
 
 // testSearchSmoke checks trace ids and order, whatever the portion count.
 func testSearchSmoke(t *testing.T, cluster bool) {
@@ -542,21 +865,45 @@ func TestProbeUnresolvedOverHTTP(t *testing.T) { testProbeUnresolved(t, false, t
 
 func TestProbeUnresolvedOverHTTPOnCluster(t *testing.T) { testProbeUnresolved(t, true, true) }
 
-// A structural query's estimate is every span in range, so the budget that holds
-// all of them reads it at once and one span less splits it.
-func TestSearchPortionsByTheSpansInRange(t *testing.T) {
-	s := openSearchStore(t, false, false)
+// A structural query's estimate is the spans in range on the fullest shard, so
+// the budget that holds them reads it at once and one span less splits it.
+func TestSearchPortionsByTheSpansInRange(t *testing.T) { testSearchPortionsByTheSpansInRange(t, false) }
+
+func TestSearchPortionsByTheSpansInRangeOnCluster(t *testing.T) {
+	testSearchPortionsByTheSpansInRange(t, true)
+}
+
+// fullestShard returns the spans of the fullest shard, a single node being one.
+func (s *searchStore) fullestShard(t *testing.T) int {
+	t.Helper()
+	total := len(structuralTraces())
+	if s.cluster == "" {
+		return total
+	}
+	var fullest uint64
+	if err := s.conn.QueryRow(context.Background(), `SELECT max(c) FROM
+		(SELECT count() c FROM tempo_traces_dist GROUP BY _shard_num)`).Scan(&fullest); err != nil {
+		t.Fatal(err)
+	}
+	if int(fullest) >= total {
+		t.Fatalf("fullest shard holds %d of %d spans, want them split", fullest, total)
+	}
+	return int(fullest)
+}
+
+func testSearchPortionsByTheSpansInRange(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
 	s.seedStructural(t)
 	t.Cleanup(func() {
 		if err := traceqlconfig.Init(); err != nil {
 			t.Error(err)
 		}
 	})
-	spans := len(structuralTraces())
+	fullest := s.fullestShard(t)
 	for _, tc := range []struct {
 		budget              int
 		portions, totalJobs int64
-	}{{spans, 0, 1}, {spans - 1, 2, 2}} {
+	}{{fullest, 0, 1}, {fullest - 1, 2, 2}} {
 		t.Setenv(traceqlconfig.PortionSpansEnv, strconv.Itoa(tc.budget))
 		if err := traceqlconfig.Init(); err != nil {
 			t.Fatal(err)
@@ -570,12 +917,15 @@ func TestSearchPortionsByTheSpansInRange(t *testing.T) {
 			t.Fatal(err)
 		}
 		ctx := &shared.PlannerContext{
-			Ctx: context.Background(), CHDb: s.db,
+			Ctx: context.Background(), CHDb: s.db, IsCluster: s.cluster != "",
 			From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
 			Limit: searchLimit, SpansPerSpanSet: 100, AncestryRounds: 20,
 			VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
 		}
-		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{Name: s.name}})
+		distconfig.Init()
+		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{
+			Name: s.name, ClusterName: s.cluster,
+		}})
 		ch, err := planner.Process(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -593,3 +943,122 @@ func TestSearchPortionsByTheSpansInRange(t *testing.T) {
 		}
 	}
 }
+
+// matchedSpans is the "trace/span" of every span in summary lines, sorted.
+func matchedSpans(lines []string) []string {
+	res := []string{}
+	trace := regexp.MustCompile(`^trace (\w+) `)
+	spanID := regexp.MustCompile(`\[span (\w+)@`)
+	current := ""
+	for _, line := range lines {
+		if m := trace.FindStringSubmatch(line); m != nil {
+			current = m[1]
+			continue
+		}
+		for _, m := range spanID.FindAllStringSubmatch(line, -1) {
+			res = append(res, current+"/"+m[1])
+		}
+	}
+	slices.Sort(res)
+	return res
+}
+
+// testSearchTreeReadBound checks spans of a trace reaching outside the range.
+func testSearchTreeReadBound(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	// The range of a search ends a minute after spanStart.
+	bound := time.Minute + time.Hour
+	spans := []span{
+		// 0x30 crosses the range's upper edge, deepest spans past the bound.
+		{0x30, 1, 0, []string{"a"}}, {0x30, 2, 1, []string{"b"}}, {0x30, 3, 2, []string{"b"}}, {0x30, 4, 3, []string{"b"}},
+		// 0x31: children in range under a parent starting exactly at the bound.
+		{0x31, 1, 0, []string{"a"}}, {0x31, 2, 1, nil}, {0x31, 3, 2, []string{"b"}}, {0x31, 4, 2, []string{"c"}},
+		// 0x32: a parent starting past the bound counts as missing.
+		{0x32, 1, 0, []string{"a"}}, {0x32, 2, 1, nil}, {0x32, 3, 2, []string{"b"}},
+		// 0x33: a root days before the range.
+		{0x33, 1, 0, nil}, {0x33, 2, 1, []string{"a"}}, {0x33, 3, 2, []string{"b"}}, {0x33, 4, 2, []string{"c"}},
+	}
+	starts := map[[2]int]time.Duration{
+		{0x30, 3}: 30 * time.Minute, {0x30, 4}: 2 * time.Hour,
+		{0x31, 2}: bound,
+		{0x32, 2}: bound + time.Nanosecond,
+		{0x33, 1}: -48 * time.Hour,
+	}
+	s.seedStarts(t, spans, func(i int) int64 {
+		if d, ok := starts[[2]int{spans[i].trace, spans[i].id}]; ok {
+			return spanStart.Add(d).UnixNano()
+		}
+		return spanStart.UnixNano() + int64(i)
+	})
+	for query, want := range map[string][]string{
+		`{.a = "1"} >> {.b = "1"}`:  {"30/2", "31/3", "33/3"},
+		`{.a = "1"} > {.b = "1"}`:   {"30/2", "33/3"},
+		`{.b = "1"} ~ {.c = "1"}`:   {"31/4", "33/4"},
+		`{.a = "1"} !>> {.b = "1"}`: {"32/3"},
+		`{.b = "1"} << {.a = "1"}`:  {"30/1", "31/1", "33/2"},
+		`{.a = "1"} &>> {.b = "1"}`: {"30/1", "30/2", "31/1", "31/3", "33/2", "33/3"},
+	} {
+		for _, limit := range []int{10, 1000} {
+			if got := matchedSpans(s.result(t, query, searchRun{limit: limit})); !slices.Equal(got, want) {
+				t.Errorf("%s limit %d: got %v, want %v", query, limit, got, want)
+			}
+		}
+	}
+}
+
+// matchedTraces is the trace of every summary line, in result order.
+func matchedTraces(lines []string) []string {
+	res := []string{}
+	trace := regexp.MustCompile(`^trace (\w+) `)
+	for _, line := range lines {
+		if m := trace.FindStringSubmatch(line); m != nil {
+			res = append(res, m[1])
+		}
+	}
+	return res
+}
+
+// testSearchTreeReadBoundOrder runs more matching traces than the small limit:
+// the newest come first and the small limit is a prefix of the large one.
+func testSearchTreeReadBoundOrder(t *testing.T, cluster bool) {
+	s := openSearchStore(t, cluster, false)
+	const matching = 12
+	var spans []span
+	for n := range matching {
+		spans = append(spans, span{0x40 + n, 1, 0, []string{"a"}}, span{0x40 + n, 2, 1, []string{"b"}})
+	}
+	// 0x60 resolves through a parent after the range; 0x61's parent is past the bound.
+	spans = append(spans,
+		span{0x60, 1, 0, []string{"a"}}, span{0x60, 2, 1, nil}, span{0x60, 3, 2, []string{"b"}},
+		span{0x61, 1, 0, []string{"a"}}, span{0x61, 2, 1, nil}, span{0x61, 3, 2, []string{"b"}})
+	starts := map[[2]int]time.Duration{
+		{0x60, 2}: 30 * time.Minute,
+		{0x61, 2}: time.Minute + time.Hour + time.Nanosecond,
+	}
+	s.seedStarts(t, spans, func(i int) int64 {
+		if d, ok := starts[[2]int{spans[i].trace, spans[i].id}]; ok {
+			return spanStart.Add(d).UnixNano()
+		}
+		return spanStart.UnixNano() + int64(i)
+	})
+	want := []string{"60"}
+	for n := matching - 1; n >= 0; n-- {
+		want = append(want, fmt.Sprintf("%x", 0x40+n))
+	}
+	for _, query := range []string{`{.a = "1"} >> {.b = "1"}`, `{.b = "1"} << {.a = "1"}`, `{.a = "1"} &>> {.b = "1"}`} {
+		for _, limit := range []int{10, 1000} {
+			expected := want[:min(limit, len(want))]
+			if got := matchedTraces(s.result(t, query, searchRun{limit: limit})); !slices.Equal(got, expected) {
+				t.Errorf("%s limit %d: got %v, want %v", query, limit, got, expected)
+			}
+		}
+	}
+}
+
+func TestSearchTreeReadBound(t *testing.T) { testSearchTreeReadBound(t, false) }
+
+func TestSearchTreeReadBoundOrder(t *testing.T) { testSearchTreeReadBoundOrder(t, false) }
+
+func TestSearchTreeReadBoundOrderOnCluster(t *testing.T) { testSearchTreeReadBoundOrder(t, true) }
+
+func TestSearchTreeReadBoundOnCluster(t *testing.T) { testSearchTreeReadBound(t, true) }
