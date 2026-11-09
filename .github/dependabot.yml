@@ -9,6 +9,12 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
+  - package-ecosystem: "gomod"
+    directory: "/tools" # golangci-lint, run by `make lint`
+    schedule:
+      interval: "daily"
+    allow:
+      - dependency-type: "all"
   - package-ecosystem: "github-actions"
     directory: "/" # Checks the actions used in .github/workflows
     schedule:

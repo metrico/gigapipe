@@ -7,8 +7,9 @@ import "testing"
 // rendering that again gives the same text. It makes no claim about which
 // queries should be accepted.
 //
-// Not part of the default test/CI lane: native Go fuzz targets only run
-// their seed corpus under plain `go test`, and are otherwise driven via
+// The seed corpus below (and any inputs under testdata/fuzz/FuzzParse) runs
+// as an ordinary test under `go test ./...`, so CI checks it on every change.
+// Fuzzing beyond the seeds is not part of CI: it runs with
 // `make fuzz HEAD=promql DURATION=<duration>`, locally or from the manually
 // dispatched "Parser fuzz" workflow.
 func FuzzParse(f *testing.F) {

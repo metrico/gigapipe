@@ -14,8 +14,7 @@
 #     struct tags (e.g. `@@`, `"(" @@ ")"`) that are not real reflect
 #     struct tags, and lexer rule tables use unkeyed composite literals by
 #     participle's own convention. These would fire on every new grammar
-#     rule added to the PromQL/LogQL/TraceQL parsers, which is exactly the
-#     code this milestone's corpus work touches most.
+#     rule added to the PromQL/LogQL/TraceQL parsers.
 #   - staticcheck is restricted to the SA* (actual bug/deprecation) checks.
 #     The ST*/S*/QF* style and quickfix checks bundled into staticcheck by
 #     default add ~90 pre-existing stylistic findings (e.g. "could use
@@ -23,9 +22,10 @@
 #     a hard gate right now.
 #
 # ineffassign, unused, misspell, unconvert, gofmt and goimports are enabled
-# as-is; the CI job runs golangci-lint-action with only-new-issues so this
-# initial adoption gates new/changed code without requiring a full
-# pre-existing-debt cleanup as a prerequisite.
+# as-is. CI runs `make lint`, which reports only issues new since the pull
+# request's base commit (--new-from-rev), so this initial adoption gates
+# new/changed code without requiring a full pre-existing-debt cleanup as a
+# prerequisite.
 version: "2"
 
 linters:

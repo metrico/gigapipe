@@ -17,17 +17,12 @@ heads := promql logql traceql
 HEAD ?=
 DURATION ?= 60s
 
-# golangci-lint is built from source with the local Go toolchain, and pinned
-# here only. The golang.org/x/tools it depends on must read the export data of
-# the Go release in go.mod: go1.27.3 writes format V5, which needs x/tools
-# >= v0.50.0, first used by v2.14.0. Re-check when go.mod moves.
-GOLANGCI_LINT_VERSION ?= v2.14.0
 # Only issues introduced since this revision are reported. CI passes the pull
 # request's base commit.
 LINT_NEW_FROM_REV ?= origin/master
 
 .PHONY: docker e2e-deps e2e-build e2e-test e2e-cleanup e2e-full e2e-ci \
-	fmt-check build test-unit lint arch-lint fuzz
+	fmt-check build test-unit lint fuzz
 
 docker:
 	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
@@ -47,15 +42,12 @@ test-unit:
 
 # Run golangci-lint with the repo's committed config, gating only issues
 # introduced since LINT_NEW_FROM_REV so this doesn't fail on pre-existing
-# repo-wide debt.
+# repo-wide debt. golangci-lint is a tool of the tools/ module, where its
+# version is pinned and kept current by Dependabot. It runs from the repo root
+# with -modfile, so it lints gigapipe's packages; `go -C tools` would lint
+# only the tools/ module.
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run --new-from-rev=$(LINT_NEW_FROM_REV)
-
-# Run go-arch-lint in report-only mode against the baseline layering config.
-# It is pinned in tools/archlint, which also raises golang.org/x/tools to a
-# version that reads the export data of the Go release in go.mod.
-arch-lint:
-	go -C tools/archlint tool go-arch-lint check --project-path $(CURDIR)
+	go tool -modfile=tools/go.mod golangci-lint run --new-from-rev=$(LINT_NEW_FROM_REV)
 
 # Run the native Go parser fuzz target for one query head:
 # make fuzz HEAD=promql|logql|traceql [DURATION=60s]

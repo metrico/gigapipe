@@ -42,29 +42,12 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+        cache-dependency-path: |
+          go.sum
+          tools/go.sum
 
     # Only new issues fail the job (since the pull request's base commit, or
     # since the previous commit on a push), so adoption doesn't require
     # cleaning up pre-existing findings first.
     - name: golangci-lint
       run: make lint LINT_NEW_FROM_REV=${{ github.event.pull_request.base.sha || github.event.before }}
-
-  arch-lint:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: go.mod
-        cache-dependency-path: |
-          go.sum
-          tools/archlint/go.sum
-
-    # Report-only: baselines current package coupling against
-    # .go-arch-lint.yml without gating the merge. continue-on-error keeps
-    # this from blocking a PR while still surfacing the report.
-    - name: go-arch-lint check (report-only)
-      continue-on-error: true
-      run: make arch-lint
