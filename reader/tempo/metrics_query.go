@@ -366,22 +366,8 @@ func buildFilterCTE(keys []string, ops []string, vals []string, fromDate string,
 			sub.AndWhere(sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(_vals[i])))
 		case "!=":
 			sub.AndWhere(sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(_vals[i])))
-		case "=~":
-			valCopy := _vals[i]
-			sub.AndWhere(sql.Eq(
-				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-					return fmt.Sprintf("match(val, '%s')", strings.ReplaceAll(valCopy, "'", "\\'")), nil
-				}),
-				sql.NewRawObject("1"),
-			))
-		case "!~":
-			valCopy := _vals[i]
-			sub.AndWhere(sql.Neq(
-				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-					return fmt.Sprintf("match(val, '%s')", strings.ReplaceAll(valCopy, "'", "\\'")), nil
-				}),
-				sql.NewRawObject("1"),
-			))
+		case "=~", "!~":
+			sub.AndWhere(opRegistry[ops[i]](sql.NewStringVal(_vals[i])))
 		case ">":
 			sub.AndWhere(sql.Gt(sql.NewRawObject("val"), sql.NewStringVal(_vals[i])))
 		case ">=":
@@ -452,10 +438,16 @@ func buildByPivotCTE(labels []string, fromDate string, toDate string, attrsTable
 	for i, label := range labels {
 		ginKeys[i] = stripAttrPrefix(label)
 		aliases[i] = fmt.Sprintf("by_lbl_%d", i)
+		key := sql.NewStringVal(ginKeys[i])
 		selectCols = append(selectCols,
 			sql.NewCol(
-				sql.NewRawObject(fmt.Sprintf("anyIf(val, key = '%s')",
-					strings.ReplaceAll(ginKeys[i], "'", "\\'"))),
+				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+					strKey, err := key.String(ctx, options...)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("anyIf(val, key = %s)", strKey), nil
+				}),
 				aliases[i],
 			),
 		)
