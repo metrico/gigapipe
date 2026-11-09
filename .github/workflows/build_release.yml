@@ -61,7 +61,7 @@ jobs:
       - run: |
           echo "VERSION=${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.ref_name || github.ref_name }}" >> $GITHUB_ENV
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: build static
@@ -124,7 +124,7 @@ jobs:
       - run: |
           echo "VERSION=${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.ref_name || github.ref_name }}" >> $GITHUB_ENV
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: build static
