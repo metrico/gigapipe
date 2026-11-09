@@ -45,7 +45,8 @@ func TestLowerFilters(t *testing.T) {
 		{`{span.x != 200}`, cmp("span.x", "!=", ValueNumber, "200")},
 		{`{.a > -3}`, cmp(".a", ">", ValueNumber, "-3")},
 		{`{.a > - -3}`, cmp(".a", ">", ValueNumber, "3")},
-		{`{.a < 1 . 5}`, cmp(".a", "<", ValueNumber, "1.5")},
+		{`{.a < 1.5}`, cmp(".a", "<", ValueNumber, "1.5")},
+		{`{.a = .95}`, cmp(".a", "=", ValueNumber, ".95")},
 		{`{duration > 1.5ms}`, cmp("duration", ">", ValueDuration, "1.5ms")},
 		{`{duration > -1ms}`, cmp("duration", ">", ValueDuration, "-1ms")},
 		{`{.a = true}`, cmp(".a", "=", ValueBool, "true")},
@@ -326,5 +327,11 @@ func TestHasStructural(t *testing.T) {
 		`count() > 1`:                               false,
 	} {
 		require.Equal(t, want, mustParse(t, query).HasStructural(), query)
+	}
+}
+
+func TestNumberLiteralTypes(t *testing.T) {
+	for text, want := range map[string]FieldType{`.95`: TypeFloat, `5.`: TypeFloat, `1e3`: TypeFloat, `.5e2`: TypeFloat, `5`: TypeInt} {
+		require.Equal(t, want, TypeOf(&Static{Kind: ValueNumber, Text: text}), text)
 	}
 }

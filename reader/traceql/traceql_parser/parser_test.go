@@ -113,7 +113,17 @@ func TestParseSelectors(t *testing.T) {
 		{`{.a !~ "x"}`, term(".a", "!~", str(`"x"`))},
 		{`{.a > -3}`, term(".a", ">", unary("-", num("3")))},
 		{`{.a >= 1.5}`, term(".a", ">=", num("1.5"))},
-		{`{.a < 1 . 5}`, term(".a", "<", num("1.5"))},
+		{`{.a = .95}`, term(".a", "=", num(".95"))},
+		{`{.a = .5}`, term(".a", "=", num(".5"))},
+		{`{.a = 5.}`, term(".a", "=", num("5."))},
+		{`{.a = 1e3}`, term(".a", "=", num("1e3"))},
+		{`{.a = 1.5e-3}`, term(".a", "=", num("1.5e-3"))},
+		{`{.a = .5e2}`, term(".a", "=", num(".5e2"))},
+		{`{.a = -.5}`, term(".a", "=", unary("-", num(".5")))},
+		{`{duration > .5s}`, term("duration", ">", dur(".5", "s"))},
+		{`{duration > 5.s}`, term("duration", ">", dur("5.", "s"))},
+		{`{.foo.95 = 1}`, term(".foo.95", "=", num("1"))},
+		{`{span.5xx = 1}`, term("span.5xx", "=", num("1"))},
 		{`{.a <= 0}`, term(".a", "<=", num("0"))},
 		{`{duration > 1.5ms}`, term("duration", ">", dur("1.5", "ms"))},
 		{`{span:duration < 2s}`, term("span:duration", "<", dur("2", "s"))},
@@ -152,6 +162,10 @@ func TestParseFieldExpressions(t *testing.T) {
 		{`{.a - .b > 3}`, field(name(".a"), "-", name(".b"), ">", num("3"))},
 		{`{.a -.b > 3}`, field(name(".a"), "-", name(".b"), ">", num("3"))},
 		{`{.a-1 = 2}`, term(".a-1", "=", num("2"))},
+		{`{.foo-.5 = 2}`, term(".foo-.5", "=", num("2"))},
+		{`{.foo - .5 > 1}`, field(name(".foo"), "-", num(".5"), ">", num("1"))},
+		{`{ .95 = 1 }`, field(num(".95"), "=", num("1"))},
+		{`{.foo * .5 > 1}`, field(name(".foo"), "*", num(".5"), ">", num("1"))},
 		{`{.a + .b * .c / .d % .e ^ .f = 1}`,
 			field(name(".a"), "+", name(".b"), "*", name(".c"), "/", name(".d"), "%", name(".e"), "^", name(".f"), "=", num("1"))},
 		{`{.a+.b*2>3}`, field(name(".a"), "+", name(".b"), "*", num("2"), ">", num("3"))},
@@ -179,7 +193,11 @@ func TestParseFieldExpressions(t *testing.T) {
 		require.Equal(t, script(expr(sel(nil)), filter(scalar(ScalarAtom{Aggregate: &Aggregate{Fn: "avg", Arg: arg}}), ">", lit("2", ""))), got)
 	})
 
-	for _, q := range []string{`{.a = }`, `{.a + }`, `{!}`, `{.a = 1 !}`, `{.a ** 2}`, `{.a = ()}`} {
+	for _, q := range []string{
+		`{.a = }`, `{.a + }`, `{!}`, `{.a = 1 !}`, `{.a ** 2}`, `{.a = ()}`,
+		`{ .5xx = 1 }`, `{ .a = .5xx }`, `{ .a = .5.5 }`, `{ .a = 1.2.3 }`, `{ .a = 1e }`, `{ .a = .5x }`,
+		`{ .a = 0x10 }`, `{ .a = 1_000 }`, `{ .a < 1 . 5 }`, `{ .a = . }`,
+	} {
 		t.Run("rejects "+q, func(t *testing.T) {
 			_, err := Parse(q)
 			require.Error(t, err)
@@ -290,7 +308,10 @@ func TestParseScalarFilters(t *testing.T) {
 		{`{} | max(span.x) < -3`, script(expr(sel(nil)), filter(agg("max", "span.x"), "<", lit("-3", "")))},
 		{`{} | min(.x) != 0`, script(expr(sel(nil)), filter(agg("min", ".x"), "!=", lit("0", "")))},
 		{`{} | sum(resource.x) <= 10s`, script(expr(sel(nil)), filter(agg("sum", "resource.x"), "<=", lit("10", "s")))},
-		{`{} | avg(span:duration) > 1 . 5`, script(expr(sel(nil)), filter(agg("avg", "span:duration"), ">", lit("1.5", "")))},
+		{`{} | avg(span:duration) > 1.5`, script(expr(sel(nil)), filter(agg("avg", "span:duration"), ">", lit("1.5", "")))},
+		{`{} | avg(.foo) > .5`, script(expr(sel(nil)), filter(agg("avg", ".foo"), ">", lit(".5", "")))},
+		{`{} | count() > -.5`, script(expr(sel(nil)), filter(agg("count", ""), ">", lit("-.5", "")))},
+		{`{} | avg(duration) > .5s`, script(expr(sel(nil)), filter(agg("avg", "duration"), ">", lit(".5", "s")))},
 		// A scalar filter applies to the whole expression before it.
 		{`{.a = "b"} && {} | count() > 1`, script(expr(sel(a), then("&&", sel(nil))),
 			filter(agg("count", ""), ">", lit("1", "")))},
@@ -342,6 +363,8 @@ func TestParseScalarFilters(t *testing.T) {
 		`{} | count(.a) > 2`,
 		`{} | avg() > 2`,
 		`{} | count() > 2 | count() >`,
+		`{} | count() > 5 . 5`,
+		`{} | count() > .5x`,
 	} {
 		t.Run("rejects "+q, func(t *testing.T) {
 			_, err := Parse(q)
@@ -468,6 +491,8 @@ func TestParseMetricsFunctions(t *testing.T) {
 			&MetricsPipelineStage{Fn: "count_over_time", By: &ByClause{Labels: []string{"span.x", "name"}}})},
 		{`{} | quantile_over_time(duration, 0.9)`, metrics(empty(),
 			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Percentile: f64(0.9)})},
+		{`{} | quantile_over_time(duration, .95)`, metrics(empty(),
+			&MetricsPipelineStage{Fn: "quantile_over_time", Attr: "duration", Percentile: f64(0.95)})},
 		{`{} | histogram_over_time(duration)`, metrics(empty(),
 			&MetricsPipelineStage{Fn: "histogram_over_time", Attr: "duration"})},
 		{`{} | compare({.a = "b"}, 10, 1, 2)`, metrics(empty(), &MetricsPipelineStage{Fn: "compare", CompSel: &CompareSelector{
@@ -516,6 +541,9 @@ func TestParseWithHintsAndSecondStage(t *testing.T) {
 	}{
 		{`{} | rate() with(sample=0.1, exemplars=false)`, rate(&TraceQLScript{
 			WithHints: &WithClause{Hints: []WithHint{{Key: "sample", Value: "0.1"}, {Key: "exemplars", Value: "false"}}},
+		})},
+		{`{} | rate() with(sample=.1)`, rate(&TraceQLScript{
+			WithHints: &WithClause{Hints: []WithHint{{Key: "sample", Value: ".1"}}},
 		})},
 		{`{} | rate() with(sample=true, exemplars=5, most_recent=x)`, rate(&TraceQLScript{
 			WithHints: &WithClause{Hints: []WithHint{

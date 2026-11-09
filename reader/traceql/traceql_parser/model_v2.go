@@ -252,7 +252,7 @@ func (a Aggregate) String() string {
 
 // ScalarLiteral is a number, with its duration unit if any.
 type ScalarLiteral struct {
-	Num  string `@Minus? (@Float | @Integer @Dot? @Integer?)`
+	Num  string `@Minus? (@Float | @Integer)`
 	Unit string `@("ns"|"us"|"ms"|"s"|"m"|"h"|"d")?`
 }
 
@@ -314,7 +314,7 @@ func (a FieldAtom) String() string {
 
 // NumberLiteral is an unsigned number, with its duration unit if any.
 type NumberLiteral struct {
-	Num  string `(@Float | @Integer @Dot? @Integer?)`
+	Num  string `(@Float | @Integer)`
 	Unit string `@("ns"|"us"|"ms"|"s"|"m"|"h"|"d")?`
 }
 

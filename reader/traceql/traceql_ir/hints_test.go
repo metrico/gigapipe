@@ -14,6 +14,7 @@ func TestSampleFraction(t *testing.T) {
 	}{
 		{``, 0, false},
 		{` with(sample=0.1)`, 0.1, true},
+		{` with(sample=.1)`, 0.1, true},
 		{` with(exemplars=2, sample=0.25)`, 0.25, true},
 		{` with(sample=true)`, 0, false},
 		{` with(sample=false)`, 0, false},
