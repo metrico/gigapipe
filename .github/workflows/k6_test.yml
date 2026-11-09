@@ -55,7 +55,7 @@ jobs:
         with:
           repository: metrico/qryn-bench
           path: .
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
       - name: Download k6 for Prometheus
