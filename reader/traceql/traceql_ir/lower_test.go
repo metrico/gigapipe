@@ -255,7 +255,6 @@ func TestLowerSpansetOperators(t *testing.T) {
 }
 
 func TestLowerMetrics(t *testing.T) {
-	p := 0.9
 	from, to := int64(1), int64(2)
 	for _, tc := range []struct {
 		query string
@@ -265,7 +264,11 @@ func TestLowerMetrics(t *testing.T) {
 		{`{.a = "a"} | count_over_time() by (span.x, name)`, &Query{Pipeline: pipeline(a()),
 			Metrics: &MetricsFn{Fn: "count_over_time", By: []string{"span.x", "name"}}}},
 		{`{.a = "a"} | quantile_over_time(duration, 0.9)`, &Query{Pipeline: pipeline(a()),
-			Metrics: &MetricsFn{Fn: "quantile_over_time", Attr: "duration", Percentile: &p}}},
+			Metrics: &MetricsFn{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.9}}}},
+		{`{.a = "a"} | quantile_over_time(duration, .5, .95, 1)`, &Query{Pipeline: pipeline(a()),
+			Metrics: &MetricsFn{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.5, 0.95, 1}}}},
+		{`{.a = "a"} | quantile_over_time(duration, 0.5, .5, .9)`, &Query{Pipeline: pipeline(a()),
+			Metrics: &MetricsFn{Fn: "quantile_over_time", Attr: "duration", Quantiles: []float64{0.5, 0.9}}}},
 		{`{.a = "a"} | compare({.b = "b"}, 10, 1, 2)`, &Query{Pipeline: pipeline(a()),
 			Metrics: &MetricsFn{Fn: "compare", Compare: &CompareArgs{
 				Filter: strCmp(".b", "=", `"b"`), Count: 10, BaselineFrom: &from, BaselineTo: &to}}}},
@@ -362,6 +365,27 @@ func TestParseNamesInvalidDurationLiteral(t *testing.T) {
 				require.ErrorContains(t, err, `"`+literal+`"`)
 			})
 		}
+	}
+}
+
+func TestParseRejectsQuantileLists(t *testing.T) {
+	for query, want := range map[string]string{
+		`{} | quantile_over_time(duration)`:          `quantile_over_time requires at least one quantile`,
+		`{} | quantile_over_time()`:                  `quantile_over_time requires at least one quantile`,
+		`{} | quantile_over_time(duration, 1.5)`:     `quantile must be between 0 and 1: 1.5`,
+		`{} | quantile_over_time(duration, .5, 2)`:   `quantile must be between 0 and 1: 2`,
+		`{} | rate(, .5)`:                            `rate does not take quantiles`,
+		`{} | min_over_time(duration, .5)`:           `min_over_time does not take quantiles`,
+		`{} | histogram_over_time(duration, .5, .9)`: `histogram_over_time does not take quantiles`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			_, err := Parse(query)
+			require.ErrorContains(t, err, want)
+		})
+	}
+	for _, query := range []string{`{} | quantile_over_time(duration, -.1)`, `{} | quantile_over_time(duration, .5s)`} {
+		_, err := Parse(query)
+		require.Error(t, err, query)
 	}
 }
 

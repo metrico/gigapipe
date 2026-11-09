@@ -346,18 +346,18 @@ func (q *QuotedString) Unquote() (string, error) {
 
 // MetricsPipelineStage represents: | rate(), | count_over_time(), | compare(), etc.
 type MetricsPipelineStage struct {
-	Fn         string           `"|" @Label_name`
-	Attr       string           `"(" @Label_name?`
-	Percentile *float64         `( "," @Float )?`
-	CompSel    *CompareSelector `@@?`
-	Cb         string           `")"`
-	By         *ByClause        `@@?`
+	Fn        string           `"|" @Label_name`
+	Attr      string           `"(" @Label_name?`
+	Quantiles []float64        `( "," (@Float | @Integer) )*`
+	CompSel   *CompareSelector `@@?`
+	Cb        string           `")"`
+	By        *ByClause        `@@?`
 }
 
 func (m MetricsPipelineStage) String() string {
 	res := "| " + m.Fn + "(" + m.Attr
-	if m.Percentile != nil {
-		res += fmt.Sprintf(", %g", *m.Percentile)
+	for _, q := range m.Quantiles {
+		res += fmt.Sprintf(", %g", q)
 	}
 	if m.CompSel != nil {
 		res += m.CompSel.String()
