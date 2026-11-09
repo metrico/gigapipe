@@ -80,8 +80,8 @@ make lint                           # golangci-lint, gated to issues new since o
 make fuzz HEAD=promql DURATION=60s  # run the native Go parser fuzz target for a query head
 ```
 
-`make lint` builds golangci-lint from the version pinned in `tools/go.mod`, so
-nothing needs to be installed first. If your fork's `origin/master` is behind,
+`make lint` builds the latest golangci-lint release, so nothing needs to be
+installed first. If your fork's `origin/master` is behind,
 compare against another revision with `make lint LINT_NEW_FROM_REV=upstream/master`.
 Fuzzing can also be started from the "Parser fuzz" workflow in the Actions tab.
 

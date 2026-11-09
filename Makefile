@@ -42,12 +42,11 @@ test-unit:
 
 # Run golangci-lint with the repo's committed config, gating only issues
 # introduced since LINT_NEW_FROM_REV so this doesn't fail on pre-existing
-# repo-wide debt. golangci-lint is a tool of the tools/ module, where its
-# version is pinned and kept current by Dependabot. It runs from the repo root
-# with -modfile, so it lints gigapipe's packages; `go -C tools` would lint
-# only the tools/ module.
+# repo-wide debt. golangci-lint is deliberately unpinned: @latest keeps up with
+# new Go releases without a version to bump by hand, and the linters it runs
+# are listed explicitly in .golangci.yml.
 lint:
-	go tool -modfile=tools/go.mod golangci-lint run --new-from-rev=$(LINT_NEW_FROM_REV)
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --new-from-rev=$(LINT_NEW_FROM_REV)
 
 # Run the native Go parser fuzz target for one query head:
 # make fuzz HEAD=promql|logql|traceql [DURATION=60s]

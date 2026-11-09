@@ -42,9 +42,6 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
-        cache-dependency-path: |
-          go.sum
-          tools/go.sum
 
     # Only new issues fail the job (since the pull request's base commit, or
     # since the previous commit on a push), so adoption doesn't require
