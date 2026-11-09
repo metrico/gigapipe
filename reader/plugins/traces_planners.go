@@ -23,8 +23,9 @@ func GetTracesDataPlugin() *TracesDataPlugin {
 
 // AttrlessConditionPlannerPlugin and InitIndexPlannerPlugin replace only the
 // selector reads in attrless.go and init.go. all_spans.go, field_filter.go,
-// the traceTree edge read and selectAttrs read the tables directly, so these
-// hooks don't scope the rows of those reads. An AttrlessConditionPlannerPlugin
+// the traceTree edge read, selectAttrs and RowAttrsPlanner read the tables directly,
+// so these hooks don't scope the rows of those reads. RowAttrsPlanner runs only
+// when no InitIndexPlannerPlugin is registered. An AttrlessConditionPlannerPlugin
 // reads only the traces of ctx.TracesCandidates.
 type AttrlessConditionPlannerPlugin func() shared.SQLRequestPlanner
 
@@ -71,7 +72,12 @@ type InitIndexPlannerPlugin func() shared.SQLRequestPlanner
 
 var initIndexPlannerPlugin *InitIndexPlannerPlugin
 
+// RegisterInitIndexPlannerPlugin sets the hook; nil clears it.
 func RegisterInitIndexPlannerPlugin(plugin InitIndexPlannerPlugin) {
+	if plugin == nil {
+		initIndexPlannerPlugin = nil
+		return
+	}
 	initIndexPlannerPlugin = &plugin
 }
 

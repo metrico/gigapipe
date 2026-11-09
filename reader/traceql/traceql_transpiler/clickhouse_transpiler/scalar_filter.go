@@ -156,7 +156,7 @@ func (s *scalarFilterStage) values(ctx *shared.PlannerContext, alias string, bas
 		return nil, err
 	}
 	baseSpans := sql.NewSelect().Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).From(sql.NewWithRef(base))
-	spans := pivot.spans(ctx)
+	spans := keepPortion(ctx, pivot.spans(ctx))
 	table := "traces_idx"
 	if len(pivot.keys) == 0 {
 		table = "traces"

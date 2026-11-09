@@ -38,7 +38,7 @@ func (s *groupByStage) process(ctx *shared.PlannerContext, alias string, prev, _
 	if err != nil {
 		return nil, err
 	}
-	spans := pivot.spans(ctx)
+	spans := keepPortion(ctx, pivot.spans(ctx))
 	table := "traces_idx"
 	if len(pivot.keys) == 0 {
 		table = "traces"

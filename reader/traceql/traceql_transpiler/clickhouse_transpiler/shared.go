@@ -88,9 +88,24 @@ func randomFilter(ctx *shared.PlannerContext) sql.SQLCondition {
 	if ctx.RandomFilter.Max == 0 {
 		return nil
 	}
+	if ctx.RandomFilter.TraceIDRanges {
+		return rawCond(traceIDPortionSQL(ctx.RandomFilter.Max, ctx.RandomFilter.I))
+	}
 	return sql.Eq(
 		sql.NewRawObject(fmt.Sprintf("cityHash64(trace_id) %% %d", ctx.RandomFilter.Max)),
 		sql.NewIntVal(int64(ctx.RandomFilter.I)))
+}
+
+// keepPortion keeps the rows of sel in the current trace_id range portion.
+// Hash portions restrict only the operand reads.
+func keepPortion(ctx *shared.PlannerContext, sel sql.ISelect) sql.ISelect {
+	if !ctx.RandomFilter.TraceIDRanges {
+		return sel
+	}
+	if portion := randomFilter(ctx); portion != nil {
+		sel.AndWhere(portion)
+	}
+	return sel
 }
 
 // restrictOperand keeps the rows of sel, an operand read, in the current

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"regexp"
 	"slices"
 	"strconv"
@@ -86,7 +87,7 @@ func TestCompareCountsOnEachShardThenRanks(t *testing.T) {
 
 // compare() probes its baseline window; every other query its own range.
 func TestUnresolvedProbeWindow(t *testing.T) {
-	ctx := &shared.PlannerContext{From: time.Unix(100, 0), To: time.Unix(200, 0)}
+	ctx := &shared.PlannerContext{From: time.Unix(100, 0), To: time.Unix(200, 0), QueryTo: time.Unix(200, 0)}
 
 	for _, query := range []string{
 		`{.a = "1"} >> {.b = "1"} | rate()`,
@@ -103,7 +104,19 @@ func TestUnresolvedProbeWindow(t *testing.T) {
 	got := unresolvedProbeContext(q, ctx)
 	require.True(t, got.From.Equal(time.Unix(50, 0)), got.From)
 	require.True(t, got.To.Equal(time.Unix(150, 0)), got.To)
+	require.True(t, got.QueryTo.Equal(time.Unix(200, 0)), got.QueryTo)
 	require.True(t, ctx.From.Equal(time.Unix(100, 0)), "planner context changed")
+}
+
+// A TraceQL planner context carries the end of the request.
+func TestTraceQLPlannerContextSetsTheQueryEnd(t *testing.T) {
+	svc := serviceOver("fake", newFakeReader(nil, nil))
+	conn, err := svc.Session.GetDB(context.Background())
+	require.NoError(t, err)
+	to := time.Unix(200, 0)
+	ctx, err := traceQLPlannerContext(context.Background(), conn, `{}`, time.Unix(100, 0), to, 10)
+	require.NoError(t, err)
+	require.True(t, ctx.QueryTo.Equal(to), ctx.QueryTo)
 }
 
 // exemplars=N keeps N exemplars per series, evenly spread over those in

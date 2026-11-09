@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/plugins"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
@@ -297,6 +298,87 @@ func TestAutocompleteTreatsQuotedNamesLikeBareOnes(t *testing.T) {
 					t.Errorf("got:\n%s\nwant:\n%s", got, want)
 				}
 			})
+		}
+	}
+}
+
+// durationOnlyQueries have a filter of duration comparisons alone.
+var durationOnlyQueries = []string{
+	`{duration > 0ms}`, `{span:duration > 0ms}`, `{duration >= 1s && duration < 2s}`,
+	`{duration = 1ms || duration != 2ms}`, `({duration > 0ms})`, `{duration > 1ms} | select(.x)`,
+	`{duration > 1ms && duration < 1s || span:duration != 5ms}`,
+	`{(duration > 1ms || duration < 1ns) && span:duration != 5ms}`,
+}
+
+// A duration-only filter is decided on each attribute row: one statement over
+// the attribute index with no ids stage.
+func TestAutocompleteDurationOnlyIsOneStatement(t *testing.T) {
+	for _, query := range durationOnlyQueries {
+		for kind, plan := range autocompletePlans(t, query) {
+			t.Run(kind+" "+query, func(t *testing.T) {
+				if len(plan.Ids) != 0 {
+					t.Fatalf("%d ids statements", len(plan.Ids))
+				}
+				got := renderPlan(t, plan.Data, testPlannerContext(3))
+				for _, want := range []string{"FROM tempo_traces_attrs_gin", "traces_idx.duration", "(date) >=", "(date) <=",
+					"traces_idx.timestamp_ns", "LIMIT 5"} {
+					if !strings.Contains(got, want) {
+						t.Errorf("no %q in %s", want, got)
+					}
+				}
+				if strings.Contains(got, SearchResultTable) {
+					t.Errorf("reads the ids table: %s", got)
+				}
+				if wantKey := kind == "values"; strings.Contains(got, "(key) == ('x')") != wantKey {
+					t.Errorf("key filter is not %v: %s", wantKey, got)
+				}
+			})
+		}
+	}
+}
+
+// A registered InitIndexPlannerPlugin scopes autocomplete through the ids stage.
+func TestAutocompleteDurationOnlyKeepsIdsStageUnderInitIndexPlugin(t *testing.T) {
+	called := 0
+	plugins.RegisterInitIndexPlannerPlugin(func() shared.SQLRequestPlanner {
+		called++
+		return &InitIndexPlanner{dist: true}
+	})
+	t.Cleanup(func() { plugins.RegisterInitIndexPlannerPlugin(nil) })
+	for _, query := range durationOnlyQueries {
+		for kind, plan := range autocompletePlans(t, query) {
+			if len(plan.Ids) == 0 {
+				t.Errorf("%s %s: no ids stage", kind, query)
+			}
+		}
+	}
+	if called == 0 {
+		t.Error("plugin not called")
+	}
+}
+
+func TestAutocompleteDurationFilterTermsApplyToTheRow(t *testing.T) {
+	for query, want := range map[string]string{
+		`{duration >= 1s && duration < 2s}`:   "(((traces_idx.duration) >= (1000000000)) and ((traces_idx.duration) < (2000000000)))",
+		`{duration = 1ms || duration != 2ms}`: "(((traces_idx.duration) == (1000000)) or ((traces_idx.duration) != (2000000)))",
+	} {
+		got := renderPlan(t, autocompletePlans(t, query)["tags"].Data, testPlannerContext(3))
+		if !strings.Contains(got, want) {
+			t.Errorf("%s:\nwant %s in\n%s", query, want, got)
+		}
+	}
+}
+
+func TestAutocompleteOtherFiltersKeepTheirIdsStage(t *testing.T) {
+	for _, query := range []string{
+		`{.a = 1}`, `{.a = 1 || duration > 0ms}`, `{.a = 1 && duration > 0ms}`, `{duration > 0ms && true}`,
+		`{true}`, `{duration * 2 > 1s}`, `{duration > 1ms} | count() > 2`, `{duration > 1ms} >> {duration > 2ms}`,
+		`{duration > 1ms} && {duration > 2ms}`, `{.duration > 1ms}`,
+	} {
+		for kind, plan := range autocompletePlans(t, query) {
+			if len(plan.Ids) != 1 {
+				t.Errorf("%s %s: %d ids statements", kind, query, len(plan.Ids))
+			}
 		}
 	}
 }
