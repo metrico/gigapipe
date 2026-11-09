@@ -7,9 +7,7 @@ import (
 	"time"
 	"unsafe"
 
-	clconfig "github.com/metrico/cloki-config"
-	clokiconfig "github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v5/writer/config"
+	clcwriter "github.com/metrico/cloki-config/config/writer"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -59,10 +57,8 @@ type metricsCollector struct {
 func collectMetrics(t *testing.T, md *metricsv1.MetricsData, stats *OTLPMetricsStats) *metricsCollector {
 	t.Helper()
 	// onEntries -> fingerprintLabels reads config.Cloki.Setting.FingerPrintType;
-	// install a minimal global config so that read does not nil-pointer panic.
-	old := config.Cloki
-	config.Cloki = &clconfig.ClokiConfig{Setting: &clokiconfig.ClokiBaseSettingServer{}}
-	t.Cleanup(func() { config.Cloki = old })
+	// hash with CityHash, the default of a real deployment.
+	useFingerprintType(t, clcwriter.FINGERPRINT_CityHash)
 	cache := numbercache.NewCache(time.Minute, func(val uint64) []byte {
 		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
 	}, map[string]*model.DataDatabasesMap{})

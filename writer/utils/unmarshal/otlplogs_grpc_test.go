@@ -7,9 +7,7 @@ import (
 	"time"
 	"unsafe"
 
-	clconfig "github.com/metrico/cloki-config"
-	clokiconfig "github.com/metrico/cloki-config/config"
-	"github.com/metrico/qryn/v5/writer/config"
+	clcwriter "github.com/metrico/cloki-config/config/writer"
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/numbercache"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -18,11 +16,9 @@ import (
 
 func TestOTLPLogsFromData_EmitsSamples(t *testing.T) {
 	// The full ParsingFunction path runs the logs decoder through onEntries ->
-	// fingerprintLabels, which reads config.Cloki.Setting.FingerPrintType. Install
-	// a minimal global config so that read does not nil-pointer panic.
-	old := config.Cloki
-	config.Cloki = &clconfig.ClokiConfig{Setting: &clokiconfig.ClokiBaseSettingServer{}}
-	t.Cleanup(func() { config.Cloki = old })
+	// fingerprintLabels, which reads config.Cloki.Setting.FingerPrintType. Hash
+	// with CityHash, the default of a real deployment.
+	useFingerprintType(t, clcwriter.FINGERPRINT_CityHash)
 
 	ld := &logsv1.LogsData{ResourceLogs: []*logsv1.ResourceLogs{{
 		ScopeLogs: []*logsv1.ScopeLogs{{LogRecords: []*logsv1.LogRecord{{
