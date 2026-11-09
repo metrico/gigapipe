@@ -38,7 +38,7 @@ var intrinsicTypes = map[string]FieldType{
 	"rootName": TypeString, "trace:rootName": TypeString,
 	"rootServiceName": TypeString, "trace:rootService": TypeString,
 	"traceDuration": TypeDuration, "trace:duration": TypeDuration,
-	"nestedSetLeft": TypeInt, "nestedSetRight": TypeInt, "nestedSetParent": TypeInt,
+	NestedSetLeft: TypeInt, NestedSetRight: TypeInt, NestedSetParent: TypeInt,
 	"childCount": TypeInt, "span:childCount": TypeInt,
 	"span:id": TypeString, "span:parentID": TypeString, "trace:id": TypeString,
 }
@@ -47,6 +47,18 @@ var intrinsicTypes = map[string]FieldType{
 func IsIntrinsic(name string) bool {
 	_, ok := intrinsicTypes[name]
 	return ok || strings.Contains(name, ":")
+}
+
+// The nested-set intrinsics.
+const (
+	NestedSetLeft   = "nestedSetLeft"
+	NestedSetRight  = "nestedSetRight"
+	NestedSetParent = "nestedSetParent"
+)
+
+// IsNestedSet reports whether name is a nested-set intrinsic.
+func IsNestedSet(name string) bool {
+	return name == NestedSetLeft || name == NestedSetRight || name == NestedSetParent
 }
 
 // isFieldName reports whether an unquoted word names an attribute or an intrinsic.

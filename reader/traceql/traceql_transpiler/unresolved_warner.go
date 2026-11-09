@@ -189,7 +189,6 @@ func mergeUnresolved(found []unresolvedFound) (uint64, []string) {
 func unresolvedPortion(ctx context.Context, planCtx *shared.PlannerContext, i int64) *shared.PlannerContext {
 	res := *planCtx
 	res.Ctx = ctx
-	res.CachedTraceIds = nil
 	res.RandomFilter = shared.RandomFilter{}
 	if planCtx.Portions > 1 {
 		res.RandomFilter = shared.RandomFilter{Max: int(planCtx.Portions), I: int(i)}

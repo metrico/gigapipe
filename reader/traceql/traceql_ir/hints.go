@@ -81,19 +81,51 @@ func spansetNeedsWholeTrace(expr SpansetExpr) bool {
 // SelectedFields lists the fields of every select() stage of q, nested
 // pipelines included, each once in first-seen order.
 func (q *Query) SelectedFields() []*Attribute {
-	var res []*Attribute
-	seen := map[string]bool{}
+	var fields fieldList
+	q.Pipeline.eachElement(func(e Element) {
+		if s, ok := e.(*Select); ok {
+			for _, f := range s.Fields {
+				fields.add(f)
+			}
+		}
+	})
+	return fields.list
+}
+
+// FilteredFields lists the attributes and intrinsics every spanset filter of
+// q reads, across operators and nested pipelines, each once in first-seen order.
+func (q *Query) FilteredFields() []*Attribute {
+	var fields fieldList
+	var read func(e FieldExpr)
+	read = func(e FieldExpr) {
+		switch e := e.(type) {
+		case *Attribute:
+			fields.add(e)
+		case *BinaryOp:
+			read(e.LHS)
+			read(e.RHS)
+		case *UnaryOp:
+			read(e.Expr)
+		case *NilTest:
+			read(e.Expr)
+		}
+	}
+	q.Pipeline.eachElement(func(e Element) {
+		if s, ok := e.(*Selector); ok && s.Filter != nil {
+			read(s.Filter)
+		}
+	})
+	return fields.list
+}
+
+// eachElement calls visit on every element of p, descending into groups,
+// nested pipelines and spanset operands.
+func (p *Pipeline) eachElement(visit func(Element)) {
 	var walk func(elements []Element)
 	walk = func(elements []Element) {
 		for _, element := range elements {
+			visit(element)
 			switch e := element.(type) {
-			case *Select:
-				for _, f := range e.Fields {
-					if !seen[f.Name] {
-						seen[f.Name] = true
-						res = append(res, f)
-					}
-				}
 			case *Group:
 				walk([]Element{e.Expr})
 			case *Pipeline:
@@ -103,6 +135,21 @@ func (q *Query) SelectedFields() []*Attribute {
 			}
 		}
 	}
-	walk(q.Pipeline.Elements)
-	return res
+	walk(p.Elements)
+}
+
+// fieldList collects fields, each name once in first-seen order.
+type fieldList struct {
+	list []*Attribute
+	seen map[string]bool
+}
+
+func (l *fieldList) add(f *Attribute) {
+	if l.seen == nil {
+		l.seen = map[string]bool{}
+	}
+	if !l.seen[f.Name] {
+		l.seen[f.Name] = true
+		l.list = append(l.list, f)
+	}
 }

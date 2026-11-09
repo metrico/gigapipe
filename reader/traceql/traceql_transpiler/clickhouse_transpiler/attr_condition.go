@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -29,7 +28,7 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	}
 	a.alias = "bsCond"
 
-	err = a.createWhere(ctx)
+	err = a.createWhere()
 	if err != nil {
 		return nil, err
 	}
@@ -54,13 +53,12 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	return res, nil
 }
 
-// createWhere builds the terms on ctx; their traces-table conditions go to ctx.
-// The rows read are those of the terms that read an attribute key, or every
-// row when the condition can hold without any of them.
-func (a *AttrConditionPlanner) createWhere(ctx *shared.PlannerContext) error {
+// createWhere builds the terms. The rows read are those of the terms that
+// read an attribute key, or every row when the condition can hold without any.
+func (a *AttrConditionPlanner) createWhere() error {
 	a.sqlConds, a.where = nil, nil
 	for _, t := range a.Terms {
-		sqlTerm, err := a.getTerm(t, ctx)
+		sqlTerm, err := a.getTerm(t)
 		if err != nil {
 			return err
 		}
@@ -82,7 +80,7 @@ func readsKey(t *attrComparison) bool {
 	case "duration", "span:duration", "true", "false":
 		return false
 	}
-	return !strings.HasPrefix(t.Attr, "nestedSet")
+	return true
 }
 
 // holdsWithoutKeys reports whether c can hold for a span none of whose rows
@@ -131,7 +129,7 @@ func (a *AttrConditionPlanner) getCond(c *condition) (sql.SQLCondition, error) {
 	return sql.Neq(&bitAnd{left, sql.NewIntVal(int64(1) << c.simpleIdx)}, sql.NewIntVal(0)), nil
 }
 
-func (a *AttrConditionPlanner) getTerm(t *attrComparison, ctx *shared.PlannerContext) (sql.SQLCondition, error) {
+func (a *AttrConditionPlanner) getTerm(t *attrComparison) (sql.SQLCondition, error) {
 	key := t.Attr
 	// Normalize span: colon-intrinsic aliases to their canonical names.
 	if key == "span:duration" {
@@ -177,30 +175,13 @@ func (a *AttrConditionPlanner) getTerm(t *attrComparison, ctx *shared.PlannerCon
 		case "statusMessage":
 			// statusMessage falls through to getTermStr with unchanged key
 		case "rootServiceName", "rootName":
-			// Root-level intrinsics map to the root span's service/name.
-			// Our schema has no dedicated root columns, so we filter on the span-level column
-			// which is correct for root-span queries (nestedSetParent < 0).
+			// Root-level intrinsics read the span's own service and name.
 			if key == "rootServiceName" {
 				key = "service.name"
 			} else {
 				key = "name"
 			}
 		default:
-			if key == "nestedSetParent" {
-				// Only nestedSetParent < 0 has a meaningful mapping (root spans → parent_id = '').
-				// Other operators/values are not supported by our schema; treat as no-op.
-				if t.Op == "<" && t.Value.Kind == traceql_ir.ValueNumber && t.Value.Text == "0" {
-					if ctx != nil {
-						ctx.TracesIntrinsicWhere = append(ctx.TracesIntrinsicWhere,
-							sql.Eq(sql.NewRawObject("traces.parent_id"), sql.NewStringVal("")))
-					}
-				}
-				return sql.Eq(sql.NewIntVal(1), sql.NewIntVal(1)), nil
-			}
-			if strings.HasPrefix(key, "nestedSet") {
-				// nestedSetLeft, nestedSetRight — not stored in our schema.
-				return sql.Eq(sql.NewIntVal(1), sql.NewIntVal(1)), nil
-			}
 			return nil, fmt.Errorf("unsupported attribute %s", key)
 		}
 	}
@@ -306,17 +287,12 @@ func (a *AttrConditionPlanner) getTermDuration(t *attrComparison) (sql.SQLCondit
 	if t.Value.Kind != traceql_ir.ValueDuration {
 		return nil, fmt.Errorf(" is not a time duration value (%s)", t.String())
 	}
-	fVal, err := time.ParseDuration(t.Value.Text)
-	if err != nil {
-		return nil, err
-	}
-
 	fn, err := getComparisonFn(t.Op)
 	if err != nil {
 		return nil, err
 	}
 
-	return fn(sql.NewRawObject("traces_idx.duration"), sql.NewIntVal(fVal.Nanoseconds())), nil
+	return fn(sql.NewRawObject("traces_idx.duration"), sql.NewIntVal(t.Value.Duration.Nanoseconds())), nil
 }
 
 type bitSet struct {

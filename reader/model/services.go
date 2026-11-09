@@ -14,7 +14,9 @@ type ITempoService interface {
 	ValuesV2(ctx context.Context, key string, query string, from time.Time, to time.Time, limit int) (chan string, error)
 	Search(ctx context.Context, tags string, minDurationNS int64, maxDurationNS int64,
 		limit int, fromNS int64, toNS int64) (chan *TraceResponse, error)
-	SearchTraceQL(ctx context.Context, q string, limit int, spss int, from time.Time, to time.Time) (chan []TraceInfo, error)
+	// SearchTraceQL returns the matching traces and the number of jobs the search
+	// was read in, final when it returns.
+	SearchTraceQL(ctx context.Context, q string, limit int, spss int, from time.Time, to time.Time) (traces chan []TraceInfo, totalJobs int64, err error)
 	TagsV2(ctx context.Context, query string, from time.Time, to time.Time, limit int) (chan string, error)
 	MetricsQueryRange(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryRangeResponse, error)
 	MetricsQueryInstant(ctx context.Context, req *MetricsQueryRequest) (*MetricsQueryInstantResponse, error)

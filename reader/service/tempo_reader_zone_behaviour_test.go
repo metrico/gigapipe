@@ -154,7 +154,7 @@ func checkWindow(t *testing.T, svc *TempoService, w zoneWindow, cluster bool) {
 		require.Contains(t, values, w.name)
 	})
 	t.Run("search", func(t *testing.T) {
-		ch, err := svc.SearchTraceQL(ctx, filter+` | select(.y_`+w.name+`)`, 100, 100, from, to)
+		ch, _, err := svc.SearchTraceQL(ctx, filter+` | select(.y_`+w.name+`)`, 100, 100, from, to)
 		var found int
 		for _, batch := range collect(t, ch, err) {
 			found += len(batch)

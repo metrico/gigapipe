@@ -458,20 +458,19 @@ func TestUnresolvedProbeNeedsAStructuralQuery(t *testing.T) {
 	}
 }
 
-// Each portion reads its own hash of traces, over the probe's context, without
-// the ids the request's portions carried.
+// Each portion reads its own hash of traces, over the probe's context.
 func TestUnresolvedPortionContext(t *testing.T) {
 	type key struct{}
 	probeCtx := context.WithValue(context.Background(), key{}, "probe")
 	planCtx := &shared.PlannerContext{
-		Ctx: context.Background(), Portions: 3, CachedTraceIds: []string{"a"},
+		Ctx: context.Background(), Portions: 3,
 		RandomFilter: shared.RandomFilter{Max: 3, I: 2},
 	}
 	got := unresolvedPortion(probeCtx, planCtx, 1)
-	if got.RandomFilter != (shared.RandomFilter{Max: 3, I: 1}) || got.CachedTraceIds != nil || got.Ctx != probeCtx {
+	if got.RandomFilter != (shared.RandomFilter{Max: 3, I: 1}) || got.Ctx != probeCtx {
 		t.Errorf("portion = %+v", got)
 	}
-	if planCtx.RandomFilter.I != 2 || planCtx.CachedTraceIds == nil {
+	if planCtx.RandomFilter.I != 2 {
 		t.Errorf("plan context changed: %+v", planCtx)
 	}
 	for _, portions := range []int64{0, 1} {

@@ -2,7 +2,11 @@ package traceql_ir
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
+
+	"github.com/prometheus/common/model"
 
 	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
 )
@@ -116,8 +120,8 @@ func lowerAtom(a traceql_parser.FieldAtom) (FieldExpr, error) {
 	case a.Str != nil:
 		return &Static{Kind: ValueString, Text: a.Str.Str}, nil
 	case a.Number != nil:
-		if a.Number.Unit != "" {
-			return &Static{Kind: ValueDuration, Text: a.Number.Num + a.Number.Unit}, nil
+		if a.Number.Duration != "" {
+			return newDuration(a.Number.Duration)
 		}
 		return &Static{Kind: ValueNumber, Text: a.Number.Num}, nil
 	}
@@ -161,9 +165,58 @@ func newUnary(op string, e FieldExpr) (FieldExpr, error) {
 	}
 	if s, ok := e.(*Static); ok && op == "-" && (s.Kind == ValueNumber || s.Kind == ValueDuration) {
 		if text, negative := strings.CutPrefix(s.Text, "-"); negative {
-			return &Static{Kind: s.Kind, Text: text}, nil
+			return &Static{Kind: s.Kind, Text: text, Duration: -s.Duration}, nil
 		}
-		return &Static{Kind: s.Kind, Text: "-" + s.Text}, nil
+		return &Static{Kind: s.Kind, Text: "-" + s.Text, Duration: -s.Duration}, nil
 	}
 	return &UnaryOp{Op: op, Expr: e}, nil
+}
+
+// newDuration builds a duration literal, with or without a leading minus.
+func newDuration(text string) (*Static, error) {
+	literal, negative := strings.CutPrefix(text, "-")
+	if hasInvalidOctalPrefix(literal) {
+		return nil, fmt.Errorf("invalid duration %q", literal)
+	}
+	d, err := parseDuration(literal)
+	if err != nil {
+		return nil, fmt.Errorf("invalid duration %q", literal)
+	}
+	if negative {
+		d = -d
+	}
+	return &Static{Kind: ValueDuration, Text: text, Duration: d}, nil
+}
+
+// hasInvalidOctalPrefix reports a leading integer written with a 0 and holding
+// an 8 or 9, unless a dot makes it a float.
+func hasInvalidOctalPrefix(literal string) bool {
+	end := 0
+	for end < len(literal) && literal[end] >= '0' && literal[end] <= '9' {
+		end++
+	}
+	if end == len(literal) || literal[end] == '.' {
+		return false
+	}
+	return literal[0] == '0' && strings.ContainsAny(literal[:end], "89")
+}
+
+// parseDuration is copied from Tempo v3.1.0, pkg/traceql/lexer.go.
+func parseDuration(d string) (time.Duration, error) {
+	var duration time.Duration
+	// Try to parse promql style durations first, to ensure that we support the same duration
+	// units as promql
+	prometheusDuration, err := model.ParseDuration(d)
+	if err != nil {
+		// Fall back to standard library's time.ParseDuration if a promql style
+		// duration couldn't be parsed.
+		duration, err = time.ParseDuration(d)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		duration = time.Duration(prometheusDuration)
+	}
+
+	return duration, nil
 }

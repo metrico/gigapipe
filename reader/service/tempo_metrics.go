@@ -5,6 +5,7 @@ import (
 	"context"
 	stdsql "database/sql"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		return executeHistogramRange(tq, req, planCtx)
 	}
 
-	mreq := metricsRequest(metricsFn, req, planCtx)
+	mreq := metricsRequest(tq, req, planCtx)
 	var resolvedByLabels []string
 	planner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
 		query, byLabels, err := tempo.BuildMetricsRangeQuery(over(mreq, spans))
@@ -56,55 +57,23 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 	// Group results into time series by label combination
 	seriesMap := make(map[string]*model.MetricsTimeSeries)
 	hasByLabels := len(metricsFn.By) > 0
+	isQuantile := metricsFn.Fn == "quantile_over_time"
+	var queryWideValues []float64
 
-	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
-		byCount := len(resolvedByLabels)
-		var ts int64
-		var value float64
-		byVals := make([]string, byCount)
-
-		scanArgs := make([]any, 2+byCount)
-		scanArgs[0] = &ts
-		scanArgs[1] = &value
-		for i := range byVals {
-			scanArgs[2+i] = &byVals[i]
-		}
-
-		if err := rows.Scan(scanArgs...); err != nil {
-			return err
-		}
-
+	addSample := func(byVals []string, quantile *float64, ts int64, value float64) {
 		key := strings.Join(byVals, "\x00")
+		if quantile != nil {
+			key += "\x00" + strconv.FormatFloat(*quantile, 'g', -1, 64)
+		}
 		series, ok := seriesMap[key]
 		if !ok {
-			var labels []model.MetricsKeyValue
-			if !hasByLabels {
-				switch metricsFn.Fn {
-				case "rate", "count_over_time":
-					labels = append(labels, model.MetricsKeyValue{
-						Key:   "__name__",
-						Value: model.MetricsLabelValue{StringValue: metricsFn.Fn},
-					})
-				case "quantile_over_time":
-					p := 0.5
-					if metricsFn.Percentile != nil {
-						p = *metricsFn.Percentile
-					}
-					labels = append(labels, model.MetricsKeyValue{
-						Key:   "p",
-						Value: model.MetricsLabelValue{DoubleValue: &p},
-					})
-				default:
-					labels = append(labels, model.MetricsKeyValue{
-						Key:   "__name__",
-						Value: model.MetricsLabelValue{StringValue: metricsFn.Fn},
-					})
-				}
-			}
-			for i, label := range resolvedByLabels {
+			labels := byLabelValues(resolvedByLabels, byVals)
+			if quantile != nil {
+				labels = append(labels, quantileLabel(quantile))
+			} else if !hasByLabels {
 				labels = append(labels, model.MetricsKeyValue{
-					Key:   label,
-					Value: model.MetricsLabelValue{StringValue: byVals[i]},
+					Key:   "__name__",
+					Value: model.MetricsLabelValue{StringValue: metricsFn.Fn},
 				})
 			}
 
@@ -113,7 +82,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 				if lbl.Value.DoubleValue != nil {
 					promParts = append(promParts, fmt.Sprintf("%s=\"%g\"", lbl.Key, *lbl.Value.DoubleValue))
 				} else {
-					promParts = append(promParts, fmt.Sprintf("%s=\"%s\"", lbl.Key, lbl.Value.StringValue))
+					promParts = append(promParts, fmt.Sprintf("%s=\"%s\"", lbl.Key, labelText(lbl.Value)))
 				}
 			}
 			promLabels := "{" + strings.Join(promParts, ", ") + "}"
@@ -130,6 +99,38 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			TimestampMs: strconv.FormatInt(ts/1e6, 10),
 			Value:       value,
 		})
+	}
+
+	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
+		var ts int64
+		var value float64
+		var values []float64
+		var queryWide uint64
+		byVals := make([]string, len(resolvedByLabels))
+
+		scanArgs := []any{&ts, &value}
+		if isQuantile {
+			scanArgs = []any{&ts, &values, &queryWide}
+		}
+		for i := range byVals {
+			scanArgs = append(scanArgs, &byVals[i])
+		}
+
+		if err := rows.Scan(scanArgs...); err != nil {
+			return err
+		}
+
+		if !isQuantile {
+			addSample(byVals, nil, ts, value)
+			return nil
+		}
+		if queryWide != 0 {
+			queryWideValues = values
+			return nil
+		}
+		for i := range metricsFn.Quantiles {
+			addSample(byVals, &metricsFn.Quantiles[i], ts, values[i])
+		}
 		return nil
 	})
 	if err != nil {
@@ -170,6 +171,7 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		traceID  string
 		durNs    int64
 		spanTs   int64
+		argValue float64
 		groupKey string
 	}
 	var exemplarRows []exRow
@@ -185,28 +187,30 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 			var traceID string
 			var durNs int64
 			var spanTs int64
+			var argValue float64
 			exByVals := make([]string, len(exByLabels))
 
-			scanArgs := make([]any, 4+len(exByLabels))
+			scanArgs := make([]any, 5+len(exByLabels))
 			scanArgs[0] = &ts
 			scanArgs[1] = &traceID
 			scanArgs[2] = &durNs
 			scanArgs[3] = &spanTs
+			scanArgs[4] = &argValue
 			for i := range exByVals {
-				scanArgs[4+i] = &exByVals[i]
+				scanArgs[5+i] = &exByVals[i]
 			}
 
 			if err := exRows.Scan(scanArgs...); err != nil {
 				return nil
 			}
 			groupKey := strings.Join(exByVals, "\x00")
-			exemplarRows = append(exemplarRows, exRow{traceID, durNs, spanTs, groupKey})
+			exemplarRows = append(exemplarRows, exRow{traceID, durNs, spanTs, argValue, groupKey})
 			return nil
 		})
 	}
 
 	if len(exemplarRows) > 0 {
-		includeDuration := metricsFn.Fn != "rate" && metricsFn.Fn != "count_over_time"
+		includeDuration := exemplarHasDuration(metricsFn.Fn)
 
 		exByGroup := make(map[string][]exRow)
 		for _, ex := range exemplarRows {
@@ -214,18 +218,23 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 		}
 
 		for i := range result {
-			var keyParts []string
-			for _, lbl := range result[i].Labels {
-				isBy := slices.Contains(resolvedByLabels, lbl.Key)
-				if isBy {
-					keyParts = append(keyParts, lbl.Value.StringValue)
-				}
+			// By-labels lead a series' labels and are read by position: p may name one.
+			byLabels := result[i].Labels[:len(resolvedByLabels)]
+			keyParts := make([]string, len(byLabels))
+			for j, lbl := range byLabels {
+				keyParts[j] = labelText(lbl.Value)
 			}
 			seriesKey := strings.Join(keyParts, "\x00")
 
 			groupExemplars := exByGroup[seriesKey]
 			if len(exByLabels) == 0 {
 				groupExemplars = exemplarRows
+			}
+			if isQuantile {
+				p := *result[i].Labels[len(byLabels)].Value.DoubleValue
+				groupExemplars = slices.DeleteFunc(slices.Clone(groupExemplars), func(ex exRow) bool {
+					return metricsFn.Quantiles[nearestQuantile(queryWideValues, ex.argValue)] != p
+				})
 			}
 			groupExemplars = capExemplars(tq, groupExemplars)
 
@@ -241,33 +250,21 @@ func (t *TempoService) MetricsQueryRange(ctx context.Context, req *model.Metrics
 					{Key: "trace:id", Value: model.MetricsLabelValue{StringValue: ex.traceID}},
 				}
 				if hasByLabels {
-					for _, lbl := range result[i].Labels {
-						for _, byLabel := range resolvedByLabels {
-							if lbl.Key == byLabel {
-								labels = append(labels, lbl)
-							}
-						}
-					}
+					labels = append(labels, byLabels...)
 				} else {
 					labels = append(labels, model.MetricsKeyValue{
-						Key: "nestedSetParent", Value: model.MetricsLabelValue{IntValue: "-1"},
+						Key: traceql_ir.NestedSetParent, Value: model.MetricsLabelValue{IntValue: "-1"},
 					})
 				}
 				exTsMs := ex.spanTs / 1e6
-				val := float64(0)
-				if stepMs > 0 {
-					bucketMs := (exTsMs / stepMs) * stepMs
-					val = tsToValue[bucketMs]
-				}
 				if includeDuration {
 					labels = append(labels, model.MetricsKeyValue{
 						Key: "duration", Value: model.MetricsLabelValue{StringValue: metricsFormatDuration(ex.durNs)},
 					})
-					val = float64(ex.durNs) / 1e9
 				}
 				exList = append(exList, tempo.HistogramExemplar{
 					Labels:      labels,
-					Value:       val,
+					Value:       exemplarValue(includeDuration, ex.durNs, exTsMs, stepMs, tsToValue),
 					TimestampMs: strconv.FormatInt(exTsMs, 10),
 				})
 			}
@@ -304,7 +301,7 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		return executeCompareInstant(tq, req, planCtx)
 	}
 
-	mreq := metricsRequest(metricsFn, req, planCtx)
+	mreq := metricsRequest(tq, req, planCtx)
 	var resolvedByLabels []string
 	planner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
 		query, byLabels, err := tempo.BuildMetricsInstantQuery(over(mreq, spans))
@@ -315,35 +312,40 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		return nil, err
 	}
 
+	isQuantile := metricsFn.Fn == "quantile_over_time"
 	var result []model.MetricsInstantSeries
 	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
-		byCount := len(resolvedByLabels)
 		var value float64
-		byVals := make([]string, byCount)
+		var values []float64
+		byVals := make([]string, len(resolvedByLabels))
 
-		scanArgs := make([]any, 1+byCount)
-		scanArgs[0] = &value
+		scanArgs := []any{&value}
+		if isQuantile {
+			scanArgs = []any{&values}
+		}
 		for i := range byVals {
-			scanArgs[1+i] = &byVals[i]
+			scanArgs = append(scanArgs, &byVals[i])
 		}
 
 		if err := rows.Scan(scanArgs...); err != nil {
 			return err
 		}
 
-		labels := make([]model.MetricsKeyValue, byCount)
-		for i, label := range resolvedByLabels {
-			labels[i] = model.MetricsKeyValue{
-				Key:   label,
-				Value: model.MetricsLabelValue{StringValue: byVals[i]},
-			}
+		if !isQuantile {
+			result = append(result, model.MetricsInstantSeries{
+				Labels:    byLabelValues(resolvedByLabels, byVals),
+				Value:     value,
+				Exemplars: make([]any, 0),
+			})
+			return nil
 		}
-
-		result = append(result, model.MetricsInstantSeries{
-			Labels:    labels,
-			Value:     value,
-			Exemplars: make([]any, 0),
-		})
+		for i := range metricsFn.Quantiles {
+			result = append(result, model.MetricsInstantSeries{
+				Labels:    append(byLabelValues(resolvedByLabels, byVals), quantileLabel(&metricsFn.Quantiles[i])),
+				Value:     values[i],
+				Exemplars: make([]any, 0),
+			})
+		}
 		return nil
 	})
 	if err != nil {
@@ -358,6 +360,49 @@ func (t *TempoService) MetricsQueryInstant(ctx context.Context, req *model.Metri
 		Series:  result,
 		Metrics: []byte(`{}`),
 	}, nil
+}
+
+// byLabel is a series label of a by() field: an int for a nested-set field,
+// else a string.
+func byLabel(key, val string) model.MetricsKeyValue {
+	if traceql_ir.IsNestedSet(key) {
+		return model.MetricsKeyValue{Key: key, Value: model.MetricsLabelValue{IntValue: val}}
+	}
+	return model.MetricsKeyValue{Key: key, Value: model.MetricsLabelValue{StringValue: val}}
+}
+
+// labelText is a string or int label value as text.
+func labelText(v model.MetricsLabelValue) string {
+	if v.IntValue != "" {
+		return v.IntValue
+	}
+	return v.StringValue
+}
+
+// byLabelValues pairs the by-labels with their values.
+func byLabelValues(byLabels, byVals []string) []model.MetricsKeyValue {
+	labels := make([]model.MetricsKeyValue, len(byLabels))
+	for i, label := range byLabels {
+		labels[i] = byLabel(label, byVals[i])
+	}
+	return labels
+}
+
+// quantileLabel is the p label of a quantile series.
+func quantileLabel(quantile *float64) model.MetricsKeyValue {
+	return model.MetricsKeyValue{Key: "p", Value: model.MetricsLabelValue{DoubleValue: quantile}}
+}
+
+// nearestQuantile returns the index of the value closest to v, the earliest
+// on a tie.
+func nearestQuantile(values []float64, v float64) int {
+	nearest, distance := 0, math.Inf(1)
+	for i, value := range values {
+		if d := math.Abs(value - v); d < distance {
+			nearest, distance = i, d
+		}
+	}
+	return nearest
 }
 
 // metricsPlannerContext parses the metrics query of req and resolves the
@@ -375,24 +420,26 @@ func (t *TempoService) metricsPlannerContext(ctx context.Context, req *model.Met
 	if tq.Metrics == nil {
 		return nil, nil, fmt.Errorf("query must contain a metrics function (e.g. | rate())")
 	}
-	planCtx, err := traceQLPlannerContext(ctx, conn, req.From, req.To, 0)
+	planCtx, err := traceQLPlannerContext(ctx, conn, req.Query, req.From, req.To, 0)
 	if err != nil {
 		return nil, nil, err
 	}
 	return tq, planCtx, nil
 }
 
-// metricsRequest is the metrics request of fn over the planner context's range.
-func metricsRequest(fn *traceql_ir.MetricsFn, req *model.MetricsQueryRequest, planCtx *shared.PlannerContext) tempo.MetricsRequest {
+// metricsRequest is the metrics request of tq over the planner context's range.
+func metricsRequest(tq *traceql_ir.Query, req *model.MetricsQueryRequest, planCtx *shared.PlannerContext) tempo.MetricsRequest {
+	fn := tq.Metrics
 	return tempo.MetricsRequest{
 		Fn:         fn.Fn,
 		Attr:       fn.Attr,
 		By:         fn.By,
-		Percentile: fn.Percentile,
+		Quantiles:  fn.Quantiles,
 		FromNS:     planCtx.From.UnixNano(),
 		ToNS:       planCtx.To.UnixNano(),
 		StepNS:     req.Step.Nanoseconds(),
 		AttrsTable: attrsTable(planCtx),
+		Scale:      clickhouse_transpiler.SampleScale(tq),
 	}
 }
 
@@ -439,7 +486,7 @@ func executeHistogramRange(
 	req *model.MetricsQueryRequest,
 	planCtx *shared.PlannerContext,
 ) (*model.MetricsQueryRangeResponse, error) {
-	mreq := metricsRequest(tq.Metrics, req, planCtx)
+	mreq := metricsRequest(tq, req, planCtx)
 	planner, err := clickhouse_transpiler.PlanMetrics(tq, func(spans *sql.With) (sql.ISelect, error) {
 		return tempo.BuildHistogramRangeQuery(over(mreq, spans))
 	})
@@ -453,7 +500,7 @@ func executeHistogramRange(
 	err = queryMetrics(planCtx, planner, func(rows *stdsql.Rows) error {
 		var ts int64
 		var bucketNs uint64
-		var count uint64
+		var count float64
 		if err := rows.Scan(&ts, &bucketNs, &count); err != nil {
 			return err
 		}
@@ -474,7 +521,7 @@ func executeHistogramRange(
 
 		series.Samples = append(series.Samples, model.MetricsSample{
 			TimestampMs: strconv.FormatInt(ts/1e6, 10),
-			Value:       float64(count),
+			Value:       count,
 		})
 		return nil
 	})
@@ -549,7 +596,7 @@ func executeHistogramRange(
 			exList = append(exList, tempo.HistogramExemplar{
 				Labels: []model.MetricsKeyValue{
 					{Key: "trace:id", Value: model.MetricsLabelValue{StringValue: ex.traceID}},
-					{Key: "nestedSetParent", Value: model.MetricsLabelValue{IntValue: "-1"}},
+					{Key: traceql_ir.NestedSetParent, Value: model.MetricsLabelValue{IntValue: "-1"}},
 					{Key: "duration", Value: model.MetricsLabelValue{StringValue: metricsFormatDuration(ex.durNs)}},
 				},
 				Value:       1,
@@ -577,6 +624,24 @@ func executeHistogramRange(
 		Series:  result,
 		Metrics: []byte(`{"completedJobs":1}`),
 	}, nil
+}
+
+// exemplarHasDuration reports whether fn's exemplars carry their span's duration.
+func exemplarHasDuration(fn string) bool {
+	return fn != "rate" && fn != "count_over_time"
+}
+
+// exemplarValue is the span's duration in seconds, unscaled, when the exemplar
+// carries one. Otherwise it is the series point of the exemplar's step, scaled
+// like the series, so the exemplar sits on the plotted line.
+func exemplarValue(hasDuration bool, durNs, tsMs, stepMs int64, series map[int64]float64) float64 {
+	if hasDuration {
+		return float64(durNs) / 1e9
+	}
+	if stepMs <= 0 {
+		return 0
+	}
+	return series[(tsMs/stepMs)*stepMs]
 }
 
 // wantsExemplars reports whether tq's exemplars hint allows any exemplar.
@@ -619,7 +684,7 @@ func executeCompareRange(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "selection"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: float64(row.SelectionCount)}},
+				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: row.SelectionCount}},
 				Exemplars: []any{},
 			})
 		}
@@ -629,7 +694,7 @@ func executeCompareRange(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "baseline"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: float64(row.BaselineCount)}},
+				Samples:   []model.MetricsSample{{TimestampMs: strconv.FormatInt(midpointMs, 10), Value: row.BaselineCount}},
 				Exemplars: []any{},
 			})
 		}
@@ -660,7 +725,7 @@ func executeCompareInstant(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "selection"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Value: float64(row.SelectionCount),
+				Value: row.SelectionCount,
 			})
 		}
 		if row.BaselineCount > 0 {
@@ -669,7 +734,7 @@ func executeCompareInstant(
 					{Key: "__meta_type", Value: model.MetricsLabelValue{StringValue: "baseline"}},
 					{Key: row.Key, Value: model.MetricsLabelValue{StringValue: row.Val}},
 				},
-				Value: float64(row.BaselineCount),
+				Value: row.BaselineCount,
 			})
 		}
 	})
@@ -686,7 +751,7 @@ func executeCompareInstant(
 
 // queryCompare runs the compare() query of tq, passing each row to add.
 func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func(tempo.CompareResultRow)) error {
-	creq := compareRequest(tq.Metrics, planCtx)
+	creq := compareRequest(tq, planCtx)
 	var selection traceql_ir.FieldExpr
 	if tq.Metrics.Compare != nil {
 		selection = tq.Metrics.Compare.Filter
@@ -710,17 +775,18 @@ func queryCompare(tq *traceql_ir.Query, planCtx *shared.PlannerContext, add func
 	})
 }
 
-// compareRequest is the compare() request of fn over the planner context's
+// compareRequest is the compare() request of tq over the planner context's
 // range. The baseline window defaults to that range.
-func compareRequest(fn *traceql_ir.MetricsFn, planCtx *shared.PlannerContext) tempo.CompareRequest {
+func compareRequest(tq *traceql_ir.Query, planCtx *shared.PlannerContext) tempo.CompareRequest {
 	res := tempo.CompareRequest{
 		FromNS:         planCtx.From.UnixNano(),
 		ToNS:           planCtx.To.UnixNano(),
 		BaselineFromNS: planCtx.From.UnixNano(),
 		BaselineToNS:   planCtx.To.UnixNano(),
 		AttrsTable:     attrsTable(planCtx),
+		Scale:          clickhouse_transpiler.SampleScale(tq),
 	}
-	if c := fn.Compare; c != nil {
+	if c := tq.Metrics.Compare; c != nil {
 		res.TopN = c.Count
 		if c.BaselineFrom != nil && *c.BaselineFrom > 0 {
 			res.BaselineFromNS = *c.BaselineFrom
@@ -738,7 +804,7 @@ func unresolvedProbeContext(tq *traceql_ir.Query, planCtx *shared.PlannerContext
 	if tq.Metrics == nil || tq.Metrics.Fn != "compare" {
 		return planCtx
 	}
-	creq := compareRequest(tq.Metrics, planCtx)
+	creq := compareRequest(tq, planCtx)
 	res := *planCtx
 	res.From, res.To = time.Unix(0, creq.BaselineFromNS), time.Unix(0, creq.BaselineToNS)
 	return &res

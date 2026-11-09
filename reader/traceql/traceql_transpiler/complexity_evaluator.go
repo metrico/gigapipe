@@ -2,13 +2,24 @@ package traceql_transpiler
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
+
+var logPortioned = func(line string) { logger.Info(line) }
+
+// portionedLine reports why a request was read in portions.
+func portionedLine(ctx *shared.PlannerContext, estimate, portionSpans, portions int64) string {
+	return fmt.Sprintf("traceql portioned query=%q from=%s to=%s estimate=%d portion_spans=%d portions=%d",
+		ctx.TraceQL, ctx.From.Format(time.RFC3339), ctx.To.Format(time.RFC3339), estimate, portionSpans, portions)
+}
 
 type simpleRequestProcessor[T any] interface {
 	Process(ctx *shared.PlannerContext) (chan []T, error)
@@ -27,8 +38,6 @@ type TraceQLComplexityEvaluator[T any] struct {
 	evaluateComplexityPlanner shared.SQLRequestPlanner
 	threshold                 int64
 }
-
-const COMPLEXITY_THRESHOLD = 10000000
 
 func (t *TraceQLComplexityEvaluator[T]) Process(ctx *shared.PlannerContext) (chan []T, error) {
 	evaluateComplexity, err := t.evaluateComplexityPlanner.Process(ctx)
@@ -62,7 +71,14 @@ func (t *TraceQLComplexityEvaluator[T]) Process(ctx *shared.PlannerContext) (cha
 			complexity = _complexity
 		}
 	}
-	if complexity < t.threshold {
+	return t.processEstimated(ctx, complexity)
+}
+
+// processEstimated reads the request at once when the estimate fits the budget,
+// and in portions otherwise.
+func (t *TraceQLComplexityEvaluator[T]) processEstimated(ctx *shared.PlannerContext,
+	complexity int64) (chan []T, error) {
+	if complexity <= t.threshold {
 		return t.ProcessSimpleReq(ctx)
 	}
 	return t.ProcessComplexReq(ctx, complexity)
@@ -77,13 +93,15 @@ func (t *TraceQLComplexityEvaluator[T]) ProcessComplexReq(ctx *shared.PlannerCon
 	complexity int64) (chan []T, error) {
 	t.complexRequestProcessor.SetMain(t.initSqlPlanner)
 	ctx.Portions = (complexity + t.threshold - 1) / t.threshold
+	logPortioned(portionedLine(ctx, complexity, t.threshold, ctx.Portions))
 	return t.complexRequestProcessor.Process(ctx, ctx.Portions)
 }
 
+// sortSpans orders spans earliest-first, ties by span id.
 func sortSpans(spans []model.SpanInfo) {
 	slices.SortFunc(spans, func(a, b model.SpanInfo) int {
 		s1, _ := strconv.ParseInt(a.StartTimeUnixNano, 10, 64)
 		s2, _ := strconv.ParseInt(b.StartTimeUnixNano, 10, 64)
-		return cmp.Compare(s2, s1)
+		return cmp.Or(cmp.Compare(s1, s2), cmp.Compare(a.SpanID, b.SpanID))
 	})
 }

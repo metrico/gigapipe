@@ -1,12 +1,17 @@
 package traceql_transpiler
 
 import (
+	"cmp"
+	"slices"
+	"strconv"
+
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 )
 
-// ComplexRequestProcessor reads main one portion of traces at a time. Every
-// portion queries the requested time range.
+// ComplexRequestProcessor reads main one portion of traces at a time and keeps
+// the top ctx.Limit by rank, so the result is the same at any portion count.
+// Every portion queries the requested time range.
 type ComplexRequestProcessor struct {
 	main shared.SQLRequestPlanner
 	read func(*shared.PlannerContext, shared.SQLRequestPlanner) ([]model.TraceInfo, error)
@@ -14,24 +19,23 @@ type ComplexRequestProcessor struct {
 
 func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
 	portions int64) (chan []model.TraceInfo, error) {
-	var ids []string
 	var res []model.TraceInfo
 	for i := range portions {
 		ctx.RandomFilter = shared.RandomFilter{
 			Max: int(portions),
 			I:   int(i),
 		}
-		ctx.CachedTraceIds = ids
-		var err error
-		res, err = t.read(ctx, t.main)
+		part, err := t.read(ctx, t.main)
 		if err != nil {
 			return nil, err
 		}
-		ids = make([]string, 0, len(res))
-		for _, info := range res {
-			ids = append(ids, info.TraceID)
-		}
+		res = keepTop(append(res, part...), ctx.Limit)
 	}
+	slices.SortFunc(res, func(a, b model.TraceInfo) int {
+		s1, _ := strconv.ParseInt(a.StartTimeUnixNano, 10, 64)
+		s2, _ := strconv.ParseInt(b.StartTimeUnixNano, 10, 64)
+		return cmp.Or(cmp.Compare(s2, s1), cmp.Compare(b.TraceID, a.TraceID))
+	})
 
 	ch := make(chan []model.TraceInfo)
 	go func() {
@@ -39,6 +43,18 @@ func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
 		ch <- res
 	}()
 	return ch, nil
+}
+
+// keepTop keeps the limit highest ranked traces, by newest matched span then
+// trace id, or all of them at limit 0.
+func keepTop(traces []model.TraceInfo, limit int64) []model.TraceInfo {
+	slices.SortFunc(traces, func(a, b model.TraceInfo) int {
+		return cmp.Or(cmp.Compare(b.Newest, a.Newest), cmp.Compare(b.TraceID, a.TraceID))
+	})
+	if limit > 0 && int64(len(traces)) > limit {
+		return traces[:limit]
+	}
+	return traces
 }
 
 func (c *ComplexRequestProcessor) SetMain(main shared.SQLRequestPlanner) {

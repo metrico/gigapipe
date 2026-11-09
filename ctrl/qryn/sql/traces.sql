@@ -113,3 +113,66 @@ ALTER TABLE {{.DB}}.tempo_traces_attrs_gin {{.OnCluster}}
 ALTER TABLE {{.DB}}.tempo_traces_kv {{.OnCluster}}
     MODIFY COLUMN key String CODEC(ZSTD(1)),
     MODIFY COLUMN val String CODEC(ZSTD(1));
+
+## Nested-set numbering of each trace's spans; the newest version of a span wins.
+## date is the span's start date.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set {{.OnCluster}} (
+    trace_id FixedString(16),
+    span_id FixedString(8),
+    date Date,
+    left Int32,
+    right Int32,
+    parent Int32,
+    version UInt64
+) Engine = {{.ReplacingMergeTree}}(version)
+PARTITION BY date
+ORDER BY (trace_id, span_id) {{.CREATE_SETTINGS}};
+
+## The latest insert time of each trace's spans per minute.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_touched {{.OnCluster}} (
+    trace_id FixedString(16),
+    inserted_at DateTime64(3)
+) Engine = {{.ReplacingMergeTree}}(inserted_at)
+ORDER BY (toStartOfMinute(inserted_at), trace_id)
+TTL toDateTime(inserted_at) + INTERVAL 1 DAY {{.CREATE_SETTINGS}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.tempo_traces_touched_mv {{.OnCluster}} TO {{.DB}}.tempo_traces_touched AS
+SELECT trace_id, now64(3) AS inserted_at
+FROM {{.DB}}.tempo_traces
+GROUP BY trace_id;
+
+## The newest numbering version (Unix ms) of each recently numbered trace per minute.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_numbered {{.OnCluster}} (
+    trace_id FixedString(16),
+    version UInt64
+) Engine = {{.ReplacingMergeTree}}(version)
+ORDER BY (intDiv(version, 60000), trace_id)
+TTL toDateTime(intDiv(version, 1000)) + INTERVAL 1 DAY {{.CREATE_SETTINGS}};
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS {{.DB}}.tempo_traces_numbered_mv {{.OnCluster}} TO {{.DB}}.tempo_traces_numbered AS
+SELECT trace_id, max(version) AS version
+FROM {{.DB}}.tempo_traces_nested_set
+GROUP BY trace_id;
+
+## The trace ids each numbering pass numbers and their newest touch, plus one frontier row (zero trace id) per pass; local to each node.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_batch {{.OnCluster}} (
+    pass UUID,
+    trace_id FixedString(16),
+    touched DateTime64(3) DEFAULT 0,
+    inserted_at DateTime DEFAULT now()
+) Engine = MergeTree
+ORDER BY (pass, trace_id)
+TTL inserted_at + INTERVAL 1 HOUR {{.CREATE_SETTINGS}};
+
+## The numberer's lease: in the highest term, the latest renewer leads, or before any renewal the earliest claim, while the term's latest expires_at is ahead.
+## cursor is the touch time the holder's next pass scans from; 0 when unknown.
+CREATE TABLE IF NOT EXISTS {{.DB}}.tempo_traces_nested_set_lease {{.OnCluster}} (
+    term UInt64,
+    holder String,
+    claim Bool,
+    expires_at DateTime64(3),
+    cursor DateTime64(3) DEFAULT 0
+) Engine = {{.MergeTree}}
+ORDER BY term
+TTL toDateTime(expires_at) + INTERVAL 1 DAY
+SETTINGS non_replicated_deduplication_window = 100{{.MORE_CREATE_SETTINGS}};

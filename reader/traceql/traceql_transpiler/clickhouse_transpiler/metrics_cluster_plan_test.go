@@ -1,4 +1,4 @@
-package clickhouse_transpiler
+package clickhouse_transpiler_test
 
 import (
 	"regexp"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/metrico/qryn/v5/reader/tempo"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	ct "github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
@@ -89,7 +90,7 @@ func TestPlainDistJoinsRecognisesShapes(t *testing.T) {
 // every search query, wired as the tempo metrics service wires them.
 func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, rendered string)) {
 	t.Helper()
-	ctx := testPlannerContext(3)
+	ctx := ct.TestPlannerContext(3)
 	ctx.IsCluster = cluster
 	attrs := ctx.TracesAttrsTable
 	if cluster {
@@ -102,7 +103,7 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 			FromNS: fromNS, ToNS: toNS, StepNS: 1e9, AttrsTable: attrs,
 		}
 	}
-	builds := map[string]MetricsBuild{
+	builds := map[string]ct.MetricsBuild{
 		"range": func(spans *sql.With) (sql.ISelect, error) {
 			q, _, err := tempo.BuildMetricsRangeQuery(request(spans, "span.env", "name"))
 			return q, err
@@ -122,18 +123,18 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 			return q, err
 		},
 	}
-	for _, query := range searchQueries {
+	for _, query := range ct.SearchQueries {
 		for name, build := range builds {
 			t.Run(name+"/"+query, func(t *testing.T) {
 				q, err := traceql_ir.Parse(query + " | rate()")
 				if err != nil {
 					t.Fatal(err)
 				}
-				planner, err := PlanMetrics(q, build)
+				planner, err := ct.PlanMetrics(q, build)
 				if err != nil {
 					t.Fatal(err)
 				}
-				check(t, renderPlan(t, planner, ctx))
+				check(t, ct.RenderPlan(t, planner, ctx))
 			})
 		}
 		for _, selection := range []string{"{.c = 3}", "{}"} {
@@ -142,7 +143,7 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 				if err != nil {
 					t.Fatal(err)
 				}
-				planner, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0),
+				planner, err := ct.PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(86500, 0),
 					func(baseline, selected *sql.With) (sql.ISelect, error) {
 						return tempo.BuildCompareQuery(&tempo.CompareRequest{
 							Baseline: baseline, Selection: selected,
@@ -154,7 +155,7 @@ func renderMetricsPlanners(t *testing.T, cluster bool, check func(t *testing.T, 
 				if err != nil {
 					t.Fatal(err)
 				}
-				check(t, renderPlan(t, planner, ctx))
+				check(t, ct.RenderPlan(t, planner, ctx))
 			})
 		}
 	}

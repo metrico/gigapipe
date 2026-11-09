@@ -30,7 +30,6 @@ func TestFilterPlansBitsetOrPivot(t *testing.T) {
 		`{statusMessage = "x" && rootServiceName = "y" && rootName = "z"}`,
 		`{span.foo = bar}`,
 		`{true}`,
-		`{nestedSetParent < 0 && .a = 1}`,
 	}
 	pivot := []string{
 		`{.a = .b}`,
@@ -47,6 +46,8 @@ func TestFilterPlansBitsetOrPivot(t *testing.T) {
 		`{1 < .a}`,
 		`{duration > 100}`,
 		`{name =~ "x" && .a = .b}`,
+		`{nestedSetParent < 0 && .a = 1}`,
+		`{nestedSetLeft > 3}`,
 	}
 	for _, query := range bitset {
 		t.Run(query, func(t *testing.T) {
@@ -183,7 +184,6 @@ func TestFieldExpressionErrors(t *testing.T) {
 		{`{status = "error"}`, `binary operations must operate on the same type: status = "error"`},
 		{`{kind > server}`, "illegal operation for the given types: kind > server"},
 		{`{.a = .b && span:id = "x"}`, "unsupported attribute span:id"},
-		{`{nestedSetLeft > .a}`, "unsupported attribute nestedSetLeft"},
 		{`{} | avg(.a > 1) > 1`, "aggregate field expressions must resolve to a number type: avg(.a > 1)"},
 		{`{} | avg(2) > 1`, "aggregate field expressions must reference the span: avg(2)"},
 	} {

@@ -3,6 +3,8 @@ package traceql_transpiler
 import (
 	"encoding/json"
 	"math"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/metrico/qryn/v5/reader/model"
@@ -65,5 +67,63 @@ func TestSelectedValuesJSON(t *testing.T) {
 	plain, _ := json.Marshal(model.SpanInfo{SpanID: "01", Attributes: make([]model.SpanAttr, 0)})
 	if string(plain) != `{"spanID":"01","startTimeUnixNano":"","durationNanos":"","attributes":[]}` {
 		t.Errorf("got %s", plain)
+	}
+}
+
+// Selected nested-set values serialise as int attributes, among string ones.
+func TestSelectedNestedSetValuesJSON(t *testing.T) {
+	span := model.SpanInfo{SpanID: "01", StartTimeUnixNano: "1", DurationNanos: "2", Attributes: make([]model.SpanAttr, 0)}
+	addSelected(&span, []string{"a", "nestedSetLeft", "nestedSetParent", "nestedSetRight"}, []string{"7", "3", "-1", "0"})
+	got, err := json.Marshal(span)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"spanID":"01","startTimeUnixNano":"1","durationNanos":"2","attributes":[` +
+		`{"key":"a","value":{"stringValue":"7"}},{"key":"nestedSetLeft","value":{"intValue":"3"}},` +
+		`{"key":"nestedSetParent","value":{"intValue":"-1"}},{"key":"nestedSetRight","value":{"intValue":"0"}}]}`
+	if string(got) != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// A span's duration serialises as its nanoseconds.
+func TestSearchSpanDurationEqualsTimestamp(t *testing.T) {
+	got, err := json.Marshal(searchSpan("01", 1700000000000000000, 1700000000000000000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"spanID":"01","startTimeUnixNano":"1700000000000000000","durationNanos":"1700000000000000000","attributes":[]}`
+	if string(got) != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// A spanset lists its spans earliest-first, ties by span id.
+func TestSortSpansEarliestFirst(t *testing.T) {
+	spans := []model.SpanInfo{
+		{SpanID: "0e", StartTimeUnixNano: "20"},
+		{SpanID: "0b", StartTimeUnixNano: "9"},
+		{SpanID: "0c", StartTimeUnixNano: "20"},
+		{SpanID: "0a", StartTimeUnixNano: "100"},
+		{SpanID: "0d", StartTimeUnixNano: "20"},
+	}
+	sortSpans(spans)
+	var got []string
+	for _, s := range spans {
+		got = append(got, s.SpanID)
+	}
+	if want := []string{"0b", "0c", "0d", "0e", "0a"}; !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// The search rank stays out of the response.
+func TestTraceInfoJSONOmitsTheRank(t *testing.T) {
+	b, err := json.Marshal(model.TraceInfo{TraceID: "aa", Newest: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); strings.Contains(s, "ewest") {
+		t.Errorf("rank in %s", s)
 	}
 }

@@ -105,6 +105,8 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 ## TraceQL
 
 - **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
+- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per portion, a positive integer (default: `2500000`). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range; a lone `{}` estimates the search limit; others estimate the spans their selectors match. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up. See [Large queries](#large-queries).
+- **`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION`** - Longest time range of a TraceQL search or tag autocomplete, a Go duration such as `168h` (default: `168h`). A longer request gets HTTP 400 with the plain-text body `range specified by start and end exceeds 168h0m0s. received start=<s> end=<e>`, as Tempo sends it. `0` turns the cap off. Applies to `/api/search` with `q`, and to `/api/v2/search/tags` and `/api/v2/search/tag/{tag}/values` with a non-zero `start`. Metrics queries, `/api/search` with `tags`, and tag lookups that read no time range are not capped. An invalid or negative value stops Gigapipe at start-up. See [Large queries](#large-queries).
 
 Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
 
@@ -121,6 +123,9 @@ Clustered (Distributed) deployments return the same results as single-node
 ones, provided **a trace's spans and attribute rows live on one shard**.
 Writers inserting through the `_dist` tables place them so: the sharding key is
 `sipHash64(oid, trace_id)`, and a trace has one `oid`.
+
+The nested-set intrinsics read values that a background numberer stores, which
+needs ClickHouse 24.9 or newer; see [The numberer](#the-numberer).
 
 ### Depth limit
 
@@ -172,6 +177,68 @@ the limit. Over the native protocol that also stops the query on the server.
 Over HTTP the server stops it only if `readonly` is not 0 and the reader's
 profile holds `cancel_http_readonly_queries_on_client_close=1`; otherwise it
 runs on to its end.
+
+### The numberer
+
+The nested-set numberer computes `nestedSetLeft`, `nestedSetRight` and `nestedSetParent` for each span after ingestion and stores them in the `tempo_traces_nested_set` table; see [Nested-set intrinsics](../README.md#nested-set-intrinsics). There is nothing to enable. In `all` or `writer` mode an invalid value of the settings below stops Gigapipe at start-up; a `reader` ignores them.
+
+- **`GIGAPIPE_NESTED_SET_NUMBERER_IDLE`** - How long a trace must receive no spans before it is numbered, as a Go duration (default: `10s`).
+- **`GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`** - Time between numbering passes, as a Go duration (default: `5s`).
+- **`GIGAPIPE_NESTED_SET_NUMBERER_MAX_SPANS`** - Maximum number of spans one pass numbers, a positive integer (default: `200000`). The oldest traces go first and the rest wait for the next pass; a single larger trace is numbered alone. On a cluster each shard numbers its own traces and the cap applies per shard.
+
+- **Who takes part.** Every instance in `all` or `writer` mode takes part, and ClickHouse elects one of them to run the passes through a lease in the `tempo_traces_nested_set_lease` table. If the leader stops, or its passes keep failing, another takes over within 4 × `GIGAPIPE_NESTED_SET_NUMBERER_INTERVAL`, so values can lag that much longer. `reader` instances never take part.
+- **Clocks.** Each instance judges the lease by the clock of the ClickHouse node it connects to, so on a cluster node clocks must agree to well within 3 × the interval. On a replicated cluster they must also agree within 2s and well within the idle period. NTP is enough.
+- **ClickHouse version.** It needs ClickHouse 24.9 or newer. On an older server it logs an error and doesn't start, and every span reads `0`/`0`/`0`.
+- **When values appear.** A trace is numbered once it has received no spans for the idle period. With the defaults, values appear about 15s after a trace's last span. A late span renumbers its whole trace.
+- **What holds numbering back.** A pass waits for running synchronous inserts into `tempo_traces` and for spans a lagging replica has yet to fetch. A long insert, such as a backfill, holds back every shard's traces touched after it started until it ends. A lagging replica delays its shard by a few times the lag; a replica that can't catch up (a broken part, fetches stopped), or whose tables have yet to receive their first insert, stops its shard until it does. The other shards keep numbering, but each pass re-reads traces touched since that shard stopped, up to a day back. A pass doesn't wait for inserts on a node it can't reach, and a node too slow to answer fails the pass until it answers. Async inserts are assumed to commit within the idle period; a trace whose spans commit later may not be numbered until it receives another span.
+- **Lease outages.** While the lease can't be read or written, numbering pauses and the instances log the start and end of the outage. Traces whose only spans arrived more than about a day before numbering resumes stay `0`/`0`/`0`, or more than 5 minutes before if no pass has succeeded yet.
+- **No backfill.** A trace that receives no spans once the `tempo_traces_touched` table exists is never numbered, and one whose last span arrived more than 5 minutes before the first successful pass may not be.
+
+Instances log start-up, failed passes, leadership changes and lease outages. To see who leads and since when (on a cluster, query `tempo_traces_nested_set_lease_dist`):
+
+```sql
+SELECT term,
+       if(countIf(NOT claim) > 0, argMaxIf(holder, (expires_at, holder), NOT claim),
+          argMinIf(holder, (expires_at, holder), claim)) AS leader,
+       min(expires_at) - INTERVAL 15 SECOND AS since,
+       max(expires_at) AS until,
+       until > now64(3) AS live
+FROM tempo_traces_nested_set_lease
+GROUP BY term
+ORDER BY term DESC
+LIMIT 1
+```
+
+`leader` is the hostname, PID and a random suffix of the leading process. `since` subtracts the lease length, 3 × the interval: `15 SECOND` holds only at the default. Rows are kept for a day after they expire, so for a term led longer than that, `since` shows about a day ago.
+
+### Large queries
+
+A TraceQL search or tag autocomplete whose estimate exceeds
+`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each portion reads one hash
+bucket of traces over the whole requested range. For a search, each portion
+returns its bucket's top `limit` traces and Gigapipe merges them by newest
+matched span, so the result is the same at any portion count. Each portioned
+request logs one info-level `traceql portioned` line with the query, range,
+estimate, setting and portion count.
+
+A search response reports its portions in a `metrics` block after the trace
+array: `"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the portion count,
+or `1` when the search was read at once. Autocomplete responses have no such
+block.
+
+`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION` caps the range at `168h` by default. A
+longer request gets HTTP 400 instead of running.
+
+Set ClickHouse `max_memory_usage` as the backstop: a query over it fails instead
+of exhausting the node. The accepted risks are:
+
+- A huge single trace isn't split. All its spans fall in one portion, whatever
+  the setting.
+- The budget is per query. Concurrent queries each read up to it.
+- The default is sized for 7 GiB nodes. Lower it on smaller ones.
+- Cost grows with range × portions, because every portion rescans the range.
+- The reader holds up to `2 × limit` traces while it merges portions, which
+  `max_memory_usage` doesn't cover.
 
 ## Recording Rules (Ruler)
 

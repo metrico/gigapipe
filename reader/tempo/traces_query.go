@@ -26,7 +26,6 @@ func GetTracesQuery(ctx context.Context, idx *SQLIndexQuery, limit int, fromNS i
 		sql.NewCol(sql.NewRawObject("intDiv(duration_ns, 1000000)"),
 			"duration_ms"),
 	).From(sql.NewRawObject(tableName))
-	//TODO: move to PRO !TURNED OFF .AndWhere(sql.Eq(sql.NewRawObject("oid"), sql.NewStringVal(oid)))
 	if idx != nil {
 		query.AndWhere(sql.NewIn(sql.NewRawObject("(trace_id, span_id)"), idx))
 	}

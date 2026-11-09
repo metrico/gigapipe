@@ -26,6 +26,9 @@ var plainSearchQueries = []string{
 	`count() > 1`,
 	`{.a = 1} | count() > 1 | avg(duration) > 1ms | max(.b) < 3`,
 	`{nestedSetParent < 0 && .a = 1}`,
+	`{nestedSetParent < 0}`,
+	`{nestedSetRight - nestedSetLeft = 1 && .a = 1}`,
+	`{.a = 1} | by(nestedSetParent) | max(nestedSetLeft) > 1`,
 	`{.a = .b}`,
 	`{!(.a = 1) || duration > 100}`,
 	`{duration * 2 > 1s}`,
@@ -58,15 +61,17 @@ var searchQueries = append(append([]string{}, plainSearchQueries...), structural
 
 func testPlannerContext(spss int64) *shared.PlannerContext {
 	return &shared.PlannerContext{
-		From:                 time.Unix(86390, 0).UTC(),
-		To:                   time.Unix(86410, 0).UTC(),
-		Limit:                5,
-		SpansPerSpanSet:      spss,
-		TracesAttrsTable:     "tempo_traces_attrs_gin",
-		TracesAttrsDistTable: "tempo_traces_attrs_gin_dist",
-		TracesTable:          "tempo_traces",
-		TracesDistTable:      "tempo_traces_dist",
-		VersionInfo:          map[string]int64{dbversion.CapStructuralQueries: 0},
+		From:                     time.Unix(86390, 0).UTC(),
+		To:                       time.Unix(86410, 0).UTC(),
+		Limit:                    5,
+		SpansPerSpanSet:          spss,
+		TracesAttrsTable:         "tempo_traces_attrs_gin",
+		TracesAttrsDistTable:     "tempo_traces_attrs_gin_dist",
+		TracesTable:              "tempo_traces",
+		TracesDistTable:          "tempo_traces_dist",
+		TracesNestedSetTable:     "tempo_traces_nested_set",
+		TracesNestedSetDistTable: "tempo_traces_nested_set_dist",
+		VersionInfo:              map[string]int64{dbversion.CapStructuralQueries: 0},
 	}
 }
 
@@ -167,11 +172,21 @@ func TestSearchSpanCapComesFromSpss(t *testing.T) {
 	}
 }
 
+func TestSearchSpanCapKeepsEarliestStarts(t *testing.T) {
+	const earliestCap = "arraySlice(arraySort(groupUniqArray((result_spans.timestamp_ns, result_spans.span_id))), 1, 3)"
+	for _, query := range searchQueries {
+		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
+		if !strings.Contains(res, earliestCap) {
+			t.Errorf("%s: span cap is not earliest start, ties by span id:\n%s", query, res)
+		}
+	}
+}
+
 func TestSearchRootFilterBeforeSpanCap(t *testing.T) {
 	const query = `{nestedSetParent < 0 && .a = 1}`
 	_, expr := searchStages(t, planSearch(t, query))
 	res := renderPlan(t, &SearchSpansetPlanner{Main: expr}, testPlannerContext(3))
-	if !strings.Contains(res, "traces.parent_id") {
+	if !strings.Contains(res, rootColumn) {
 		t.Errorf("root filter missing from the spanset stage:\n%s", res)
 	}
 	res = renderPlan(t, planSearch(t, query), testPlannerContext(3))
@@ -232,6 +247,63 @@ func TestSearchReadsDistributedTablesOnClusters(t *testing.T) {
 			}
 			if localJoin.MatchString(res) {
 				t.Errorf("distributed join is not GLOBAL:\n%s", res)
+			}
+		})
+	}
+}
+
+func TestSearchRendersNumberLiterals(t *testing.T) {
+	for _, tc := range []struct{ query, want string }{
+		{`{ .foo = .95 }`, `0.950000`},
+		{`{ .foo = -.5 }`, `-0.500000`},
+		{`{ .foo = 5. }`, `5.000000`},
+		{`{ .foo = 1e3 }`, `1000.000000`},
+		{`{ duration > .5s }`, `duration) > (500000000)`},
+		{`{ duration > 5.s }`, `duration) > (5000000000)`},
+		{`{ duration > 1d }`, `duration) > (86400000000000)`},
+		{`{ duration > 1h30m }`, `duration) > (5400000000000)`},
+		{`{ duration > -1d }`, `duration) > (-86400000000000)`},
+		{`{ duration * 2 > 1d }`, `toFloat64(8.64e+13)`},
+		{`{} | avg(duration) > 1d`, `toFloat64(8.64e+13)`},
+		{`{} | avg(duration) > 1h30m`, `toFloat64(5.4e+12)`},
+		{`{} | avg(duration) > -1d`, `toFloat64(-8.64e+13)`},
+		{`{} | count() > -.5`, `-0.5`},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			if res := renderPlan(t, planSearch(t, tc.query), testPlannerContext(7)); !strings.Contains(res, tc.want) {
+				t.Errorf("want %s in %s", tc.want, res)
+			}
+		})
+	}
+}
+
+func TestSearchReadsTheKeyOfAQuotedName(t *testing.T) {
+	for query, want := range map[string]string{
+		`{ ."5xx" = 1 }`:             `(key) == ('5xx')`,
+		`{ span."http status" = 1 }`: `(key) == ('http status')`,
+		`{ ."a'b" = 1 }`:             `(key) == ('a\'b')`,
+		`{ ."" = 1 }`:                `(key) == ('')`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			if res := renderPlan(t, planSearch(t, query), testPlannerContext(7)); !strings.Contains(res, want) {
+				t.Errorf("want %s in %s", want, res)
+			}
+		})
+	}
+}
+
+// Result attributes are named by the plain name.
+func TestSearchNamesResultsByThePlainName(t *testing.T) {
+	for query, want := range map[string][]string{
+		`{} | by(."http status")`:  {`'by(.http status)'`, `'http status'`},
+		`{} | avg(span."a b") > 1`: {`'avg(span.a b)'`, `'a b'`},
+	} {
+		t.Run(query, func(t *testing.T) {
+			res := renderPlan(t, planSearch(t, query), testPlannerContext(7))
+			for _, w := range want {
+				if !strings.Contains(res, w) {
+					t.Errorf("want %s in %s", w, res)
+				}
 			}
 		})
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	dbversion "github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
@@ -32,17 +33,6 @@ const httpAddrEnv = "GIGAPIPE_TEST_CLICKHOUSE_HTTP"
 
 // searchLimit is the trace limit of a search that the limit does not cut.
 const searchLimit = 50
-
-// spanStart is the start of every seeded span.
-var spanStart = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-
-// execSQL runs q or fails the test.
-func execSQL(t *testing.T, conn clickhouse.Conn, q string) {
-	t.Helper()
-	if err := conn.Exec(context.Background(), q); err != nil {
-		t.Fatalf("%v\n%s", err, q)
-	}
-}
 
 // searchStore is a migrated database: single node, or Distributed tables
 // over the shards of a cluster.
@@ -99,9 +89,16 @@ type span struct {
 	attrs             []string
 }
 
-// seed inserts spans, attribute "k" = "1" for each k in attrs. On a cluster
-// the spans go through Distributed tables, sharded by trace.
+// seed inserts spans, each starting one nanosecond after the one before it.
 func (s *searchStore) seed(t *testing.T, spans []span) {
+	t.Helper()
+	s.seedStarts(t, spans, func(i int) int64 { return spanStart.UnixNano() + int64(i) })
+}
+
+// seedStarts inserts spans, the i-th starting at start(i), attribute "k" = "1"
+// for each k in attrs. On a cluster the spans go through Distributed tables,
+// sharded by trace.
+func (s *searchStore) seedStarts(t *testing.T, spans []span, start func(i int) int64) {
 	t.Helper()
 	var rows []string
 	for i, sp := range spans {
@@ -114,7 +111,7 @@ func (s *searchStore) seed(t *testing.T, spans []span) {
 			tags = append(tags, fmt.Sprintf("('%s', '1')", a))
 		}
 		rows = append(rows, fmt.Sprintf("('%032x', '%016x', '%s', 's%d', %d, 10, [%s])",
-			sp.trace, sp.id, parent, sp.id, spanStart.UnixNano()+int64(i), strings.Join(tags, ", ")))
+			sp.trace, sp.id, parent, sp.id, start(i), strings.Join(tags, ", ")))
 	}
 	const cols = "(trace_id, span_id, parent_id, name, timestamp_ns, duration_ns, tags)"
 	if s.cluster == "" {
@@ -171,7 +168,7 @@ func (s *searchStore) result(t *testing.T, query string, run searchRun) []string
 		portioned := planner.(interface {
 			ProcessComplexReq(*shared.PlannerContext, int64) (chan []model.TraceInfo, error)
 		})
-		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*COMPLEXITY_THRESHOLD)
+		ch, err = portioned.ProcessComplexReq(ctx, int64(run.portions)*traceqlconfig.PortionSpans())
 	}
 	if err != nil {
 		return []string{"error: " + err.Error()}
@@ -214,7 +211,8 @@ func summary(t *testing.T, traces []model.TraceInfo) []string {
 					item += " name=" + sp.Name
 				}
 				for _, a := range sp.Attributes {
-					item += fmt.Sprintf(" %s=%s", a.Key, strconv.Quote(a.Value.StringValue))
+					v := model.AnyValue{StringValue: a.Value.StringValue, IntValue: a.Value.IntValue}
+					item += fmt.Sprintf(" %s=%s", a.Key, anyValue(v))
 				}
 				line = append(line, "["+item+"]")
 			}
@@ -543,3 +541,55 @@ func TestProbeUnresolvedOnCluster(t *testing.T) { testProbeUnresolved(t, true, f
 func TestProbeUnresolvedOverHTTP(t *testing.T) { testProbeUnresolved(t, false, true) }
 
 func TestProbeUnresolvedOverHTTPOnCluster(t *testing.T) { testProbeUnresolved(t, true, true) }
+
+// A structural query's estimate is every span in range, so the budget that holds
+// all of them reads it at once and one span less splits it.
+func TestSearchPortionsByTheSpansInRange(t *testing.T) {
+	s := openSearchStore(t, false, false)
+	s.seedStructural(t)
+	t.Cleanup(func() {
+		if err := traceqlconfig.Init(); err != nil {
+			t.Error(err)
+		}
+	})
+	spans := len(structuralTraces())
+	for _, tc := range []struct {
+		budget              int
+		portions, totalJobs int64
+	}{{spans, 0, 1}, {spans - 1, 2, 2}} {
+		t.Setenv(traceqlconfig.PortionSpansEnv, strconv.Itoa(tc.budget))
+		if err := traceqlconfig.Init(); err != nil {
+			t.Fatal(err)
+		}
+		q, err := traceql_ir.Parse(`{.a = "1"} >> {.b = "1"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		planner, err := Plan(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := &shared.PlannerContext{
+			Ctx: context.Background(), CHDb: s.db,
+			From: spanStart.Add(-time.Minute), To: spanStart.Add(time.Minute),
+			Limit: searchLimit, SpansPerSpanSet: 100, AncestryRounds: 20,
+			VersionInfo: dbversion.VersionInfo{dbversion.CapStructuralQueries: 0},
+		}
+		tables.PopulateTableNames(ctx, &model.DataDatabasesMap{Config: &config.ClokiBaseDataBase{Name: s.name}})
+		ch, err := planner.Process(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		traces := 0
+		for batch := range ch {
+			traces += len(batch)
+		}
+		if ctx.Portions != tc.portions || traces == 0 {
+			t.Errorf("budget %d: %d portions and %d traces, want %d portions and some traces",
+				tc.budget, ctx.Portions, traces, tc.portions)
+		}
+		if ctx.TotalJobs() != tc.totalJobs {
+			t.Errorf("budget %d: TotalJobs %d, want %d", tc.budget, ctx.TotalJobs(), tc.totalJobs)
+		}
+	}
+}

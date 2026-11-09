@@ -55,7 +55,7 @@ func TestSearchReadsTheSelectedValuesOfTheListedSpans(t *testing.T) {
 		`{.a = 1} | select(.x, span.y, resource.y, name, span:name, status, kind, statusMessage, duration, rootName, rootServiceName) | select(.z)`),
 		testPlannerContext(3))
 	for _, want := range []string{
-		`key IN ('x','y','name','status','kind','statusMessage','z')`,
+		`key IN ('x','y','name','status','kind','statusMessage','z','a')`,
 		`((traces_idx.trace_id, traces_idx.span_id) IN (trace_span_ids))`,
 		`((traces_idx.timestamp_ns) > (86390000000000)) and ((traces_idx.timestamp_ns) <= (86410000000000)) and (traces_idx.trace_id IN (trace_ids))`,
 		`any left JOIN selected_attrs ON ((traces.trace_id) == (selected_attrs.trace_id)) and ((traces.span_id) == (selected_attrs.span_id))`,
@@ -68,14 +68,46 @@ func TestSearchReadsTheSelectedValuesOfTheListedSpans(t *testing.T) {
 	}
 }
 
-func TestSearchWithoutSelectReadsNoValues(t *testing.T) {
-	for _, query := range searchQueries {
+// Search without select() or filtered fields reads no values.
+func TestSearchWithoutKeysReadsNoValues(t *testing.T) {
+	for _, query := range []string{`{}`, `count() > 1`, `by(.b * 2) | by(duration)`, `{duration > 1s} | avg(.b) > 1`, `{rootName = "r"} !~ {}`} {
 		res := renderPlan(t, planSearch(t, query), testPlannerContext(3))
-		if strings.Contains(res, "selected_attrs") {
+		if strings.Contains(res, "selected_attrs") || strings.Contains(res, "selected_nested_set") {
 			t.Errorf("%s reads selected values:\n%s", query, res)
 		}
 		if !strings.Contains(res, `CAST([], 'Array(Array(String))') as span_attr_keys, CAST([], 'Array(Array(String))') as span_attr_vals`) {
 			t.Errorf("%s lacks the empty selected-value columns:\n%s", query, res)
+		}
+	}
+}
+
+// Search echoes the fields every spanset filter reads as if selected: the
+// union across the query, next to the select() fields.
+func TestSearchEchoesFilteredFields(t *testing.T) {
+	for query, want := range map[string]string{
+		`{.a = 1}`: `a`,
+		`{.a = 1 && name = "n"} >> {span.b = 2 || status = error} | select(.x)`: `x,a,name,b,status`,
+		`{.a = 1} | count() > 1 | {kind = server && .a != nil}`:                 `a,kind`,
+		`{nestedSetParent < 0} &>> {nestedSetRight - nestedSetLeft = 1}`:        `nestedSetParent,nestedSetRight,nestedSetLeft`,
+		`{duration > 1s && rootServiceName = "s" && traceDuration > 1s}`:        ``,
+		`{.nestedSetLeft = "x"}`: `nestedSetLeft`,
+	} {
+		keys, err := spanValueKeys(mustParseQuery(t, query))
+		if err != nil || strings.Join(keys, ",") != want {
+			t.Errorf("spanValueKeys(%s) = %v, %v; want %s", query, keys, err, want)
+		}
+	}
+}
+
+// A root filter echoes nestedSetParent from the side table.
+func TestSearchEchoesRootFilter(t *testing.T) {
+	res := renderPlan(t, planSearch(t, `{nestedSetParent < 0 && .a = 1}`), testPlannerContext(3))
+	for _, want := range []string{
+		`(key IN ('a'))`,
+		`arraySort(arrayConcat(selected_attrs.kv, [('nestedSetParent', toString(ifNull(selected_nested_set.parent_, 0)))]))`,
+	} {
+		if !strings.Contains(res, want) {
+			t.Errorf("%q missing:\n%s", want, res)
 		}
 	}
 }
@@ -107,13 +139,72 @@ func TestSelectUnsupportedIntrinsics(t *testing.T) {
 	}
 }
 
-func TestSelectedKeys(t *testing.T) {
+func TestSpanValueKeysSkipListedIntrinsics(t *testing.T) {
 	q, err := traceql_ir.Parse(`{} | select(rootName, duration, trace:rootService, span:duration, traceDuration, trace:id, span:id)`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys, err := selectedKeys(q)
+	keys, err := spanValueKeys(q)
 	if err != nil || len(keys) != 0 {
-		t.Errorf("selectedKeys = %v, %v; want none", keys, err)
+		t.Errorf("spanValueKeys = %v, %v; want none", keys, err)
+	}
+}
+
+// Search reads the selected nested-set values of every listed span from the
+// side table, 0 for a span without a row, next to the selected attributes.
+func TestSearchReadsSelectedNestedSetValues(t *testing.T) {
+	res := renderPlan(t, planSearch(t, `{.a = 1} | select(nestedSetRight, .x, nestedSetLeft)`), testPlannerContext(3))
+	for _, want := range []string{
+		`key IN ('x','a')`,
+		`argMax(ns.left, ns.version) as left_`,
+		`FROM tempo_traces_nested_set as ns WHERE (ns.trace_id IN (trace_ids)) and ((ns.trace_id, ns.span_id) IN (trace_span_ids))`,
+		`any left JOIN selected_nested_set ON ((traces.trace_id) == (selected_nested_set.trace_id)) and ((traces.span_id) == (selected_nested_set.span_id))`,
+		`arraySort(arrayConcat(selected_attrs.kv, [('nestedSetRight', toString(ifNull(selected_nested_set.right_, 0))), ('nestedSetLeft', toString(ifNull(selected_nested_set.left_, 0)))]))`,
+	} {
+		if !strings.Contains(res, want) {
+			t.Errorf("%q missing:\n%s", want, res)
+		}
+	}
+	if strings.Contains(res, "parent_") {
+		t.Errorf("reads an unselected field:\n%s", res)
+	}
+}
+
+// Without selected attributes, only the side table is read.
+func TestSearchReadsOnlySelectedNestedSetValues(t *testing.T) {
+	res := renderPlan(t, planSearch(t, `{} | select(nestedSetParent) | count() > 0`), testPlannerContext(3))
+	if strings.Contains(res, "selected_attrs") {
+		t.Errorf("reads attributes:\n%s", res)
+	}
+	want := `groupArray(arrayMap(x -> x.1, arraySort([('nestedSetParent', toString(ifNull(selected_nested_set.parent_, 0)))]))) as span_attr_keys`
+	if !strings.Contains(res, want) {
+		t.Errorf("%q missing:\n%s", want, res)
+	}
+}
+
+// On a cluster the side table is read through its Distributed table.
+func TestSelectedNestedSetValuesReadDistributedTablesOnClusters(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.IsCluster = true
+	res := renderPlan(t, planSearch(t, `{} | select(nestedSetLeft)`), ctx)
+	for _, want := range []string{
+		`FROM tempo_traces_nested_set_dist as ns WHERE (ns.trace_id GLOBAL IN (trace_ids))`,
+		`global any left JOIN selected_nested_set`,
+	} {
+		if !strings.Contains(res, want) {
+			t.Errorf("%q missing:\n%s", want, res)
+		}
+	}
+}
+
+// An attribute named like a nested-set intrinsic selects the intrinsic.
+func TestSelectedAttributeSharesNestedSetKey(t *testing.T) {
+	q, err := traceql_ir.Parse(`{} | select(.nestedSetLeft, span.nestedSetRight, nestedSetLeft)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := spanValueKeys(q)
+	if err != nil || strings.Join(keys, ",") != "nestedSetLeft,nestedSetRight" {
+		t.Errorf("spanValueKeys = %v, %v", keys, err)
 	}
 }

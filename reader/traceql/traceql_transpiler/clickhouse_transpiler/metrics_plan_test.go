@@ -114,13 +114,8 @@ func TestMetricsSpanStartIsLeftOpenRightClosed(t *testing.T) {
 }
 
 func TestMetricsRootFilterAppliesToTheResultSpans(t *testing.T) {
-	ctx := testPlannerContext(3)
-	res := renderPlan(t, planMetrics(t, `{nestedSetParent < 0 && .a = 1}`), ctx)
-	if len(ctx.TracesIntrinsicWhere) != 0 {
-		t.Errorf("metrics planning left %d conditions on the caller's context", len(ctx.TracesIntrinsicWhere))
-	}
-	if !regexp.MustCompile(`\(_\d+stage0_expr\.trace_id, _\d+stage0_expr\.span_id\) IN \(`).MatchString(res) ||
-		!strings.Contains(res, "traces.parent_id") {
+	res := renderPlan(t, planMetrics(t, `{nestedSetParent < 0 && .a = 1}`), testPlannerContext(3))
+	if !strings.Contains(res, rootColumn) {
 		t.Errorf("root filter missing from the metrics spans:\n%s", res)
 	}
 }
@@ -226,5 +221,36 @@ func TestCompareReadsBaselineAndSelectionSpans(t *testing.T) {
 	}
 	if plan.(*comparePlanner).Selection != nil {
 		t.Errorf("compare({}) plans a selection")
+	}
+}
+
+// Metrics read the stored nested-set values of the result spans, from the
+// distributed table on a cluster.
+func TestMetricsReadNestedSetValuesOfTheResultSpans(t *testing.T) {
+	q, err := traceql_ir.Parse(`{.a = 1} | avg_over_time(nestedSetRight) by (nestedSetLeft, nestedSetRight)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanMetrics(q, countSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cluster := range []bool{false, true} {
+		ctx := testPlannerContext(3)
+		ctx.IsCluster = cluster
+		res := regexp.MustCompile(`\b_\d+`).ReplaceAllString(renderPlan(t, plan, ctx), "_N")
+		table, in := "tempo_traces_nested_set as ns", "(ns.trace_id IN ( SELECT trace_id FROM _Nresult_span_ids))"
+		if cluster {
+			table, in = "tempo_traces_nested_set_dist as ns", "(ns.trace_id GLOBAL IN ( SELECT trace_id FROM _Nresult_span_ids))"
+		}
+		for _, want := range []string{
+			table, in,
+			"argMax(ns.right, ns.version) as right_, argMax(ns.left, ns.version) as left_",
+			"ifNull(_Nmetrics_nested_set.right_, 0) as nested_set_right, ifNull(_Nmetrics_nested_set.left_, 0) as nested_set_left",
+		} {
+			if !strings.Contains(res, want) {
+				t.Errorf("cluster %v: %q missing:\n%s", cluster, want, res)
+			}
+		}
 	}
 }

@@ -173,13 +173,8 @@ func TestAutocompleteSpanStartIsLeftOpenRightClosed(t *testing.T) {
 func TestAutocompleteRootFilterAppliesToTheResultSpans(t *testing.T) {
 	for kind, plan := range autocompletePlans(t, `{nestedSetParent < 0 && .a = 1}`) {
 		for i := 0; i < 2; i++ {
-			ctx := testPlannerContext(3)
-			res := renderPlan(t, plan, ctx)
-			if len(ctx.TracesIntrinsicWhere) != 0 {
-				t.Errorf("%s: planning left %d conditions on the caller's context", kind, len(ctx.TracesIntrinsicWhere))
-			}
-			if !regexp.MustCompile(`\(_\d+stage0_expr\.trace_id, _\d+stage0_expr\.span_id\) IN \(`).MatchString(res) ||
-				!strings.Contains(res, "traces.parent_id") {
+			res := renderPlan(t, plan, testPlannerContext(3))
+			if !strings.Contains(res, rootColumn) {
 				t.Errorf("%s, evaluation %d: root filter missing from the result spans:\n%s", kind, i+1, res)
 			}
 		}
@@ -222,6 +217,25 @@ func TestAutocompleteReadsDistributedTablesOnClusters(t *testing.T) {
 				}
 				if m := plainIn.FindString(res); m != "" {
 					t.Errorf("distributed subquery under a plain IN (%q):\n%s", m, res)
+				}
+			})
+		}
+	}
+}
+
+func TestAutocompleteTreatsQuotedNamesLikeBareOnes(t *testing.T) {
+	for quoted, bare := range map[string]string{
+		`{ ."foo" = "a" }`:                  `{ .foo = "a" }`,
+		`{ span."foo".bar = 1 }`:            `{ span.foo.bar = 1 }`,
+		`{ .a = ."b" }`:                     `{ .a = .b }`,
+		`{ ."foo" = 1 } >> { .x"bar" = 2 }`: `{ .foo = 1 } >> { .xbar = 2 }`,
+	} {
+		bares := autocompletePlans(t, bare)
+		for kind, plan := range autocompletePlans(t, quoted) {
+			t.Run(kind+" "+quoted, func(t *testing.T) {
+				got, want := renderPlan(t, plan, testPlannerContext(7)), renderPlan(t, bares[kind], testPlannerContext(7))
+				if got != want {
+					t.Errorf("got:\n%s\nwant:\n%s", got, want)
 				}
 			})
 		}

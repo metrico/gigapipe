@@ -44,6 +44,8 @@ type TraceInfo struct {
 	DurationMs        int64     `json:"durationMs"`
 	SpanSet           SpanSet   `json:"spanSet"`
 	SpanSets          []SpanSet `json:"spanSets"`
+	// Newest is the newest matched span's start: the search rank.
+	Newest int64 `json:"-"`
 }
 
 type SpanInfo struct {
@@ -92,9 +94,11 @@ func (d Double) MarshalJSON() ([]byte, error) {
 	return json.Marshal(f)
 }
 
+// SpanAttr is a span attribute holding either a string or an int value.
 type SpanAttr struct {
 	Key   string `json:"key"`
 	Value struct {
-		StringValue string `json:"stringValue"`
+		StringValue *string `json:"stringValue,omitempty"`
+		IntValue    *string `json:"intValue,omitempty"`
 	} `json:"value"`
 }

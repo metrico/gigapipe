@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
@@ -77,7 +76,7 @@ func checkAggregates(e traceql_ir.ScalarExpr) error {
 			return err
 		}
 		if e.Arg != nil {
-			_, err := fieldKeys(e.Arg)
+			_, err := pivotOf(e.Arg)
 			return err
 		}
 	}
@@ -87,11 +86,7 @@ func checkAggregates(e traceql_ir.ScalarExpr) error {
 // staticValue is a literal as a float: a duration in nanoseconds.
 func staticValue(lit *traceql_ir.Static) (float64, error) {
 	if lit.Kind == traceql_ir.ValueDuration {
-		d, err := time.ParseDuration(lit.Text)
-		if err != nil {
-			return 0, err
-		}
-		return float64(d.Nanoseconds()), nil
+		return float64(lit.Duration.Nanoseconds()), nil
 	}
 	return strconv.ParseFloat(lit.Text, 64)
 }
@@ -152,11 +147,10 @@ func (s *scalarFilterStage) process(ctx *shared.PlannerContext, alias string, pr
 // through the left join. Base spans start in the query range, which bounds the
 // read.
 func (s *scalarFilterStage) values(ctx *shared.PlannerContext, alias string, base *sql.With) (sql.ISelect, error) {
-	keys, err := fieldKeys(s.agg.Arg)
+	pivot, err := pivotOf(s.agg.Arg)
 	if err != nil {
 		return nil, err
 	}
-	pivot := &fieldPivot{keys: keys}
 	num, err := pivot.sql().number(s.agg.Arg)
 	if err != nil {
 		return nil, err
@@ -164,13 +158,13 @@ func (s *scalarFilterStage) values(ctx *shared.PlannerContext, alias string, bas
 	baseSpans := sql.NewSelect().Select(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")).From(sql.NewWithRef(base))
 	spans := pivot.spans(ctx)
 	table := "traces_idx"
-	if len(keys) == 0 {
+	if len(pivot.keys) == 0 {
 		table = "traces"
 	}
 	spans.AndWhere(inSubquery(ctx, sql.NewRawObject(fmt.Sprintf("(%s.trace_id, %s.span_id)", table, table)), baseSpans))
-	withSpans := sql.NewWith(spans, alias+"_pivot")
+	withs, withSpans := pivot.read(ctx, spans, alias+"_pivot")
 	return sql.NewSelect().
-		With(withSpans).
+		With(withs...).
 		Select(
 			sql.NewSimpleCol("trace_id", "trace_id"),
 			sql.NewSimpleCol("span_id", "span_id"),
