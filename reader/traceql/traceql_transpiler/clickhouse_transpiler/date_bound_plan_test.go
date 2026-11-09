@@ -47,6 +47,7 @@ func TestSearchDateBoundsDoNotDependOnTheReaderZone(t *testing.T) {
 	for _, query := range []string{`{.a = 1}`, `{.a = 1} >> {.b = 2}`, `{.a = .b}`, `{.a = 1} | avg(.b) > 1`, `{.a = 1} | select(.b)`} {
 		for zone, ctx := range dateBoundContexts() {
 			plan := planSearch(t, query)
+			ctx.TracesCandidates = plan.Candidates(ctx.From, ctx.To)
 			res := renderSearch(t, plan, ctx)
 			checkDateBounds(t, res, strings.Count(res, "tempo_traces_attrs_gin"))
 			if t.Failed() {
@@ -74,6 +75,7 @@ func TestAutocompleteDateBoundsDoNotDependOnTheReaderZone(t *testing.T) {
 			for zone, ctx := range dateBoundContexts() {
 				var res string
 				if len(plan.Ids) > 0 {
+					ctx.TracesCandidates = plan.Candidates(ctx.From, ctx.To)
 					res = renderSearch(t, plan, ctx)
 				} else {
 					res = renderPlan(t, plan.Data, ctx)

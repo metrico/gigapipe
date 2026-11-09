@@ -106,7 +106,7 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 ## TraceQL
 
 - **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
-- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per shard in one portion, a positive integer (default: `5000000`, which assumes [`MALLOC_CONF`](#clickhouse-memory)). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range on the fullest shard, a single node being one shard; a lone `{}` estimates the search limit; others estimate the spans their selectors match across the cluster. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up. See [Large queries](#large-queries).
+- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search slice or tag autocomplete portion loads on one shard, a positive integer (default: `5000000`, which assumes [`MALLOC_CONF`](#clickhouse-memory)). A search counts the candidate spans of a slice: over the setting, the slice halves, down to 1 s or one candidate trace on that shard, and then runs anyway. A lone `{}` search has no span budget and loads `limit` traces per slice. An autocomplete runs in `ceil(estimate / setting)` portions: queries with a structural operator estimate every span in range on the fullest shard, a single node being one shard, and others estimate the spans their selectors match across the cluster. Memory grows with the spans loaded at once, and a lower value means more statements, so it costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up. See [Large queries](#large-queries).
 - **`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION`** - Longest time range of a TraceQL search or tag autocomplete, a Go duration such as `168h` (default: `168h`). A longer request gets HTTP 400 with the plain-text body `range specified by start and end exceeds 168h0m0s. received start=<s> end=<e>`, as Tempo sends it. `0` turns the cap off. Applies to `/api/search` with `q`, and to `/api/v2/search/tags` and `/api/v2/search/tag/{tag}/values` with a non-zero `start`. Metrics queries, `/api/search` with `tags`, and tag lookups that read no time range are not capped. An invalid or negative value stops Gigapipe at start-up. See [Large queries](#large-queries).
 
 Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
@@ -230,18 +230,45 @@ LIMIT 1
 
 ### Large queries
 
-A TraceQL search or tag autocomplete whose estimate exceeds
-`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each search portion reads one
-hash bucket of traces over the whole requested range. Each autocomplete portion
-reads a slice of the `trace_id` space in every read of its statements, so
-`tempo_traces` reads narrow by the sort key; attribute index reads still scan
-the whole requested range. Autocomplete portions balance when trace ids are
-uniformly distributed; ids with a time prefix concentrate in few portions. For a
-search, each portion returns its bucket's top `limit` traces and Gigapipe merges
-them by newest matched span, so the result is the same at any portion count.
-Each portioned request logs one info-level `traceql portioned` line with the
-query, range, estimate, setting and portion count. For a structural query, the
-estimate is the fullest shard's.
+A TraceQL search walks the requested range in slices, newest first, and stops as
+soon as its result is the exact newest `limit` traces, ranked by newest matched
+span. The result doesn't depend on slice sizes. Slice sizes are fixed rules, not
+settings:
+
+- The first slice is the newest 1 minute, or the whole range if shorter than
+  2 minutes.
+- A slice with more than `GIGAPIPE_TRACEQL_PORTION_SPANS` candidate spans on a
+  shard halves and counts again. At 1 s, or when that shard has one candidate
+  trace, it runs anyway.
+- After a slice with `found` traces ranked above its lower boundary, counted across
+  the search so far, the next slice is `duration x (limit - found) / found`
+  long, at least double. With none found, it's 4 times as long. At `limit` 0, it
+  doubles.
+- After the first slice with no candidates, one statement finds the newest
+  candidate left in the range. The next slice ends at it, or the search ends when
+  there is none. After any later slice with no candidates, the next slice is the
+  rest of the range, so a search runs at most one such statement.
+- A slice that would leave less than its own length before the start of the
+  range takes the whole rest.
+
+A search of more than one slice logs one info-level `traceql portioned` line
+with the query, range, estimate, setting and portion count. The portion count is
+the slices that ran plus the newest-candidate statement, if any, and the
+estimate is the most candidate spans on a shard of any slice. A lone `{}` logs
+that count too, though it loads only `limit` traces per slice.
+
+A search response reports its slices in a `metrics` block after the trace array:
+`"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the slices that ran
+plus the newest-candidate statement, if any, or `1` for one. Autocomplete
+responses have no such block.
+
+A tag autocomplete whose estimate exceeds `GIGAPIPE_TRACEQL_PORTION_SPANS` runs in
+portions. Each portion reads a slice of the `trace_id` space in every read of its
+statements, so `tempo_traces` reads narrow by the sort key; attribute index reads
+still scan the whole requested range. Portions balance when trace ids are
+uniformly distributed; ids with a time prefix concentrate in few portions. Each
+portioned request logs the same `traceql portioned` line, with the estimate and
+portion count. For a structural query, the estimate is the fullest shard's.
 
 Tag autocomplete with a lone selector whose filter compares only `duration` or
 `span:duration` (combined with `&&` and `||`, and any `select()` stages), such
@@ -257,27 +284,32 @@ with `&&` over terms that different copies meet it can suggest none. Other
 filters, including `{.a = 1 || duration > 0}`, keep their ids stage and
 portions.
 
-A search response reports its portions in a `metrics` block after the trace
-array: `"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the portion count,
-or `1` when the search was read at once. Autocomplete responses have no such
-block.
-
 `GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION` caps the range at `168h` by default. A
 longer request gets HTTP 400 instead of running.
 
 Set ClickHouse `max_memory_usage` as the backstop: a query over it fails instead
 of exhausting the node. The accepted risks are:
 
-- A huge single trace isn't split. All its spans fall in one portion, whatever
-  the setting.
-- The budget is per query, and per shard for structural queries. Concurrent
-  queries each read up to it.
+- A huge single trace isn't split. All its spans load in every search slice where
+  it's a candidate, and in one autocomplete portion, whatever the setting.
+- Long-lived traces cost more: a slice's load is about
+  `rate x (slice + trace lifetime)`, and they can overrun memory only at the floor.
+- A lone `{}` search has no span budget. Each slice loads up to `limit` traces,
+  and at `limit` 0 every trace in the slice.
+- The search budget is per shard. A search without a structural operator is
+  evaluated on the connected node, which holds every shard's matched spans
+  together, up to shards × setting per operand. The autocomplete budget is per
+  query, and per shard for structural queries. Concurrent queries each read up to
+  it.
 - The default is sized for 7 GiB nodes and assumes
   [`MALLOC_CONF`](#clickhouse-memory). Lower it on smaller nodes or without the
   variable.
-- Cost grows with range × portions, because every portion rescans the range.
-- The reader holds up to `2 × limit` traces while it merges portions, which
-  `max_memory_usage` doesn't cover.
+- Autocomplete cost grows with range × portions, because every portion rescans
+  the range.
+- The reader holds up to `2 × limit` traces while it merges search slices, and up
+  to `portions × limit` values while it merges autocomplete portions.
+  `max_memory_usage` doesn't cover either. At `limit` 0 it holds every trace or
+  value.
 
 ### ClickHouse memory
 

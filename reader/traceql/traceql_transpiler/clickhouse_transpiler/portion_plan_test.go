@@ -12,6 +12,7 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// An autocomplete's operand reads keep the current portion's hash.
 func TestPortionFilterOnEveryOperandRead(t *testing.T) {
 	const portionFilter = `(cityHash64(trace_id) % 3) == (1)`
 	requestedBounds := []string{">86390", "<=86410"}
@@ -31,7 +32,15 @@ func TestPortionFilterOnEveryOperandRead(t *testing.T) {
 		t.Run(tc.query, func(t *testing.T) {
 			ctx := testPlannerContext(3)
 			ctx.RandomFilter = shared.RandomFilter{Max: 3, I: 1}
-			req, err := planSearch(t, tc.query).Ids[0].Statement.Process(ctx)
+			q, err := traceql_ir.Parse(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanTagsV2(q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := plan.Ids[0].Statement.Process(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -53,38 +62,6 @@ func TestPortionFilterOnEveryOperandRead(t *testing.T) {
 			}
 			if operands != tc.operands {
 				t.Errorf("got %d operand reads, want %d", operands, tc.operands)
-			}
-		})
-	}
-}
-
-// A lone {} picks its traces in the current portion, and in every trace outside
-// portioned evaluation.
-func TestLoneSelectorPicksTracesOfItsPortion(t *testing.T) {
-	const portionFilter = `(cityHash64(trace_id) % 3) == (1)`
-	for _, query := range []string{`{}`, `({})`, `{} | select(.x)`} {
-		t.Run(query, func(t *testing.T) {
-			picked := func(ctx *shared.PlannerContext) string {
-				t.Helper()
-				req, err := planSearch(t, query).Ids[0].Statement.Process(ctx)
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, w := range req.GetWith() {
-					if w.GetAlias() == "attrless_trace_ids" {
-						return renderWith(t, w)
-					}
-				}
-				t.Fatal("no attrless_trace_ids")
-				return ""
-			}
-			ctx := testPlannerContext(3)
-			ctx.RandomFilter = shared.RandomFilter{Max: 3, I: 1}
-			if s := picked(ctx); !strings.Contains(s, portionFilter) {
-				t.Errorf("no portion filter:\n%s", s)
-			}
-			if s := picked(testPlannerContext(3)); strings.Contains(s, "cityHash64") {
-				t.Errorf("portion filter outside portions:\n%s", s)
 			}
 		})
 	}
@@ -123,32 +100,6 @@ func TestFinalSelectHasTheRank(t *testing.T) {
 			}
 			if !strings.HasSuffix(last, "as trace_newest") {
 				t.Errorf("last column %q, want trace_newest", last)
-			}
-		})
-	}
-}
-
-// A query the attrless plan reads estimates like that plan, select() stages aside.
-func TestEstimateFollowsAttrlessPlan(t *testing.T) {
-	for _, tc := range []struct {
-		query    string
-		attrless bool
-	}{
-		{`{}`, true},
-		{`({})`, true},
-		{`{} | select(.x)`, true},
-		{`({}) | select(.x)`, true},
-		{`{} | select(.x) | select(.y)`, true},
-		{`{.a} | select(.x)`, false},
-		{`{} | count() > 2`, false},
-		{`{} | {.a}`, false},
-		{`{} >> {.a}`, false},
-	} {
-		t.Run(tc.query, func(t *testing.T) {
-			estimate := estimateOf(t, tc.query)
-			_, attrless := estimate.(*AttrlessEvaluatorPlanner)
-			if attrless != tc.attrless {
-				t.Errorf("estimated by %T, want attrless %v", estimate, tc.attrless)
 			}
 		})
 	}
@@ -278,9 +229,6 @@ func TestSpanOnlyQueriesKeepTheirEstimates(t *testing.T) {
 				t.Errorf("estimates every span")
 			}
 		})
-	}
-	if _, attrless := estimateOf(t, `{}`).(*AttrlessEvaluatorPlanner); !attrless {
-		t.Errorf("{} is estimated by %T", estimateOf(t, `{}`))
 	}
 }
 

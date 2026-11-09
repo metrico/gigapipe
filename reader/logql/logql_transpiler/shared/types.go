@@ -101,8 +101,9 @@ type PlannerContext struct {
 	id int
 
 	RandomFilter RandomFilter
-	// Portions is the number of complexity portions the request was read in,
-	// or 0 when it was read at once. It is final when the planner's Process returns.
+	// Portions is the number of complexity portions or walked slices the request
+	// was read in, or 0 when it was read at once. It is final when the planner's
+	// Process returns.
 	Portions int64
 	// TraceQL is the request's query text, for its log lines.
 	TraceQL     string
@@ -116,6 +117,20 @@ type PlannerContext struct {
 	// TracesSample, when set, keeps the sampled rows of every TraceQL
 	// operand read.
 	TracesSample sql.SQLCondition
+
+	// TracesCandidates, when set, plans the trace ids operand reads keep.
+	TracesCandidates SQLRequestPlanner
+
+	// TracesSlices lists what a walk evaluated, newest first; it is non-nil
+	// after a walk. It is final when the planner's Process returns.
+	TracesSlices []TracesSlice
+}
+
+// TracesSlice is a slice of a walk as it was evaluated: the candidates' range
+// and the candidates.
+type TracesSlice struct {
+	From, To   time.Time
+	Candidates SQLRequestPlanner
 }
 
 // TotalJobs is the job count of a search response: Portions, or 1 when the request was read at once.

@@ -141,17 +141,20 @@ func (p *planner) plan() (*SearchPlan, error) {
 		spansets = newestShardLocal(res)
 	}
 	search := &searchRowsPlanner{Main: spansets}
+	leaves, err := p.candidateLeaves(&p.query.Pipeline)
+	if err != nil {
+		return nil, err
+	}
 	return &SearchPlan{
-		Ids:  []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(search)}},
-		Data: &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},
+		Ids:    []IdsStatement{{Table: SearchResultTable, Statement: p.structuralGate(search)}},
+		Data:   &IndexLimitPlanner{NewTracesDataPlanner(idsTablePlanner{Table: SearchResultTable}, selected)},
+		Leaves: leaves,
 	}, nil
 }
 
 func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	var res shared.SQLRequestPlanner
-	if AllSpans(p.query) {
-		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
-	} else if p.query.HasStructural() {
+	if p.query.HasStructural() {
 		res = shardLocal(&AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}, "_count")
 	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
 		var err error

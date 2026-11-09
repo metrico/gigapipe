@@ -69,7 +69,7 @@ func readerSearches(t *testing.T, s *searchStore, queries []string) map[string][
 	t.Helper()
 	res := map[string][]string{}
 	for _, query := range queries {
-		res[query] = s.result(t, query, searchRun{limit: searchLimit})
+		res[query] = s.result(t, query, searchRun{limit: searchLimit, boundary: 3})
 	}
 	return res
 }
@@ -166,6 +166,31 @@ func TestReadonlyReaderWithoutSettingFailsOnCluster(t *testing.T) {
 	assertSameResults(t, readerSearches(t, user, searches), readerSearches(t, admin, searches))
 	suggestions := slices.Concat(plainAutocompletes, allSpansAutocompletes)
 	assertSameResults(t, readerSuggestions(t, user, suggestions), readerSuggestions(t, admin, suggestions))
+}
+
+// A bare readonly=1 user walks several slices, extent read included, and stops
+// early as the admin does.
+func TestReadonlyReaderWalksOnCluster(t *testing.T) {
+	admin := openSearchStore(t, true, false)
+	admin.seedStarts(t, []span{
+		{1, 1, 0, []string{"a"}}, {1, 2, 1, []string{"b"}},
+		{2, 1, 0, []string{"a"}}, {3, 1, 0, []string{"b"}},
+	}, func(i int) int64 { return beforeEnd(time.Duration(i+1) * 40 * time.Second) })
+	user := admin.asReader(t, "readonly = 1", false, false)
+	from := walkEnd.Add(-10 * time.Minute)
+	for _, query := range []string{`{.a = "1"}`, `{}`, `{.a = "1"} >> {.b = "1"}`, `{.a = "1"} && {.b = "1"}`, `{.a = "1"} | count() > 0`} {
+		for _, limit := range []int{1, 0} {
+			walk, _ := planWalk(t, query)
+			ctx := user.walkContext(from, walkEnd, limit)
+			got := user.walkLines(t, walk, query, ctx)
+			if want := admin.wholeLines(t, query, from, walkEnd, limit); !reflect.DeepEqual(got, want) {
+				t.Errorf("%s limit %d:\ngot  %.300q\nwant %.300q", query, limit, got, want)
+			}
+			if limit == 0 && ctx.Portions < 2 {
+				t.Errorf("%s: %d slices", query, ctx.Portions)
+			}
+		}
+	}
 }
 
 // With skip_unavailable_shards on the read tables, a user without that setting
