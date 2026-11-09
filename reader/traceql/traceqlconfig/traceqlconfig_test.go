@@ -34,14 +34,14 @@ func TestAncestryRoundsRejectsInvalidValues(t *testing.T) {
 	}
 }
 
-func TestPortionSpansDefaultTo7500000(t *testing.T) {
+func TestPortionSpansDefaultTo5000000(t *testing.T) {
 	t.Setenv(AncestryRoundsEnv, "")
 	t.Setenv(PortionSpansEnv, "")
 	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	if got := PortionSpans(); got != 7500000 {
-		t.Errorf("PortionSpans() = %d, want 7500000", got)
+	if got := PortionSpans(); got != 5000000 {
+		t.Errorf("PortionSpans() = %d, want 5000000", got)
 	}
 }
 

@@ -101,14 +101,14 @@ func (p *fieldPivot) read(ctx *shared.PlannerContext, spans sql.ISelect, alias s
 	}
 	switch {
 	case joinsRoot:
-		withRoot := sql.NewWith(sql.NewSelect().
+		withRoot := sql.NewWith(keepPortion(ctx, sql.NewSelect().
 			Select(
 				sql.NewSimpleCol("traces.trace_id", "trace_id"),
 				sql.NewSimpleCol("traces.span_id", "span_id"),
 				sql.NewSimpleCol(rootColumn, "root")).
 			From(sql.NewSimpleCol(tracesTable(ctx), "traces")).
 			AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"), traceIds)).
-			GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id")), alias+"_root")
+			GroupBy(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("traces.span_id"))), alias+"_root")
 		r := withRoot.GetAlias()
 		cols = append(cols, sql.NewSimpleCol(fmt.Sprintf("ifNull(%s.root, 0)", r), "_root"))
 		withs = append(withs, withRoot)
@@ -144,10 +144,10 @@ func (p *fieldPivot) attrsWhere(ctx *shared.PlannerContext) []sql.SQLCondition {
 	for i, k := range p.keys {
 		keys[i] = sqlString(k)
 	}
+	dateFrom, dateTo := timerange.SpanDate("traces_idx.date", ctx.From, ctx.To)
 	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	return []sql.SQLCondition{
-		sql.Ge(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-		sql.Le(sql.NewRawObject("traces_idx.date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+		dateFrom, dateTo,
 		tsFrom, tsTo,
 		rawCond("traces_idx.key IN (" + strings.Join(keys, ", ") + ")"),
 	}

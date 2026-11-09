@@ -48,10 +48,10 @@ func PlanValuesV2(query *traceql_ir.Query, key string) (shared.GenericTraceReque
 }
 
 // planAutocomplete reads plan, by complexity portions when the query's spans
-// are costly to evaluate. A query that selects every span reads plan at once.
+// are costly to evaluate. A plan without ids statements reads at once.
 func planAutocomplete(query *traceql_ir.Query, plan *clickhouse_transpiler.SearchPlan) (
 	shared.GenericTraceRequestProcessor[string], error) {
-	if clickhouse_transpiler.AllSpans(query) {
+	if len(plan.Ids) == 0 {
 		return &autocompleteRequestProcessor{plan: plan}, nil
 	}
 	complexityPlanner, err := clickhouse_transpiler.PlanEval(query)

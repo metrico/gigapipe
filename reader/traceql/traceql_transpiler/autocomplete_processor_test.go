@@ -90,3 +90,21 @@ func TestMergeSuggestions(t *testing.T) {
 		t.Errorf("merge up to 3 = %v, want %v", got, want)
 	}
 }
+
+// A duration-only filter reads its one statement without a complexity estimate.
+func TestAutocompleteDurationOnlyReadsAtOnce(t *testing.T) {
+	tags, err := PlanTagsV2(parse(t, `{duration > 1ms}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tags.(*autocompleteRequestProcessor); !ok {
+		t.Fatalf("tags v2 is %T", tags)
+	}
+	values, err := PlanValuesV2(parse(t, `{duration > 1ms}`), "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := values.(*autocompleteRequestProcessor); !ok {
+		t.Fatalf("values v2 is %T", values)
+	}
+}

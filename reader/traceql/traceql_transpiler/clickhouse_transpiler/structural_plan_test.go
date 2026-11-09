@@ -319,7 +319,7 @@ func TestDefaultAncestryRoundsIs20(t *testing.T) {
 // the operand rows.
 var tracesRead = regexp.MustCompile(`FROM tempo_traces(?:_dist)? as traces.*?UNION ALL`)
 
-func TestStructuralTreeComesFromTheTracesTableWithoutTimeBound(t *testing.T) {
+func TestStructuralTreeComesFromTheTracesTableByTraceId(t *testing.T) {
 	for _, cluster := range []bool{false, true} {
 		ctx := testPlannerContext(3)
 		ctx.IsCluster = cluster
@@ -339,8 +339,8 @@ func TestStructuralTreeComesFromTheTracesTableWithoutTimeBound(t *testing.T) {
 				if !strings.Contains(read, "FROM tempo_traces as traces") || strings.Count(read, "traces.trace_id IN (") != 1 {
 					t.Errorf("cluster=%v %s %s: nodes are not read from the traces table by trace id:\n%s", cluster, name, query, read)
 				}
-				if strings.Contains(read, "timestamp_ns") || strings.Contains(read, "date") {
-					t.Errorf("cluster=%v %s %s: nodes are bounded in time:\n%s", cluster, name, query, read)
+				if strings.Contains(read, "date") {
+					t.Errorf("cluster=%v %s %s: nodes are bounded by date:\n%s", cluster, name, query, read)
 				}
 			}
 		}
@@ -407,5 +407,125 @@ func TestEmptyOperandReadsEverySpanInRange(t *testing.T) {
 	operands := eval.(*EvalFinalizerPlanner).Main.(*ComplexEvalOrPlanner).Operands
 	if _, ok := operands[0].(*AllSpansEvaluatorPlanner); !ok {
 		t.Errorf("operand {} is estimated by %T", operands[0])
+	}
+}
+
+// treeReadBound is the upper timestamp_ns bound of the tree read under
+// testPlannerContext: its To plus one hour.
+const treeReadBound = "(traces.timestamp_ns) <= (90010000000000)"
+
+// The tree read of every structural operator stops an hour after the range
+// and has no lower bound.
+func TestTreeReadHasOnlyAnUpperBound(t *testing.T) {
+	for _, query := range structuralQueries {
+		nodes := withSuffix(structuralWiths(t, query, testPlannerContext(3)), "_nodes")
+		if len(nodes) == 0 {
+			t.Fatalf("%s: no tree read", query)
+		}
+		for _, w := range nodes {
+			read := renderWith(t, w)
+			if !strings.Contains(read, treeReadBound) {
+				t.Errorf("%s: %s has no %q:\n%s", query, w.GetAlias(), treeReadBound, read)
+			}
+			if strings.Contains(read, "(traces.timestamp_ns) >") {
+				t.Errorf("%s: %s has a lower bound:\n%s", query, w.GetAlias(), read)
+			}
+		}
+	}
+}
+
+// On a cluster the tree read keeps the bound inside the per-shard statement.
+func TestTreeReadIsBoundedOnCluster(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.IsCluster = true
+	for _, query := range structuralQueries {
+		if res := renderPlan(t, planSearch(t, query).Ids[0].Statement, ctx); !strings.Contains(res, treeReadBound) {
+			t.Errorf("%s: no %q:\n%s", query, treeReadBound, res)
+		}
+	}
+}
+
+// compare()'s baseline ids bound the tree read by the end of the query, not of
+// the baseline window.
+func TestCompareTreeReadIsBoundedByTheQueryEnd(t *testing.T) {
+	q, err := traceql_ir.Parse(`({.a = 1} >> {.b = 2}) | compare({.c = 3})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(1000, 0), time.Unix(2000, 0), compareAttrRows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
+	if !strings.Contains(res, treeReadBound) {
+		t.Errorf("no %q:\n%s", treeReadBound, res)
+	}
+	if bad := "(traces.timestamp_ns) <= (5600000000000)"; strings.Contains(res, bad) {
+		t.Errorf("bounded by the baseline window:\n%s", res)
+	}
+}
+
+const lateTreeReadBound = "(traces.timestamp_ns) <= (103600000000000)"
+
+// A baseline ending after the query's end bounds the tree read at its own end.
+func TestCompareTreeReadCoversABaselineEndingAfterTheQuery(t *testing.T) {
+	q, err := traceql_ir.Parse(`({.a = 1} >> {.b = 2}) | compare({.c = 3})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanCompare(q, q.Metrics.Compare.Filter, time.Unix(86000, 0), time.Unix(100000, 0), compareAttrRows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3))
+	if !strings.Contains(res, lateTreeReadBound) {
+		t.Errorf("no %q:\n%s", lateTreeReadBound, res)
+	}
+	if strings.Contains(res, treeReadBound) {
+		t.Errorf("bounded by the query end:\n%s", res)
+	}
+}
+
+// The probe of a window ending after the query's end bounds at the window's end.
+func TestUnresolvedProbeTreeReadCoversAWindowEndingAfterTheQuery(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.From, ctx.To = time.Unix(86000, 0).UTC(), time.Unix(100000, 0).UTC()
+	_, stmts := planProbes(t, `{.a = 1} >> {.b = 2}`, ctx)
+	if len(stmts) == 0 {
+		t.Fatal("no probes")
+	}
+	for _, stmt := range stmts {
+		if !strings.Contains(stmt, lateTreeReadBound) {
+			t.Errorf("no %q:\n%s", lateTreeReadBound, stmt)
+		}
+	}
+}
+
+// The bound follows QueryTo, not To.
+func TestTreeReadIgnoresANarrowedTo(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.To = ctx.To.Add(-time.Hour)
+	res := renderPlan(t, planSearch(t, `{.a = 1} >> {.b = 2}`).Ids[0].Statement, ctx)
+	if !strings.Contains(res, treeReadBound) {
+		t.Errorf("no %q:\n%s", treeReadBound, res)
+	}
+}
+
+// An unknown query end leaves the tree read unbounded.
+func TestTreeReadIsUnboundedWithoutAQueryEnd(t *testing.T) {
+	ctx := testPlannerContext(3)
+	ctx.QueryTo = time.Time{}
+	res := renderPlan(t, planSearch(t, `{.a = 1} >> {.b = 2}`).Ids[0].Statement, ctx)
+	if strings.Contains(res, "(traces.timestamp_ns) <=") {
+		t.Errorf("tree read is bounded:\n%s", res)
+	}
+}
+
+// Autocomplete ids statements bound the tree read like search.
+func TestAutocompleteTreeReadIsBounded(t *testing.T) {
+	for kind, plan := range autocompletePlans(t, `{.a} >> {.b}`) {
+		if res := renderPlan(t, plan.Ids[0].Statement, testPlannerContext(3)); !strings.Contains(res, treeReadBound) {
+			t.Errorf("%s: no %q:\n%s", kind, treeReadBound, res)
+		}
 	}
 }

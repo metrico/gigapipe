@@ -2,6 +2,7 @@ package traceql_transpiler
 
 import (
 	"context"
+	gosql "database/sql"
 	"fmt"
 	"runtime/debug"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
+	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
@@ -21,17 +23,18 @@ import (
 const (
 	// unresolvedMaxIDs is the most trace ids one warning lists.
 	unresolvedMaxIDs = 20
-	// unresolvedProbeTimeout is one probe's deadline across its portions and jumps.
+	// unresolvedProbeTimeout is one probe's time limit across its portions and jumps.
 	unresolvedProbeTimeout = 30 * time.Second
 )
 
 // processWarner is the one warner of the process.
 var processWarner = &unresolvedWarner{
-	now:     time.Now,
-	probe:   probeUnresolved,
-	warn:    func(s string) { logger.Warn(s) },
-	debug:   logger.Debug,
-	timeout: unresolvedProbeTimeout,
+	now:      time.Now,
+	readonly: readReadonly,
+	probe:    probeUnresolved,
+	warn:     func(s string) { logger.Warn(s) },
+	debug:    logger.Debug,
+	timeout:  unresolvedProbeTimeout,
 }
 
 // WarnUnresolved logs the unresolved traces of a structural query's chain once
@@ -49,11 +52,12 @@ type unresolvedFound struct {
 
 // unresolvedWarner logs the unresolved traces its probe finds.
 type unresolvedWarner struct {
-	now     func() time.Time
-	probe   func(context.Context, *traceql_ir.Query, *shared.PlannerContext) ([]unresolvedFound, error)
-	warn    func(string)
-	debug   func(...any)
-	timeout time.Duration
+	now      func() time.Time
+	readonly func(context.Context, model.ISqlxDB) (uint64, error)
+	probe    func(context.Context, *traceql_ir.Query, *shared.PlannerContext) ([]unresolvedFound, error)
+	warn     func(string)
+	debug    func(...any)
+	timeout  time.Duration
 
 	mu   sync.Mutex
 	last time.Time
@@ -92,10 +96,16 @@ func (w *unresolvedWarner) run(reqCtx context.Context, query *traceql_ir.Query, 
 	if !w.claim() {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(reqCtx), w.timeout)
+	ctx, cancel := w.limited(context.WithoutCancel(reqCtx), planCtx.CHDb)
 	defer cancel()
+	if ctx.Err() != nil {
+		return
+	}
 	found, err := w.probe(ctx, query, planCtx)
 	if err != nil {
+		if pastLimit(ctx) {
+			err = fmt.Errorf("%w: %w", dsn.LimitReached(w.timeout), err)
+		}
 		w.debug("TraceQL unresolved-trace probe: ", err)
 	}
 	n, ids := mergeUnresolved(found)
@@ -107,6 +117,54 @@ func (w *unresolvedWarner) run(reqCtx context.Context, query *traceql_ir.Query, 
 		"(deeper than 2^%d spans at %s=%d, or parent links form a cycle); "+
 		"their unresolved spans are treated as unreachable; trace_ids=[%s]",
 		n, r, traceqlconfig.AncestryRoundsEnv, r, strings.Join(ids, ", ")))
+}
+
+// limited is ctx under one probe's time limit, which includes reading readonly.
+// The read has no deadline. The probe has one only when readonly reads 0.
+func (w *unresolvedWarner) limited(ctx context.Context, db model.ISqlxDB) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(w.timeout)
+	timed, cancel := dsn.WithLimit(ctx, w.timeout)
+	readonly, err := w.readonly(timed, db)
+	if err != nil {
+		w.debug("TraceQL unresolved-trace probe: reading readonly: ", err)
+		return timed, cancel
+	}
+	if readonly != 0 {
+		return timed, cancel
+	}
+	bounded, stop := context.WithDeadline(timed, deadline)
+	return bounded, func() {
+		stop()
+		cancel()
+	}
+}
+
+// pastLimit reports whether ctx has ended or its deadline has passed. A read
+// under the deadline can fail just before ctx ends.
+func pastLimit(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && !time.Now().Before(deadline)
+}
+
+// readReadonly is the readonly setting of db's user.
+func readReadonly(ctx context.Context, db model.ISqlxDB) (uint64, error) {
+	rows, err := db.QueryCtx(ctx, "SELECT getSetting('readonly')")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return 0, err
+		}
+		return 0, gosql.ErrNoRows
+	}
+	var readonly uint64
+	err = rows.Scan(&readonly)
+	return readonly, err
 }
 
 // mergeUnresolved is the largest jump's summed count, at least the number of

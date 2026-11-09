@@ -234,7 +234,7 @@ func TestCompareCountsReadBaselineAndSelection(t *testing.T) {
 		"all_spans as ( SELECT trace_id, span_id FROM baseline_spans)",
 		"selection as ( SELECT trace_id, span_id FROM selection_spans)",
 		"FROM attrs FINAL WHERE",
-		"(date) >= (toDate('1970-01-01'))", "(date) <= (toDate('1970-01-01'))",
+		"(date) >= ('1969-12-31')", "(date) <= ('1970-01-02')",
 		"trace_id IN (_1trace_ids)",
 		"countIf((trace_id, span_id) IN (selection)) as sel_n",
 		"countIf((trace_id, span_id) NOT IN (selection)) as base_n",

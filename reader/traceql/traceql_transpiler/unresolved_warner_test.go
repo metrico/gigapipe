@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
@@ -26,7 +28,8 @@ type fakeWarner struct {
 func newFakeWarner() *fakeWarner {
 	f := &fakeWarner{clock: time.Unix(1000, 0)}
 	f.unresolvedWarner = &unresolvedWarner{
-		now: func() time.Time { return f.clock },
+		now:      func() time.Time { return f.clock },
+		readonly: func(context.Context, model.ISqlxDB) (uint64, error) { return 1, nil },
 		probe: func(context.Context, *traceql_ir.Query, *shared.PlannerContext) ([]unresolvedFound, error) {
 			f.probes++
 			return f.found, f.err
@@ -251,7 +254,7 @@ func TestUnresolvedProbeStartsAfterTheRequest(t *testing.T) {
 	}
 	cancel()
 	got := <-ch
-	if got.err != nil || !got.hasDeadline || got.value != "plugin" {
+	if got.err != nil || got.hasDeadline || got.value != "plugin" {
 		t.Errorf("probe context: err = %v, deadline = %v, value = %v", got.err, got.hasDeadline, got.value)
 	}
 	if !got.window.Equal(from) {
@@ -275,6 +278,167 @@ func TestUnresolvedProbePanicIsReported(t *testing.T) {
 	if got := <-reported; !strings.Contains(got, "boom") {
 		t.Errorf("reported %q", got)
 	}
+}
+
+func TestUnresolvedProbeEndsAtItsTimeLimit(t *testing.T) {
+	for name, readonly := range map[string]uint64{"timer": 1, "deadline": 0} {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeWarner()
+			f.timeout = 50 * time.Millisecond
+			f.readonly = func(context.Context, model.ISqlxDB) (uint64, error) { return readonly, nil }
+			f.probe = func(ctx context.Context, _ *traceql_ir.Query, _ *shared.PlannerContext) ([]unresolvedFound, error) {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(time.Minute):
+					return nil, nil
+				}
+			}
+			var debugged []string
+			f.debug = func(args ...any) { debugged = append(debugged, fmt.Sprint(args...)) }
+			f.runProbe()
+			if len(debugged) != 1 || !strings.Contains(debugged[0], "time limit") {
+				t.Errorf("debug lines %q, want one naming the time limit", debugged)
+			}
+		})
+	}
+}
+
+type deadlineOnly struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c deadlineOnly) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestPastLimit(t *testing.T) {
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, c := range []struct {
+		name string
+		ctx  context.Context
+		want bool
+	}{
+		{"running", context.Background(), false},
+		{"ended", ended, true},
+		{"deadline ahead", deadlineOnly{context.Background(), time.Now().Add(time.Minute)}, false},
+		{"deadline passed, not yet ended", deadlineOnly{context.Background(), time.Now().Add(-time.Second)}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pastLimit(c.ctx); got != c.want {
+				t.Errorf("pastLimit = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// The probe has a deadline only when readonly reads 0. The read never has one.
+func TestUnresolvedProbeDeadlineFollowsReadonly(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		readonly uint64
+		err      error
+		deadline bool
+		debugs   int
+	}{
+		{name: "readonly=0", readonly: 0, deadline: true},
+		{name: "readonly=1", readonly: 1},
+		{name: "readonly=2", readonly: 2},
+		{name: "failed read", err: errors.New("refused"), debugs: 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFakeWarner()
+			f.timeout = time.Minute
+			var read, probed bool
+			f.readonly = func(ctx context.Context, _ model.ISqlxDB) (uint64, error) {
+				_, read = ctx.Deadline()
+				return c.readonly, c.err
+			}
+			f.probe = func(ctx context.Context, _ *traceql_ir.Query, _ *shared.PlannerContext) ([]unresolvedFound, error) {
+				_, probed = ctx.Deadline()
+				return nil, nil
+			}
+			f.runProbe()
+			if read {
+				t.Error("the read has a deadline")
+			}
+			if probed != c.deadline {
+				t.Errorf("probe deadline = %v, want %v", probed, c.deadline)
+			}
+			if f.debugs != c.debugs {
+				t.Errorf("debug lines = %d, want %d", f.debugs, c.debugs)
+			}
+		})
+	}
+}
+
+func TestUnresolvedProbeReadsReadonlyEachRun(t *testing.T) {
+	f := newFakeWarner()
+	values := []uint64{1, 0}
+	f.readonly = func(context.Context, model.ISqlxDB) (uint64, error) {
+		v := values[0]
+		values = values[1:]
+		return v, nil
+	}
+	var deadlines []bool
+	f.probe = func(ctx context.Context, _ *traceql_ir.Query, _ *shared.PlannerContext) ([]unresolvedFound, error) {
+		_, ok := ctx.Deadline()
+		deadlines = append(deadlines, ok)
+		return nil, nil
+	}
+	f.runProbe()
+	f.clock = f.clock.Add(time.Minute)
+	f.runProbe()
+	if want := []bool{false, true}; !slices.Equal(deadlines, want) {
+		t.Errorf("probe deadlines = %v, want %v", deadlines, want)
+	}
+}
+
+// One time limit covers the read of readonly and the probe.
+func TestUnresolvedReadonlyReadCountsTowardsTheLimit(t *testing.T) {
+	t.Run("deadline starts before the read", func(t *testing.T) {
+		f := newFakeWarner()
+		f.timeout = time.Minute
+		var latest time.Time
+		f.readonly = func(context.Context, model.ISqlxDB) (uint64, error) {
+			latest = time.Now().Add(f.timeout)
+			time.Sleep(10 * time.Millisecond)
+			return 0, nil
+		}
+		var deadline time.Time
+		f.probe = func(ctx context.Context, _ *traceql_ir.Query, _ *shared.PlannerContext) ([]unresolvedFound, error) {
+			deadline, _ = ctx.Deadline()
+			return nil, nil
+		}
+		f.runProbe()
+		if deadline.IsZero() || deadline.After(latest) {
+			t.Errorf("deadline %v, want by %v", deadline, latest)
+		}
+	})
+	t.Run("the limit ends a hung read", func(t *testing.T) {
+		f := newFakeWarner()
+		f.timeout = time.Millisecond
+		f.readonly = func(ctx context.Context, _ model.ISqlxDB) (uint64, error) {
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(time.Minute):
+				return 1, nil
+			}
+		}
+		probed := false
+		f.probe = func(context.Context, *traceql_ir.Query, *shared.PlannerContext) ([]unresolvedFound, error) {
+			probed = true
+			return nil, nil
+		}
+		f.runProbe()
+		if probed {
+			t.Error("probe ran past the limit")
+		}
+		if f.debugs != 1 {
+			t.Errorf("debug lines = %d, want 1", f.debugs)
+		}
+	})
 }
 
 func TestUnresolvedProbeNeedsAStructuralQuery(t *testing.T) {

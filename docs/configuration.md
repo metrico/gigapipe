@@ -106,7 +106,7 @@ Variables that are not Gigapipe-specific — `CLICKHOUSE_*`, `PORT`, `HOST`,
 ## TraceQL
 
 - **`GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`** - Number of rounds used to resolve span ancestry for TraceQL structural operators, an integer from `1` to `32` (default: `20`). With `R` rounds, traces up to `2^R` spans deep resolve. Spans of deeper traces, and of traces whose parent links form a cycle, are treated as unreachable, and a warning names those traces. Each round adds work to every query using `>>` or `<<`. An invalid value stops Gigapipe at start-up. See [Depth limit](#depth-limit).
-- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per shard in one portion, a positive integer (default: `7500000`, which assumes [`MALLOC_CONF`](#clickhouse-memory)). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range on the fullest shard, a single node being one shard; a lone `{}` estimates the search limit; others estimate the spans their selectors match across the cluster. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up. See [Large queries](#large-queries).
+- **`GIGAPIPE_TRACEQL_PORTION_SPANS`** - Most spans a TraceQL search or tag autocomplete reads per shard in one portion, a positive integer (default: `5000000`, which assumes [`MALLOC_CONF`](#clickhouse-memory)). A request runs in `ceil(estimate / setting)` portions. Queries with a structural operator estimate every span in range on the fullest shard, a single node being one shard; a lone `{}` estimates the search limit; others estimate the spans their selectors match across the cluster. Memory grows with spans per portion, and every portion rescans the range, so a lower value costs time. Metrics queries are not portioned. Set ClickHouse `max_memory_usage` as the backstop. An invalid value stops Gigapipe at start-up. See [Large queries](#large-queries).
 - **`GIGAPIPE_TRACEQL_SEARCH_MAX_DURATION`** - Longest time range of a TraceQL search or tag autocomplete, a Go duration such as `168h` (default: `168h`). A longer request gets HTTP 400 with the plain-text body `range specified by start and end exceeds 168h0m0s. received start=<s> end=<e>`, as Tempo sends it. `0` turns the cap off. Applies to `/api/search` with `q`, and to `/api/v2/search/tags` and `/api/v2/search/tag/{tag}/values` with a non-zero `start`. Metrics queries, `/api/search` with `tags`, and tag lookups that read no time range are not capped. An invalid or negative value stops Gigapipe at start-up. See [Large queries](#large-queries).
 
 Structural TraceQL queries need ClickHouse 24.9 or newer; see [Requirements](#requirements).
@@ -182,6 +182,9 @@ The span tree is built at query time from stored `parent_id`s:
 - A span whose ancestor hasn't been ingested yet starts matching once that
   ancestor arrives.
 - When a trace has several roots, they are all siblings under `~`.
+- The span tree is read up to 1 hour past the end of the query range, or of a
+  `compare()` baseline ending later, so a parent starting more than 1 hour
+  after that end counts as missing.
 
 Ancestry is resolved in up to `R` rounds, set by
 `GIGAPIPE_TRACEQL_ANCESTRY_ROUNDS`. Each trace takes one round per doubling of
@@ -212,6 +215,15 @@ TraceQL structural query: N trace(s) have unresolved ancestry (deeper than 2^R s
 
 The line lists up to 20 trace IDs. Raising the round limit helps only with
 deep traces, not cycles.
+
+The warning comes from a background probe with a time limit. The probe reads the
+reader's `readonly` setting each time it runs. When that read returns 0, the
+server stops any probe statement started with more than a second of the limit
+left, shortly after the limit. In every other case the reader stops waiting at
+the limit. Over the native protocol that also stops the query on the server.
+Over HTTP the server stops it only if `readonly` is not 0 and the reader's
+profile holds `cancel_http_readonly_queries_on_client_close=1`; otherwise it
+runs on to its end.
 
 ### The numberer
 
@@ -249,13 +261,31 @@ LIMIT 1
 ### Large queries
 
 A TraceQL search or tag autocomplete whose estimate exceeds
-`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each portion reads one hash
-bucket of traces over the whole requested range. For a search, each portion
-returns its bucket's top `limit` traces and Gigapipe merges them by newest
-matched span, so the result is the same at any portion count. Each portioned
-request logs one info-level `traceql portioned` line with the query, range,
-estimate, setting and portion count. For a structural query, the estimate is
-the fullest shard's.
+`GIGAPIPE_TRACEQL_PORTION_SPANS` runs in portions. Each search portion reads one
+hash bucket of traces over the whole requested range. Each autocomplete portion
+reads a slice of the `trace_id` space in every read of its statements, so
+`tempo_traces` reads narrow by the sort key; attribute index reads still scan
+the whole requested range. Autocomplete portions balance when trace ids are
+uniformly distributed; ids with a time prefix concentrate in few portions. For a
+search, each portion returns its bucket's top `limit` traces and Gigapipe merges
+them by newest matched span, so the result is the same at any portion count.
+Each portioned request logs one info-level `traceql portioned` line with the
+query, range, estimate, setting and portion count. For a structural query, the
+estimate is the fullest shard's.
+
+Tag autocomplete with a lone selector whose filter compares only `duration` or
+`span:duration` (combined with `&&` and `||`, and any `select()` stages), such
+as `{duration > 100ms}`, is one statement over the attribute index, with no
+estimate and no portions. The filter applies to each attribute row, so the
+statement holds in memory as many values as match it: up to one per distinct
+key for tags, or per distinct value of the requested key for tag values. All
+of a range's distinct values are held at once, on the initiator on a cluster,
+so a tag-value request for a high-cardinality key, such as a URL or an id, can
+fail on `max_memory_usage`. A span stored more than once with different
+durations suggests only the attributes of the copies whose duration passes, and
+with `&&` over terms that different copies meet it can suggest none. Other
+filters, including `{.a = 1 || duration > 0}`, keep their ids stage and
+portions.
 
 A search response reports its portions in a `metrics` block after the trace
 array: `"metrics":{"totalJobs":N,"completedJobs":N}`, with `N` the portion count,
@@ -310,9 +340,9 @@ For a `readonly=1` user on a cluster:
 
 Structural TraceQL metrics, autocomplete and `compare()` fail with code 164 (`Cannot modify 'prefer_localhost_replica' setting in readonly mode`), and where the read tables skip unavailable shards, so do structural searches and every `compare()`. Other metrics need no setting on the user.
 
-Without `prefer_localhost_replica=0`, a structural search that succeeds logs no [unresolved-trace warning](#depth-limit): the warning's probe changes that setting, and its failure is logged at debug level only.
+Without `prefer_localhost_replica=0`, a structural search that succeeds logs no [unresolved-trace warning](#depth-limit): the warning's probe changes that setting. Each refused probe prints the code 164 error to stdout and resets the reader's connection pool, at most once a minute.
 
-Set `prefer_localhost_replica=0`, and `skip_unavailable_shards=1` if the read tables skip unavailable shards, in the user's settings, or allow them with `CHANGEABLE_IN_READONLY`, or use `readonly=2`. Setting them on the user applies to all of that user's Distributed reads.
+Set `prefer_localhost_replica=0`, and `skip_unavailable_shards=1` if the read tables skip unavailable shards, in the user's settings, or allow them with `CHANGEABLE_IN_READONLY`, or use `readonly=2`. Setting them on the user applies to all of that user's Distributed reads. Over HTTP, also set `cancel_http_readonly_queries_on_client_close=1` on the user, so the server stops a read when the reader stops waiting.
 
 ## Recording Rules (Ruler)
 

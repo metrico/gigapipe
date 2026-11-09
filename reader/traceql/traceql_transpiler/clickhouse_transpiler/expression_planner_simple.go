@@ -3,6 +3,7 @@ package clickhouse_transpiler
 import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 type simpleExpressionPlanner struct {
@@ -140,4 +141,36 @@ func attrComparable(name, op string, kind traceql_ir.ValueKind) bool {
 		return isString || kind == traceql_ir.ValueNumber && !isRegex
 	}
 	return false
+}
+
+// rowCondition is the filter as a condition on one attribute row, when every
+// term compares the span's duration, which each attribute row carries.
+// Otherwise it is nil.
+func (p *simpleExpressionPlanner) rowCondition() (sql.SQLCondition, error) {
+	if p.selector.Filter == nil || traceql_ir.CheckFilter(p.selector.Filter) != nil || !p.analyze() {
+		return nil, nil
+	}
+	return p.rowConditionOf(p.cond)
+}
+
+func (p *simpleExpressionPlanner) rowConditionOf(c *condition) (sql.SQLCondition, error) {
+	if c.simpleIdx != -1 {
+		term := p.termIdx[c.simpleIdx]
+		if term.Attr != "duration" && term.Attr != "span:duration" {
+			return nil, nil
+		}
+		return (&AttrConditionPlanner{}).getTermDuration(term)
+	}
+	subs := make([]sql.SQLCondition, len(c.complex))
+	for i, s := range c.complex {
+		sub, err := p.rowConditionOf(s)
+		if sub == nil || err != nil {
+			return nil, err
+		}
+		subs[i] = sub
+	}
+	if c.op == "&&" {
+		return sql.And(subs...), nil
+	}
+	return sql.Or(subs...), nil
 }

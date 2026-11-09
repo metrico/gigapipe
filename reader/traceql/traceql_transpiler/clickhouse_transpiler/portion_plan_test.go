@@ -1,6 +1,8 @@
 package clickhouse_transpiler
 
 import (
+	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -279,5 +281,128 @@ func TestSpanOnlyQueriesKeepTheirEstimates(t *testing.T) {
 	}
 	if _, attrless := estimateOf(t, `{}`).(*AttrlessEvaluatorPlanner); !attrless {
 		t.Errorf("{} is estimated by %T", estimateOf(t, `{}`))
+	}
+}
+
+// autocompletePortionQueries cover every structural operator and the reads a
+// filter can add: root, nested set and span-only operands.
+var autocompletePortionQueries = []string{
+	`{.a = 1}`, `{.a = 1 || duration > 1ms}`, `{.a} && {.b}`, `{.a} || {.b}`, `{.a} | count() > 2`,
+	`{.a} >> {.b}`, `{.a = 1} > {.b = 2}`, `{.a} ~ {.b}`, `{.a} &>> {.b}`, `{.a} !>> {.b}`,
+	`{.a} << {.b}`, `{.a} < {.b}`, `{.a} &<< {.b}`, `{.a} !<< {.b}`, `{.a} !~ {.b}`, `{} >> {.b}`, `{duration > 1ms} >> {.b}`, `{.a} > {}`,
+	`{nestedSetParent = -1 && .a = 1} >> {.b}`, `{nestedSetLeft > 0 && .a = 1} &>> {.b}`,
+	`{.b = 1} | by(.a) | select(name)`, `{.a} | avg(.x) > 1`, `{.a} >> {.b} | max(duration) > 1ms`,
+	`({nestedSetParent < 0 && .a = 1} &>> {.b = 1}) || ({nestedSetParent < 0 && .a = 1}) | select(name, nestedSetParent)`,
+}
+
+// tableReads returns, for each read of a traces table in s, the text of the
+// SELECT that reads it, nested SELECTs left out.
+func tableReads(s string) map[string][]string {
+	re := regexp.MustCompile(`(?i)FROM (tempo_traces\w*)`)
+	res := map[string][]string{}
+	for _, m := range re.FindAllStringSubmatchIndex(s, -1) {
+		var b strings.Builder
+		depth := 0
+	scan:
+		for i := m[1]; i < len(s); i++ {
+			switch {
+			case s[i] == '(' && strings.HasPrefix(strings.ToUpper(strings.TrimLeft(s[i+1:], " (")), "SELECT"):
+				for d := 0; i < len(s); i++ {
+					if s[i] == '(' {
+						d++
+					} else if s[i] == ')' {
+						if d--; d == 0 {
+							break
+						}
+					}
+				}
+			case s[i] == '(':
+				depth++
+				b.WriteByte(s[i])
+			case s[i] == ')':
+				if depth--; depth < 0 {
+					break scan
+				}
+				b.WriteByte(s[i])
+			case depth == 0 && strings.HasPrefix(strings.ToUpper(s[i:]), "UNION ALL"):
+				break scan
+			default:
+				b.WriteByte(s[i])
+			}
+		}
+		table := s[m[2]:m[3]]
+		res[table] = append(res[table], b.String())
+	}
+	return res
+}
+
+// Every table read of a portioned autocomplete, ids and data statements, keeps
+// the portion's trace_id ranges, single node and on a cluster.
+func TestAutocompletePortionNarrowsEveryRead(t *testing.T) {
+	for _, cluster := range []bool{false, true} {
+		for _, query := range autocompletePortionQueries {
+			for kind, plan := range autocompletePlans(t, query) {
+				t.Run(fmt.Sprintf("%s %s cluster=%v", kind, query, cluster), func(t *testing.T) {
+					ctx := testPlannerContext(3)
+					ctx.IsCluster = cluster
+					ctx.RandomFilter = shared.RandomFilter{Max: 3, I: 1, TraceIDRanges: true}
+					reads := 0
+					for name, p := range map[string]shared.SQLRequestPlanner{"ids": plan.Ids[0].Statement, "data": plan.Data} {
+						req, err := p.Process(ctx)
+						if err != nil {
+							t.Fatal(err)
+						}
+						s, err := req.String(sql.DefaultCtx())
+						if err != nil {
+							t.Fatal(err)
+						}
+						for table, sels := range tableReads(s) {
+							for _, sel := range sels {
+								reads++
+								if !strings.Contains(sel, "trace_id >= unhex(") || !strings.Contains(sel, "trace_id < unhex(") {
+									t.Errorf("%s statement: read of %s without the portion:\n%s", name, table, sel)
+								}
+							}
+						}
+						if strings.Contains(s, "cityHash64(trace_id)") {
+							t.Errorf("%s statement: hash portion:\n%s", name, s)
+						}
+					}
+					if reads < 2 {
+						t.Errorf("%d table reads, want an operand read and the data read", reads)
+					}
+				})
+			}
+		}
+	}
+}
+
+// Under hash portions only operand reads carry the portion: every read of the
+// ids or traces an earlier stage chose stays unrestricted.
+func TestHashPortionStaysOnOperandReads(t *testing.T) {
+	const hash = "cityHash64(trace_id)"
+	chosen := regexp.MustCompile(`(?i)_id\)? (GLOBAL )?IN`)
+	for _, cluster := range []bool{false, true} {
+		for _, query := range autocompletePortionQueries {
+			t.Run(fmt.Sprintf("%s cluster=%v", query, cluster), func(t *testing.T) {
+				ctx := testPlannerContext(3)
+				ctx.IsCluster = cluster
+				ctx.RandomFilter = shared.RandomFilter{Max: 3, I: 1}
+				plan := planSearch(t, query)
+				ids := renderPlan(t, plan.Ids[0].Statement, ctx)
+				if !strings.Contains(ids, hash) {
+					t.Errorf("no operand read holds the portion:\n%s", ids)
+				}
+				for _, s := range []string{ids, renderPlan(t, plan.Data, ctx)} {
+					for table, sels := range tableReads(s) {
+						for _, sel := range sels {
+							if chosen.MatchString(sel) && strings.Contains(sel, hash) {
+								t.Errorf("read of %s holds the portion:\n%s", table, sel)
+							}
+						}
+					}
+				}
+			})
+		}
 	}
 }
