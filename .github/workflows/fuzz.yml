@@ -13,6 +13,7 @@ on:
         - promql
         - logql
         - traceql
+        - prof
       duration:
         description: How long to fuzz, as a Go duration (e.g. 60s, 10m)
         type: string
