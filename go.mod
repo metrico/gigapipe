@@ -28,7 +28,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/pdata v1.71.0
-	go.opentelemetry.io/collector/pdata/pprofile v0.164.0
+	go.opentelemetry.io/collector/pdata/pprofile v0.165.0
 	go.opentelemetry.io/proto/otlp v1.11.1
 	golang.org/x/sync v0.25.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941
