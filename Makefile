@@ -11,7 +11,7 @@ E2E_TESTS_DIR ?= ./deps/gigapipe-tests
 export QRYN_RULER_ENABLED ?= true
 
 # Query heads with a parser fuzz target.
-heads := promql logql traceql
+heads := promql logql traceql prof
 
 # HEAD/DURATION are set on the command line, e.g. `make fuzz HEAD=promql`.
 HEAD ?=
@@ -49,7 +49,7 @@ lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --new-from-rev=$(LINT_NEW_FROM_REV)
 
 # Run the native Go parser fuzz target for one query head:
-# make fuzz HEAD=promql|logql|traceql [DURATION=60s]
+# make fuzz HEAD=promql|logql|traceql|prof [DURATION=60s]
 fuzz:
 	@case " $(heads) " in \
 	  *" $(HEAD) "*) ;; \
