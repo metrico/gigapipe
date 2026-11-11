@@ -1,0 +1,169 @@
+{
+  "traces": [
+    {
+      "durationMs": 169,
+      "rootServiceName": "checkout",
+      "rootTraceName": "POST /checkout",
+      "spanSet": {
+        "matched": 3,
+        "spans": [
+          {
+            "attributes": [],
+            "durationNanos": "169000000",
+            "spanID": "span-0-0",
+            "startTimeUnixNano": "+0ms"
+          },
+          {
+            "attributes": [],
+            "durationNanos": "72000000",
+            "spanID": "span-0-1",
+            "startTimeUnixNano": "+10ms"
+          },
+          {
+            "attributes": [],
+            "durationNanos": "20000000",
+            "spanID": "span-0-2",
+            "startTimeUnixNano": "+20ms"
+          }
+        ]
+      },
+      "spanSets": [
+        {
+          "matched": 3,
+          "spans": [
+            {
+              "attributes": [],
+              "durationNanos": "169000000",
+              "spanID": "span-0-0",
+              "startTimeUnixNano": "+0ms"
+            },
+            {
+              "attributes": [],
+              "durationNanos": "72000000",
+              "spanID": "span-0-1",
+              "startTimeUnixNano": "+10ms"
+            },
+            {
+              "attributes": [],
+              "durationNanos": "20000000",
+              "spanID": "span-0-2",
+              "startTimeUnixNano": "+20ms"
+            }
+          ]
+        }
+      ],
+      "startTimeUnixNano": "+0ms",
+      "traceID": "trace-0"
+    },
+    {
+      "durationMs": 161,
+      "rootServiceName": "checkout",
+      "rootTraceName": "POST /checkout",
+      "spanSet": {
+        "matched": 3,
+        "spans": [
+          {
+            "attributes": [],
+            "durationNanos": "161000000",
+            "spanID": "span-1-0",
+            "startTimeUnixNano": "+10000ms"
+          },
+          {
+            "attributes": [],
+            "durationNanos": "74000000",
+            "spanID": "span-1-1",
+            "startTimeUnixNano": "+10010ms"
+          },
+          {
+            "attributes": [],
+            "durationNanos": "8000000",
+            "spanID": "span-1-2",
+            "startTimeUnixNano": "+10020ms"
+          }
+        ]
+      },
+      "spanSets": [
+        {
+          "matched": 3,
+          "spans": [
+            {
+              "attributes": [],
+              "durationNanos": "161000000",
+              "spanID": "span-1-0",
+              "startTimeUnixNano": "+10000ms"
+            },
+            {
+              "attributes": [],
+              "durationNanos": "74000000",
+              "spanID": "span-1-1",
+              "startTimeUnixNano": "+10010ms"
+            },
+            {
+              "attributes": [],
+              "durationNanos": "8000000",
+              "spanID": "span-1-2",
+              "startTimeUnixNano": "+10020ms"
+            }
+          ]
+        }
+      ],
+      "startTimeUnixNano": "+10000ms",
+      "traceID": "trace-1"
+    },
+    {
+      "durationMs": 183,
+      "rootServiceName": "checkout",
+      "rootTraceName": "POST /checkout",
+      "spanSet": {
+        "matched": 3,
+        "spans": [
+          {
+            "attributes": [],
+            "durationNanos": "183000000",
+            "spanID": "span-2-0",
+            "startTimeUnixNano": "+20000ms"
+          },
+          {
+            "attributes": [],
+            "durationNanos": "70000000",
+            "spanID": "span-2-1",
+            "startTimeUnixNano": "+20010ms"
+          },
+          {
+            "attributes": [],
+            "durationNanos": "9000000",
+            "spanID": "span-2-2",
+            "startTimeUnixNano": "+20020ms"
+          }
+        ]
+      },
+      "spanSets": [
+        {
+          "matched": 3,
+          "spans": [
+            {
+              "attributes": [],
+              "durationNanos": "183000000",
+              "spanID": "span-2-0",
+              "startTimeUnixNano": "+20000ms"
+            },
+            {
+              "attributes": [],
+              "durationNanos": "70000000",
+              "spanID": "span-2-1",
+              "startTimeUnixNano": "+20010ms"
+            },
+            {
+              "attributes": [],
+              "durationNanos": "9000000",
+              "spanID": "span-2-2",
+              "startTimeUnixNano": "+20020ms"
+            }
+          ]
+        }
+      ],
+      "startTimeUnixNano": "+20000ms",
+      "traceID": "trace-2"
+    }
+  ]
+}

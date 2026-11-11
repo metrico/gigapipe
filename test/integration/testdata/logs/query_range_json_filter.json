@@ -1,0 +1,116 @@
+{
+  "data": {
+    "result": [
+      {
+        "stream": {
+          "app": "checkout",
+          "latency_ms": "524",
+          "level": "error",
+          "m2_run": "RUN",
+          "msg": "payment declined",
+          "pod": "p2",
+          "seq": "6",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+60s",
+            "{\"level\":\"error\",\"msg\":\"payment declined\",\"latency_ms\":524,\"seq\":6}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "checkout",
+          "latency_ms": "573",
+          "level": "error",
+          "m2_run": "RUN",
+          "msg": "inventory timeout",
+          "pod": "p2",
+          "seq": "2",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+20s",
+            "{\"level\":\"error\",\"msg\":\"inventory timeout\",\"latency_ms\":573,\"seq\":2}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "checkout",
+          "latency_ms": "907",
+          "level": "error",
+          "m2_run": "RUN",
+          "msg": "card rejected",
+          "pod": "p2",
+          "seq": "3",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+30s",
+            "{\"level\":\"error\",\"msg\":\"card rejected\",\"latency_ms\":907,\"seq\":3}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "checkout",
+          "latency_ms": "980",
+          "level": "error",
+          "m2_run": "RUN",
+          "msg": "payment declined",
+          "pod": "p1",
+          "seq": "0",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+0s",
+            "{\"level\":\"error\",\"msg\":\"payment declined\",\"latency_ms\":980,\"seq\":0}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "payments",
+          "latency_ms": "130",
+          "level": "error",
+          "m2_run": "RUN",
+          "msg": "card rejected",
+          "pod": "p1",
+          "seq": "2",
+          "service_name": "payments"
+        },
+        "values": [
+          [
+            "+20s",
+            "{\"level\":\"error\",\"msg\":\"card rejected\",\"latency_ms\":130,\"seq\":2}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "payments",
+          "latency_ms": "446",
+          "level": "error",
+          "m2_run": "RUN",
+          "msg": "inventory timeout",
+          "pod": "p1",
+          "seq": "4",
+          "service_name": "payments"
+        },
+        "values": [
+          [
+            "+40s",
+            "{\"level\":\"error\",\"msg\":\"inventory timeout\",\"latency_ms\":446,\"seq\":4}"
+          ]
+        ]
+      }
+    ],
+    "resultType": "streams"
+  },
+  "status": "success"
+}
