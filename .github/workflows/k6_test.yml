@@ -51,7 +51,7 @@ jobs:
           CLICKHOUSE_AUTH: "qryn:qryn"    
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: metrico/qryn-bench
           path: .
