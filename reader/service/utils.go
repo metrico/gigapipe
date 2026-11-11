@@ -18,3 +18,7 @@ func getTableName(ctx *model.DataDatabasesMap, name string) string {
 func FormatFromDate(from time.Time) string {
 	return clickhouse_planner.FormatFromDate(from)
 }
+
+func FormatToDate(to time.Time) string {
+	return clickhouse_planner.FormatToDate(to)
+}

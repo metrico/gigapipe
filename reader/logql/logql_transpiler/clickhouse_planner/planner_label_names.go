@@ -26,7 +26,7 @@ func (l *LabelNamesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.Ge(sql.NewRawObject("date"),
 				sql.NewStringVal(FormatFromDate(ctx.From))),
 			sql.Le(sql.NewRawObject("date"),
-				sql.NewStringVal(ctx.To.Format("2006-01-02"))),
+				sql.NewStringVal(FormatToDate(ctx.To))),
 		)
 
 	if len(fpSelects) > 0 {
