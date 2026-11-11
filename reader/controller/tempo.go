@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	"github.com/metrico/qryn/v5/reader/utils/unmarshal"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	resource "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -216,6 +217,9 @@ func (t *TempoController) TagsV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
+		if rejectRangeOverCap(w, r, timespan[0], timespan[1]) {
+			return
+		}
 		cRes, err = t.Service.TagsV2(internalCtx, q, timespan[0], timespan[1], limit)
 		if err != nil {
 			PromError(500, err.Error(), w)
@@ -320,6 +324,9 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
+		if rejectRangeOverCap(w, r, timespan[0], timespan[1]) {
+			return
+		}
 		cRes, err = t.Service.ValuesV2(internalCtx, tag, q, timespan[0], timespan[1], limit)
 		if err != nil {
 			PromError(500, err.Error(), w)
@@ -375,6 +382,27 @@ func (t *TempoController) Values(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`]}`))
 }
 
+// rejectRangeOverCap answers 400 in plain text when the range exceeds the search cap.
+// The message carries each bound as the client sent it, or its effective value in seconds if omitted.
+func rejectRangeOverCap(w http.ResponseWriter, r *http.Request, from, to time.Time) bool {
+	limit := traceqlconfig.SearchMaxDuration()
+	if limit == 0 || to.Sub(from) <= limit {
+		return false
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusBadRequest)
+	fmt.Fprintf(w, "range specified by start and end exceeds %s. received start=%s end=%s",
+		limit, boundAsSent(r, "start", from), boundAsSent(r, "end", to))
+	return true
+}
+
+func boundAsSent(r *http.Request, name string, effective time.Time) string {
+	if sent := r.URL.Query().Get(name); sent != "" {
+		return sent
+	}
+	return strconv.FormatInt(effective.Unix(), 10)
+}
+
 func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 	internalCtx, err := RunPreRequestPlugins(r)
 	if err != nil {
@@ -388,10 +416,13 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if params.Q != "" {
+		if rejectRangeOverCap(w, r, params.Start, params.End) {
+			return
+		}
 		if params.Limit == 0 {
 			params.Limit = 20
 		}
-		ch, err := t.Service.SearchTraceQL(internalCtx,
+		ch, totalJobs, err := t.Service.SearchTraceQL(internalCtx,
 			params.Q, params.Limit, params.Spss, params.Start, params.End)
 		if err != nil {
 			PromError(500, err.Error(), w)
@@ -411,7 +442,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 				i++
 			}
 		}
-		w.Write([]byte("]}"))
+		writeSearchTail(w, totalJobs)
 		return
 	}
 
@@ -442,7 +473,12 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 		w.Write(bTrace)
 		i++
 	}
-	w.Write([]byte("]}"))
+	writeSearchTail(w, 1)
+}
+
+// writeSearchTail closes the trace array and reports the jobs that read it.
+func writeSearchTail(w http.ResponseWriter, jobs int64) {
+	fmt.Fprintf(w, `],"metrics":{"totalJobs":%d,"completedJobs":%d}}`, jobs, jobs)
 }
 
 type traceSearchParams struct {

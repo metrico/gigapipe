@@ -213,7 +213,7 @@ func (t *TempoService) TagsV2(ctx context.Context, query string, from time.Time,
 		}
 	}
 
-	planCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
+	planCtx, err := traceQLPlannerContext(ctx, conn, query, from, to, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (t *TempoService) ValuesV2(ctx context.Context, key string, query string, f
 		}
 	}
 
-	planCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
+	planCtx, err := traceQLPlannerContext(ctx, conn, query, from, to, limit)
 	if err != nil {
 		return nil, err
 	}

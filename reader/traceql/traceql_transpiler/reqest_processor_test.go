@@ -3,6 +3,7 @@ package traceql_transpiler
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/metrico/qryn/v5/reader/model"
@@ -65,5 +66,16 @@ func TestSelectedValuesJSON(t *testing.T) {
 	plain, _ := json.Marshal(model.SpanInfo{SpanID: "01", Attributes: make([]model.SpanAttr, 0)})
 	if string(plain) != `{"spanID":"01","startTimeUnixNano":"","durationNanos":"","attributes":[]}` {
 		t.Errorf("got %s", plain)
+	}
+}
+
+// The search rank stays out of the response.
+func TestTraceInfoJSONOmitsTheRank(t *testing.T) {
+	b, err := json.Marshal(model.TraceInfo{TraceID: "aa", Newest: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); strings.Contains(s, "ewest") {
+		t.Errorf("rank in %s", s)
 	}
 }

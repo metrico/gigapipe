@@ -113,6 +113,8 @@ func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	var res shared.SQLRequestPlanner
 	if AllSpans(p.query) {
 		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
+	} else if p.query.HasStructural() {
+		res = &AllSpansEvaluatorPlanner{Prefix: p.getPrefix()}
 	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
 		var err error
 		if res, err = p.operand(selector).planEval(); err != nil {

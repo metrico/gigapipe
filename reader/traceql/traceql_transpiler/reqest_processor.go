@@ -72,11 +72,12 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string)
 			attrTexts         [][]string
 			spanAttrKeys      [][]string
 			spanAttrVals      [][]string
+			newest            int64
 		)
 		err = rows.Scan(&traceId, &spanIds, &durationsNs, &timestampsNs,
 			&startTimeUnixNano, &traceDurationMs, &rootServiceName, &rootTraceName,
 			&spansetSpanIds, &matched, &attrNames, &attrTypes, &attrValues, &attrTexts,
-			&spanAttrKeys, &spanAttrVals)
+			&spanAttrKeys, &spanAttrVals, &newest)
 		if err != nil {
 			logger.Error("ERROR[TRP#1]: ", err)
 			return nil, err
@@ -104,6 +105,7 @@ func (t TraceQLRequestProcessor) read(ctx *shared.PlannerContext, strReq string)
 			StartTimeUnixNano: fmt.Sprintf("%d", startTimeUnixNano),
 			DurationMs:        traceDurationMs,
 			SpanSets:          make([]model.SpanSet, len(spansetSpanIds)),
+			Newest:            newest,
 		}
 		for i, ids := range spansetSpanIds {
 			set := model.SpanSet{
