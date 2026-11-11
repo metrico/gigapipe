@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     name: 'Validate go.mod major version'
     steps:
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
       - name: Check module path matches release major
@@ -51,7 +51,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: 'Build & Publish arm64'
     steps:
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
       - name: build qryn-view
@@ -114,7 +114,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: 'Build & Publish amd64'
     steps:
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
       - name: build qryn-view
@@ -184,7 +184,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: 'Docker Build & Publish'
     steps:
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
       - name: build qryn-view
