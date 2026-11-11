@@ -5,25 +5,54 @@ import (
 	"testing"
 )
 
-func TestSupportsStaleness(t *testing.T) {
+func TestVersionAtLeast(t *testing.T) {
+	for _, c := range []struct {
+		version      string
+		major, minor int
+		want         bool
+	}{
+		{"24.9.1.3278", 24, 11, false},
+		{"24.10.0.0", 24, 11, false},
+		{"24.11.1.0", 24, 11, true},
+		{"25.3.14.14", 24, 11, true},
+		{"23.8.1.1", 24, 11, false},
+		{"26.1.0.0", 24, 11, true},
+		{"24.11", 24, 11, true},
+		{"24.9", 24, 11, false},
+		{"garbage", 24, 11, false},
+		{"", 24, 11, false},
+		{"24", 24, 11, false},
+		{"24.8.14.39", 24, 9, false},
+		{"24.9.1.3278", 24, 9, true},
+		{"24.10.0.0", 24, 9, true},
+		{"23.12.1.1", 24, 9, false},
+		{"25.3.14.14", 24, 9, true},
+	} {
+		if got := versionAtLeast(c.version, c.major, c.minor); got != c.want {
+			t.Errorf("versionAtLeast(%q, %d, %d) = %v, want %v", c.version, c.major, c.minor, got, c.want)
+		}
+	}
+}
+
+func TestServerCapabilities(t *testing.T) {
 	for _, c := range []struct {
 		version string
-		want    bool
+		want    []string
 	}{
-		{"24.9.1.3278", false},
-		{"24.10.0.0", false},
-		{"24.11.1.0", true},
-		{"25.3.14.14", true},
-		{"23.8.1.1", false},
-		{"26.1.0.0", true},
-		{"24.11", true},
-		{"24.9", false},
-		{"garbage", false},
-		{"", false},
-		{"24", false},
+		{"24.8.14.39", nil},
+		{"24.9.1.3278", []string{CapStructuralQueries}},
+		{"24.11.1.0", []string{CapStructuralQueries, CapStaleness}},
+		{"garbage", nil},
 	} {
-		if got := supportsStaleness(c.version); got != c.want {
-			t.Errorf("supportsStaleness(%q) = %v, want %v", c.version, got, c.want)
+		got := serverCapabilities(c.version)
+		if len(got) != len(c.want) {
+			t.Errorf("serverCapabilities(%q) = %v, want %v", c.version, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("serverCapabilities(%q) = %v, want %v", c.version, got, c.want)
+			}
 		}
 	}
 }

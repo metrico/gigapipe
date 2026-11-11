@@ -190,6 +190,10 @@ func Info(args ...any) {
 	Logger.Info(args...)
 }
 
+func Warn(args ...any) {
+	Logger.Warn(args...)
+}
+
 func Error(args ...any) {
 	Logger.Error(args...)
 }

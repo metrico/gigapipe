@@ -4,154 +4,220 @@ import (
 	"fmt"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
-func Plan(script *traceql_parser.TraceQLScript) (shared.SQLRequestPlanner, error) {
-	return (&planner{script: script}).plan()
+func Plan(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+	return (&planner{query: query}).plan()
 }
 
-func PlanEval(script *traceql_parser.TraceQLScript) (shared.SQLRequestPlanner, error) {
-	return (&planner{script: script}).planEval()
+func PlanEval(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+	return (&planner{query: query}).planEval()
 }
 
-func PlanTagsV2(script *traceql_parser.TraceQLScript) (shared.SQLRequestPlanner, error) {
-	return (&planner{script: script}).planTagsV2()
+// PlanTagsV2 plans the attribute keys of the spans a search for query
+// returns, or of every span in range when AllSpans(query).
+func PlanTagsV2(query *traceql_ir.Query) (shared.SQLRequestPlanner, error) {
+	if AllSpans(query) {
+		return &AllTagsRequestPlanner{}, nil
+	}
+	return planAutocomplete(query, func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner {
+		return &SelectTagsPlanner{Result: result, Prefix: prefix}
+	})
 }
 
-func PlanValuesV2(script *traceql_parser.TraceQLScript, key string) (shared.SQLRequestPlanner, error) {
-	return (&planner{script: script}).planValuesV2(key)
+// PlanValuesV2 plans the values of attribute key of the spans a search for
+// query returns, or of every span in range when AllSpans(query).
+func PlanValuesV2(query *traceql_ir.Query, key string) (shared.SQLRequestPlanner, error) {
+	if AllSpans(query) {
+		return &AllValuesRequestPlanner{Key: key}, nil
+	}
+	return planAutocomplete(query, func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner {
+		return &SelectValuesPlanner{Result: result, Prefix: prefix, Key: key}
+	})
+}
+
+// planAutocomplete plans the result spans of query and reads them with attrs.
+func planAutocomplete(query *traceql_ir.Query,
+	attrs func(result shared.SQLRequestPlanner, prefix string) shared.SQLRequestPlanner) (shared.SQLRequestPlanner, error) {
+	p := &planner{query: query}
+	result, err := p.planResult(false)
+	if err != nil {
+		return nil, err
+	}
+	return p.structuralGate(attrs(result, p.getPrefix())), nil
+}
+
+// AllSpans reports whether query selects every span: no query, or a lone
+// `{}`, select() stages aside.
+func AllSpans(query *traceql_ir.Query) bool {
+	if query == nil {
+		return true
+	}
+	var elements []traceql_ir.Element
+	for _, e := range query.Pipeline.Elements {
+		if _, ok := e.(*traceql_ir.Select); !ok {
+			elements = append(elements, e)
+		}
+	}
+	if len(elements) == 0 {
+		return true
+	}
+	selector, ok := loneSelector(&traceql_ir.Pipeline{Elements: elements})
+	return ok && selector.Filter == nil
+}
+
+// loneSelector returns the selector a one-element pipeline is, parenthesised or not.
+func loneSelector(pipeline *traceql_ir.Pipeline) (*traceql_ir.Selector, bool) {
+	if len(pipeline.Elements) != 1 {
+		return nil, false
+	}
+	expr, ok := pipeline.Elements[0].(traceql_ir.SpansetExpr)
+	for ok {
+		group, isGroup := expr.(*traceql_ir.Group)
+		if !isGroup {
+			break
+		}
+		expr = group.Expr
+	}
+	selector, ok := expr.(*traceql_ir.Selector)
+	return selector, ok
 }
 
 type planner struct {
-	script *traceql_parser.TraceQLScript
+	query  *traceql_ir.Query
 	prefix int
-
-	//Analyze results
 }
 
 func (p *planner) plan() (shared.SQLRequestPlanner, error) {
-	// Unwrap a single pure-wrapper paren: ({A}) → {A}.
-	// Do NOT unwrap when the outer has Op/Tail/MetricsFn — that would lose those nodes.
-	if p.script.ParenExpr != nil &&
-		p.script.Op == "" && p.script.Tail == nil &&
-		p.script.MetricsFn == nil && p.script.WithHints == nil && p.script.SecondStage == nil {
-		p.script = p.script.ParenExpr
+	selected, err := selectedKeys(p.query)
+	if err != nil {
+		return nil, err
 	}
+	res, err := p.planResult(true)
+	if err != nil {
+		return nil, err
+	}
+	res = &SearchSpansetPlanner{Main: res}
 
+	res = &IndexLimitPlanner{res}
+
+	res = NewTracesDataPlanner(res, selected)
+
+	res = &IndexLimitPlanner{res}
+
+	return p.structuralGate(res), nil
+}
+
+func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
 	var res shared.SQLRequestPlanner
-	var err error
-	if p.script.Tail == nil {
-		res, err = (&simpleExpressionPlanner{script: p.script}).planner()
-		if err != nil {
+	if AllSpans(p.query) {
+		res = &AttrlessEvaluatorPlanner{Prefix: p.getPrefix()}
+	} else if selector, ok := loneSelector(&p.query.Pipeline); ok {
+		var err error
+		if res, err = p.operand(selector).planEval(); err != nil {
 			return nil, err
 		}
 	} else {
-		root := &rootExpressionPlanner{}
-		p.planComplex(root, root, p.script)
-		res, err = root.planner()
+		operands, err := p.pipelineEvals(&p.query.Pipeline)
 		if err != nil {
 			return nil, err
 		}
+		res = &ComplexEvalOrPlanner{Operands: operands, Prefix: p.getPrefix()}
 	}
-	res = &IndexLimitPlanner{res}
+	return &EvalFinalizerPlanner{Main: res}, nil
+}
 
-	res = NewTracesDataPlanner(res)
+// planSpansetExpr plans a spanset operator tree into span rows.
+func (p *planner) planSpansetExpr(expr traceql_ir.SpansetExpr) (shared.SQLRequestPlanner, error) {
+	return planSpansetTree(p, expr,
+		func(op *simpleExpressionPlanner) (shared.SQLRequestPlanner, error) { return op.planner() },
+		p.planPipeline,
+		func(op traceql_ir.SpansetOperator, lhs, rhs shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+			switch op {
+			case traceql_ir.OpAnd:
+				return &TraceAndPlanner{LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
+			case traceql_ir.OpOr:
+				return &TraceOrPlanner{LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
+			}
+			if op.IsOneHop() {
+				return &OneHopPlanner{Op: op, LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
+			}
+			return &TransitivePlanner{Op: op, LHS: lhs, RHS: rhs, Prefix: p.getPrefix()}
+		})
+}
 
-	res = &IndexLimitPlanner{res}
-
+// pipelineEvals estimates the cost of every operand the pipeline reads: those
+// of its spanset expressions, or every span in range for a leading scalar filter.
+func (p *planner) pipelineEvals(pipeline *traceql_ir.Pipeline) ([]shared.SQLRequestPlanner, error) {
+	var res []shared.SQLRequestPlanner
+	if readsEverySpan(pipeline) {
+		res = append(res, &AllSpansEvaluatorPlanner{Prefix: p.getPrefix()})
+	}
+	for _, element := range pipeline.Elements {
+		if e, ok := element.(traceql_ir.SpansetExpr); ok {
+			operands, err := planSpansetTree(p, e,
+				func(op *simpleExpressionPlanner) ([]shared.SQLRequestPlanner, error) {
+					res, err := op.planEval()
+					return []shared.SQLRequestPlanner{res}, err
+				},
+				p.pipelineEvals,
+				func(_ traceql_ir.SpansetOperator, lhs, rhs []shared.SQLRequestPlanner) []shared.SQLRequestPlanner {
+					return append(lhs, rhs...)
+				})
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, operands...)
+		}
+	}
 	return res, nil
 }
 
-func (p *planner) planTagsV2() (shared.SQLRequestPlanner, error) {
-	return (&simpleExpressionPlanner{script: p.script}).tagsV2Planner()
+// planSpansetTree folds a spanset operator tree: leaf plans each operand
+// selector, pipeline each parenthesised pipeline, and join combines the two
+// sides of an operator. Groups plan as their content.
+func planSpansetTree[T any](p *planner, expr traceql_ir.SpansetExpr,
+	leaf func(*simpleExpressionPlanner) (T, error),
+	pipeline func(*traceql_ir.Pipeline) (T, error),
+	join func(traceql_ir.SpansetOperator, T, T) T) (T, error) {
+	switch expr := expr.(type) {
+	case *traceql_ir.Group:
+		return planSpansetTree(p, expr.Expr, leaf, pipeline, join)
+	case *traceql_ir.Pipeline:
+		return pipeline(expr)
+	case *traceql_ir.SpansetOp:
+		var zero T
+		lhs, err := planSpansetTree(p, expr.LHS, leaf, pipeline, join)
+		if err != nil {
+			return zero, err
+		}
+		rhs, err := planSpansetTree(p, expr.RHS, leaf, pipeline, join)
+		if err != nil {
+			return zero, err
+		}
+		return join(expr.Op, lhs, rhs), nil
+	}
+	return leaf(p.operand(expr.(*traceql_ir.Selector)))
 }
 
-func (p *planner) planValuesV2(key string) (shared.SQLRequestPlanner, error) {
-	return (&simpleExpressionPlanner{script: p.script}).valuesV2Planner(key)
+// operand plans one selector of a spanset expression.
+func (p *planner) operand(selector *traceql_ir.Selector) *simpleExpressionPlanner {
+	return &simpleExpressionPlanner{selector: selector, prefix: p.getPrefix()}
+}
+
+// structuralGate wraps res in StructuralQueryPlanner when the query has
+// structural operators.
+func (p *planner) structuralGate(res shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+	if p.query.HasStructural() {
+		return &StructuralQueryPlanner{Main: res}
+	}
+	return res
 }
 
 func (p *planner) getPrefix() string {
 	p.prefix++
 	return fmt.Sprintf("_%d", p.prefix)
-}
-
-func (p *planner) planComplex(root iExpressionPlanner, current iExpressionPlanner,
-	script *traceql_parser.TraceQLScript) {
-	// Unwrap parenthesized expressions
-	for script.ParenExpr != nil {
-		inner := script.ParenExpr
-		if inner.Tail == nil {
-			// Atomic inner: safe to promote outer Op/Tail into inner.
-			inner.Op = script.Op
-			inner.Tail = script.Tail
-			script = inner
-		} else if script.Op == "" && script.Tail == nil {
-			// Complex inner, no outer Op/Tail: pure wrapper, safe to substitute.
-			script = inner
-		} else {
-			// Complex inner with outer Op/Tail: can't safely flatten.
-			// Break and let the planner treat the paren group as an opaque selector.
-			break
-		}
-	}
-	// For structural operators (&>>, !>>, <<&, <<~, ~), treat as && (flatten structural hierarchy)
-	op := script.Op
-	switch op {
-	case "&>>", "!>>", "<<&", "<<~", "~":
-		op = "&&"
-	}
-	switch op {
-	case "":
-		current.addOp(&simpleExpressionPlanner{script: script, prefix: p.getPrefix()})
-	case "&&":
-		current.addOp(&complexExpressionPlanner{
-			prefix: p.getPrefix(),
-			_fn:    "&&",
-			_operands: []iExpressionPlanner{&simpleExpressionPlanner{
-				script: script,
-				prefix: p.getPrefix(),
-			}},
-		})
-		p.planComplex(root, current.operands()[0], script.Tail)
-	case "||":
-		current.addOp(&simpleExpressionPlanner{
-			script: script,
-			prefix: p.getPrefix(),
-		})
-		root.setOps([]iExpressionPlanner{&complexExpressionPlanner{
-			prefix:    p.getPrefix(),
-			_fn:       "||",
-			_operands: root.operands(),
-		}})
-		p.planComplex(root, root.operands()[0], script.Tail)
-	}
-}
-
-func (p *planner) planEval() (shared.SQLRequestPlanner, error) {
-	// Unwrap a single pure-wrapper paren: ({A}) → {A}.
-	if p.script.ParenExpr != nil &&
-		p.script.Op == "" && p.script.Tail == nil &&
-		p.script.MetricsFn == nil && p.script.WithHints == nil && p.script.SecondStage == nil {
-		p.script = p.script.ParenExpr
-	}
-
-	var (
-		res shared.SQLRequestPlanner
-		err error
-	)
-	if p.script.Tail == nil {
-		res, err = (&simpleExpressionPlanner{script: p.script, prefix: p.getPrefix()}).planEval()
-	} else {
-		root := &rootExpressionPlanner{}
-		p.planComplex(root, root, p.script)
-		res, err = root.planEval()
-	}
-	if err != nil {
-		return nil, err
-	}
-	res = &EvalFinalizerPlanner{Main: res}
-	return res, nil
 }
 
 type condition struct {

@@ -2,47 +2,47 @@ package clickhouse_transpiler
 
 import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/traceql/timerange"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// SelectTagsPlanner reads the attribute keys of the result spans of Result,
+// an evaluated spanset expression.
 type SelectTagsPlanner struct {
-	Main shared.SQLRequestPlanner
+	Result shared.SQLRequestPlanner
+	Prefix string
 }
 
-func NewInitTagsPlanner() shared.SQLRequestPlanner {
-	//TODO: add this to plugins
-	/*p := plugins.GetInitIndexPlannerPlugin()
-	if p != nil {
-		return (*p)()
-	}*/
-	return &SelectTagsPlanner{}
+func (s *SelectTagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	return selectAttrs(ctx, s.Result, s.Prefix, "key")
 }
 
-func (i *SelectTagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	main, err := i.Main.Process(ctx)
+// selectAttrs reads the distinct values of col, key or val, of the attribute
+// rows of result's spans that pass where, in order and up to ctx.Limit.
+func selectAttrs(ctx *shared.PlannerContext, result shared.SQLRequestPlanner, prefix string, col string,
+	where ...sql.SQLCondition) (sql.ISelect, error) {
+	withResult, withIds, err := resultSpanIds(ctx, result, prefix)
 	if err != nil {
 		return nil, err
 	}
-
-	withMain := sql.NewWith(main, "select_spans")
-
-	preSelectTags := sql.NewSelect().Select(sql.NewRawObject("span_id")).From(sql.NewWithRef(withMain))
-	withPreSelectTags := sql.NewWith(preSelectTags, "pre_select_tags")
-
+	dateFrom, dateTo := timerange.SpanDate("date", ctx.From, ctx.To)
+	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
 	res := sql.NewSelect().
-		With(withMain, withPreSelectTags).
-		Select(sql.NewSimpleCol("key", "key")).
-		From(sql.NewSimpleCol(ctx.TracesAttrsDistTable, "traces_idx")).
-		AndWhere(sql.And(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02"))),
-			sql.Ge(sql.NewRawObject("traces_idx.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
-			sql.Lt(sql.NewRawObject("traces_idx.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
-			sql.NewIn(sql.NewRawObject("span_id"), sql.NewWithRef(withPreSelectTags)),
-		)).GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"))
+		With(withResult, withIds).
+		Select(sql.NewSimpleCol(col, col)).
+		From(sql.NewSimpleCol(attrsTable(ctx), "traces_idx")).
+		AndWhere(
+			dateFrom, dateTo,
+			tsFrom,
+			tsTo,
+			inSubquery(ctx, sql.NewRawObject("traces_idx.trace_id"),
+				sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewWithRef(withIds))),
+			inSubquery(ctx, sql.NewRawObject("(traces_idx.trace_id, traces_idx.span_id)"), sql.NewWithRef(withIds))).
+		AndWhere(where...).
+		GroupBy(sql.NewRawObject(col)).
+		OrderBy(sql.NewOrderBy(sql.NewRawObject(col), sql.ORDER_BY_DIRECTION_ASC))
 	if ctx.Limit > 0 {
-		res.OrderBy(sql.NewOrderBy(sql.NewRawObject("key"), sql.ORDER_BY_DIRECTION_ASC)).
-			Limit(sql.NewIntVal(ctx.Limit))
+		res.Limit(sql.NewIntVal(ctx.Limit))
 	}
 	return res, nil
 }

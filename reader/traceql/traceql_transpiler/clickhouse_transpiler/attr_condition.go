@@ -7,15 +7,14 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 type AttrConditionPlanner struct {
-	Main           shared.SQLRequestPlanner
-	Terms          []*traceql_parser.AttrSelector
-	Conds          *condition
-	AggregatedAttr string
+	Main  shared.SQLRequestPlanner
+	Terms []*attrComparison
+	Conds *condition
 
 	sqlConds  []sql.SQLCondition
 	isAliased bool
@@ -30,7 +29,7 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 	}
 	a.alias = "bsCond"
 
-	err = a.maybeCreateWhere(ctx)
+	err = a.createWhere(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -40,10 +39,6 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 		return nil, err
 	}
 
-	err = a.aggregator(main)
-	if err != nil {
-		return nil, err
-	}
 	res := main
 	if len(a.where) > 0 {
 		res = res.AndWhere(sql.Or(a.where...))
@@ -52,72 +47,60 @@ func (a *AttrConditionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect,
 		res = res.AndHaving(having)
 	}
 
-	if ctx.RandomFilter.Max != 0 && len(ctx.CachedTraceIds) > 0 {
-		rawCachedTraceIds := make([]sql.SQLObject, len(ctx.CachedTraceIds))
-		for i, tid := range ctx.CachedTraceIds {
-			rawCachedTraceIds[i] = sql.NewRawObject(fmt.Sprintf("unhex('%s')", tid))
-		}
-		res.AndWhere(sql.Or(
-			sql.Eq(
-				sql.NewRawObject(fmt.Sprintf("cityHash64(trace_id) %% %d", ctx.RandomFilter.Max)),
-				sql.NewIntVal(int64(ctx.RandomFilter.I)),
-			),
-			sql.NewIn(sql.NewRawObject("trace_id"), rawCachedTraceIds...),
-		))
-	} else if ctx.RandomFilter.Max != 0 {
-		res.AndWhere(sql.Eq(
-			sql.NewRawObject(fmt.Sprintf("cityHash64(trace_id) %% %d", ctx.RandomFilter.Max)),
-			sql.NewIntVal(int64(ctx.RandomFilter.I)),
-		))
-	}
+	restrictOperand(ctx, res)
 
 	a.isAliased = false
 
 	return res, nil
 }
 
-func (a *AttrConditionPlanner) maybeCreateWhere(ctx *shared.PlannerContext) error {
-	if len(a.sqlConds) > 0 {
-		return nil
-	}
+// createWhere builds the terms on ctx; their traces-table conditions go to ctx.
+// The rows read are those of the terms that read an attribute key, or every
+// row when the condition can hold without any of them.
+func (a *AttrConditionPlanner) createWhere(ctx *shared.PlannerContext) error {
+	a.sqlConds, a.where = nil, nil
 	for _, t := range a.Terms {
 		sqlTerm, err := a.getTerm(t, ctx)
 		if err != nil {
 			return err
 		}
 		a.sqlConds = append(a.sqlConds, sqlTerm)
-
-		if !strings.HasPrefix(t.Label, "span.") &&
-			!strings.HasPrefix(t.Label, "resource.") &&
-			!strings.HasPrefix(t.Label, ".") &&
-			t.Label != "name" {
-			continue
+		if readsKey(t) {
+			a.where = append(a.where, sqlTerm)
 		}
-		a.where = append(a.where, sqlTerm)
+	}
+	if a.holdsWithoutKeys(a.Conds) {
+		a.where = nil
 	}
 	return nil
 }
 
-func (a *AttrConditionPlanner) aggregator(main sql.ISelect) error {
-	if a.AggregatedAttr == "" {
-		return nil
+// readsKey reports whether term t holds only on the rows of one attribute
+// key; the other terms hold on every row of a span or none.
+func readsKey(t *attrComparison) bool {
+	switch t.Attr {
+	case "duration", "span:duration", "true", "false":
+		return false
 	}
+	return !strings.HasPrefix(t.Attr, "nestedSet")
+}
 
-	s := main.GetSelect()
-	if a.AggregatedAttr == "duration" {
-		s = append(s, sql.NewSimpleCol("toFloat64(duration)", "agg_val"))
-		main.Select(s...)
-		return nil
+// holdsWithoutKeys reports whether c can hold for a span none of whose rows
+// satisfy a term that reads a key.
+func (a *AttrConditionPlanner) holdsWithoutKeys(c *condition) bool {
+	if c.simpleIdx != -1 {
+		return !readsKey(a.Terms[c.simpleIdx])
 	}
-
-	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, "span.")
-	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, "resource.")
-	a.AggregatedAttr = strings.TrimPrefix(a.AggregatedAttr, ".")
-
-	s = append(s, sql.NewCol(&sqlAttrValue{a.AggregatedAttr}, "agg_val"))
-	main.Select(s...)
-	a.where = append(a.where, sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(a.AggregatedAttr)))
-	return nil
+	for _, sub := range c.complex {
+		holds := a.holdsWithoutKeys(sub)
+		if c.op == "&&" && !holds {
+			return false
+		}
+		if c.op != "&&" && holds {
+			return true
+		}
+	}
+	return c.op == "&&"
 }
 
 func (a *AttrConditionPlanner) getCond(c *condition) (sql.SQLCondition, error) {
@@ -148,8 +131,8 @@ func (a *AttrConditionPlanner) getCond(c *condition) (sql.SQLCondition, error) {
 	return sql.Neq(&bitAnd{left, sql.NewIntVal(int64(1) << c.simpleIdx)}, sql.NewIntVal(0)), nil
 }
 
-func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector, ctx *shared.PlannerContext) (sql.SQLCondition, error) {
-	key := t.Label
+func (a *AttrConditionPlanner) getTerm(t *attrComparison, ctx *shared.PlannerContext) (sql.SQLCondition, error) {
+	key := t.Attr
 	// Normalize span: colon-intrinsic aliases to their canonical names.
 	if key == "span:duration" {
 		key = "duration"
@@ -175,13 +158,13 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector, ctx *shar
 		case "status", "kind":
 			// status and kind are stored as attributes in attrs_gin
 			// (key='status', val='error'/'ok'/'unset') or (key='kind', val='server'/etc.)
-			if t.Val.UnquotVal != "" {
+			if t.Value.Kind == traceql_ir.ValueIdent {
 				var valCond sql.SQLCondition
 				switch t.Op {
 				case "=":
-					valCond = sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+					valCond = sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(t.Value.Text))
 				case "!=":
-					valCond = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+					valCond = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(t.Value.Text))
 				default:
 					return nil, fmt.Errorf("unsupported operator %s for %s", t.Op, key)
 				}
@@ -206,7 +189,7 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector, ctx *shar
 			if key == "nestedSetParent" {
 				// Only nestedSetParent < 0 has a meaningful mapping (root spans → parent_id = '').
 				// Other operators/values are not supported by our schema; treat as no-op.
-				if t.Op == "<" && t.Val.FVal == "0" {
+				if t.Op == "<" && t.Value.Kind == traceql_ir.ValueNumber && t.Value.Text == "0" {
 					if ctx != nil {
 						ctx.TracesIntrinsicWhere = append(ctx.TracesIntrinsicWhere,
 							sql.Eq(sql.NewRawObject("traces.parent_id"), sql.NewStringVal("")))
@@ -222,19 +205,20 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector, ctx *shar
 		}
 	}
 
-	if t.Val.StrVal != nil {
+	switch t.Value.Kind {
+	case traceql_ir.ValueString:
 		return a.getTermStr(t, key)
-	} else if t.Val.FVal != "" {
+	case traceql_ir.ValueNumber:
 		return a.getTermNum(t, key)
-	} else if t.Val.UnquotVal != "" {
+	case traceql_ir.ValueIdent:
 		// Unquoted enum values like: status = error, kind != server, span.foo = bar
 		// Respect the operator just like quoted strings.
 		var valCond sql.SQLCondition
 		switch t.Op {
 		case "=", "":
-			valCond = sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+			valCond = sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(t.Value.Text))
 		case "!=":
-			valCond = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(t.Val.UnquotVal))
+			valCond = sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(t.Value.Text))
 		default:
 			return nil, fmt.Errorf("unsupported operator %s for unquoted value", t.Op)
 		}
@@ -246,7 +230,7 @@ func (a *AttrConditionPlanner) getTerm(t *traceql_parser.AttrSelector, ctx *shar
 	return nil, fmt.Errorf("unsupported statement `%s`", t.String())
 }
 
-func (a *AttrConditionPlanner) getTermNum(t *traceql_parser.AttrSelector, key string) (sql.SQLCondition, error) {
+func (a *AttrConditionPlanner) getTermNum(t *attrComparison, key string) (sql.SQLCondition, error) {
 	var fn func(left sql.SQLObject, right sql.SQLObject) *sql.LogicalOp
 	switch t.Op {
 	case "=":
@@ -265,10 +249,7 @@ func (a *AttrConditionPlanner) getTermNum(t *traceql_parser.AttrSelector, key st
 		return nil, &shared.NotSupportedError{Msg: "not supported operator: " + t.Op}
 	}
 
-	if t.Val.FVal == "" {
-		return nil, fmt.Errorf("%s is not a number value (%s)", t.Val.FVal, t.String())
-	}
-	fVal, err := strconv.ParseFloat(t.Val.FVal, 64)
+	fVal, err := strconv.ParseFloat(t.Value.Text, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -279,10 +260,10 @@ func (a *AttrConditionPlanner) getTermNum(t *traceql_parser.AttrSelector, key st
 	), nil
 }
 
-func (a *AttrConditionPlanner) getTermStr(t *traceql_parser.AttrSelector, key string) (sql.SQLCondition, error) {
+func (a *AttrConditionPlanner) getTermStr(t *attrComparison, key string) (sql.SQLCondition, error) {
 	switch t.Op {
 	case "=":
-		strVal, err := a.getString(t)
+		strVal, err := t.Value.Unquote()
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +272,7 @@ func (a *AttrConditionPlanner) getTermStr(t *traceql_parser.AttrSelector, key st
 			sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(strVal)),
 		), nil
 	case "!=":
-		strVal, err := a.getString(t)
+		strVal, err := t.Value.Unquote()
 		if err != nil {
 			return nil, err
 		}
@@ -300,7 +281,7 @@ func (a *AttrConditionPlanner) getTermStr(t *traceql_parser.AttrSelector, key st
 			sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(strVal)),
 		), nil
 	case "=~":
-		strVal, err := a.getString(t)
+		strVal, err := t.Value.Unquote()
 		if err != nil {
 			return nil, err
 		}
@@ -309,7 +290,7 @@ func (a *AttrConditionPlanner) getTermStr(t *traceql_parser.AttrSelector, key st
 			sql.Eq(&matchRe{sql.NewRawObject("val"), strVal}, sql.NewIntVal(1)),
 		), nil
 	case "!~":
-		strVal, err := a.getString(t)
+		strVal, err := t.Value.Unquote()
 		if err != nil {
 			return nil, err
 		}
@@ -321,11 +302,11 @@ func (a *AttrConditionPlanner) getTermStr(t *traceql_parser.AttrSelector, key st
 	return nil, &shared.NotSupportedError{Msg: "not supported operator: " + t.Op}
 }
 
-func (a *AttrConditionPlanner) getTermDuration(t *traceql_parser.AttrSelector) (sql.SQLCondition, error) {
-	if t.Val.TimeVal == "" {
-		return nil, fmt.Errorf("%s is not a time duration value (%s)", t.Val.TimeVal, t.String())
+func (a *AttrConditionPlanner) getTermDuration(t *attrComparison) (sql.SQLCondition, error) {
+	if t.Value.Kind != traceql_ir.ValueDuration {
+		return nil, fmt.Errorf(" is not a time duration value (%s)", t.String())
 	}
-	fVal, err := time.ParseDuration(t.Val.TimeVal)
+	fVal, err := time.ParseDuration(t.Value.Text)
 	if err != nil {
 		return nil, err
 	}
@@ -336,22 +317,6 @@ func (a *AttrConditionPlanner) getTermDuration(t *traceql_parser.AttrSelector) (
 	}
 
 	return fn(sql.NewRawObject("traces_idx.duration"), sql.NewIntVal(fVal.Nanoseconds())), nil
-}
-
-func (a *AttrConditionPlanner) getString(t *traceql_parser.AttrSelector) (string, error) {
-	var (
-		strVal string
-		err    error
-	)
-	if t.Val.StrVal != nil {
-		strVal, err = t.Val.StrVal.Unquote()
-		if err != nil {
-			return "", err
-		}
-	} else {
-		strVal = t.Val.FVal
-	}
-	return strVal, nil
 }
 
 type bitSet struct {
@@ -425,17 +390,4 @@ func (m matchRe) String(ctx *sql.Ctx, options ...int) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("match(%s,%s)", field, strRe), nil
-}
-
-type sqlAttrValue struct {
-	attr string
-}
-
-func (s *sqlAttrValue) String(ctx *sql.Ctx, options ...int) (string, error) {
-	attr, err := sql.NewStringVal(s.attr).String(ctx, options...)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("anyIf(toFloat64OrNull(val), key == %s)", attr), nil
 }

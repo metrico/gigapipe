@@ -3,19 +3,29 @@ package clickhouse_transpiler
 import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/plugins"
+	"github.com/metrico/qryn/v5/reader/traceql/timerange"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
+// emptySelected is a selected-value column of a search without select().
+const emptySelected = "CAST([], 'Array(Array(String))')"
+
+// TracesDataPlanner reads the listed spans and trace summaries of Main's
+// (trace_id, span_id[], spansets) rows, as SearchSpansetPlanner returns them.
+// Each spanset comes out as an element of six arrays: its span ids, matched,
+// and its attributes' names, types, values and texts. Each listed span also
+// comes with the keys and values of the Selected attributes it has, sorted by key.
 type TracesDataPlanner struct {
-	Main shared.SQLRequestPlanner
+	Main     shared.SQLRequestPlanner
+	Selected []string
 }
 
-func NewTracesDataPlanner(main shared.SQLRequestPlanner) shared.SQLRequestPlanner {
+func NewTracesDataPlanner(main shared.SQLRequestPlanner, selected []string) shared.SQLRequestPlanner {
 	p := plugins.GetTracesDataPlugin()
 	if p != nil {
 		return (*p)(main)
 	}
-	return &TracesDataPlanner{Main: main}
+	return &TracesDataPlanner{Main: main, Selected: selected}
 }
 
 func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
@@ -24,9 +34,10 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 		return nil, err
 	}
 
-	table := ctx.TracesTable
+	table := tracesTable(ctx)
+	join := "any left"
 	if ctx.IsCluster {
-		table = ctx.TracesDistTable
+		join = "global any left"
 	}
 
 	withMain := sql.NewWith(main, "index_grouped")
@@ -49,10 +60,16 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 				sql.NewSimpleCol("intDiv(max(traces.timestamp_ns + traces.duration_ns) - min(traces.timestamp_ns), 1000000)", "_duration_ms"),
 				sql.NewSimpleCol("argMin(traces.service_name, traces.timestamp_ns)", "_root_service_name"),
 				sql.NewSimpleCol("argMin(traces.name, traces.timestamp_ns)", "_root_trace_name")).
-			From(sql.NewSimpleCol(ctx.TracesTable, "traces")).
-			AndWhere(sql.NewIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef)).
+			From(sql.NewSimpleCol(table, "traces")).
+			AndWhere(inSubquery(ctx, sql.NewRawObject("traces.trace_id"), withTraceIdsRef)).
 			GroupBy(sql.NewRawObject("traces.trace_id")),
 		"traces_info")
+	keysCol, valsCol := emptySelected, emptySelected
+	var withValues, withSelected *sql.With
+	if len(t.Selected) > 0 {
+		withValues, withSelected = t.selectedAttrs(ctx, withTraceIdsRef, withTraceIdsSpanIdsRef)
+		keysCol, valsCol = "groupArray(selected_attrs.keys)", "groupArray(selected_attrs.vals)"
+	}
 	res := sql.NewSelect().
 		With(withMain, withTraceIds, withTraceIdsSpanIds, withTracesInfo).
 		Select(
@@ -64,23 +81,76 @@ func (t *TracesDataPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.NewSimpleCol("min(_duration_ms)", "duration_ms"),
 			sql.NewSimpleCol("min(_root_service_name)", "root_service_name"),
 			sql.NewSimpleCol("min(_root_trace_name)", "root_trace_name"),
+			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> lower(hex(x)), s.2), any(index_grouped.spansets))", "spanset_span_ids"),
+			sql.NewSimpleCol("arrayMap(s -> s.3, any(index_grouped.spansets))", "matched"),
+			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.1, s.4), any(index_grouped.spansets))", "attr_names"),
+			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.2, s.4), any(index_grouped.spansets))", "attr_types"),
+			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.3, s.4), any(index_grouped.spansets))", "attr_values"),
+			sql.NewSimpleCol("arrayMap(s -> arrayMap(x -> x.4, s.4), any(index_grouped.spansets))", "attr_texts"),
+			sql.NewSimpleCol(keysCol, "span_attr_keys"),
+			sql.NewSimpleCol(valsCol, "span_attr_vals"),
 		).
 		From(sql.NewSimpleCol(table, "traces")).
 		Join(sql.NewJoin(
-			"any left",
+			join,
 			sql.NewWithRef(withTracesInfo),
 			sql.Eq(sql.NewRawObject("traces.trace_id"), sql.NewRawObject(withTracesInfo.GetAlias()+".trace_id"))),
+			sql.NewJoin(
+				join,
+				sql.NewWithRef(withMain),
+				sql.Eq(sql.NewRawObject("traces.trace_id"), sql.NewRawObject(withMain.GetAlias()+".trace_id"))),
 		).
 		AndWhere(
-			sql.NewIn(sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
-			sql.NewIn(sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
+			inSubquery(ctx, sql.NewRawObject("traces.trace_id"), withTraceIdsRef),
+			inSubquery(ctx, sql.NewRawObject("(traces.trace_id, traces.span_id)"), withTraceIdsSpanIdsRef)).
 		GroupBy(sql.NewRawObject("traces.trace_id")).
 		OrderBy(sql.NewOrderBy(sql.NewRawObject("start_time_unix_nano"), sql.ORDER_BY_DIRECTION_DESC))
-
-	// Apply intrinsic filters (e.g., nestedSetParent<0 → parent_id = '')
-	for _, cond := range ctx.TracesIntrinsicWhere {
-		res.AndWhere(cond)
+	if withSelected != nil {
+		res.AddWith(withValues, withSelected)
+		res.AddJoin(sql.NewJoin(join, sql.NewWithRef(withSelected), sql.And(
+			sql.Eq(sql.NewRawObject("traces.trace_id"), sql.NewRawObject("selected_attrs.trace_id")),
+			sql.Eq(sql.NewRawObject("traces.span_id"), sql.NewRawObject("selected_attrs.span_id")))))
 	}
-
 	return res, nil
+}
+
+// selectedAttrs reads the selected attributes of the listed spans in
+// spanIds, of the traces in traceIds: one selected_attrs row per span with
+// its keys and values.
+func (t *TracesDataPlanner) selectedAttrs(ctx *shared.PlannerContext, traceIds, spanIds sql.SQLObject) (
+	withValues, withSelected *sql.With) {
+	keys := make([]sql.SQLObject, len(t.Selected))
+	for i, key := range t.Selected {
+		keys[i] = sql.NewStringVal(key)
+	}
+	dateFrom, dateTo := timerange.SpanDate("traces_idx.date", ctx.From, ctx.To)
+	tsFrom, tsTo := timerange.SpanStart("traces_idx.timestamp_ns", ctx.From.UnixNano(), ctx.To.UnixNano())
+	values := sql.NewSelect().
+		Select(
+			sql.NewSimpleCol("traces_idx.trace_id", "trace_id"),
+			sql.NewSimpleCol("traces_idx.span_id", "span_id"),
+			sql.NewSimpleCol("traces_idx.key", "key"),
+			sql.NewSimpleCol("any(traces_idx.val)", "val")).
+		From(sql.NewSimpleCol(attrsTable(ctx), "traces_idx")).
+		AndWhere(
+			dateFrom, dateTo,
+			tsFrom,
+			tsTo,
+			inSubquery(ctx, sql.NewRawObject("traces_idx.trace_id"), traceIds),
+			inSubquery(ctx, sql.NewRawObject("(traces_idx.trace_id, traces_idx.span_id)"), spanIds),
+			sql.NewIn(sql.NewRawObject("key"), keys...)).
+		GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"), sql.NewRawObject("key"))
+	withValues = sql.NewWith(values, "selected_values")
+	withSelected = sql.NewWith(
+		sql.NewSelect().
+			Select(
+				sql.NewRawObject("trace_id"),
+				sql.NewRawObject("span_id"),
+				sql.NewSimpleCol("arraySort(groupArray((key, val)))", "kv"),
+				sql.NewSimpleCol("arrayMap(x -> x.1, kv)", "keys"),
+				sql.NewSimpleCol("arrayMap(x -> x.2, kv)", "vals")).
+			From(sql.NewWithRef(withValues)).
+			GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id")),
+		"selected_attrs")
+	return withValues, withSelected
 }

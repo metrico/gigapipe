@@ -10,11 +10,10 @@ import (
 	"time"
 
 	"github.com/go-faster/jx"
-	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 	"github.com/metrico/qryn/v5/reader/plugins"
 	"github.com/metrico/qryn/v5/reader/tempo"
-	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	traceql_transpiler "github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler"
 	"github.com/metrico/qryn/v5/reader/utils/dbVersion"
 	sqlselect "github.com/metrico/qryn/v5/reader/utils/sql_select"
@@ -206,34 +205,29 @@ func (t *TempoService) TagsV2(ctx context.Context, query string, from time.Time,
 	if err != nil {
 		return nil, err
 	}
-	var oScript *traceql_parser.TraceQLScript
+	var oQuery *traceql_ir.Query
 	if query != "" {
-		oScript, err = traceql_parser.Parse(query)
+		oQuery, err = traceql_ir.Parse(query)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	planCtx := shared.PlannerContext{
-		IsCluster: conn.Config.ClusterName != "",
-		From:      from,
-		To:        to,
-		Limit:     int64(limit),
-		CHDb:      conn.Session,
-		Ctx:       ctx,
-	}
-
-	tables.PopulateTableNames(&planCtx, conn)
-
-	planner, err := traceql_transpiler.PlanTagsV2(oScript)
+	planCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := planner.Process(&planCtx)
+	planner, err := traceql_transpiler.PlanTagsV2(oQuery)
 	if err != nil {
 		return nil, err
 	}
+
+	req, err := planner.Process(planCtx)
+	if err != nil {
+		return nil, err
+	}
+	traceql_transpiler.WarnUnresolved(ctx, oQuery, planCtx)
 
 	res := make(chan string)
 	go func() {
@@ -254,34 +248,29 @@ func (t *TempoService) ValuesV2(ctx context.Context, key string, query string, f
 	if err != nil {
 		return nil, err
 	}
-	var oScript *traceql_parser.TraceQLScript
+	var oQuery *traceql_ir.Query
 	if query != "" {
-		oScript, err = traceql_parser.Parse(query)
+		oQuery, err = traceql_ir.Parse(query)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	planCtx := shared.PlannerContext{
-		IsCluster: conn.Config.ClusterName != "",
-		From:      from,
-		To:        to,
-		Limit:     int64(limit),
-		CHDb:      conn.Session,
-		Ctx:       ctx,
-	}
-
-	tables.PopulateTableNames(&planCtx, conn)
-
-	planner, err := traceql_transpiler.PlanValuesV2(oScript, key)
+	planCtx, err := traceQLPlannerContext(ctx, conn, from, to, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := planner.Process(&planCtx)
+	planner, err := traceql_transpiler.PlanValuesV2(oQuery, unscopedTag(key))
 	if err != nil {
 		return nil, err
 	}
+
+	req, err := planner.Process(planCtx)
+	if err != nil {
+		return nil, err
+	}
+	traceql_transpiler.WarnUnresolved(ctx, oQuery, planCtx)
 
 	res := make(chan string)
 	go func() {
@@ -310,15 +299,19 @@ func (t *TempoService) GetValuesRequest(ctx context.Context, tag string, conn *m
 	return oRequest
 }
 
+// unscopedTag is the attribute key of a tag, without its span or resource scope.
+func unscopedTag(tag string) string {
+	tag = strings.TrimPrefix(tag, "span.")
+	tag = strings.TrimPrefix(tag, ".")
+	return strings.TrimPrefix(tag, "resource.")
+}
+
 func (t *TempoService) Values(ctx context.Context, tag string) (chan string, error) {
 	conn, err := t.Session.GetDB(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tag = strings.TrimPrefix(tag, "span.")
-	tag = strings.TrimPrefix(tag, ".")
-	tag = strings.TrimPrefix(tag, "resource.")
-	oRequest := t.GetValuesRequest(ctx, tag, conn)
+	oRequest := t.GetValuesRequest(ctx, unscopedTag(tag), conn)
 	query, err := oRequest.String(sqlselect.DefaultCtx())
 	if err != nil {
 		return nil, err

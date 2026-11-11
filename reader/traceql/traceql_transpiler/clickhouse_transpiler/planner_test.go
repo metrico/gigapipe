@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
 func TestPlanner(t *testing.T) {
-	script, err := traceql_parser.Parse(`{.randomContainer=~"admiring" && .randomFloat > 10}`)
+	script, err := traceql_ir.Parse(`{.randomContainer=~"admiring" && .randomFloat > 10}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestPlanner(t *testing.T) {
 // division) for _duration_ms rather than toFloat64, which would produce fractional
 // values that Grafana's Tempo datasource cannot unmarshal into uint32 (issue #782).
 func TestTracesDataDurationMsSQL(t *testing.T) {
-	script, err := traceql_parser.Parse(`{.service.name="test"}`)
+	script, err := traceql_ir.Parse(`{.service.name="test"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestTracesDataDurationMsSQL(t *testing.T) {
 }
 
 func TestComplexPlanner(t *testing.T) {
-	script, err := traceql_parser.Parse(`{.randomContainer=~"admiring" && .randomFloat > 10} | count() > 2 || {.randomContainer=~"boring" && .randomFloat < 10}`)
+	script, err := traceql_ir.Parse(`({.randomContainer=~"admiring" && .randomFloat > 10} | count() > 2) || {.randomContainer=~"boring" && .randomFloat < 10}`)
 	if err != nil {
 		t.Fatal(err)
 	}

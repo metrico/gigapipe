@@ -97,10 +97,22 @@ func NewOrderBy(col SQLObject, direction int) *OrderBy {
 type With struct {
 	query ISelect
 	alias string
+	// step is the recursive term of a recursive CTE; nil otherwise.
+	step ISelect
 }
 
+// GetQuery returns the CTE body, or the anchor term of a recursive CTE.
 func (w *With) GetQuery() ISelect {
 	return w.query
+}
+
+// GetStep returns the recursive term of a recursive CTE, or nil.
+func (w *With) GetStep() ISelect {
+	return w.step
+}
+
+func (w *With) IsRecursive() bool {
+	return w.step != nil
 }
 
 func (w *With) GetAlias() string {
@@ -109,7 +121,11 @@ func (w *With) GetAlias() string {
 
 func (w *With) String(ctx *Ctx, options ...int) (string, error) {
 	str, err := w.query.String(ctx, options...)
-	return fmt.Sprintf("%s as (%s)", w.alias, str), err
+	if err != nil || w.step == nil {
+		return fmt.Sprintf("%s as (%s)", w.alias, str), err
+	}
+	step, err := w.step.String(ctx, options...)
+	return fmt.Sprintf("%s as (%s UNION ALL %s)", w.alias, str, step), err
 }
 
 func NewWith(query ISelect, alias string) *With {
@@ -117,6 +133,14 @@ func NewWith(query ISelect, alias string) *With {
 		query: query,
 		alias: alias,
 	}
+}
+
+// NewRecursiveWith builds `alias AS (anchor UNION ALL step)`; step reads the
+// CTE's previous rows through self. Any select holding it renders WITH RECURSIVE.
+func NewRecursiveWith(anchor ISelect, alias string, step func(self *WithRef) ISelect) *With {
+	w := NewWith(anchor, alias)
+	w.step = step(NewWithRef(w))
+	return w
 }
 
 type WithRef struct {
@@ -139,6 +163,9 @@ func (w *WithRef) String(ctx *Ctx, options ...int) (string, error) {
 	}
 	res := w.ref.alias
 	if inline {
+		if w.ref.IsRecursive() {
+			return "", fmt.Errorf("recursive CTE %s cannot be inlined", w.ref.alias)
+		}
 		str, err := w.ref.GetQuery().String(ctx, _opts...)
 		if err != nil {
 			return "", err
