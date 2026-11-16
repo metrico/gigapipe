@@ -30,6 +30,11 @@ type PlannerContext struct {
 	OrderASC  bool
 	Limit     int64
 	Offset    time.Duration
+	// SpansPerSpanSet caps the spans listed per TraceQL search spanset; 0 means the default.
+	SpansPerSpanSet int64
+	// AncestryRounds is the pointer-jumping rounds of TraceQL structural
+	// operators; 0 means the default.
+	AncestryRounds int
 
 	TimeSeriesGinTableName     string
 	TimeSeriesGinDistTableName string
@@ -83,11 +88,23 @@ type PlannerContext struct {
 
 	RandomFilter   RandomFilter
 	CachedTraceIds []string
-	VersionInfo    dbversion.VersionInfo
+	// Portions is the number of complexity portions the request was read in,
+	// or 0 when it was read at once.
+	Portions    int64
+	VersionInfo dbversion.VersionInfo
 
 	// TracesIntrinsicWhere holds extra WHERE conditions for the tempo_traces table
 	// (e.g., nestedSetParent < 0 → parent_id = '').
 	TracesIntrinsicWhere []sql.SQLCondition
+
+	// TracesOperandSpans, when set, holds the previous pipeline stage's span
+	// rows: the only ones TraceQL selectors may match, and the input of a
+	// nested pipeline.
+	TracesOperandSpans *sql.With
+
+	// TracesSample, when set, keeps the sampled rows of every TraceQL
+	// operand read.
+	TracesSample sql.SQLCondition
 }
 
 func (p *PlannerContext) Id() int {

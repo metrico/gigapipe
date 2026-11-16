@@ -1,209 +1,147 @@
 package clickhouse_transpiler
 
 import (
-	"fmt"
+	"strings"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
-	traceql_parser "github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 )
 
 type simpleExpressionPlanner struct {
-	script *traceql_parser.TraceQLScript
-	prefix string
+	selector *traceql_ir.Selector
+	prefix   string
 
 	//Analyze results
-	termIdx []*traceql_parser.AttrSelector
+	termIdx []*attrComparison
 	cond    *condition
-	aggFn   string
-	aggAttr string
-	cmpVal  string
 
 	terms map[string]int
 }
 
-func (p *simpleExpressionPlanner) addOp(selector iExpressionPlanner) {
+// attrComparison is a filter leaf the attribute-condition planner evaluates:
+// `Attr Op Value`, or a bare `true`/`false` as Attr.
+type attrComparison struct {
+	Attr  string
+	Op    string
+	Value traceql_ir.Static
 }
 
-func (p *simpleExpressionPlanner) setOps(selector []iExpressionPlanner) {
+func (c *attrComparison) String() string {
+	return c.Attr + " " + c.Op + " " + c.Value.Text
 }
 
-func (p *simpleExpressionPlanner) fn() string {
-	return ""
-}
-
-func (p *simpleExpressionPlanner) operands() []iExpressionPlanner {
-	return nil
-}
-
-func (p *simpleExpressionPlanner) tagsV2Planner() (shared.SQLRequestPlanner, error) {
-	if p.script.Tail != nil {
-		return nil, fmt.Errorf("complex requests `{} || {} ...` are not supported")
-	}
-	err := p.check()
-	if err != nil {
-		return nil, err
-	}
-
-	p.analyze()
-
-	var res shared.SQLRequestPlanner = &AttrConditionPlanner{
-		Main:           NewInitIndexPlanner(false),
-		Terms:          p.termIdx,
-		Conds:          p.cond,
-		AggregatedAttr: p.aggAttr,
-	}
-	res = &SelectTagsPlanner{Main: res}
-	return res, nil
-}
-
-func (p *simpleExpressionPlanner) valuesV2Planner(key string) (shared.SQLRequestPlanner, error) {
-	if p.script.Tail != nil {
-		return nil, fmt.Errorf("complex requests `{} || {} ...` are not supported")
-	}
-	err := p.check()
-	if err != nil {
-		return nil, err
-	}
-
-	p.analyze()
-
-	if p.cond == nil {
-		return &AllValuesRequestPlanner{Key: key}, nil
-	}
-
-	var res shared.SQLRequestPlanner = &AttrConditionPlanner{
-		Main:           NewInitIndexPlanner(false),
-		Terms:          p.termIdx,
-		Conds:          p.cond,
-		AggregatedAttr: p.aggAttr,
-	}
-	res = &SelectValuesRequestPlanner{
-		Main: res,
-		Key:  key,
-	}
-	return res, nil
-}
-
+// planner plans the selector's span rows: every span in range for `{}`, the
+// attribute-condition planner for a boolean combination of `attribute op
+// literal`, else a pivot of the attributes the filter reads.
 func (p *simpleExpressionPlanner) planner() (shared.SQLRequestPlanner, error) {
-	err := p.check()
-	if err != nil {
+	if p.selector.Filter == nil {
+		return &AllSpansPlanner{}, nil
+	}
+	if err := traceql_ir.CheckFilter(p.selector.Filter); err != nil {
 		return nil, err
 	}
-
-	p.analyze()
-	var res shared.SQLRequestPlanner
-	if p.script.Head.AttrSelector != nil {
-		res = &AttrConditionPlanner{
-			Main:           NewInitIndexPlanner(false),
-			Terms:          p.termIdx,
-			Conds:          p.cond,
-			AggregatedAttr: p.aggAttr,
-		}
-	} else {
-		res = NewAttrlessConditionPlanner()
+	if p.analyze() {
+		return &AttrConditionPlanner{
+			Main:  NewInitIndexPlanner(true),
+			Terms: p.termIdx,
+			Conds: p.cond,
+		}, nil
 	}
-
-	res = &IndexGroupByPlanner{Main: res, Prefix: p.prefix}
-
-	if p.aggFn != "" {
-		res = &AggregatorPlanner{
-			Main:       res,
-			Fn:         p.aggFn,
-			Attr:       p.aggAttr,
-			CompareFn:  p.script.Head.Aggregator.Cmp,
-			CompareVal: p.script.Head.Aggregator.Num + p.script.Head.Aggregator.Measurement,
-			Prefix:     p.prefix,
-		}
-	}
-	return res, nil
+	return &FieldFilterPlanner{Filter: p.selector.Filter, Prefix: p.prefix}, nil
 }
 
+// planEval estimates the selector's cost as an operand read.
 func (p *simpleExpressionPlanner) planEval() (shared.SQLRequestPlanner, error) {
-	err := p.check()
-	if err != nil {
+	if p.selector.Filter == nil {
+		return &AllSpansEvaluatorPlanner{Prefix: p.prefix}, nil
+	}
+	if err := traceql_ir.CheckFilter(p.selector.Filter); err != nil {
 		return nil, err
 	}
-
-	p.analyze()
-	var res shared.SQLRequestPlanner
-	if p.script.Head.AttrSelector != nil {
-		res = &AttrConditionEvaluatorPlanner{
+	if p.analyze() {
+		return &AttrConditionEvaluatorPlanner{
 			Main: &AttrConditionPlanner{
-				Main:           NewInitIndexPlanner(true),
-				Terms:          p.termIdx,
-				Conds:          p.cond,
-				AggregatedAttr: p.aggAttr,
+				Main:  NewInitIndexPlanner(true),
+				Terms: p.termIdx,
+				Conds: p.cond,
 			},
 			Prefix: p.prefix,
-		}
-	} else {
-		res = &AttrlessEvaluatorPlanner{
-			Prefix: p.prefix,
-		}
+		}, nil
 	}
-
-	return res, nil
+	return &FieldFilterEvaluatorPlanner{Filter: p.selector.Filter, Prefix: p.prefix}, nil
 }
 
-func (p *simpleExpressionPlanner) check() error {
-	if p.script.Head.AttrSelector == nil {
-		if p.script.Head.Aggregator != nil {
-			return fmt.Errorf("requests like `{} | ....` are not supported")
-		}
-		if p.script.Tail != nil {
-			return fmt.Errorf("requests like `{} || .....` are not supported")
-		}
-	}
-	tail := p.script.Tail
-	for tail != nil {
-		if tail.Head.AttrSelector == nil {
-			return fmt.Errorf("requests like `... || {}` are not supported")
-		}
-		tail = tail.Tail
-	}
-	return nil
-}
-
-func (p *simpleExpressionPlanner) analyze() {
+// analyze splits the filter into attribute comparisons and the condition over
+// them, and reports whether the filter is a boolean combination of them.
+func (p *simpleExpressionPlanner) analyze() bool {
 	p.terms = make(map[string]int)
-	p.cond = p.analyzeCond(p.script.Head.AttrSelector)
-	p.analyzeAgg()
+	p.termIdx = nil
+	p.cond = p.analyzeCond(p.selector.Filter)
+	return p.cond != nil
 }
 
-func (p *simpleExpressionPlanner) analyzeCond(exp *traceql_parser.AttrSelectorExp) *condition {
-	var res *condition
-	if exp == nil {
+func (p *simpleExpressionPlanner) analyzeCond(exp traceql_ir.FieldExpr) *condition {
+	if op, ok := exp.(*traceql_ir.BinaryOp); ok && traceql_ir.IsLogical(op.Op) {
+		lhs := p.analyzeCond(op.LHS)
+		rhs := p.analyzeCond(op.RHS)
+		if lhs == nil || rhs == nil {
+			return nil
+		}
+		return &condition{simpleIdx: -1, op: op.Op, complex: []*condition{lhs, rhs}}
+	}
+	cmp := attrComparisonOf(exp)
+	if cmp == nil {
 		return nil
 	}
-	if exp.ComplexHead != nil {
-		res = p.analyzeCond(exp.ComplexHead)
-	} else if exp.Head != nil {
-		term := exp.Head.String()
-		if p.terms[term] != 0 {
-			res = &condition{simpleIdx: p.terms[term] - 1}
-		} else {
-			p.termIdx = append(p.termIdx, exp.Head)
-			p.terms[term] = len(p.termIdx)
-			res = &condition{simpleIdx: len(p.termIdx) - 1}
-		}
+	term := cmp.String()
+	if p.terms[term] != 0 {
+		return &condition{simpleIdx: p.terms[term] - 1}
 	}
-	if exp.Tail != nil {
-		res = &condition{
-			simpleIdx: -1,
-			op:        exp.AndOr,
-			complex:   []*condition{res, p.analyzeCond(exp.Tail)},
-		}
-	}
-	return res
+	p.termIdx = append(p.termIdx, cmp)
+	p.terms[term] = len(p.termIdx)
+	return &condition{simpleIdx: len(p.termIdx) - 1}
 }
 
-func (p *simpleExpressionPlanner) analyzeAgg() {
-	if p.script.Head.Aggregator == nil {
-		return
+// attrComparisonOf returns e as a comparison the attribute-condition planner
+// evaluates, or nil.
+func attrComparisonOf(e traceql_ir.FieldExpr) *attrComparison {
+	if s, ok := e.(*traceql_ir.Static); ok && s.Kind == traceql_ir.ValueBool {
+		return &attrComparison{Attr: s.Text}
 	}
+	op, ok := e.(*traceql_ir.BinaryOp)
+	if !ok || !traceql_ir.IsComparison(op.Op) {
+		return nil
+	}
+	attr, ok := op.LHS.(*traceql_ir.Attribute)
+	if !ok {
+		return nil
+	}
+	lit, ok := op.RHS.(*traceql_ir.Static)
+	if !ok || !attrComparable(attr.Name, op.Op, lit.Kind) {
+		return nil
+	}
+	return &attrComparison{Attr: attr.Name, Op: op.Op, Value: *lit}
+}
 
-	p.aggFn = p.script.Head.Aggregator.Fn
-	p.aggAttr = p.script.Head.Aggregator.Attr
-
-	p.cmpVal = p.script.Head.Aggregator.Num + p.script.Head.Aggregator.Measurement
+// attrComparable reports whether the attribute-condition planner evaluates
+// `name op literal` with a literal of the given kind.
+func attrComparable(name, op string, kind traceql_ir.ValueKind) bool {
+	isRegex := traceql_ir.IsRegex(op)
+	isEquality := op == "=" || op == "!="
+	isString := kind == traceql_ir.ValueString && (isEquality || isRegex) ||
+		kind == traceql_ir.ValueIdent && isEquality
+	switch {
+	case strings.HasPrefix(name, "nestedSet"):
+		return true
+	case name == "duration" || name == "span:duration":
+		return kind == traceql_ir.ValueDuration && !isRegex
+	case name == "status" || name == "kind":
+		return kind == traceql_ir.ValueIdent && isEquality
+	case name == "name" || name == "span:name" || name == "statusMessage" || name == "rootName" || name == "rootServiceName":
+		return isString
+	}
+	if _, ok := traceql_ir.AttributeKey(name); ok {
+		return isString || kind == traceql_ir.ValueNumber && !isRegex
+	}
+	return false
 }

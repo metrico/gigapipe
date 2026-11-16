@@ -1,39 +1,36 @@
 package traceql_transpiler
 
 import (
-	"strconv"
-	"time"
-
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
 )
 
+// ComplexRequestProcessor reads main one portion of traces at a time. Every
+// portion queries the requested time range.
 type ComplexRequestProcessor struct {
 	main shared.SQLRequestPlanner
+	read func(*shared.PlannerContext, shared.SQLRequestPlanner) ([]model.TraceInfo, error)
 }
 
 func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
-	complexity int64) (chan []model.TraceInfo, error) {
-	portions := (complexity + COMPLEXITY_THRESHOLD - 1) / COMPLEXITY_THRESHOLD
-	from := ctx.From
-	var cachedTraceIDs []string
+	portions int64) (chan []model.TraceInfo, error) {
+	var ids []string
 	var res []model.TraceInfo
 	for i := range portions {
 		ctx.RandomFilter = shared.RandomFilter{
 			Max: int(portions),
 			I:   int(i),
 		}
-		ctx.CachedTraceIds = cachedTraceIDs
-		ctx.From = from
+		ctx.CachedTraceIds = ids
 		var err error
-		res, from, cachedTraceIDs, err = t.ProcessComplexReqIteration(ctx)
+		res, err = t.read(ctx, t.main)
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	for i := range res {
-		sortSpans(res[i].SpanSet.Spans)
+		ids = make([]string, 0, len(res))
+		for _, info := range res {
+			ids = append(ids, info.TraceID)
+		}
 	}
 
 	ch := make(chan []model.TraceInfo)
@@ -44,35 +41,20 @@ func (t *ComplexRequestProcessor) Process(ctx *shared.PlannerContext,
 	return ch, nil
 }
 
-func (t *ComplexRequestProcessor) ProcessComplexReqIteration(ctx *shared.PlannerContext) (
-	[]model.TraceInfo, time.Time, []string, error) {
-	var res []model.TraceInfo
-	var from time.Time
-	var cachedTraceIDs []string
-	planner := &TraceQLRequestProcessor{t.main}
-	_res, err := planner.Process(ctx)
-	if err != nil {
-		return nil, from, cachedTraceIDs, err
-	}
-	for info := range _res {
-		for _, _info := range info {
-			startTimeUnixNano, err := strconv.ParseInt(_info.StartTimeUnixNano, 10, 64)
-			if err != nil {
-				return nil, from, cachedTraceIDs, err
-			}
-			if from.Nanosecond() == 0 || from.After(time.Unix(0, startTimeUnixNano)) {
-				from = time.Unix(0, startTimeUnixNano)
-			}
-			res = append(res, _info)
-			cachedTraceIDs = append(cachedTraceIDs, _info.TraceID)
-		}
-	}
-	if int64(len(res)) != ctx.Limit {
-		from = ctx.From
-	}
-	return res, from, cachedTraceIDs, nil
-}
-
 func (c *ComplexRequestProcessor) SetMain(main shared.SQLRequestPlanner) {
 	c.main = main
+}
+
+// readTraces runs main and collects its traces.
+func readTraces(ctx *shared.PlannerContext, main shared.SQLRequestPlanner) ([]model.TraceInfo, error) {
+	planner := &TraceQLRequestProcessor{main}
+	ch, err := planner.Process(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var res []model.TraceInfo
+	for traces := range ch {
+		res = append(res, traces...)
+	}
+	return res, nil
 }

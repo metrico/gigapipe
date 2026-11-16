@@ -209,3 +209,32 @@ func TestTamePanic_FlushThenPanicAborts(t *testing.T) {
 		t.Fatal("client read a complete-looking response from an aborted handler")
 	}
 }
+
+func TestParseTraceSearchParamsSpss(t *testing.T) {
+	for _, c := range []struct {
+		query   string
+		want    int
+		wantErr bool
+	}{
+		{"", 0, false},
+		{"spss=7", 7, false},
+		{"spss=0", 0, true},
+		{"spss=-1", 0, true},
+		{"spss=x", 0, true},
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/api/search?q=%7B%7D&"+c.query, nil)
+		got, err := parseTraceSearchParams(r)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("%q: no error", c.query)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%q: %v", c.query, err)
+		}
+		if got.Spss != c.want {
+			t.Errorf("%q: spss %d, want %d", c.query, got.Spss, c.want)
+		}
+	}
+}

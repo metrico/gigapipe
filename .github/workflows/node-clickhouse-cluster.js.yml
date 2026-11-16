@@ -33,3 +33,17 @@ jobs:
     - name: Rollback Deployment
       if: failure() && steps.execution.outcome == 'failure'
       run: npm test -- -u
+
+  # The TraceQL grid suite on ClickHouse 24.9, the oldest version structural queries support.
+  traceql-clickhouse-24-9:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check out the e2e test suite
+      run: make e2e-deps
+    - name: Install Compose
+      uses: ndeloof/install-compose-action@v0.0.1
+      with:
+        version: v2.1.0
+        legacy: true
+    - run: make e2e-ci E2E_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:24.9 E2E_TEST_ARGS=--testNamePattern=grid.traceql

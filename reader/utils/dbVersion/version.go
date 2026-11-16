@@ -70,30 +70,42 @@ func (v VersionInfo) HasCapability(name string) bool {
 	return ok
 }
 
-// chStalenessMinMajor / chStalenessMinMinor is the first clickhouse release that
-// parses WITH FILL STALENESS (24.11).
-const chStalenessMinMajor = 24
-const chStalenessMinMinor = 11
+// CapStructuralQueries is the server capability key for TraceQL structural
+// queries, which need recursive CTEs over the analyzer (clickhouse 24.9+).
+const CapStructuralQueries = "ch_structural_queries"
 
-// supportsStaleness parses a clickhouse version() string like "24.9.1.3278" or
-// "25.3.14.14" and reports whether it is at least 24.11.
-func supportsStaleness(version string) bool {
+// serverCapabilities lists the capabilities of a clickhouse version() string
+// like "24.9.1.3278".
+func serverCapabilities(version string) []string {
+	var caps []string
+	if versionAtLeast(version, 24, 9) {
+		caps = append(caps, CapStructuralQueries)
+	}
+	if versionAtLeast(version, 24, 11) {
+		caps = append(caps, CapStaleness)
+	}
+	return caps
+}
+
+// versionAtLeast reports whether a clickhouse version() string is at least
+// major.minor. An unparseable version is never at least anything.
+func versionAtLeast(version string, major, minor int) bool {
 	parts := strings.SplitN(version, ".", 3)
 	if len(parts) < 2 {
 		return false
 	}
-	major, err := strconv.Atoi(parts[0])
+	gotMajor, err := strconv.Atoi(parts[0])
 	if err != nil {
 		return false
 	}
-	minor, err := strconv.Atoi(parts[1])
+	gotMinor, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return false
 	}
-	if major != chStalenessMinMajor {
-		return major > chStalenessMinMajor
+	if gotMajor != major {
+		return gotMajor > major
 	}
-	return minor >= chStalenessMinMinor
+	return gotMinor >= minor
 }
 
 var versions = make(map[string]VersionInfo, 10)
@@ -171,8 +183,10 @@ FROM %s WHERE type='update' GROUP BY fingerprint HAVING _name!=''`, MarkerMetric
 	if verRows, err := db.QueryCtx(ctx, `SELECT version()`); err == nil {
 		var serverVersion string
 		if verRows.Next() {
-			if err := verRows.Scan(&serverVersion); err == nil && supportsStaleness(serverVersion) {
-				_versions[CapStaleness] = 0
+			if err := verRows.Scan(&serverVersion); err == nil {
+				for _, c := range serverCapabilities(serverVersion) {
+					_versions[c] = 0
+				}
 			}
 		}
 		verRows.Close()

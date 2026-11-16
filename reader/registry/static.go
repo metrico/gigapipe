@@ -7,8 +7,12 @@ import (
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/utils/dsn"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 )
+
+// pingLimit is one database's time limit in a health check.
+const pingLimit = 30 * time.Second
 
 type staticDBRegistry struct {
 	databases    []*model.DataDatabasesMap
@@ -56,20 +60,27 @@ func (s *staticDBRegistry) Ping() error {
 		return nil
 	}
 	for _, v := range s.databases {
-		err := func(db model.ISqlxDB) error {
-			conn, err := v.Session.Conn(context.Background())
-			if err != nil {
-				return err
-			}
-			defer conn.Close()
-			to, cancel := context.WithTimeout(context.Background(), time.Second*30)
-			defer cancel()
-			return conn.PingContext(to)
-		}(v.Session)
-		if err != nil {
+		if err := pingDB(v, pingLimit); err != nil {
 			return err
 		}
 	}
 	s.lastPingTime = time.Now()
 	return nil
+}
+
+// pingDB takes a connection to v's database, without a limit, and pings on it
+// for at most limit: under a deadline natively, under a cancel timer over HTTP.
+func pingDB(v *model.DataDatabasesMap, limit time.Duration) error {
+	conn, err := v.Session.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	limited := context.WithTimeout
+	if v.Config.HttpPort != 0 {
+		limited = dsn.WithLimit
+	}
+	to, cancel := limited(context.Background(), limit)
+	defer cancel()
+	return conn.PingContext(to)
 }

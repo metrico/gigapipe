@@ -5,22 +5,14 @@ import (
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-type SelectValuesRequestPlanner struct {
-	SelectTagsPlanner
-	Key string
+// SelectValuesPlanner reads the values of attribute Key of the result
+// spans of Result, an evaluated spanset expression.
+type SelectValuesPlanner struct {
+	Result shared.SQLRequestPlanner
+	Prefix string
+	Key    string
 }
 
-func (i *SelectValuesRequestPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	main, err := i.SelectTagsPlanner.Process(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	main.Select(sql.NewSimpleCol("val", "val")).
-		AndWhere(sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(i.Key)))
-	if ctx.Limit > 0 {
-		main.OrderBy(sql.NewOrderBy(sql.NewRawObject("val"), sql.ORDER_BY_DIRECTION_ASC)).
-			Limit(sql.NewIntVal(ctx.Limit))
-	}
-	return main, nil
+func (s *SelectValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
+	return selectAttrs(ctx, s.Result, s.Prefix, "val", sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(s.Key)))
 }

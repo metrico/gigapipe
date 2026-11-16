@@ -21,6 +21,7 @@ import (
 	"github.com/metrico/cloki-config/config"
 	"github.com/metrico/qryn/v5/ctrl"
 	"github.com/metrico/qryn/v5/reader"
+	"github.com/metrico/qryn/v5/reader/traceql/traceqlconfig"
 	"github.com/metrico/qryn/v5/reader/utils/logger"
 	"github.com/metrico/qryn/v5/reader/utils/middleware"
 	"github.com/metrico/qryn/v5/reader/utils/tables"
@@ -292,6 +293,9 @@ func main() {
 
 func start() {
 	distconfig.Init()
+	if err := traceqlconfig.Init(); err != nil {
+		panic(err)
+	}
 	tables.InitDistTableNames()
 	var configPaths []string
 	if _, err := os.Stat(*appFlags.ConfigPath); err == nil {

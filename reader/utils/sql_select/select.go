@@ -2,6 +2,7 @@ package sql_select
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -253,6 +254,9 @@ func (s *Select) AddWith(withs ...*With) ISelect {
 		if _, ok := w.GetQuery().(ISelect); ok {
 			s.AddWith(w.GetQuery().(ISelect).GetWith()...)
 		}
+		if w.step != nil {
+			s.AddWith(w.step.GetWith()...)
+		}
 		s.withs = append(s.withs, w)
 	}
 	return s
@@ -362,6 +366,12 @@ func (r *selectRenderer) with() error {
 		return nil
 	}
 	r.res.WriteString("WITH ")
+	for _, w := range r.s.withs {
+		if w.IsRecursive() {
+			r.res.WriteString("RECURSIVE ")
+			break
+		}
+	}
 	i := 0
 	_options := append(r.options, STRING_OPT_SKIP_WITH)
 	for _, w := range r.s.withs {
@@ -569,15 +579,22 @@ func (r *selectRenderer) offset() error {
 }
 
 func (r *selectRenderer) settings() error {
-	if r.s.settings == nil {
+	if len(r.s.settings) == 0 {
 		return nil
 	}
+	names := make([]string, 0, len(r.s.settings))
+	for k := range r.s.settings {
+		names = append(names, k)
+	}
+	sort.Strings(names)
 	r.res.WriteString(" SETTINGS ")
-	for k, v := range r.s.settings {
+	for i, k := range names {
+		if i != 0 {
+			r.res.WriteString(", ")
+		}
 		r.res.WriteString(k)
 		r.res.WriteString("=")
-		r.res.WriteString(v)
-		r.res.WriteString(" ")
+		r.res.WriteString(r.s.settings[k])
 	}
 	return nil
 }

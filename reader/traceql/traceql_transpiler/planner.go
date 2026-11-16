@@ -3,17 +3,17 @@ package traceql_transpiler
 import (
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/model"
-	"github.com/metrico/qryn/v5/reader/traceql/traceql_parser"
+	"github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
 	"github.com/metrico/qryn/v5/reader/traceql/traceql_transpiler/clickhouse_transpiler"
 )
 
-func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, error) {
-	sqlPlanner, err := clickhouse_transpiler.Plan(script)
+func Plan(query *traceql_ir.Query) (shared.TraceRequestProcessor, error) {
+	sqlPlanner, err := clickhouse_transpiler.Plan(query)
 	if err != nil {
 		return nil, err
 	}
 
-	complexityPlanner, err := clickhouse_transpiler.PlanEval(script)
+	complexityPlanner, err := clickhouse_transpiler.PlanEval(query)
 	if err != nil {
 		return nil, err
 	}
@@ -21,51 +21,47 @@ func Plan(script *traceql_parser.TraceQLScript) (shared.TraceRequestProcessor, e
 	return &TraceQLComplexityEvaluator[model.TraceInfo]{
 		initSqlPlanner:            sqlPlanner,
 		simpleRequestProcessor:    &SimpleRequestProcessor{},
-		complexRequestProcessor:   &ComplexRequestProcessor{},
+		complexRequestProcessor:   &ComplexRequestProcessor{read: readTraces},
 		evaluateComplexityPlanner: complexityPlanner,
+		threshold:                 COMPLEXITY_THRESHOLD,
 	}, nil
 }
 
-func PlanTagsV2(script *traceql_parser.TraceQLScript) (shared.GenericTraceRequestProcessor[string], error) {
-	if script == nil {
-		return &allTagsV2RequestProcessor{}, nil
-	}
-	res, err := clickhouse_transpiler.PlanTagsV2(script)
+// PlanTagsV2 plans the attribute keys of the spans a search for query returns.
+func PlanTagsV2(query *traceql_ir.Query) (shared.GenericTraceRequestProcessor[string], error) {
+	main, err := clickhouse_transpiler.PlanTagsV2(query)
 	if err != nil {
 		return nil, err
 	}
-
-	complexityPlanner, err := clickhouse_transpiler.PlanEval(script)
-	if err != nil {
-		return nil, err
-	}
-
-	return &TraceQLComplexityEvaluator[string]{
-		initSqlPlanner:            res,
-		simpleRequestProcessor:    &SimpleTagsV2RequestProcessor{},
-		complexRequestProcessor:   &ComplexTagsV2RequestProcessor{},
-		evaluateComplexityPlanner: complexityPlanner,
-	}, nil
+	return planAutocomplete(query, main)
 }
 
-func PlanValuesV2(script *traceql_parser.TraceQLScript, key string) (shared.GenericTraceRequestProcessor[string], error) {
-	if script == nil {
-		return &allTagsV2RequestProcessor{}, nil
-	}
-	res, err := clickhouse_transpiler.PlanValuesV2(script, key)
+// PlanValuesV2 plans the values of attribute key of the spans a search for
+// query returns.
+func PlanValuesV2(query *traceql_ir.Query, key string) (shared.GenericTraceRequestProcessor[string], error) {
+	main, err := clickhouse_transpiler.PlanValuesV2(query, key)
 	if err != nil {
 		return nil, err
 	}
+	return planAutocomplete(query, main)
+}
 
-	complexityPlanner, err := clickhouse_transpiler.PlanEval(script)
+// planAutocomplete reads main, by complexity portions when the query's spans
+// are costly to evaluate. A query that selects every span reads main at once.
+func planAutocomplete(query *traceql_ir.Query, main shared.SQLRequestPlanner) (
+	shared.GenericTraceRequestProcessor[string], error) {
+	if clickhouse_transpiler.AllSpans(query) {
+		return &autocompleteRequestProcessor{main: main}, nil
+	}
+	complexityPlanner, err := clickhouse_transpiler.PlanEval(query)
 	if err != nil {
 		return nil, err
 	}
-
 	return &TraceQLComplexityEvaluator[string]{
-		initSqlPlanner:            res,
-		simpleRequestProcessor:    &SimpleTagsV2RequestProcessor{},
-		complexRequestProcessor:   &ComplexValuesV2RequestProcessor{},
+		initSqlPlanner:            main,
+		simpleRequestProcessor:    &autocompleteRequestProcessor{},
+		complexRequestProcessor:   &complexAutocompleteRequestProcessor{},
 		evaluateComplexityPlanner: complexityPlanner,
+		threshold:                 COMPLEXITY_THRESHOLD,
 	}, nil
 }

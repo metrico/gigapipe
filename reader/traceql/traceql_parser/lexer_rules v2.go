@@ -15,21 +15,30 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 
 	{"Ge", `>=`},
 	{"Le", `<=`},
-	// Structural operators: <<& and <<~ must come before Lt (<) to avoid partial match
-	{"Ancestor", `<<&`},
-	{"NotAncestor", `<<~`},
+	// Compound operators come before their prefixes (maximal munch). <<& and
+	// <<~ lex only to be rejected with their TraceQL spelling.
+	{"MisspeltUnionAncestor", `<<&`},
+	{"MisspeltNotAncestor", `<<~`},
+	{"Descendant", `>>`},
+	{"Ancestor", `<<`},
 	{"Gt", `>`},
 	{"Lt", `<`},
 
-	// !>> must come before != to avoid partial match
 	{"NotDescendant", `!>>`},
+	{"NotAncestor", `!<<`},
+	{"NotChild", `!>`},
+	{"NotParent", `!<`},
 	{"Neq", `!=`},
 	{"Re", `=~`},
 	{"Nre", `!~`},
+	{"Not", `!`},
 	{"Eq", `=`},
 
-	// &>> must come before && to avoid partial match
-	{"Descendant", `&>>`},
+	{"UnionDescendant", `&>>`},
+	{"UnionAncestor", `&<<`},
+	{"UnionChild", `&>`},
+	{"UnionParent", `&<`},
+	{"UnionSibling", `&~`},
 	{"Sibling", `~`},
 
 	// Label_name supports dotted names and colon intrinsics (span:duration).
@@ -46,6 +55,11 @@ var TraceQLLexerRulesV2 = []lexer.SimpleRule{
 	{"Ticked_string", "`([^`\\\\]|\\\\.)*`"},
 
 	{"Minus", "-"},
+	{"Plus", `\+`},
+	{"Mul", `\*`},
+	{"Div", `/`},
+	{"Mod", `%`},
+	{"Pow", `\^`},
 	// Float must come before Integer to correctly lex 3.14 as a single token
 	{"Float", `[0-9]+\.[0-9]+`},
 	{"Integer", "[0-9]+"},

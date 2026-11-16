@@ -392,7 +392,7 @@ func (t *TempoController) Search(w http.ResponseWriter, r *http.Request) {
 			params.Limit = 20
 		}
 		ch, err := t.Service.SearchTraceQL(internalCtx,
-			params.Q, params.Limit, params.Start, params.End)
+			params.Q, params.Limit, params.Spss, params.Start, params.End)
 		if err != nil {
 			PromError(500, err.Error(), w)
 			return
@@ -451,6 +451,7 @@ type traceSearchParams struct {
 	MinDuration time.Duration
 	MaxDuration time.Duration
 	Limit       int
+	Spss        int // spans per spanset; 0 means the default
 	Start       time.Time
 	End         time.Time
 }
@@ -472,6 +473,12 @@ func parseTraceSearchParams(r *http.Request) (*traceSearchParams, error) {
 	res.Limit, err = strconv.Atoi(orDefault(r.URL.Query().Get("limit"), "10"))
 	if err != nil {
 		return nil, fmt.Errorf("limit: %v", err)
+	}
+	if spss := r.URL.Query().Get("spss"); spss != "" {
+		res.Spss, err = strconv.Atoi(spss)
+		if err != nil || res.Spss <= 0 {
+			return nil, fmt.Errorf("invalid spss: must be a positive number")
+		}
 	}
 	startS, err := strconv.ParseInt(orDefault(r.URL.Query().Get("start"), "0"), 10, 64)
 	if err != nil {
