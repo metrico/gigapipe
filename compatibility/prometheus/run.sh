@@ -1,12 +1,27 @@
 #!/usr/bin/env bash
 # Runs the PromQL compliance suite against a pinned Prometheus and against
-# gigapipe built from the current tree, then prints how many queries agree.
+# gigapipe built from the current tree, then hands the results to
+# compatibility/ratchet:
 #
-# Report-only for now: queries that differ don't fail the run. It fails only
-# when the suite can't run (download, stack or setup failure).
+#   run.sh [report]  print how many queries agree and differ (never fails on
+#                    differences)
+#   run.sh check     also fail if any query changed state since baseline.json
+#   run.sh baseline  rewrite baseline.json from this run, keeping its reasons
+#
+# Every mode fails when the suite can't run (download, stack or setup failure).
 set -euo pipefail
 
 cd "$(dirname "$0")"
+
+mode="${1:-report}"
+case "$mode" in
+  report | check | baseline) ;;
+  *) echo "usage: $0 [report|check|baseline]" >&2; exit 2 ;;
+esac
+
+# Build the checker first, so a broken checker fails before the long run. It
+# lives in gigapipe's own module, shared with the other parity harnesses.
+(cd ../.. && go build -o compatibility/prometheus/bin/ratchet ./compatibility/ratchet)
 
 PROM_VERSION=3.15.1
 # sha256 of the release archives, from the v3.15.1 sha256sums.txt.
@@ -77,17 +92,15 @@ curl -sf "$GIGAPIPE_URL/ready" >/dev/null || { echo "gigapipe at $GIGAPIPE_URL n
 
 echo "--- running the PromQL compliance suite against $GIGAPIPE_URL ---"
 mkdir -p out
-log=out/parity.log
-go test -count=1 -v -timeout 20m ./... >"$log" 2>&1 || true
+results=out/parity.json
+# The -run pattern must keep the suite's _setup subtest, which loads the data.
+go test -json -count=1 -timeout 20m -run '^TestPromQLParity$' . >"$results" 2>&1 || true
 
-# _setup is the suite's data-loading step, not a query.
-agree=$(grep -E '^ *--- PASS: TestPromQLParity/gigapipe/' "$log" | grep -cv '/gigapipe/_setup ' || true)
-differ=$(grep -E '^ *--- FAIL: TestPromQLParity/gigapipe/' "$log" | grep -cv '/gigapipe/_setup ' || true)
-if grep -qE -- '--- FAIL: TestPromQLParity/gigapipe/_setup' "$log" || [ $((agree + differ)) -eq 0 ]; then
-  echo "the suite did not run; see compatibility/prometheus/$log" >&2
-  tail -40 "$log" >&2
-  exit 1
+echo "per-query results: compatibility/prometheus/$results"
+status=0
+bin/ratchet "$mode" -results "$results" -baseline baseline.json || status=$?
+if [ "$status" -eq 2 ]; then
+  echo "see compatibility/prometheus/$results" >&2
+  tail -40 "$results" >&2
 fi
-echo "agree: $agree"
-echo "differ: $differ"
-echo "per-query results: compatibility/prometheus/$log"
+exit "$status"
