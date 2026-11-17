@@ -47,4 +47,12 @@ e2e-ci: e2e-build e2e-test e2e-cleanup
 
 # PromQL answers compared with a real Prometheus; see compatibility/prometheus/README.md.
 parity-prom:
-	compatibility/prometheus/run.sh
+	compatibility/prometheus/run.sh report
+
+# Fails if any query changed state since compatibility/prometheus/baseline.json.
+parity-prom-check:
+	compatibility/prometheus/run.sh check
+
+# Rewrites compatibility/prometheus/baseline.json from a fresh run.
+parity-prom-baseline:
+	compatibility/prometheus/run.sh baseline
