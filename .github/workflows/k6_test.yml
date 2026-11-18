@@ -1,4 +1,10 @@
 # TODO! Change the way gigapipe runs
+#
+# Release-gate lane (#922): it starts on every PR but only does its work on a
+# push to master, the nightly run, a manual run or a PR from a release/* branch.
+# On any other PR the job below is skipped: the check shows as skipped, which
+# counts as passing for required checks. The publish preflight doesn't accept
+# a run whose job was skipped.
 name: K6 Test metrico/gigapipe
 on:
   push:
@@ -24,9 +30,19 @@ on:
       clickhouse_image:
         description: 'Image for ClickHouse (clickhouse/clickhouse-server)'
         required: false
+  schedule:
+    - cron: '47 2 * * *'
+
+# Pushes queue instead of piling up: one push run runs, the newest waits, and a
+# newer push replaces the waiting one. Every other run has its own group, so a
+# push never cancels a nightly, manual or PR run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')
     name: Run k6 on qryn:latest
     runs-on: ubuntu-latest
     continue-on-error: true

@@ -69,6 +69,14 @@ For end-to-end tests:
 make e2e-full
 ```
 
+In CI the end-to-end lane ("Gigapipe CI Cluster") and the k6 lane are release
+gates: on an ordinary PR their job is skipped (shown as skipped, which counts
+as passing). They run on every push to `master`, nightly, when started by hand
+from the Actions tab, and on PRs from a `release/*` branch. Run `make e2e-full`
+locally, or start the lane by hand on your branch, when your change can affect
+them. A release is refused unless the lane ran and passed on the released
+commit.
+
 The Makefile is the entry point for every lane CI runs (CI calls these same
 recipes), plus parser-fuzz helpers for the query transpilers:
 
