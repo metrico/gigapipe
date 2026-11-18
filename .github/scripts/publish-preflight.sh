@@ -6,8 +6,10 @@
 # names are used rather than job names because job names are not unique: both
 # go.yml and the cluster lane have a job called "build".
 #
-# For each lane, the most recent run of that workflow on SHA must have
-# completed with conclusion "success". A lane with no run on SHA, or with any
+# For each lane, the most recent run of that workflow on SHA that actually ran
+# its jobs must have completed with conclusion "success". Release-gate lanes
+# skip their job on ordinary PRs, so a run with a skipped job is passed over
+# and an older run on SHA decides. A lane with no such run on SHA, or with any
 # other conclusion, refuses the release. A lane still running is waited for,
 # since releases are usually created right after the merge whose lanes are
 # still running; if it has not finished within PREFLIGHT_WAIT_SECONDS the
@@ -39,16 +41,31 @@ fi
 # check_lanes prints one line per lane and sets failed (a lane is missing or
 # did not pass) and running (a lane has not finished yet).
 check_lanes() {
-  local runs latest status conclusion url
+  local runs lane_runs latest run status conclusion url skipped
   runs=$(gh api --paginate "repos/${REPO}/actions/runs?head_sha=${SHA}&per_page=100" \
-    --jq '.workflow_runs[] | {name, status, conclusion, created_at, html_url}' | jq -s .)
+    --jq '.workflow_runs[] | {id, name, status, conclusion, created_at, html_url}' | jq -s .)
   failed=0
   running=0
   for lane in "${lanes[@]}"; do
-    latest=$(jq -c --arg lane "$lane" \
-      '[.[] | select(.name == $lane)] | sort_by(.created_at) | last' <<<"$runs")
-    if [ "$latest" = "null" ]; then
-      echo "::error::lane \"$lane\" has no run on ${SHA}"
+    # Newest first; the first run that isn't a skipped no-op decides.
+    lane_runs=$(jq -c --arg lane "$lane" \
+      '[.[] | select(.name == $lane)] | sort_by(.created_at) | reverse | .[]' <<<"$runs")
+    latest=""
+    while IFS= read -r run; do
+      [ -n "$run" ] || continue
+      if [ "$(jq -r .status <<<"$run")" = "completed" ]; then
+        skipped=$(gh api --paginate "repos/${REPO}/actions/runs/$(jq -r .id <<<"$run")/jobs?per_page=100" \
+          --jq '.jobs[] | select(.conclusion == "skipped") | .name' | wc -l)
+        if [ "$skipped" -gt 0 ]; then
+          echo "lane \"$lane\": skipping $(jq -r .html_url <<<"$run") (its job was skipped, not run)"
+          continue
+        fi
+      fi
+      latest=$run
+      break
+    done <<<"$lane_runs"
+    if [ -z "$latest" ]; then
+      echo "::error::lane \"$lane\" has no run on ${SHA} that ran its jobs; start it by hand (Actions, \"$lane\", Run workflow) on the released branch"
       failed=1
       continue
     fi
@@ -58,6 +75,10 @@ check_lanes() {
     if [ "$status" != "completed" ]; then
       echo "lane \"$lane\" is still running on ${SHA} (status=${status}): ${url}"
       running=1
+    elif [ "$conclusion" = "cancelled" ]; then
+      # A push run that a newer push replaced while it waited ends cancelled.
+      echo "::error::lane \"$lane\" was cancelled on ${SHA}, so it never ran; start it by hand (Actions, \"$lane\", Run workflow) on the released branch: ${url}"
+      failed=1
     elif [ "$conclusion" != "success" ]; then
       echo "::error::lane \"$lane\" did not pass on ${SHA} (conclusion=${conclusion}): ${url}"
       failed=1
