@@ -3,8 +3,8 @@
 // Write-read round trip for profiles (M2, #920): the seed fixture's CPU
 // profiles are uploaded to /ingest the way the Pyroscope Go SDK uploads them,
 // and read back through the Connect API Grafana's Pyroscope data source uses
-// (profile types, label names and values, flame graph, time series), each
-// answer checked against the fixture. See logs_roundtrip_test.go for the
+// (profile types, label names and values, series, flame graph, time series),
+// each answer checked against the fixture. See logs_roundtrip_test.go for the
 // pinned responses.
 
 package integration
@@ -113,6 +113,39 @@ func TestProfilesRoundTrip(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("service names = %v, want %v", got, want)
 		}
+	})
+
+	t.Run("series", func(t *testing.T) {
+		var resp querierv1.SeriesResponse
+		connectCall(t, "Series", &querierv1.SeriesRequest{
+			Matchers: []string{fmt.Sprintf("{%s}", runSelector)}, Start: from, End: to,
+		}, &resp)
+		// One series per pod and sample type: the SDK upload carries both
+		// samples/count and cpu/nanoseconds.
+		var got, want []string
+		for _, ls := range resp.LabelsSet {
+			got = append(got, profileSeriesKey(ls.Labels))
+			names := map[string]bool{}
+			for _, l := range ls.Labels {
+				if names[l.Name] {
+					t.Errorf("label %q appears twice in series %s", l.Name, profileSeriesKey(ls.Labels))
+				}
+				names[l.Name] = true
+			}
+		}
+		for _, svc := range fixture.Services {
+			for _, pod := range svc.Pods {
+				for _, st := range [][2]string{{"samples", "count"}, {"cpu", "nanoseconds"}} {
+					want = append(want, fmt.Sprintf("service_name=%s pod=%s %s:%s", svc.Name, pod.Name, st[0], st[1]))
+				}
+			}
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Errorf("series:\n got %q\nwant %q", got, want)
+		}
+		assertPinned(t, "profiles/series.json", normalizeProfileSeries(run, &resp))
 	})
 
 	for _, svc := range fixture.Services {
@@ -259,6 +292,32 @@ func postIngest(t *testing.T, query, contentType string, body []byte) {
 		raw, _ := io.ReadAll(resp.Body)
 		t.Fatalf("ingest: status %d, body %q", resp.StatusCode, raw)
 	}
+}
+
+// profileSeriesKey names a series by its service, pod and sample type.
+func profileSeriesKey(labels []*typesv1.LabelPair) string {
+	m := map[string]string{}
+	for _, l := range labels {
+		m[l.Name] = l.Value
+	}
+	return fmt.Sprintf("service_name=%s pod=%s %s:%s", m["service_name"], m["pod"], m["__sample_type__"], m["__sample_unit__"])
+}
+
+// normalizeProfileSeries turns a Series response into label maps with the run
+// label value replaced by "RUN", sorted, so it can be compared with its pinned
+// copy. Label order within a series is not part of the comparison.
+func normalizeProfileSeries(run string, resp *querierv1.SeriesResponse) any {
+	n := normalizer{run: run}
+	var out []map[string]string
+	for _, ls := range resp.LabelsSet {
+		m := map[string]string{}
+		for _, l := range ls.Labels {
+			m[l.Name] = l.Value
+		}
+		out = append(out, n.labels(m))
+	}
+	sort.Slice(out, func(i, j int) bool { return labelKey(out[i]) < labelKey(out[j]) })
+	return map[string]any{"labelsSet": out}
 }
 
 // connectCall makes a Connect unary call with a protobuf body, as Grafana's
