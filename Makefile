@@ -121,3 +121,15 @@ parity-prom-check:
 # Rewrites compatibility/prometheus/baseline.json from a fresh run.
 parity-prom-baseline:
 	compatibility/prometheus/run.sh baseline
+
+# LogQL answers compared with a real Loki; see compatibility/loki/README.md.
+parity-logql:
+	compatibility/loki/run.sh report
+
+# Fails if any query changed state since compatibility/loki/baseline.json.
+parity-logql-check:
+	compatibility/loki/run.sh check
+
+# Rewrites compatibility/loki/baseline.json from a fresh run.
+parity-logql-baseline:
+	compatibility/loki/run.sh baseline
