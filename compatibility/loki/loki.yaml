@@ -1,0 +1,37 @@
+# Reference Loki for TestLogQLParity: one process, everything in memory or on
+# local disk, no authentication.
+#
+# One ingestion feature is turned off: discover_log_levels, which makes Loki
+# detect each line's level and add it as a detected_level label, splitting
+# every stream by level. That isn't LogQL and gigapipe doesn't do it, so left on
+# it would make nearly every query differ for a reason unrelated to the query.
+# discover_service_name stays at Loki's default: it adds service_name from the
+# app label, and gigapipe adds the same label.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /tmp/loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /tmp/loki/chunks
+      rules_directory: /tmp/loki/rules
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  discover_log_levels: false
