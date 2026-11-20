@@ -4,6 +4,11 @@
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.9.1
+    # Published so the tests that start their own gigapipe (migrations, ruler
+    # boot order) can reach ClickHouse from the host, as in CI.
+    ports:
+      - "9000:9000"
+      - "8123:8123"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 2s
