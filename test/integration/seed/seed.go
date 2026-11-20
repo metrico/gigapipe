@@ -24,6 +24,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/google/pprof/profile"
+	"github.com/metrico/qryn/v5/writer/utils/proto/logproto"
 	"github.com/metrico/qryn/v5/writer/utils/proto/prompb"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -458,4 +459,37 @@ func (f Fixture) PyroscopeIngest(p CPUProfile) (url.Values, string, []byte) {
 		"aggregationType": {"sum"},
 	}
 	return query, w.FormDataContentType(), body.Bytes()
+}
+
+// LokiPushProto encodes streams the way Promtail and Grafana Alloy send them
+// (POST /loki/api/v1/push, application/x-protobuf): a snappy-compressed
+// PushRequest whose labels are a selector string with the names sorted, such
+// as {app="checkout", pod="p1"}.
+func LokiPushProto(streams []LogStream) []byte {
+	req := &logproto.PushRequest{}
+	for _, s := range streams {
+		names := make([]string, 0, len(s.Labels))
+		for name := range s.Labels {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		pairs := make([]string, len(names))
+		for i, name := range names {
+			pairs[i] = name + "=" + strconv.Quote(s.Labels[name])
+		}
+		stream := &logproto.StreamAdapter{Labels: "{" + strings.Join(pairs, ", ") + "}"}
+		for _, l := range s.Lines {
+			ns := l.Time.UnixNano()
+			stream.Entries = append(stream.Entries, &logproto.EntryAdapter{
+				Timestamp: &logproto.Timestamp{Seconds: ns / int64(time.Second), Nanos: int32(ns % int64(time.Second))},
+				Line:      l.Text,
+			})
+		}
+		req.Streams = append(req.Streams, stream)
+	}
+	raw, err := proto.Marshal(req)
+	if err != nil {
+		panic(err)
+	}
+	return snappy.Encode(nil, raw)
 }

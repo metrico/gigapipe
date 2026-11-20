@@ -3,13 +3,17 @@ package seed
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime"
 	"mime/multipart"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/golang/snappy"
 	"github.com/google/pprof/profile"
+	"github.com/metrico/qryn/v5/writer/utils/proto/logproto"
+	"google.golang.org/protobuf/proto"
 )
 
 var testStart = time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC)
@@ -252,6 +256,42 @@ func TestProfilesMatchDeclaration(t *testing.T) {
 			}
 			if want := []int64{p.Samples[n], p.Samples[n] * int64(CPUPeriod)}; !slices.Equal(sample.Value, want) {
 				t.Errorf("profile %d sample %d: values %v, want %v", i, n, sample.Value, want)
+			}
+		}
+	}
+}
+
+// TestLokiPushProtoMatchesJSON decodes the protobuf body and checks it carries
+// the same streams, labels, timestamps and lines as the JSON body.
+func TestLokiPushProtoMatchesJSON(t *testing.T) {
+	streams := Default("r1", testStart).Logs()
+	raw, err := snappy.Decode(nil, LokiPushProto(streams))
+	if err != nil {
+		t.Fatalf("not snappy: %v", err)
+	}
+	var req logproto.PushRequest
+	if err := proto.Unmarshal(raw, &req); err != nil {
+		t.Fatalf("not a PushRequest: %v", err)
+	}
+	if len(req.Streams) != len(streams) {
+		t.Fatalf("%d streams, want %d", len(req.Streams), len(streams))
+	}
+	for i, s := range streams {
+		got := req.Streams[i]
+		want := fmt.Sprintf(`{app=%q, m2_run=%q, pod=%q}`, s.Labels["app"], s.Labels[RunLabel], s.Labels["pod"])
+		if got.Labels != want {
+			t.Errorf("stream %d: labels %s, want %s", i, got.Labels, want)
+		}
+		if len(got.Entries) != len(s.Lines) {
+			t.Fatalf("stream %d: %d entries, want %d", i, len(got.Entries), len(s.Lines))
+		}
+		for n, l := range s.Lines {
+			e := got.Entries[n]
+			if ns := e.Timestamp.Seconds*int64(time.Second) + int64(e.Timestamp.Nanos); ns != l.Time.UnixNano() {
+				t.Errorf("stream %d entry %d: time %d, want %d", i, n, ns, l.Time.UnixNano())
+			}
+			if e.Line != l.Text {
+				t.Errorf("stream %d entry %d: line %q, want %q", i, n, e.Line, l.Text)
 			}
 		}
 	}
