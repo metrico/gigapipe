@@ -1,0 +1,116 @@
+{
+  "data": {
+    "result": [
+      {
+        "stream": {
+          "app": "checkout",
+          "m2_run": "RUN",
+          "pod": "p1",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+0s",
+            "{\"level\":\"error\",\"msg\":\"payment declined\",\"latency_ms\":980,\"seq\":0}"
+          ],
+          [
+            "+10s",
+            "{\"level\":\"info\",\"msg\":\"item reserved\",\"latency_ms\":81,\"seq\":1}"
+          ],
+          [
+            "+20s",
+            "{\"level\":\"info\",\"msg\":\"order created\",\"latency_ms\":237,\"seq\":2}"
+          ],
+          [
+            "+30s",
+            "{\"level\":\"info\",\"msg\":\"item reserved\",\"latency_ms\":348,\"seq\":3}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "checkout",
+          "m2_run": "RUN",
+          "pod": "p2",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+0s",
+            "{\"level\":\"info\",\"msg\":\"order created\",\"latency_ms\":503,\"seq\":0}"
+          ],
+          [
+            "+10s",
+            "{\"level\":\"info\",\"msg\":\"cart updated\",\"latency_ms\":187,\"seq\":1}"
+          ],
+          [
+            "+20s",
+            "{\"level\":\"error\",\"msg\":\"inventory timeout\",\"latency_ms\":573,\"seq\":2}"
+          ],
+          [
+            "+30s",
+            "{\"level\":\"error\",\"msg\":\"card rejected\",\"latency_ms\":907,\"seq\":3}"
+          ],
+          [
+            "+40s",
+            "{\"level\":\"info\",\"msg\":\"request served\",\"latency_ms\":199,\"seq\":4}"
+          ],
+          [
+            "+50s",
+            "{\"level\":\"info\",\"msg\":\"cart updated\",\"latency_ms\":403,\"seq\":5}"
+          ],
+          [
+            "+60s",
+            "{\"level\":\"error\",\"msg\":\"payment declined\",\"latency_ms\":524,\"seq\":6}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "checkout",
+          "m2_run": "RUN",
+          "pod": "p3",
+          "service_name": "checkout"
+        },
+        "values": [
+          [
+            "+0s",
+            "{\"level\":\"info\",\"msg\":\"item reserved\",\"latency_ms\":245,\"seq\":0}"
+          ]
+        ]
+      },
+      {
+        "stream": {
+          "app": "payments",
+          "m2_run": "RUN",
+          "pod": "p1",
+          "service_name": "payments"
+        },
+        "values": [
+          [
+            "+0s",
+            "{\"level\":\"info\",\"msg\":\"order created\",\"latency_ms\":931,\"seq\":0}"
+          ],
+          [
+            "+10s",
+            "{\"level\":\"info\",\"msg\":\"item reserved\",\"latency_ms\":492,\"seq\":1}"
+          ],
+          [
+            "+20s",
+            "{\"level\":\"error\",\"msg\":\"card rejected\",\"latency_ms\":130,\"seq\":2}"
+          ],
+          [
+            "+30s",
+            "{\"level\":\"info\",\"msg\":\"request served\",\"latency_ms\":987,\"seq\":3}"
+          ],
+          [
+            "+40s",
+            "{\"level\":\"error\",\"msg\":\"inventory timeout\",\"latency_ms\":446,\"seq\":4}"
+          ]
+        ]
+      }
+    ],
+    "resultType": "streams"
+  },
+  "status": "success"
+}
