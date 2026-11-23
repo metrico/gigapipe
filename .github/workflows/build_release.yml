@@ -192,7 +192,7 @@ jobs:
         env:
           TAG: v3.3.2
       - name: Log in to the GHCR registry
-        uses: docker/login-action@v3.0.0
+        uses: docker/login-action@v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
