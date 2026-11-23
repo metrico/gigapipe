@@ -281,8 +281,10 @@ gigapipe returns the spans Tempo returns, except in the cases listed here.
 - `sample=f` keeps a deterministic hash sample. Queries that relate spans
   across a trace sample whole traces by trace ID, and other queries sample
   spans by span ID. Tempo keeps one item in N with a counter.
-- Sampled metrics values are returned unscaled. Tempo scales them up by the
-  observed sampling ratio, except `min_over_time` and `max_over_time`.
+- Sampled metrics are scaled up by `1/f`: counts, sums, histogram bucket
+  counts and `compare()` counts. `min_over_time`, `max_over_time`,
+  `avg_over_time` and `quantile_over_time` are not scaled. Tempo scales by
+  the sampling ratio it observes, so values can differ slightly.
 - `exemplars=N` caps exemplars per series, spread over the buckets that have
   one. Tempo applies the cap per query evaluator, not per series.
 

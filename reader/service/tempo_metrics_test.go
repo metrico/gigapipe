@@ -1,12 +1,18 @@
 package service
 
 import (
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
+	"github.com/metrico/qryn/v5/reader/model"
+	"github.com/metrico/qryn/v5/reader/tempo"
 	traceql_ir "github.com/metrico/qryn/v5/reader/traceql/traceql_ir"
+	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +25,7 @@ func TestMetricsCompareRequest(t *testing.T) {
 	}
 	q, err := traceql_ir.Parse(`{.a = "x"} | compare({.b = "y" || .c = 3}, 5)`)
 	require.NoError(t, err)
-	got := compareRequest(q.Metrics, ctx)
+	got := compareRequest(q, ctx)
 	require.Equal(t, 5, got.TopN)
 	require.Equal(t, int64(100e9), got.BaselineFromNS)
 	require.Equal(t, int64(200e9), got.BaselineToNS)
@@ -28,7 +34,7 @@ func TestMetricsCompareRequest(t *testing.T) {
 	q, err = traceql_ir.Parse(`{} | compare({.b = "y"}, 2, 50000000000, 150000000000)`)
 	require.NoError(t, err)
 	ctx.IsCluster = true
-	got = compareRequest(q.Metrics, ctx)
+	got = compareRequest(q, ctx)
 	require.Equal(t, int64(50e9), got.BaselineFromNS)
 	require.Equal(t, int64(150e9), got.BaselineToNS)
 	require.Equal(t, int64(100e9), got.FromNS)
@@ -86,4 +92,105 @@ func TestCapExemplars(t *testing.T) {
 			t.Errorf("%s of %v = %v, want %v", c.hints, c.in, got, c.want)
 		}
 	}
+}
+
+// with(sample=f) reaches metrics and compare() requests as 1/f, under span and
+// trace hashing alike; any other hint, or one that keeps no spans, leaves them
+// at 1.
+func TestSampleHintSetsRequestScale(t *testing.T) {
+	ctx := &shared.PlannerContext{From: time.Unix(100, 0), To: time.Unix(200, 0)}
+	req := &model.MetricsQueryRequest{Step: time.Second}
+	for _, tc := range []struct {
+		selector string
+		hint     string
+		want     float64
+	}{
+		{`{.a = 1}`, ` with(sample=0.25)`, 4},
+		{`{.a = 1} >> {.b = 2}`, ` with(sample=0.25)`, 4},
+		{`{.a = 1}`, ``, 1},
+		{`{.a = 1}`, ` with(sample=1)`, 1},
+		{`{.a = 1}`, ` with(sample=true)`, 1},
+		{`{.a = 1}`, ` with(sample=0.` + strings.Repeat("0", 319) + `1)`, 1},
+	} {
+		q, err := traceql_ir.Parse(tc.selector + ` | rate()` + tc.hint)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, metricsRequest(q, req, ctx).Scale, q)
+
+		q, err = traceql_ir.Parse(tc.selector + ` | compare({.c = 3})` + tc.hint)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, compareRequest(q, ctx).Scale, q)
+	}
+}
+
+// A hint that keeps no spans renders the aggregate unscaled.
+func TestHintKeepingNoSpansRendersUnscaled(t *testing.T) {
+	ctx := &shared.PlannerContext{From: time.Unix(100, 0), To: time.Unix(200, 0)}
+	spans := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("result")), "spans")
+	for name, build := range map[string]func(*tempo.MetricsRequest) (sql.ISelect, []string, error){
+		"range":   tempo.BuildMetricsRangeQuery,
+		"instant": tempo.BuildMetricsInstantQuery,
+	} {
+		for _, step := range []time.Duration{time.Millisecond, time.Second, 15 * time.Second} {
+			req := &model.MetricsQueryRequest{Step: step}
+			render := func(query string) string {
+				q, err := traceql_ir.Parse(query)
+				require.NoError(t, err)
+				sel, _, err := build(over(metricsRequest(q, req, ctx), spans))
+				require.NoError(t, err)
+				str, err := sel.String(sql.DefaultCtx())
+				require.NoError(t, err)
+				return str
+			}
+			for _, fn := range []string{`rate()`, `count_over_time()`, `sum_over_time(duration)`} {
+				query := `{.a = 1} | ` + fn
+				for _, zeros := range []int{20, 305, 307, 319} {
+					got := render(query + ` with(sample=0.` + strings.Repeat("0", zeros) + `1)`)
+					require.Equal(t, render(query), got, "%s %s %d zeros at %s", name, fn, zeros, step)
+				}
+			}
+		}
+	}
+}
+
+// The smallest hint that keeps spans folds rate's divisor to a normal double
+// at a small step.
+func TestSmallestKeptSampleHintRendersNormalDivisor(t *testing.T) {
+	ctx := &shared.PlannerContext{From: time.Unix(100, 0), To: time.Unix(200, 0)}
+	req := &model.MetricsQueryRequest{Step: time.Millisecond}
+	spans := sql.NewWith(sql.NewSelect().Select(sql.NewRawObject("trace_id")).From(sql.NewRawObject("result")), "spans")
+	q, err := traceql_ir.Parse(`{.a = 1} | rate() with(sample=0.0000000000000000000542101086242752217003726400434970855712890625)`)
+	require.NoError(t, err)
+	sel, _, err := tempo.BuildMetricsRangeQuery(over(metricsRequest(q, req, ctx), spans))
+	require.NoError(t, err)
+	str, err := sel.String(sql.DefaultCtx())
+	require.NoError(t, err)
+
+	m := regexp.MustCompile(`count\(\*\)\) / ([0-9.e+-]+)`).FindStringSubmatch(str)
+	require.NotNil(t, m, str)
+	divisor, err := strconv.ParseFloat(m[1], 64)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, divisor, 0x1p-1022, str)
+}
+
+// Exemplars of rate and count_over_time sit on the scaled series point of their
+// step; those of other functions keep their span's duration, unscaled.
+func TestExemplarValueUnderScaling(t *testing.T) {
+	const (
+		stepMs = int64(1000)
+		tsMs   = int64(5500)
+		durNs  = int64(1500e6)
+	)
+	scaledSeries := map[int64]float64{5000: 8, 6000: 12}
+	for fn, want := range map[string]float64{
+		"rate":               8,
+		"count_over_time":    8,
+		"sum_over_time":      1.5,
+		"min_over_time":      1.5,
+		"max_over_time":      1.5,
+		"avg_over_time":      1.5,
+		"quantile_over_time": 1.5,
+	} {
+		require.Equal(t, want, exemplarValue(exemplarHasDuration(fn), durNs, tsMs, stepMs, scaledSeries), fn)
+	}
+	require.Zero(t, exemplarValue(false, durNs, tsMs, 0, scaledSeries))
 }
