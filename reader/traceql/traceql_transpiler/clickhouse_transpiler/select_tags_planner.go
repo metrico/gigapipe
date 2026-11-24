@@ -39,7 +39,7 @@ func (i *SelectTagsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, er
 			sql.Ge(sql.NewRawObject("traces_idx.timestamp_ns"), sql.NewIntVal(ctx.From.UnixNano())),
 			sql.Lt(sql.NewRawObject("traces_idx.timestamp_ns"), sql.NewIntVal(ctx.To.UnixNano())),
 			sql.NewIn(sql.NewRawObject("span_id"), sql.NewWithRef(withPreSelectTags)),
-		)).GroupBy(sql.NewRawObject("trace_id"), sql.NewRawObject("span_id"))
+		)).Distinct(true)
 	if ctx.Limit > 0 {
 		res.OrderBy(sql.NewOrderBy(sql.NewRawObject("key"), sql.ORDER_BY_DIRECTION_ASC)).
 			Limit(sql.NewIntVal(ctx.Limit))

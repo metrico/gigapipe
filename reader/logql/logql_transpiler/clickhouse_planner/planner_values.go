@@ -35,7 +35,7 @@ func (v *ValuesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		From(sql.NewRawObject(ctx.TimeSeriesGinDistTableName)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(to.Format("2006-01-02"))),
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(FormatToDate(to))),
 			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(v.Key)),
 			GetTypes(ctx),
 		)
