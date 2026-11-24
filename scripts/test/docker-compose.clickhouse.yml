@@ -1,0 +1,5 @@
+# The ClickHouse version every test stack uses. They extend this service, so it
+# is written only here; Dependabot updates it.
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.10

@@ -13,3 +13,9 @@ updates:
     directory: "/" # Checks the actions used in .github/workflows
     schedule:
       interval: "weekly"
+  - package-ecosystem: "docker-compose"
+    directories: # Checks the images the test stacks use
+      - "/scripts/test"
+      - "/scripts/test/e2e"
+    schedule:
+      interval: "weekly"
