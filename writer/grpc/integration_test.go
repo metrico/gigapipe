@@ -12,6 +12,7 @@ import (
 
 	clconfig "github.com/metrico/cloki-config"
 	clokiconfig "github.com/metrico/cloki-config/config"
+	clcwriter "github.com/metrico/cloki-config/config/writer"
 	"github.com/metrico/qryn/v5/writer/config"
 	"github.com/metrico/qryn/v5/writer/controller"
 	"github.com/metrico/qryn/v5/writer/model"
@@ -153,13 +154,15 @@ func installFPCache(t *testing.T, node string) {
 
 // installConfig sets a minimal global config so doPush can read retry settings
 // without a nil-pointer panic. One retry attempt with no delay keeps the push
-// path fast and deterministic.
+// path fast and deterministic. Fingerprints use CityHash, the default of a real
+// deployment.
 func installConfig(t *testing.T) {
 	t.Helper()
 	old := config.Cloki
 	setting := &clokiconfig.ClokiBaseSettingServer{}
 	setting.SYSTEM_SETTINGS.RetryAttempts = 1
 	setting.SYSTEM_SETTINGS.RetryTimeoutS = 0
+	setting.FingerPrintType = clcwriter.FINGERPRINT_CityHash
 	config.Cloki = &clconfig.ClokiConfig{Setting: setting}
 	t.Cleanup(func() { config.Cloki = old })
 }

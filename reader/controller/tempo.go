@@ -302,6 +302,7 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 	if tag == "status" {
 		tag = "otel.status_code"
 	}
+	tag = trimTagScope(tag)
 
 	limit := 2000
 	if r.URL.Query().Get("limit") != "" {
@@ -699,4 +700,15 @@ func autoStep(from, to time.Time) time.Duration {
 		hours := int(math.Ceil(stepSec / 3600))
 		return time.Duration(hours) * time.Hour
 	}
+}
+
+// trimTagScope drops the TraceQL scope Grafana puts in front of the tag name:
+// the attribute tables store "service.name", not "resource.service.name".
+func trimTagScope(tag string) string {
+	for _, scope := range []string{"resource.", "span.", "."} {
+		if strings.HasPrefix(tag, scope) {
+			return strings.TrimPrefix(tag, scope)
+		}
+	}
+	return tag
 }

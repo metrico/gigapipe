@@ -81,7 +81,7 @@ func BuildMetricsRangeQuery(
 		filterWith := buildFilterCTE(filterKeys, filterOps, filterVals, fromDate, toDate, attrsTable)
 		if filterWith != nil {
 			query.AddWith(filterWith)
-			query.AddJoin(sql.NewJoin("INNER",
+			query.AddJoin(sql.NewJoin(joinType("INNER", distributed),
 				sql.NewCol(sql.NewWithRef(filterWith), "filtered"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("filtered.trace_id")),
@@ -117,7 +117,7 @@ func BuildMetricsRangeQuery(
 	if len(customByLabels) > 0 {
 		byWith, byAliases := buildByPivotCTE(customByLabels, fromDate, toDate, attrsTable)
 		query.AddWith(byWith)
-		query.AddJoin(sql.NewJoin("LEFT",
+		query.AddJoin(sql.NewJoin(joinType("LEFT", distributed),
 			sql.NewCol(sql.NewWithRef(byWith), "by_attrs"),
 			sql.And(
 				sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("by_attrs.trace_id")),
@@ -182,7 +182,7 @@ func BuildMetricsInstantQuery(
 		filterWith := buildFilterCTE(filterKeys, filterOps, filterVals, fromDate, toDate, attrsTable)
 		if filterWith != nil {
 			query.AddWith(filterWith)
-			query.AddJoin(sql.NewJoin("INNER",
+			query.AddJoin(sql.NewJoin(joinType("INNER", distributed),
 				sql.NewCol(sql.NewWithRef(filterWith), "filtered"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("filtered.trace_id")),
@@ -214,7 +214,7 @@ func BuildMetricsInstantQuery(
 	if len(customByLabels) > 0 {
 		byWith, byAliases := buildByPivotCTE(customByLabels, fromDate, toDate, attrsTable)
 		query.AddWith(byWith)
-		query.AddJoin(sql.NewJoin("LEFT",
+		query.AddJoin(sql.NewJoin(joinType("LEFT", distributed),
 			sql.NewCol(sql.NewWithRef(byWith), "by_attrs"),
 			sql.And(
 				sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("by_attrs.trace_id")),
@@ -366,22 +366,8 @@ func buildFilterCTE(keys []string, ops []string, vals []string, fromDate string,
 			sub.AndWhere(sql.Eq(sql.NewRawObject("val"), sql.NewStringVal(_vals[i])))
 		case "!=":
 			sub.AndWhere(sql.Neq(sql.NewRawObject("val"), sql.NewStringVal(_vals[i])))
-		case "=~":
-			valCopy := _vals[i]
-			sub.AndWhere(sql.Eq(
-				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-					return fmt.Sprintf("match(val, '%s')", strings.ReplaceAll(valCopy, "'", "\\'")), nil
-				}),
-				sql.NewRawObject("1"),
-			))
-		case "!~":
-			valCopy := _vals[i]
-			sub.AndWhere(sql.Neq(
-				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
-					return fmt.Sprintf("match(val, '%s')", strings.ReplaceAll(valCopy, "'", "\\'")), nil
-				}),
-				sql.NewRawObject("1"),
-			))
+		case "=~", "!~":
+			sub.AndWhere(opRegistry[ops[i]](sql.NewStringVal(_vals[i])))
 		case ">":
 			sub.AndWhere(sql.Gt(sql.NewRawObject("val"), sql.NewStringVal(_vals[i])))
 		case ">=":
@@ -452,10 +438,16 @@ func buildByPivotCTE(labels []string, fromDate string, toDate string, attrsTable
 	for i, label := range labels {
 		ginKeys[i] = stripAttrPrefix(label)
 		aliases[i] = fmt.Sprintf("by_lbl_%d", i)
+		key := sql.NewStringVal(ginKeys[i])
 		selectCols = append(selectCols,
 			sql.NewCol(
-				sql.NewRawObject(fmt.Sprintf("anyIf(val, key = '%s')",
-					strings.ReplaceAll(ginKeys[i], "'", "\\'"))),
+				sql.NewCustomCol(func(ctx *sql.Ctx, options ...int) (string, error) {
+					strKey, err := key.String(ctx, options...)
+					if err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("anyIf(val, key = %s)", strKey), nil
+				}),
 				aliases[i],
 			),
 		)
@@ -489,6 +481,7 @@ type HistogramRequest struct {
 	StepNS      int64
 	TracesTable string
 	AttrsTable  string
+	Distributed bool
 	Attr        string // e.g. "duration"
 	FilterKeys  []string
 	FilterOps   []string
@@ -540,7 +533,7 @@ func BuildHistogramRangeQuery(req *HistogramRequest) (sql.ISelect, error) {
 			fromDate, toDate, req.AttrsTable)
 		if filterWith != nil {
 			query.AddWith(filterWith)
-			query.AddJoin(sql.NewJoin("INNER",
+			query.AddJoin(sql.NewJoin(joinType("INNER", req.Distributed),
 				sql.NewCol(sql.NewWithRef(filterWith), "filtered"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("filtered.trace_id")),
@@ -599,7 +592,7 @@ func BuildHistogramExemplarsQuery(req *HistogramRequest) (sql.ISelect, error) {
 			fromDate, toDate, req.AttrsTable)
 		if filterWith != nil {
 			query.AddWith(filterWith)
-			query.AddJoin(sql.NewJoin("INNER",
+			query.AddJoin(sql.NewJoin(joinType("INNER", req.Distributed),
 				sql.NewCol(sql.NewWithRef(filterWith), "filtered"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("filtered.trace_id")),
@@ -627,6 +620,7 @@ type GenericExemplarsRequest struct {
 	StepNS      int64
 	TracesTable string
 	AttrsTable  string
+	Distributed bool
 	FilterKeys  []string
 	FilterOps   []string
 	FilterVals  []string
@@ -668,7 +662,7 @@ func BuildGenericExemplarsQuery(req *GenericExemplarsRequest) (sql.ISelect, []st
 			fromDate, toDate, req.AttrsTable)
 		if filterWith != nil {
 			query.AddWith(filterWith)
-			query.AddJoin(sql.NewJoin("INNER",
+			query.AddJoin(sql.NewJoin(joinType("INNER", req.Distributed),
 				sql.NewCol(sql.NewWithRef(filterWith), "filtered"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("filtered.trace_id")),
@@ -696,7 +690,7 @@ func BuildGenericExemplarsQuery(req *GenericExemplarsRequest) (sql.ISelect, []st
 	if len(customByLabels) > 0 {
 		byWith, byAliases := buildByPivotCTE(customByLabels, fromDate, toDate, req.AttrsTable)
 		query.AddWith(byWith)
-		query.AddJoin(sql.NewJoin("LEFT",
+		query.AddJoin(sql.NewJoin(joinType("LEFT", req.Distributed),
 			sql.NewCol(sql.NewWithRef(byWith), "by_attrs"),
 			sql.And(
 				sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("by_attrs.trace_id")),
@@ -783,7 +777,7 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 			fromDate, toDate, req.AttrsTable, "outer_filtered")
 		if outerWith != nil {
 			allSpansQuery.AddWith(outerWith)
-			allSpansQuery.AddJoin(sql.NewJoin("INNER",
+			allSpansQuery.AddJoin(sql.NewJoin(joinType("INNER", req.Distributed),
 				sql.NewCol(sql.NewWithRef(outerWith), "outer_f"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("main.trace_id"), sql.NewRawObject("outer_f.trace_id")),
@@ -813,7 +807,7 @@ func BuildCompareQuery(req *CompareRequest) (sql.ISelect, error) {
 			fromDate, toDate, req.AttrsTable, "inner_filtered")
 		if innerWith != nil {
 			selectionQuery.AddWith(innerWith)
-			selectionQuery.AddJoin(sql.NewJoin("INNER",
+			selectionQuery.AddJoin(sql.NewJoin(joinType("INNER", req.Distributed),
 				sql.NewCol(sql.NewWithRef(innerWith), "inner_f"),
 				sql.And(
 					sql.Eq(sql.NewRawObject("sel_main.trace_id"), sql.NewRawObject("inner_f.trace_id")),
@@ -937,6 +931,19 @@ func parseTimeValNs(s string) (int64, error) {
 		return 0, fmt.Errorf("invalid time value %q: no unit and not an integer", s)
 	}
 	return n, nil
+}
+
+// joinType returns the join type tp for a join from the spans table to a CTE
+// over the attributes index, made GLOBAL on a cluster. There both tables are
+// Distributed, and a plain join of one with a subquery over the other is a
+// double-distributed JOIN that ClickHouse rejects (error 288,
+// distributed_product_mode='deny'). GLOBAL runs the subquery once on the
+// initiator and ships its result to the shards.
+func joinType(tp string, distributed bool) string {
+	if distributed {
+		return "GLOBAL " + tp
+	}
+	return tp
 }
 
 // buildIntrinsicConditions returns sql.SQLCondition items for intrinsic attributes.

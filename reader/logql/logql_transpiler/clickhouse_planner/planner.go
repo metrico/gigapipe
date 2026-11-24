@@ -590,7 +590,8 @@ func (p *planner) planLineFilter(ppl *logql_parser.StrSelectorPipeline) error {
 func (p *planner) planUnwrap(ppl *logql_parser.StrSelectorPipeline) error {
 	p.samplesPlanner = &UnwrapPlanner{
 		Main:               p.samplesPlanner,
-		Label:              ppl.Unwrap.Label.Name,
+		Label:              ppl.Unwrap.LabelName(),
+		ConvFunc:           ppl.Unwrap.ConvFunc(),
 		UseTimeSeriesTable: p.fastUnwrap,
 		labelsCache:        &p.labelsCache,
 		fpCache:            &p.fpCache,

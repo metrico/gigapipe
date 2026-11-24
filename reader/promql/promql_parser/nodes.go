@@ -1,14 +1,25 @@
 package promql_parser
 
 import (
+	"fmt"
+
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type Expr struct {
-	Expr        parser.Expr
-	Substitutes map[string]*Substitute
+	Expr         parser.Expr
+	Substitutes  map[string]*Substitute
+	substCounter int64
+}
+
+// NextSubstituteName returns a fresh, deterministic pushdown-substitute metric
+// name for this transpile. It replaces a random suffix so the SQL a query
+// lowers to is reproducible across runs (see TestTranspileIsDeterministic).
+func (e *Expr) NextSubstituteName() string {
+	e.substCounter++
+	return fmt.Sprintf("__metric_subst__%d", e.substCounter)
 }
 
 type Substitute struct {
