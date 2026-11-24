@@ -1,4 +1,3 @@
-# TODO! Change the way gigapipe runs
 name: K6 Test metrico/gigapipe
 on:
   push:
@@ -15,9 +14,6 @@ on:
       - '**.yaml'
   workflow_dispatch:
     inputs:
-      qryn_tag:
-        description: 'Tag of a published ghcr.io/metrico/qryn image to test (empty: build this commit)'
-        required: false
       clickhouse_tag:
         description: 'BuildTag for ClickHouse (latest)'
         required: false
@@ -27,12 +23,9 @@ on:
 
 jobs:
   build:
-    name: Run k6 on qryn:latest
+    name: Run k6 on gigapipe
     runs-on: ubuntu-latest
     continue-on-error: true
-    env:
-      CLICKHOUSE_VERSION: "${{ github.event.inputs.clickhouse_image || 'clickhouse/clickhouse-server' }}:${{ github.event.inputs.clickhouse_tag || 'latest' }}"
-      QRYN_VERSION: "ghcr.io/metrico/qryn:${{ github.event.inputs.qryn_tag || 'latest' }}"
     services:
       clickhouse:
         image: "${{ github.event.inputs.clickhouse_image || 'clickhouse/clickhouse-server' }}:${{ github.event.inputs.clickhouse_tag || 'latest' }}"
@@ -51,27 +44,16 @@ jobs:
       # The k6 scripts above fill the workspace; gigapipe's own tree goes in a
       # subdirectory so the image under test is built from this commit.
       - name: Checkout gigapipe
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: gigapipe
       - name: Start gigapipe
         env:
-          QRYN_TAG: ${{ github.event.inputs.qryn_tag }}
           CLICKHOUSE_NETWORK: ${{ job.services.clickhouse.network }}
         run: |
-          # A tag typed into a manual run tests that published image; otherwise
-          # the image is built from this commit.
-          if [ -n "$QRYN_TAG" ]; then
-            image="ghcr.io/metrico/qryn:$QRYN_TAG"
-            tested="$image"
-          else
-            image=gigapipe:k6
-            tested="built from ${GITHUB_SHA}"
-            docker build -f gigapipe/Dockerfile -t "$image" gigapipe
-          fi
+          docker build -f gigapipe/Dockerfile -t gigapipe:k6 gigapipe
           docker run -d --name gigapipe --network "$CLICKHOUSE_NETWORK" -p 3100:3100 \
-            -e CLICKHOUSE_SERVER=clickhouse -e CLICKHOUSE_AUTH=qryn:qryn "$image"
-          echo "GIGAPIPE_TESTED=$tested" >> "$GITHUB_ENV"
+            -e CLICKHOUSE_SERVER=clickhouse -e CLICKHOUSE_AUTH=qryn:qryn gigapipe:k6
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
@@ -160,7 +142,7 @@ jobs:
       - name: Summary Report
         run: |
           echo "### gigapipe image" >> $GITHUB_STEP_SUMMARY
-          echo "$GIGAPIPE_TESTED" >> $GITHUB_STEP_SUMMARY
+          echo "built from ${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### clickhouse image" >> $GITHUB_STEP_SUMMARY
           echo "${{ github.event.inputs.clickhouse_image || 'clickhouse/clickhouse-server' }}:${{ github.event.inputs.clickhouse_tag || 'latest' }}" >> $GITHUB_STEP_SUMMARY
