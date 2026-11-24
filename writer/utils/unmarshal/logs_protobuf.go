@@ -2,6 +2,7 @@ package unmarshal
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/metrico/qryn/v5/writer/model"
 	"github.com/metrico/qryn/v5/writer/utils/proto/logproto"
@@ -29,7 +30,9 @@ func (l *logsProtoDec) Decode() error {
 
 		for i, e := range stream.GetEntries() {
 			tsns[i] = e.Timestamp.GetSeconds()*1000000000 + int64(e.Timestamp.GetNanos())
-			msgs[i] = e.GetLine()
+			// line is bytes in loki.proto: Loki keeps a line as it came, and one line cut in the
+			// middle of a multi-byte character must not fail the whole push as a proto3 string.
+			msgs[i] = strings.ToValidUTF8(string(e.GetLine()), "\uFFFD")
 		}
 		err = l.onEntries(labels, tsns, msgs, make([]float64, len(stream.GetEntries())),
 			slices.Repeat([]uint8{model.SAMPLE_TYPE_LOG}, len(stream.GetEntries())))
