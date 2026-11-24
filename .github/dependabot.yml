@@ -13,3 +13,9 @@ updates:
     directory: "/" # Checks the actions used in .github/workflows
     schedule:
       interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/" # Checks the images in Dockerfile
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "golang" # go-version-sync.yml keeps it equal to go.mod

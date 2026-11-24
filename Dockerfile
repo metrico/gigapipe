@@ -8,7 +8,7 @@ RUN if [ "$VIEW" = "1" ]; then \
         go build -o gigapipe cmd/gigapipe/main.go ; \
     fi
 
-FROM alpine:3.21
+FROM alpine:3.24
 COPY --from=builder /src/gigapipe /gigapipe
 ENV PORT 3100
 EXPOSE 3100

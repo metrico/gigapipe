@@ -25,7 +25,7 @@ LINT_NEW_FROM_REV ?= origin/master
 	fmt-check build test-unit lint fuzz
 
 docker:
-	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
+	docker build -t gigapipe .
 
 # Fail if any Go file is not gofmt-formatted, listing the offending files.
 fmt-check:
@@ -62,7 +62,7 @@ e2e-deps:
 	cd $(E2E_TESTS_DIR) && git pull && git checkout main && git pull;
 
 e2e-build:
-	docker build -f scripts/deploy/docker/Dockerfile -t gigapipe .
+	docker build -t gigapipe .
 
 e2e-test:
 	$(docker-compose) -f ./scripts/test/e2e/docker-compose.yml up -d && \

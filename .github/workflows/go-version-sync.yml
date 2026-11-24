@@ -64,7 +64,7 @@ jobs:
           sed -i "s/^go ${CURRENT_ESC}$/go ${LATEST_ESC}/" go.mod
           echo "Updated go.mod: ${CURRENT} -> ${LATEST}"
 
-      - name: Update Go version in Dockerfiles
+      - name: Update Go version in Dockerfile
         if: steps.check.outputs.needed == 'true'
         run: |
           LATEST="${{ steps.go-latest.outputs.version }}"
@@ -72,8 +72,7 @@ jobs:
           CURRENT_ESC=$(printf '%s\n' "${CURRENT}" | sed 's/[.[\*^$]/\\&/g')
           LATEST_ESC=$(printf '%s\n' "${LATEST}" | sed 's/[&/\]/\\&/g')
           sed -i "s/golang:${CURRENT_ESC}-alpine/golang:${LATEST_ESC}-alpine/g" Dockerfile
-          sed -i "s/golang:${CURRENT_ESC}-alpine/golang:${LATEST_ESC}-alpine/g" scripts/deploy/docker/Dockerfile
-          echo "Updated Dockerfiles: ${CURRENT} -> ${LATEST}"
+          echo "Updated Dockerfile: ${CURRENT} -> ${LATEST}"
 
       - name: Set up Go ${{ steps.go-latest.outputs.version }}
         if: steps.check.outputs.needed == 'true'
@@ -105,7 +104,6 @@ jobs:
             ### Files Changed
             - `go.mod` — updated `go` directive
             - `Dockerfile` — updated `golang` builder image
-            - `scripts/deploy/docker/Dockerfile` — updated `golang` builder image
             - `go.sum` — regenerated via `go mod tidy`
 
             CI workflows read their toolchain from `go.mod` via `setup-go`'s
