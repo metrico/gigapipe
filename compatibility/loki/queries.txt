@@ -1,0 +1,105 @@
+# LogQL queries sent to both Loki and gigapipe by TestLogQLParity.
+#
+# Written in-house from the LogQL documentation; nothing is taken from Loki's
+# code or tests. A line starting with "## " names the documentation section the
+# queries below it exercise, as "<page> > <section>", where page is
+# https://grafana.com/docs/loki/latest/query/<page>/.
+#
+# Each query line is "<kind> <query>". kind is "range" (/loki/api/v1/query_range)
+# or "instant" (/loki/api/v1/query; metric queries only). $RUN is replaced by
+# the run's m2_run label value, so every query reads only this run's data: the
+# M2 seed fixture's 4 streams (checkout p1, p2, p3 and payments p1; 17 JSON
+# lines with level, msg, latency_ms and seq).
+
+## log_queries > Log stream selector
+range {m2_run="$RUN"}
+range {m2_run="$RUN", app="checkout"}
+range {m2_run="$RUN", app!="checkout"}
+range {m2_run="$RUN", pod=~"p[12]"}
+range {m2_run="$RUN", pod!~"p1"}
+range {m2_run="$RUN", app=~"check.*"}
+range {m2_run="$RUN", app=~"check"}
+
+## log_queries > Line filter expression
+range {m2_run="$RUN"} |= "error"
+range {m2_run="$RUN"} != "error"
+range {m2_run="$RUN"} |~ "payment|card"
+range {m2_run="$RUN"} !~ "timeout"
+range {m2_run="$RUN"} |~ "decl"
+range {m2_run="$RUN"} |= "error" != "timeout"
+
+## log_queries > Parser expression
+range {m2_run="$RUN"} | json
+range {m2_run="$RUN"} | json lvl="level"
+range {m2_run="$RUN"} | logfmt
+range {m2_run="$RUN"} | pattern `{"level":"<level>",<_>`
+range {m2_run="$RUN"} | regexp `"level":"(?P<level>\w+)"`
+range {m2_run="$RUN"} | unpack
+
+## log_queries > Label filter expression
+range {m2_run="$RUN"} | json | level="error"
+range {m2_run="$RUN"} | json | level!="error"
+range {m2_run="$RUN"} | json | level=~"err.*"
+range {m2_run="$RUN"} | json | latency_ms > 500
+range {m2_run="$RUN"} | json | seq == 0
+range {m2_run="$RUN"} | json | latency_ms >= 500 and level="info"
+range {m2_run="$RUN"} | json | latency_ms < 100 or level="error"
+range {m2_run="$RUN"} | json | latency_ms > 500, level="info"
+
+## log_queries > Line format expression
+range {m2_run="$RUN"} | json | line_format "{{.level}} {{.msg}}"
+
+## log_queries > Labels format expression
+range {m2_run="$RUN"} | json | label_format severity=level
+range {m2_run="$RUN"} | json | label_format kind="{{.level}}-{{.app}}"
+
+## log_queries > Drop Labels expression
+range {m2_run="$RUN"} | json | drop latency_ms, seq
+
+## log_queries > Keep Labels expression
+range {m2_run="$RUN"} | json | keep app, level
+
+## metric_queries > Log range aggregations
+range count_over_time({m2_run="$RUN"}[1m])
+range rate({m2_run="$RUN"}[1m])
+range bytes_over_time({m2_run="$RUN"}[1m])
+range bytes_rate({m2_run="$RUN"}[1m])
+instant count_over_time({m2_run="$RUN"}[5m])
+instant count_over_time({m2_run="$RUN"} |= "error" [5m])
+instant absent_over_time({m2_run="$RUN", app="missing"}[5m])
+
+## metric_queries > Offset modifier
+instant count_over_time({m2_run="$RUN"}[5m] offset 1m)
+
+## metric_queries > Unwrapped range aggregations
+instant sum_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant avg_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant max_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant min_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant first_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant last_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant stddev_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant stdvar_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant quantile_over_time(0.5, {m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant rate({m2_run="$RUN"} | json | unwrap latency_ms [5m])
+instant sum_over_time({m2_run="$RUN"} | json | unwrap latency_ms [5m]) by (app)
+
+## metric_queries > Built-in aggregation operators
+instant sum(count_over_time({m2_run="$RUN"}[5m]))
+instant sum(count_over_time({m2_run="$RUN"}[5m])) by (app)
+instant sum by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant sum without (pod) (count_over_time({m2_run="$RUN"}[5m]))
+instant avg by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant min by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant max by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant count by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant stddev by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant stdvar by (app) (count_over_time({m2_run="$RUN"}[5m]))
+instant topk(2, count_over_time({m2_run="$RUN"}[5m]))
+instant bottomk(1, count_over_time({m2_run="$RUN"}[5m]))
+instant sort(count_over_time({m2_run="$RUN"}[5m]))
+instant sort_desc(count_over_time({m2_run="$RUN"}[5m]))
+range sum by (app) (count_over_time({m2_run="$RUN"}[1m]))
+
+## metric_queries > Functions
+instant sum(count_over_time({m2_run="$RUN", app="missing"}[5m])) or vector(0)
