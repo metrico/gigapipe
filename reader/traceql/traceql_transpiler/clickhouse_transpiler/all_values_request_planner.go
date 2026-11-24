@@ -17,6 +17,6 @@ func (a *AllValuesRequestPlanner) Process(ctx *shared.PlannerContext) (sql.ISele
 		From(sql.NewRawObject(ctx.TracesKVDistTable)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.To))),
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatToDate(ctx.To))),
 			sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(a.Key))), nil
 }

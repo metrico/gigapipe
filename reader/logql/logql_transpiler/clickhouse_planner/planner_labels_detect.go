@@ -23,8 +23,8 @@ func (d *DetectLabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 			sql.NewSimpleCol("count(distinct val)", "cardinality")).
 		From(sql.NewRawObject(from)).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(ctx.From.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(ctx.To.Format("2006-01-02")))).
+			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(ctx.From))),
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(FormatToDate(ctx.To)))).
 		GroupBy(sql.NewRawObject("key"))
 	if d.NoStreamSelect || d.fpPlanner == nil {
 		return req, nil
