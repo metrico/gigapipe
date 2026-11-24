@@ -3,11 +3,15 @@
 # changes. Driven by run.sh.
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:24.9.1
+    extends:
+      file: ../../scripts/test/docker-compose.clickhouse.yml
+      service: clickhouse
+    environment:
+      # Newer images limit the passwordless default user to the container.
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
     # Published for the CI lane, which runs gigapipe on the host.
     ports:
       - "127.0.0.1:9000:9000"
-      - "127.0.0.1:8123:8123"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 2s

@@ -1,5 +1,4 @@
 # small setup for e2e tests
-version: '2.1'
 networks:
   common:
     driver: bridge
@@ -33,7 +32,9 @@ services:
       - -c
       - sleep 15 && /gigapipe
   e2e-clickhouse:
-    image: clickhouse/clickhouse-server:25.3
+    extends:
+      file: ../docker-compose.clickhouse.yml
+      service: clickhouse
     container_name: e2e.clickhouse
     hostname: e2e.clickhouse
     volumes:
@@ -48,7 +49,9 @@ services:
       - "9444"
       - "9000"
   e2e-clickhouse2:
-    image: clickhouse/clickhouse-server:25.3
+    extends:
+      file: ../docker-compose.clickhouse.yml
+      service: clickhouse
     container_name: e2e.clickhouse2
     hostname: e2e.clickhouse2
     volumes:
@@ -62,6 +65,27 @@ services:
       - "2181"
       - "9444"
       - "9000"
+  # Runs the suite with `docker compose run`; the profile keeps `up` from
+  # starting it.
+  e2e-tests:
+    image: node:18-alpine
+    profiles:
+      - tests
+    networks:
+      - common
+    volumes:
+      - ${E2E_TESTS_PATH:-../../../deps/gigapipe-tests}:/deps/e2e
+    environment:
+      INTEGRATION_E2E: "1"
+      CLOKI_EXT_URL: "e2e.aio:9080"
+      QRYN_LOGIN: a
+      QRYN_PASSWORD: b
+      QRYN_RULER_ENABLED: "${QRYN_RULER_ENABLED:-true}"
+      OTEL_COLL_URL: "http://a:b@e2e.aio:9080"
+    command:
+      - sh
+      - -c
+      - cd /deps/e2e && npm install && npm test -- --forceExit
 
 
 # CLUSTER_NAME=test_cluster_two_shards CLICKHOUSE_SERVER=e2e.clickhouse QRYN_LOGIN=a QRYN_PASSWORD=b BULK_MAX_AGE_MS=100 PORT=9080
