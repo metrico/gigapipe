@@ -68,7 +68,7 @@ services:
   # Runs the suite with `docker compose run`; the profile keeps `up` from
   # starting it.
   e2e-tests:
-    image: node:18-alpine
+    image: node:26-alpine
     profiles:
       - tests
     networks:
