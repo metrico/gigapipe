@@ -84,6 +84,7 @@ make fuzz HEAD=promql DURATION=60s  # run the native Go parser fuzz target for a
 installed first. If your fork's `origin/master` is behind,
 compare against another revision with `make lint LINT_NEW_FROM_REV=upstream/master`.
 Fuzzing can also be started from the "Parser fuzz" workflow in the Actions tab.
+`HEAD` is one of `promql`, `logql`, `traceql` or `prof` (the profiling selector parser).
 
 ## Submitting a Pull Request
 
