@@ -18,8 +18,8 @@ on:
     types: [created]
 
 jobs:
-  # Refuses to publish unless every lane in PUBLISH_REQUIRED_LANES passed on
-  # the commit being released. Lanes are workflow names.
+  # Refuses to publish if a lane in PUBLISH_REQUIRED_LANES failed on the commit
+  # being released; waits for running lanes. Lanes are workflow names.
   preflight:
     runs-on: ubuntu-latest
     name: 'Publish preflight'
@@ -31,7 +31,7 @@ jobs:
         Go Build CI
         Gigapipe CI Cluster
     steps:
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.branch || github.ref }}
       - name: Check required lanes on the released commit
