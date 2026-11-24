@@ -100,65 +100,8 @@ func (b *binaryStreamPProfProtoDec) Decode() error {
 
 	// Process the profiles
 	for _, profile := range ps {
-		var sampleUnitArray []model.StrStr
-		var functionArray []model.Function
-		var treeArray []model.TreeRootStructure
-		var ValuesAgg []model.ValuesAgg
-		functions, tree := postProcessProf(profile.Profile)
-		valueAgg := profile.ValueAggregation.([]SampleType)
-
-		for i, sType := range profile.Type.SampleType {
-			sampleUnitArray = append(sampleUnitArray, model.StrStr{
-				Str1: sType,
-				Str2: profile.Type.SampleUnit[i],
-			})
-		}
-
-		for _, v := range valueAgg {
-			ValuesAgg = append(ValuesAgg, model.ValuesAgg{
-				ValueStr:   v.Key,
-				ValueInt64: v.Sum,
-				ValueInt32: v.Count,
-			})
-		}
-
-		for _, f := range functions {
-			function := model.Function{
-				ValueInt64: f.ValueInt64,
-				ValueStr:   f.ValueStr,
-			}
-			functionArray = append(functionArray, function)
-		}
-
-		for _, t := range tree {
-			var valuesArr []model.ValuesArrTuple
-			for _, v := range t.values {
-				valuesArr = append(valuesArr, model.ValuesArrTuple{
-					ValueStr:         v.name,
-					FirstValueInt64:  v.self,
-					SecondValueInt64: v.total,
-				})
-			}
-			treeStruct := model.TreeRootStructure{
-				Field1:        t.parentId,
-				Field2:        t.funcId,
-				Field3:        t.nodeId,
-				ValueArrTuple: valuesArr,
-			}
-
-			treeArray = append(treeArray, treeStruct)
-		}
-
-		payload := profile.Payload.Bytes()
-		payloadType := fmt.Sprint(profile.PayloadType)
-		err = b.onProfiles(timestampNs, profile.Type.Type,
-			name,
-			sampleUnitArray,
-			profile.Type.PeriodType,
-			profile.Type.PeriodUnit,
-			tags, durationNs, payloadType, payload, ValuesAgg, treeArray, functionArray)
-		if err != nil {
-			fmt.Println("Error at onProfiles")
+		if err := emitProfile(b.onProfiles, profile,
+			timestampNs, durationNs, name, tags); err != nil {
 			return err
 		}
 	}

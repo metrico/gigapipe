@@ -252,3 +252,16 @@ var withTracesService = WithPreRequest(func(w http.ResponseWriter, r *http.Reque
 	*r = *r.WithContext(ctx)
 	return nil
 })
+
+// withResponseContentType sets the response media type. It has to be appended
+// before the option that writes the status line, because WriteHeader freezes
+// the header map.
+func withResponseContentType(contentType string) BuildOption {
+	return func(ctx *PusherCtx) *PusherCtx {
+		ctx.PostRequest = append(ctx.PostRequest, func(w http.ResponseWriter, r *http.Request) error {
+			w.Header().Set("Content-Type", contentType)
+			return nil
+		})
+		return ctx
+	}
+}

@@ -64,3 +64,23 @@ func OTLPProfilesV2(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Re
 			withSimpleParser("*", Parser(unmarshal.UnmarshalOTLPProfilesProtoV2)),
 			withOkStatusAndBody(200, []byte("{}")))...)
 }
+
+// PushProfileV1 serves the Pyroscope v2 push API at
+// /push.v1.PusherService/Push, which is the endpoint every Pyroscope SDK from
+// 1.0 onwards pushes to.
+//
+// The response is a Connect unary success: HTTP 200 and the encoded
+// PushResponse, which has no fields, so the body is empty by definition rather
+// than by omission.
+func PushProfileV1(cfg MiddlewareConfig) func(w http.ResponseWriter, r *http.Request) {
+	return Build(
+		append(cfg.ExtraMiddleware,
+			withTSAndSampleService,
+			// Connect names protobuf bodies application/proto; application/
+			// x-protobuf is accepted too because gRPC-derived clients send it.
+			withSimpleParser("application/proto", Parser(unmarshal.UnmarshalPushV1ProfileProtoV2)),
+			withSimpleParser("application/x-protobuf", Parser(unmarshal.UnmarshalPushV1ProfileProtoV2)),
+			withSimpleParser("*", Parser(unmarshal.UnmarshalPushV1ProfileProtoV2)),
+			withResponseContentType("application/proto"),
+			withOkStatusAndBody(200, []byte{}))...)
+}
