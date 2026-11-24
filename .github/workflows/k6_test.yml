@@ -54,9 +54,6 @@ jobs:
           docker build -f gigapipe/Dockerfile -t gigapipe:k6 gigapipe
           docker run -d --name gigapipe --network "$CLICKHOUSE_NETWORK" -p 3100:3100 \
             -e CLICKHOUSE_SERVER=clickhouse -e CLICKHOUSE_AUTH=qryn:qryn gigapipe:k6
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.25'
       - name: Download k6 for Prometheus
         run: |
           wget https://github.com/metrico/qryn-bench/releases/download/latest/k6
