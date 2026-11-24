@@ -17,6 +17,10 @@ on:
   release:
     types: [created]
 
+env:
+  QRYN_VIEW_VERSION: v3.3.2
+  NFPM_VERSION: 2.41.3
+
 jobs:
   # Refuses to publish if a lane in PUBLISH_REQUIRED_LANES failed on the commit
   # being released; waits for running lanes. Lanes are workflow names.
@@ -80,7 +84,7 @@ jobs:
       - name: build qryn-view
         uses: ./.github/actions/get-view
         env:
-          TAG: v3.3.2
+          TAG: ${{ env.QRYN_VIEW_VERSION }}
       - run: |
           echo "VERSION=${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.ref_name || github.ref_name }}" >> $GITHUB_ENV
       - name: Set up Go
@@ -95,7 +99,7 @@ jobs:
       - name: get NFPM
         if:  github.event_name == 'release' || ${{ inputs.release }}
         run: |
-            wget -qO- https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_arm64.tar.gz | tar --directory ./ -xz nfpm
+            wget -qO- "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_arm64.tar.gz" | tar --directory ./ -xz nfpm
             chmod +x nfpm
   
       - name: Create Packages ${{ matrix.goarch }}
@@ -143,7 +147,7 @@ jobs:
       - name: build qryn-view
         uses: ./.github/actions/get-view
         env:
-          TAG: v3.3.2
+          TAG: ${{ env.QRYN_VIEW_VERSION }}
       - run: |
           echo "VERSION=${{ (github.event_name == 'workflow_dispatch') && github.event.inputs.ref_name || github.ref_name }}" >> $GITHUB_ENV
       - name: Set up Go
@@ -167,7 +171,7 @@ jobs:
       - name: get NFPM
         if:  github.event_name == 'release' || ${{ inputs.release }}
         run: |
-            wget -qO- https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_x86_64.tar.gz | tar --directory ./ -xz nfpm
+            wget -qO- "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" | tar --directory ./ -xz nfpm
             chmod +x nfpm
   
       - name: Create Packages ${{ matrix.goarch }}
@@ -213,7 +217,7 @@ jobs:
       - name: build qryn-view
         uses: ./.github/actions/get-view
         env:
-          TAG: v3.3.2
+          TAG: ${{ env.QRYN_VIEW_VERSION }}
       - name: Log in to the GHCR registry
         uses: docker/login-action@v4.8.0
         with:
