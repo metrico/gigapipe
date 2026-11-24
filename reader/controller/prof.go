@@ -340,7 +340,10 @@ func defaultParser(r *http.Request, res proto.Message) error {
 		return err
 	}
 	if contentType == "application/json" {
-		err = json.Unmarshal(body, res)
+		// protojson accepts both spellings of a field and int64 as strings, as
+		// Connect requires. Clients send fields newer than our schema, so
+		// unknown ones are ignored.
+		err = protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(body, res)
 	} else {
 		err = proto.Unmarshal(body, res)
 	}

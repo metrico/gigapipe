@@ -17,7 +17,6 @@ package integration
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +29,7 @@ import (
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -108,9 +108,8 @@ func TestProfiles_ProtoRequest_ReturnsProto(t *testing.T) {
 func TestProfiles_JSONRequest_ReturnsJSON(t *testing.T) {
 	waitReady(t)
 	nowMs := time.Now().UnixMilli()
-	// The server parses JSON with encoding/json (numeric int64), not protojson
-	// (which would string-encode the ints), so build the body the same way.
-	body, err := json.Marshal(&querierv1.ProfileTypesRequest{Start: nowMs - 3_600_000, End: nowMs})
+	// protojson writes int64 as strings, as Connect clients do.
+	body, err := protojson.Marshal(&querierv1.ProfileTypesRequest{Start: nowMs - 3_600_000, End: nowMs})
 	if err != nil {
 		t.Fatal(err)
 	}
