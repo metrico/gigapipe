@@ -298,10 +298,11 @@ func (t *TempoController) ValuesV2(w http.ResponseWriter, r *http.Request) {
 		}
 		timespan[i] = time.Unix(iT, 0)
 	}
-	tag := trimTagScope(r.PathValue("tag"))
+	tag := r.PathValue("tag")
 	if tag == "status" {
 		tag = "otel.status_code"
 	}
+	tag = trimTagScope(tag)
 
 	limit := 2000
 	if r.URL.Query().Get("limit") != "" {
@@ -352,7 +353,7 @@ func (t *TempoController) Values(w http.ResponseWriter, r *http.Request) {
 		PromError(500, err.Error(), w)
 		return
 	}
-	tag := trimTagScope(r.PathValue("tag"))
+	tag := r.PathValue("tag")
 	if tag == "status" {
 		tag = "otel.status_code"
 	}
@@ -704,7 +705,7 @@ func autoStep(from, to time.Time) time.Duration {
 // trimTagScope drops the TraceQL scope Grafana puts in front of the tag name:
 // the attribute tables store "service.name", not "resource.service.name".
 func trimTagScope(tag string) string {
-	for _, scope := range []string{"resource.", "span."} {
+	for _, scope := range []string{"resource.", "span.", "."} {
 		if strings.HasPrefix(tag, scope) {
 			return strings.TrimPrefix(tag, scope)
 		}
