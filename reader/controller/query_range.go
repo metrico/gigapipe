@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,6 +27,33 @@ type QueryRangeController struct {
 	QueryRangeService *service.QueryRangeService
 }
 
+const errEndBeforeStart = "end timestamp must not be before start time"
+
+// parseLokiRange resolves the start and end of a Loki query_range request:
+// end defaults to now, start to end minus since (one hour when since is not
+// given), and an explicit start wins over since. A window whose end is before
+// its start is an error; start equal to end is allowed.
+func parseLokiRange(r *http.Request) (time.Time, time.Time, error) {
+	end, err := ParseTimeSecOrRFC(r.URL.Query().Get("end"), time.Now())
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	since := time.Hour
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		if since, err = parseDuration(raw); err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid since parameter: %w", err)
+		}
+	}
+	start, err := ParseTimeSecOrRFC(r.URL.Query().Get("start"), end.Add(-since))
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if end.Before(start) {
+		return time.Time{}, time.Time{}, errors.New(errEndBeforeStart)
+	}
+	return start, end, nil
+}
+
 func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
 	internalCtx, err := RunPreRequestPlugins(r)
@@ -38,22 +67,7 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	startRaw := r.URL.Query().Get("start")
-	if startRaw == "" {
-		PromError(400, "start parameter is required", w)
-		return
-	}
-	startTime, err := ParseTimeSecOrRFC(startRaw, time.Time{})
-	if err != nil {
-		PromError(400, err.Error(), w)
-		return
-	}
-	endRaw := r.URL.Query().Get("end")
-	if endRaw == "" {
-		PromError(400, "end parameter is required", w)
-		return
-	}
-	endTime, err := ParseTimeSecOrRFC(endRaw, time.Time{})
+	startTime, endTime, err := parseLokiRange(r)
 	if err != nil {
 		PromError(400, err.Error(), w)
 		return
@@ -290,6 +304,10 @@ func (q *QueryRangeController) IndexStats(w http.ResponseWriter, r *http.Request
 	}
 	if fromNs == 0 {
 		fromNs = toNs - int64(time.Hour)
+	}
+	if toNs < fromNs {
+		PromError(400, errEndBeforeStart, w)
+		return
 	}
 
 	result, err := q.QueryRangeService.QueryIndexStats(internalCtx, query, fromNs, toNs)
