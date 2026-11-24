@@ -98,7 +98,7 @@ func (d *OTLPDecoder) Decode() error {
 					i++
 				}
 				err = d.onSpan(span.TraceId, span.SpanId, int64(span.StartTimeUnixNano),
-					int64(span.EndTimeUnixNano-span.StartTimeUnixNano),
+					otlpSpanDurationNs(span),
 					string(span.ParentSpanId), span.Name, attrsMap["service.name"], payload,
 					keys, vals)
 				if err != nil {
@@ -108,6 +108,14 @@ func (d *OTLPDecoder) Decode() error {
 		}
 	}
 	return nil
+}
+
+// otlpSpanDurationNs is end - start, or 0 when the span ends before it starts.
+func otlpSpanDurationNs(span *tracev1.Span) int64 {
+	if span.EndTimeUnixNano < span.StartTimeUnixNano {
+		return 0
+	}
+	return int64(span.EndTimeUnixNano - span.StartTimeUnixNano)
 }
 
 func (d *OTLPDecoder) SetOnEntry(h onSpanHandler) {

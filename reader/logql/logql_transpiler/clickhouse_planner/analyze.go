@@ -18,11 +18,6 @@ func (p *planner) analyzeScript() {
 		p.offsetModifier = offset
 	}
 
-	p.metrics15Shortcut = AnalyzeMetrics15sShortcut(p.script)
-	if p.metrics15Shortcut {
-		return
-	}
-
 	p.simpleLabelOperation = make([]bool, len(pipeline))
 	for i, ppl := range pipeline {
 		if ppl.LabelFilter != nil {
@@ -31,6 +26,11 @@ func (p *planner) analyzeScript() {
 		if ppl.Parser != nil {
 			break
 		}
+	}
+
+	p.metrics15Shortcut = !p.noShortcut && AnalyzeMetrics15sShortcut(p.script)
+	if p.metrics15Shortcut {
+		return
 	}
 
 	for i, ppl := range pipeline {
@@ -42,7 +42,7 @@ func (p *planner) analyzeScript() {
 			p.labelsJoinIdx = i
 			break
 		}
-		if ppl.LineFormat != nil {
+		if ppl.LineFormat != nil && !p.skipLineFormat {
 			p.labelsJoinIdx = i
 			break
 		}

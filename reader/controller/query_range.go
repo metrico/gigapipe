@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,6 +27,33 @@ type QueryRangeController struct {
 	QueryRangeService *service.QueryRangeService
 }
 
+const errEndBeforeStart = "end timestamp must not be before start time"
+
+// parseLokiRange resolves the start and end of a Loki query_range request:
+// end defaults to now, start to end minus since (one hour when since is not
+// given), and an explicit start wins over since. A window whose end is before
+// its start is an error; start equal to end is allowed.
+func parseLokiRange(r *http.Request) (time.Time, time.Time, error) {
+	end, err := ParseTimeSecOrRFC(r.URL.Query().Get("end"), time.Now())
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	since := time.Hour
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		if since, err = parseDuration(raw); err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid since parameter: %w", err)
+		}
+	}
+	start, err := ParseTimeSecOrRFC(r.URL.Query().Get("start"), end.Add(-since))
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if end.Before(start) {
+		return time.Time{}, time.Time{}, errors.New(errEndBeforeStart)
+	}
+	return start, end, nil
+}
+
 func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request) {
 	defer tamePanic(w, r)
 	internalCtx, err := RunPreRequestPlugins(r)
@@ -38,13 +67,13 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	start, err := getRequiredFloat(r, "start", "", nil)
-	end, err := getRequiredFloat(r, "end", "", err)
-	step, err := getRequiredDuration(r, "step", "1", err)
+	startTime, endTime, err := parseLokiRange(r)
+	if err != nil {
+		PromError(400, err.Error(), w)
+		return
+	}
+	step, err := getRequiredDuration(r, "step", "1", nil)
 	direction := r.URL.Query().Get("direction")
-	//if direction == "" {
-	//	direction = "backward"
-	//}
 	_limit := r.URL.Query().Get("limit")
 	limit := queryDefaultLimit
 	if _limit != "" {
@@ -54,7 +83,7 @@ func (q *QueryRangeController) QueryRange(w http.ResponseWriter, r *http.Request
 		PromError(400, err.Error(), w)
 		return
 	}
-	ch, err := q.QueryRangeService.QueryRange(internalCtx, query, int64(start), int64(end), int64(step*1000),
+	ch, err := q.QueryRangeService.QueryRange(internalCtx, query, startTime.UnixNano(), endTime.UnixNano(), int64(step*1000),
 		limit, direction == "forward")
 	if err != nil {
 		PromError(500, err.Error(), w)
@@ -119,16 +148,20 @@ func (q *QueryRangeController) Query(w http.ResponseWriter, r *http.Request) {
 		//}]}}`, time.Now().Unix())))
 		return
 	}
-	iTime, err := getRequiredI64(r, "time", "0", nil)
-	if err != nil {
-		PromError(500, err.Error(), w)
-		return
-	}
-	if iTime == 0 {
+	var iTime int64
+	timeRaw := r.URL.Query().Get("time")
+	if timeRaw == "" || timeRaw == "0" {
 		iTime = time.Now().UnixNano()
+	} else {
+		queryTime, err := ParseTimeSecOrRFC(timeRaw, time.Now())
+		if err != nil {
+			PromError(400, err.Error(), w)
+			return
+		}
+		iTime = queryTime.UnixNano()
 	}
 
-	step, err := getRequiredDuration(r, "step", "1", err)
+	step, err := getRequiredDuration(r, "step", "1", nil)
 	_limit := r.URL.Query().Get("limit")
 	limit := queryDefaultLimit
 	if _limit != "" {
@@ -179,8 +212,8 @@ func (q *QueryRangeController) Tail(w http.ResponseWriter, r *http.Request) {
 
 	var startNs int64
 	if _s := r.URL.Query().Get("start"); _s != "" {
-		if parsed, parseErr := strconv.ParseInt(_s, 10, 64); parseErr == nil && parsed > 0 {
-			startNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(_s, time.Time{}); parseErr == nil && t.UnixNano() > 0 {
+			startNs = t.UnixNano()
 		}
 	}
 
@@ -257,13 +290,13 @@ func (q *QueryRangeController) IndexStats(w http.ResponseWriter, r *http.Request
 
 	var fromNs, toNs int64
 	if startStr != "" {
-		if parsed, parseErr := strconv.ParseInt(startStr, 10, 64); parseErr == nil {
-			fromNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(startStr, time.Time{}); parseErr == nil {
+			fromNs = t.UnixNano()
 		}
 	}
 	if endStr != "" {
-		if parsed, parseErr := strconv.ParseInt(endStr, 10, 64); parseErr == nil {
-			toNs = parsed
+		if t, parseErr := ParseTimeSecOrRFC(endStr, time.Time{}); parseErr == nil {
+			toNs = t.UnixNano()
 		}
 	}
 	if toNs == 0 {
@@ -271,6 +304,10 @@ func (q *QueryRangeController) IndexStats(w http.ResponseWriter, r *http.Request
 	}
 	if fromNs == 0 {
 		fromNs = toNs - int64(time.Hour)
+	}
+	if toNs < fromNs {
+		PromError(400, errEndBeforeStart, w)
+		return
 	}
 
 	result, err := q.QueryRangeService.QueryIndexStats(internalCtx, query, fromNs, toNs)

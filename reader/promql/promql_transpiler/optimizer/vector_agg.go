@@ -1,9 +1,6 @@
 package optimizer
 
 import (
-	"fmt"
-	"math/rand/v2"
-
 	"github.com/metrico/qryn/v5/reader/promql/promql_parser"
 	"github.com/metrico/qryn/v5/reader/promql/promql_transpiler/planner"
 	prom_parser "github.com/prometheus/prometheus/promql/parser"
@@ -35,7 +32,8 @@ func (v *Aggregate) Applicable(expr prom_parser.Expr) bool {
 	if !ok {
 		return false
 	}
-	if _, ok := _expr.Expr.(*prom_parser.VectorSelector); !ok {
+	vs, ok := _expr.Expr.(*prom_parser.VectorSelector)
+	if !ok || !pushable(vs, 0) {
 		return false
 	}
 	_, ok = aggFns[_expr.Op]
@@ -70,19 +68,13 @@ func (v *Aggregate) aggregate(fn string) prom_parser.Expr {
 	}
 
 	if p.Main == nil {
-		var fp planner.StreamSelectPlanner
-		for _, m := range v.selector.LabelMatchers {
-			fp.LabelNames = append(fp.LabelNames, m.Name)
-			fp.Ops = append(fp.Ops, m.Type.String())
-			fp.Values = append(fp.Values, m.Value)
-		}
 		// A bare instant vector: carry each series forward 5m before combining,
 		// so out-of-phase series all contribute at every step rather than
 		// sawtoothing as their raw samples land on different steps.
-		p.Main = planner.NewInstantVectorPlanner(&fp)
+		p.Main = planner.NewInstantVectorPlanner(streamSelect(v.selector), taggedGrid(v.selector))
 	}
 
-	metricName := fmt.Sprintf("__metric_subst__%d", rand.Int64())
+	metricName := v.gExpr.NextSubstituteName()
 	v.gExpr.Substitutes[metricName] = &promql_parser.Substitute{
 		MetricName: metricName,
 		Node:       v.expr,

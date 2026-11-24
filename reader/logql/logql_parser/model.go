@@ -229,8 +229,10 @@ func (l *LabelFilter) String() string {
 	}
 	bld.WriteString(" ")
 	bld.WriteString(l.Op)
-	bld.WriteString(" ")
-	bld.WriteString(l.Tail.String())
+	if l.Tail != nil {
+		bld.WriteString(" ")
+		bld.WriteString(l.Tail.String())
+	}
 	return bld.String()
 }
 
@@ -331,12 +333,35 @@ func (l *LabelFormatOp) String() string {
 	return bld.String()
 }
 
+type UnwrapConv struct {
+	Fn    string    `@("duration"|"duration_seconds"|"bytes")`
+	Label LabelName `"(" @@ ")"`
+}
+
 type Unwrap struct {
-	Fn    string    `@("unwrap"|"unwrap_value")`
-	Label LabelName ` @@?`
+	Fn    string      `@("unwrap"|"unwrap_value")`
+	Conv  *UnwrapConv `( @@`
+	Label LabelName   `  | @@ )?`
+}
+
+func (u *Unwrap) LabelName() string {
+	if u.Conv != nil {
+		return u.Conv.Label.Name
+	}
+	return u.Label.Name
+}
+
+func (u *Unwrap) ConvFunc() string {
+	if u.Conv != nil {
+		return u.Conv.Fn
+	}
+	return ""
 }
 
 func (u *Unwrap) String() string {
+	if u.Conv != nil {
+		return fmt.Sprintf("| %s %s(%s)", u.Fn, u.Conv.Fn, u.Conv.Label.String())
+	}
 	return fmt.Sprintf("| %s %s", u.Fn, u.Label.String())
 }
 
@@ -437,9 +462,12 @@ func (l Comparison) String() string {
 	return l.Fn + " " + l.Val
 }
 
+// ByOrWithout is the grouping clause of an aggregation. The label list may be
+// empty: `by ()` keeps no labels (the same projection as an aggregation with
+// no clause at all) and `without ()` removes none, keeping every series apart.
 type ByOrWithout struct {
 	Fn     string      `@("by"|"without") `
-	Labels []LabelName `"(" @@ ("," @@)* ")" `
+	Labels []LabelName `"(" (@@ ("," @@)*)? ")" `
 }
 
 func (l ByOrWithout) String() string {

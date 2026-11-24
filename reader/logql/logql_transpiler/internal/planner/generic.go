@@ -27,13 +27,10 @@ func (g *GenericPlanner) WrapProcess(ctx *shared.PlannerContext,
 	go func() {
 		onErr := func(err error) {
 			out <- []shared.LogEntry{{Err: err}}
-			go func() {
-				for range _in {
-				}
-			}()
 		}
 		defer close(out)
-		defer func() { shared.TamePanic(out) }()
+		defer shared.Drain(_in)
+		defer shared.TamePanic(out)
 		for entries := range _in {
 			skipMask := make([]uint64, (len(entries)+63)/64)
 			for i := range entries {

@@ -56,7 +56,7 @@ func (g *GetLabelsPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, err
 		AndWhere(
 			sql.NewIn(sql.NewRawObject("fingerprint"), sql.NewWithRef(withFp)),
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.To))))
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatToDate(ctx.To))))
 	if len(matchers.globalMatchers) > 0 {
 		main = main.AndWhere(matchers.globalMatchers...)
 	}

@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- Cluster for the CTRL_TEST_CLICKHOUSE runs: one shard on the server
+     itself, in database ctrl_dead_shard_s1, and one that refuses
+     connections. Mount into /etc/clickhouse-server/config.d/. -->
+<clickhouse>
+    <remote_servers>
+        <ctrl_dead_shard>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                    <default_database>ctrl_dead_shard_s1</default_database>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>1</port>
+                </replica>
+            </shard>
+        </ctrl_dead_shard>
+    </remote_servers>
+</clickhouse>

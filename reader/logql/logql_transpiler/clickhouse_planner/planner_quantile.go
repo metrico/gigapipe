@@ -2,6 +2,7 @@ package clickhouse_planner
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -12,31 +13,18 @@ type QuantilePlanner struct {
 	Main     shared.SQLRequestPlanner
 	Param    float64
 	Duration time.Duration
+	Offset   time.Duration
 }
 
 func (p *QuantilePlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	main, err := p.Main.Process(ctx)
+	main, err := readWindowRows(ctx, p.Main, p.Duration, p.Offset)
 	if err != nil {
 		return nil, err
 	}
-
-	quantA := sql.NewWith(main, "quant_a")
-
-	hasLabels := hasColumn(main.GetSelect(), "labels")
-
-	res := sql.NewSelect().
-		With(quantA).
-		Select(
-			sql.NewSimpleCol("quant_a.fingerprint", "fingerprint"),
-			sql.NewSimpleCol(fmt.Sprintf("intDiv(quant_a.timestamp_ns, %d) * %[1]d",
-				p.Duration.Nanoseconds()), "timestamp_ns"),
-			sql.NewSimpleCol(fmt.Sprintf("quantile(%f)(value)", p.Param), "value")).
-		From(sql.NewWithRef(quantA)).
-		GroupBy(sql.NewRawObject("timestamp_ns"), sql.NewRawObject("fingerprint"))
-
-	if hasLabels {
-		res.Select(append(res.GetSelect(), sql.NewSimpleCol("any(quant_a.labels)", "labels"))...)
+	fn := windowFn{
+		agg:    "quantile",
+		params: fmt.Sprintf("(%s)", strconv.FormatFloat(p.Param, 'f', -1, 64)),
+		args:   "value",
 	}
-
-	return res, nil
+	return windowSelect(ctx, main, fn, p.Duration, hasColumn(main.GetSelect(), "labels"))
 }

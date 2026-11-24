@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pprofile"
 )
 
-func newProfilesGRPCCache() numbercache.ICache[uint64] {
+func newTestNumberCache() numbercache.ICache[uint64] {
 	return numbercache.NewCache(time.Minute, func(val uint64) []byte {
 		return unsafe.Slice((*byte)(unsafe.Pointer(&val)), 8)
 	}, map[string]*model.DataDatabasesMap{})
@@ -23,7 +23,7 @@ func newProfilesGRPCCache() numbercache.ICache[uint64] {
 // or surfacing an error.
 func TestOTLPProfilesFromProfiles_NoPanicOnEmpty(t *testing.T) {
 	profs := pprofile.NewProfiles()
-	cache := newProfilesGRPCCache()
+	cache := newTestNumberCache()
 	defer cache.Stop()
 
 	ch := OTLPProfilesFromProfiles(profs)(context.Background(), nil, cache)
@@ -64,7 +64,7 @@ func TestOTLPProfilesFromProfiles_EmitsProfile(t *testing.T) {
 	s.SetStackIndex(0)
 	s.Values().Append(42)
 
-	cache := newProfilesGRPCCache()
+	cache := newTestNumberCache()
 	defer cache.Stop()
 
 	ch := OTLPProfilesFromProfiles(profs)(context.Background(), nil, cache)

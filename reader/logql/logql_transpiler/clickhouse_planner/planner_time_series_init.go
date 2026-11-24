@@ -1,30 +1,22 @@
 package clickhouse_planner
 
 import (
-	"time"
-
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
 	"github.com/metrico/qryn/v5/reader/plugins"
 	sql "github.com/metrico/qryn/v5/reader/utils/sql_select"
 )
 
-type TimeSeriesInitPlanner struct {
-	Offset *time.Duration
-}
+type TimeSeriesInitPlanner struct{}
 
-func NewTimeSeriesInitPlanner(offset *time.Duration) shared.SQLRequestPlanner {
+func NewTimeSeriesInitPlanner() shared.SQLRequestPlanner {
 	p := plugins.GetTimeSeriesInitPlannerPlugin()
 	if p != nil {
 		return (*p)()
 	}
-	return &TimeSeriesInitPlanner{offset}
+	return &TimeSeriesInitPlanner{}
 }
 
 func (t *TimeSeriesInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	from := ctx.From
-	if t.Offset != nil {
-		from = from.Add(*t.Offset)
-	}
 	return sql.NewSelect().
 		Select(
 			sql.NewSimpleCol("time_series.fingerprint", "fingerprint"),
@@ -33,7 +25,7 @@ func (t *TimeSeriesInitPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect
 				"arrayMap(x -> x.2, rawlbls))", "labels")).
 		From(sql.NewSimpleCol(ctx.TimeSeriesDistTableName, "time_series")).
 		AndPreWhere(
-			sql.Ge(sql.NewRawObject("time_series.date"), sql.NewStringVal(FormatFromDate(from))),
+			sql.Ge(sql.NewRawObject("time_series.date"), sql.NewStringVal(FormatFromDate(ctx.From))),
 			GetTypes(ctx),
 		), nil
 }

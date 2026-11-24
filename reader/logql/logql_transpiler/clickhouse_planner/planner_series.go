@@ -35,7 +35,7 @@ func (s *SeriesPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error)
 		From(sql.NewSimpleCol(ctx.TimeSeriesDistTableName, "time_series")).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(from))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(to.Format("2006-01-02"))),
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(FormatToDate(to))),
 			GetTypes(ctx))
 	if ctx.Limit > 0 {
 		req.Limit(sql.NewIntVal(ctx.Limit))

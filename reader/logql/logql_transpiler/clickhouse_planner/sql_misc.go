@@ -176,7 +176,7 @@ func getCol(req sql.ISelect, alias string) sql.SQLObject {
 // matched it, causing the OOM in issue #702.
 func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With, windowMain *sql.With) (sql.ISelect, error) {
 	//TODO: offset?
-	_from, err := NewTimeSeriesInitPlanner(nil).Process(ctx)
+	_from, err := NewTimeSeriesInitPlanner().Process(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -199,9 +199,14 @@ func labelsFromScratch(ctx *shared.PlannerContext, fpCache *sql.With, windowMain
 // 'deny', error 288). GLOBAL IN resolves the (small) window fingerprint set on
 // the initiator and broadcasts it.
 func boundTimeSeriesToWindow(ctx *shared.PlannerContext, tsReq sql.ISelect, windowMain *sql.With) {
-	fpSub := sql.NewSelect().
+	boundTimeSeriesToFingerprints(ctx, tsReq, sql.NewSelect().
 		Select(sql.NewSimpleCol("fingerprint", "")).
-		From(sql.NewWithRef(windowMain))
+		From(sql.NewWithRef(windowMain)))
+}
+
+// boundTimeSeriesToFingerprints restricts tsReq to the fingerprints fpSub
+// selects, with GLOBAL IN on a cluster for the reason above.
+func boundTimeSeriesToFingerprints(ctx *shared.PlannerContext, tsReq sql.ISelect, fpSub sql.ISelect) {
 	col := sql.NewRawObject("time_series.fingerprint")
 	if ctx.IsCluster {
 		tsReq.AndWhere(&globalInCondition{left: col, right: fpSub})
@@ -242,6 +247,14 @@ func (u *UnionAll) String(ctx *sql.Ctx, opts ...int) (string, error) {
 	return strings.Join(selects, " UNION ALL "), nil
 }
 
+// FormatFromDate is the lower bound of a date column stored in any time zone:
+// the UTC date of from minus one day.
 func FormatFromDate(from time.Time) string {
-	return from.UTC().Add(time.Minute * -30).Format("2006-01-02")
+	return from.UTC().AddDate(0, 0, -1).Format(time.DateOnly)
+}
+
+// FormatToDate is the upper bound of a date column stored in any time zone:
+// the UTC date of to plus one day.
+func FormatToDate(to time.Time) string {
+	return to.UTC().AddDate(0, 0, 1).Format(time.DateOnly)
 }

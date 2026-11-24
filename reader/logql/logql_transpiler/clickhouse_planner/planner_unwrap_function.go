@@ -1,7 +1,6 @@
 package clickhouse_planner
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/metrico/qryn/v5/reader/logql/logql_transpiler/shared"
@@ -13,49 +12,37 @@ type UnwrapFunctionPlanner struct {
 	Func       string
 	Duration   time.Duration
 	WithLabels bool
+	Offset     time.Duration
 }
 
 func (u *UnwrapFunctionPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, error) {
-	main, err := u.Main.Process(ctx)
+	main, err := readWindowRows(ctx, u.Main, u.Duration, u.Offset)
 	if err != nil {
 		return nil, err
 	}
 
-	withMain := sql.NewWith(main, "unwrap_1")
-
-	var val sql.SQLObject
+	var fn windowFn
 	switch u.Func {
 	case "rate":
-		val = sql.NewRawObject(fmt.Sprintf("sum(unwrap_1.value) / %f",
-			float64(u.Duration.Milliseconds())/1000))
+		fn = windowFn{summand: "value", finite: true, final: perSecond(u.Duration)}
 	case "sum_over_time":
-		val = sql.NewRawObject("sum(unwrap_1.value)")
+		fn = windowFn{summand: "value", finite: true, final: plainSum}
 	case "avg_over_time":
-		val = sql.NewRawObject("avg(unwrap_1.value)")
+		fn = windowFn{summand: "value", finite: true, final: mean}
 	case "max_over_time":
-		val = sql.NewRawObject("max(unwrap_1.value)")
+		fn = windowFn{agg: "max", args: "value"}
 	case "min_over_time":
-		val = sql.NewRawObject("min(unwrap_1.value)")
+		fn = windowFn{agg: "min", args: "value"}
 	case "first_over_time":
-		val = sql.NewRawObject("argMin(unwrap_1.value, unwrap_1.timestamp_ns)")
+		fn = windowFn{agg: "argMin", args: "value, timestamp_ns"}
 	case "last_over_time":
-		val = sql.NewRawObject("argMax(unwrap_1.value, unwrap_1.timestamp_ns)")
+		fn = windowFn{agg: "argMax", args: "value, timestamp_ns"}
 	case "stdvar_over_time":
-		val = sql.NewRawObject("varPop(unwrap_1.value)")
+		fn = windowFn{agg: "varPop", args: "value"}
 	case "stddev_over_time":
-		val = sql.NewRawObject("stddevPop(unwrap_1.value)")
+		fn = windowFn{agg: "stddevPop", args: "value"}
+	default:
+		return nil, &shared.NotSupportedError{Msg: u.Func + " is not supported"}
 	}
-
-	res := sql.NewSelect().With(withMain).Select(
-		sql.NewSimpleCol(
-			fmt.Sprintf("intDiv(timestamp_ns, %d) * %[1]d", u.Duration.Nanoseconds()),
-			"timestamp_ns"),
-		sql.NewRawObject("fingerprint"),
-		sql.NewSimpleCol(`''`, "string"),
-		sql.NewCol(val, "value"),
-		sql.NewSimpleCol("any(labels)", "labels")).
-		From(sql.NewWithRef(withMain)).
-		GroupBy(sql.NewRawObject("fingerprint"), sql.NewRawObject("timestamp_ns"))
-
-	return res, nil
+	return windowSelect(ctx, main, fn, u.Duration, true)
 }

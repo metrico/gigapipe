@@ -30,13 +30,8 @@ type ProfService struct {
 	DataSession model.IDBRegistry
 }
 
-func (ps *ProfService) ProfileTypes(ctx context.Context, start time.Time, end time.Time) ([]*v1.ProfileType, error) {
-	db, err := ps.DataSession.GetDB(ctx)
-	if err != nil {
-		return nil, err
-	}
-	table := getTableName(db, tables.GetTableName("profiles_series"))
-	query := sql.NewSelect().
+func profileTypesQuery(table string, start, end time.Time) sql.ISelect {
+	return sql.NewSelect().
 		Distinct(true).
 		Select(
 			sql.NewRawObject("type_id"),
@@ -44,8 +39,16 @@ func (ps *ProfService) ProfileTypes(ctx context.Context, start time.Time, end ti
 		From(sql.NewRawObject(table)).
 		Join(sql.NewJoin("array", sql.NewSimpleCol("sample_types_units", "sample_type_unit"), nil)).
 		AndWhere(
-			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(start.Format("2006-01-02"))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(end.Format("2006-01-02"))))
+			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(FormatFromDate(start))),
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(FormatToDate(end))))
+}
+
+func (ps *ProfService) ProfileTypes(ctx context.Context, start time.Time, end time.Time) ([]*v1.ProfileType, error) {
+	db, err := ps.DataSession.GetDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := profileTypesQuery(getTableName(db, tables.GetTableName("profiles_series")), start, end)
 	strQ, err := query.String(sql.DefaultCtx())
 	if err != nil {
 		return nil, err

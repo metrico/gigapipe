@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- Cluster for the GRID_TEST_CLICKHOUSE cluster runs: two shards on the
+     server itself, one per shard database, reached as the passwordless
+     default user on native port 9000. Mount into
+     /etc/clickhouse-server/config.d/. -->
+<clickhouse>
+    <remote_servers>
+        <grid_two_shards>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                    <default_database>logql_grid_s1</default_database>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                    <default_database>logql_grid_s2</default_database>
+                </replica>
+            </shard>
+        </grid_two_shards>
+    </remote_servers>
+</clickhouse>

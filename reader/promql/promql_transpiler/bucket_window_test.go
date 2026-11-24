@@ -154,6 +154,7 @@ func TestSelectorBucketCoversTheIntervalEndingAtItsKey(t *testing.T) {
 	resp, err := TranspileLabelMatchersDownsample(
 		&storage.SelectHints{Step: ctx.Step.Milliseconds()},
 		ctx,
+		nil,
 		&labels.Matcher{Type: labels.MatchEqual, Name: "__name__", Value: "aaa"},
 	)
 	if err != nil {

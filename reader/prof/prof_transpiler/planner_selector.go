@@ -23,7 +23,7 @@ func (s *StreamSelectorPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect
 		From(sql.NewRawObject(ctx.ProfilesSeriesGinTable)).
 		AndWhere(
 			sql.Ge(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.From))),
-			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatFromDate(ctx.To)))).
+			sql.Le(sql.NewRawObject("date"), sql.NewStringVal(clickhouse_planner.FormatToDate(ctx.To)))).
 		GroupBy(sql.NewRawObject("fingerprint"))
 	if len(matchers.globalMatchers) > 0 {
 		res = res.AndWhere(sql.And(matchers.globalMatchers...))
@@ -113,7 +113,7 @@ func (s *StreamSelectorPlanner) getMatchers() (*matchersResponse, error) {
 		if err != nil {
 			return nil, err
 		}
-		clause = sql.And(sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(selector.Name)), clause)
+		clause = sql.And(sql.Eq(sql.NewRawObject("key"), sql.NewStringVal(string(selector.Name))), clause)
 		kvClauses = append(kvClauses, clause)
 	}
 	return &matchersResponse{
