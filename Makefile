@@ -34,7 +34,7 @@ fmt-check:
 # Build the gigapipe binary the same way CI does.
 build:
 	go mod tidy
-	CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe cmd/gigapipe/main.go
+	CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o gigapipe ./cmd/gigapipe
 
 # Run the full unit-test suite with the race detector, matching CI.
 test-unit:

@@ -20,7 +20,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build gigapipe
-        run: go build -o gigapipe cmd/gigapipe/main.go
+        run: go build -o gigapipe ./cmd/gigapipe
 
       # The image version lives in the compose file, shared with run.sh.
       - name: Start ClickHouse
