@@ -89,21 +89,9 @@ func TestLogsRoundTrip(t *testing.T) {
 	t.Run("count_over_time per app and pod", func(t *testing.T) {
 		q := fmt.Sprintf("sum by (app, pod) (count_over_time(%s[1h]))", selector)
 		raw := apiGet(t, "/loki/api/v1/query", url.Values{"query": {q}, "time": {nanos(to)}})
-		var resp struct {
-			Data struct {
-				ResultType string `json:"resultType"`
-				Result     []struct {
-					Metric map[string]string `json:"metric"`
-					Value  [2]any            `json:"value"`
-				} `json:"result"`
-			} `json:"data"`
-		}
-		mustUnmarshal(t, raw, &resp)
-		if resp.Data.ResultType != "vector" {
-			t.Fatalf("resultType = %q, want vector", resp.Data.ResultType)
-		}
+		_, samples := decodeVector(t, raw)
 		got := map[string]string{}
-		for _, r := range resp.Data.Result {
+		for _, r := range samples {
 			got[r.Metric["app"]+"/"+r.Metric["pod"]] = fmt.Sprint(r.Value[1])
 		}
 		want := map[string]string{}
@@ -136,10 +124,8 @@ func TestLogsRoundTrip(t *testing.T) {
 	t.Run("label values of pod", func(t *testing.T) {
 		raw := apiGet(t, "/loki/api/v1/label/pod/values",
 			url.Values{"query": {selector}, "start": {nanos(from)}, "end": {nanos(to)}})
-		var resp struct {
-			Data []string `json:"data"`
-		}
-		mustUnmarshal(t, raw, &resp)
+		var resp valuesResponse
+		strictUnmarshal(t, raw, &resp)
 		var want []string
 		for _, s := range streams {
 			if !slices.Contains(want, s.Labels["pod"]) {
@@ -152,16 +138,14 @@ func TestLogsRoundTrip(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("pod values = %v, want %v", got, want)
 		}
-		assertPinned(t, "logs/label_pod_values.json", norm.generic(t, raw))
+		assertPinned(t, "logs/label_pod_values.json", norm.labelValues(t, raw))
 	})
 
 	t.Run("series lists every stream", func(t *testing.T) {
 		raw := apiGet(t, "/loki/api/v1/series",
 			url.Values{"match[]": {selector}, "start": {nanos(from)}, "end": {nanos(to)}})
-		var resp struct {
-			Data []map[string]string `json:"data"`
-		}
-		mustUnmarshal(t, raw, &resp)
+		var resp seriesResponse
+		strictUnmarshal(t, raw, &resp)
 		var got, want []string
 		for _, s := range resp.Data {
 			got = append(got, labelKey(s))
@@ -207,24 +191,103 @@ func expectedStreams(streams []seed.LogStream, keep func(seed.LogLine) bool) map
 	return out
 }
 
+// lokiStream is one stream of a streams response, with its [timestamp,
+// line] entries.
 type lokiStream struct {
 	Stream map[string]string `json:"stream"`
 	Values [][2]string       `json:"values"`
 }
 
-func decodeStreams(t *testing.T, raw []byte) []lokiStream {
+// The response types below list every field gigapipe sends and are decoded
+// strictly (strictUnmarshal), so a new field fails the decoding, and a field
+// that goes missing leaves an empty value that no longer matches the pin.
+// Entries are decoded as slices and checked to have exactly two elements, so
+// an entry with a third element isn't cut to fit.
+
+type streamsResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		ResultType string `json:"resultType"`
+		Result     []struct {
+			Stream map[string]string `json:"stream"`
+			Values [][]string        `json:"values"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+type vectorResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		ResultType string `json:"resultType"`
+		Result     []struct {
+			Metric map[string]string `json:"metric"`
+			Value  []any             `json:"value"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+type seriesResponse struct {
+	Status string              `json:"status"`
+	Data   []map[string]string `json:"data"`
+}
+
+type valuesResponse struct {
+	Status string   `json:"status"`
+	Data   []string `json:"data"`
+}
+
+// decodeStreamsResponse decodes a streams response strictly and returns its
+// status and streams.
+func decodeStreamsResponse(t *testing.T, raw []byte) (string, []lokiStream) {
 	t.Helper()
-	var resp struct {
-		Data struct {
-			ResultType string       `json:"resultType"`
-			Result     []lokiStream `json:"result"`
-		} `json:"data"`
-	}
-	mustUnmarshal(t, raw, &resp)
+	var resp streamsResponse
+	strictUnmarshal(t, raw, &resp)
 	if resp.Data.ResultType != "streams" {
 		t.Fatalf("resultType = %q, want streams", resp.Data.ResultType)
 	}
-	return resp.Data.Result
+	out := make([]lokiStream, len(resp.Data.Result))
+	for i, r := range resp.Data.Result {
+		values := make([][2]string, len(r.Values))
+		for j, v := range r.Values {
+			if len(v) != 2 {
+				t.Fatalf("stream %v entry %d has %d elements, want 2 (timestamp, line): %q", r.Stream, j, len(v), v)
+			}
+			values[j] = [2]string{v[0], v[1]}
+		}
+		out[i] = lokiStream{Stream: r.Stream, Values: values}
+	}
+	return resp.Status, out
+}
+
+func decodeStreams(t *testing.T, raw []byte) []lokiStream {
+	t.Helper()
+	_, streams := decodeStreamsResponse(t, raw)
+	return streams
+}
+
+// vectorSample is one sample of a vector response: [time, value].
+type vectorSample struct {
+	Metric map[string]string `json:"metric"`
+	Value  [2]any            `json:"value"`
+}
+
+// decodeVector decodes a vector response strictly and returns its status and
+// samples.
+func decodeVector(t *testing.T, raw []byte) (string, []vectorSample) {
+	t.Helper()
+	var resp vectorResponse
+	strictUnmarshal(t, raw, &resp)
+	if resp.Data.ResultType != "vector" {
+		t.Fatalf("resultType = %q, want vector", resp.Data.ResultType)
+	}
+	out := make([]vectorSample, len(resp.Data.Result))
+	for i, r := range resp.Data.Result {
+		if len(r.Value) != 2 {
+			t.Fatalf("sample %v has %d elements, want 2 (time, value): %v", r.Metric, len(r.Value), r.Value)
+		}
+		out[i] = vectorSample{Metric: r.Metric, Value: [2]any{r.Value[0], r.Value[1]}}
+	}
+	return resp.Status, out
 }
 
 // assertStreams compares a streams response with want, by label set, with the
@@ -345,6 +408,20 @@ func mustUnmarshal(t *testing.T, raw []byte, v any) {
 	}
 }
 
+// strictUnmarshal decodes a response, failing on a field v doesn't declare
+// or on data after the response.
+func strictUnmarshal(t *testing.T, raw []byte, v any) {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		t.Fatalf("decode %q: %v", raw, err)
+	}
+	if dec.More() {
+		t.Fatalf("decode %q: data after the response", raw)
+	}
+}
+
 // normalizer replaces the values that differ between runs with fixed ones, so
 // a response can be compared with its pinned copy: the run label value becomes
 // "RUN" and timestamps become offsets from the fixture start, such as "+10s".
@@ -379,7 +456,8 @@ func (n normalizer) streams(t *testing.T, raw []byte) any {
 			Result     []lokiStream `json:"result"`
 		} `json:"data"`
 	}
-	mustUnmarshal(t, raw, &resp)
+	resp.Data.ResultType = "streams"
+	resp.Status, resp.Data.Result = decodeStreamsResponse(t, raw)
 	for i, r := range resp.Data.Result {
 		r.Stream = n.labels(r.Stream)
 		for j, v := range r.Values {
@@ -403,14 +481,12 @@ func (n normalizer) vector(t *testing.T, raw []byte, evalTime time.Time) any {
 	var resp struct {
 		Status string `json:"status"`
 		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Value  [2]any            `json:"value"`
-			} `json:"result"`
+			ResultType string         `json:"resultType"`
+			Result     []vectorSample `json:"result"`
 		} `json:"data"`
 	}
-	mustUnmarshal(t, raw, &resp)
+	resp.Data.ResultType = "vector"
+	resp.Status, resp.Data.Result = decodeVector(t, raw)
 	for i, r := range resp.Data.Result {
 		ts, ok := r.Value[0].(float64)
 		if !ok {
@@ -432,11 +508,8 @@ func (n normalizer) vector(t *testing.T, raw []byte, evalTime time.Time) any {
 // series normalizes a series response.
 func (n normalizer) series(t *testing.T, raw []byte) any {
 	t.Helper()
-	var resp struct {
-		Status string              `json:"status"`
-		Data   []map[string]string `json:"data"`
-	}
-	mustUnmarshal(t, raw, &resp)
+	var resp seriesResponse
+	strictUnmarshal(t, raw, &resp)
 	for i, s := range resp.Data {
 		resp.Data[i] = n.labels(s)
 	}
@@ -444,12 +517,15 @@ func (n normalizer) series(t *testing.T, raw []byte) any {
 	return resp
 }
 
-// generic decodes a response that has no run-specific values.
-func (n normalizer) generic(t *testing.T, raw []byte) any {
+// labelValues normalizes a label values response. The values come from a
+// SELECT DISTINCT without ORDER BY, so their order is not defined: they are
+// sorted.
+func (n normalizer) labelValues(t *testing.T, raw []byte) any {
 	t.Helper()
-	var v any
-	mustUnmarshal(t, raw, &v)
-	return v
+	var resp valuesResponse
+	strictUnmarshal(t, raw, &resp)
+	sort.Strings(resp.Data)
+	return resp
 }
 
 // assertPinned compares got, once encoded as JSON, with the pinned file under
