@@ -13,6 +13,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -53,6 +54,9 @@ func gigapipeBinary(t *testing.T) string {
 // processEnv is the environment of a gigapipe process using database db.
 func processEnv(db string, extra ...string) []string {
 	return append([]string{
+		// gigapipe listens on all interfaces by default, and these processes
+		// run without authentication: keep them on this machine.
+		"HOST=127.0.0.1",
 		"CLICKHOUSE_SERVER=" + envOr("CLICKHOUSE_SERVER", "localhost"),
 		"CLICKHOUSE_PORT=" + envOr("CLICKHOUSE_PORT", "9000"),
 		"CLICKHOUSE_DB=" + db,
@@ -125,7 +129,7 @@ func startGigapipe(t *testing.T, env []string) string {
 // exited because its port was taken.
 func tryStartGigapipe(t *testing.T, env []string) (base string, inUse bool) {
 	t.Helper()
-	l, err := net.Listen("tcp", "0.0.0.0:0")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,6 +222,47 @@ func freshDatabase(t *testing.T, prefix string) string {
 func databaseTables(t *testing.T, db string) []string {
 	t.Helper()
 	return databaseTablesAt(t, envOr("CLICKHOUSE_HTTP_URL", "http://localhost:8123"), db)
+}
+
+// tableDefinitionsAt returns the CREATE statement of every table and view of
+// a database on the ClickHouse HTTP interface at endpoint, by name.
+func tableDefinitionsAt(t *testing.T, endpoint, db string) map[string]string {
+	t.Helper()
+	out := clickhouseQueryAt(t, endpoint, fmt.Sprintf("SELECT name, create_table_query FROM system.tables WHERE database = '%s' FORMAT JSONEachRow", db))
+	defs := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		var row struct {
+			Name   string `json:"name"`
+			Create string `json:"create_table_query"`
+		}
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			t.Fatalf("ClickHouse row %q: %v", line, err)
+		}
+		defs[row.Name] = row.Create
+	}
+	return defs
+}
+
+// assertSameDefinitions reports every table or view whose CREATE statement
+// differs between two runs of the migrations.
+func assertSameDefinitions(t *testing.T, where string, before, after map[string]string) {
+	t.Helper()
+	if before == nil {
+		t.Fatalf("%s: no definitions from the first run to compare with", where)
+	}
+	for name, def := range after {
+		if before[name] != def {
+			t.Errorf("%s: %s changed:\n before %s\n  after %s", where, name, before[name], def)
+		}
+	}
+	for name := range before {
+		if _, ok := after[name]; !ok {
+			t.Errorf("%s: %s is gone", where, name)
+		}
+	}
 }
 
 // databaseTablesAt lists the tables and views of a database on the ClickHouse

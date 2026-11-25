@@ -3,10 +3,12 @@
 // Cluster variant of the schema migration lane (M2, #920): with CLUSTER_NAME
 // set, gigapipe's start-up migrations run ON CLUSTER and add the distributed
 // tables of the *_dist.sql scripts. Every node of the cluster must end up with
-// every declared table, and running the migrations again must change nothing.
+// every declared table, and running the migrations again must change nothing:
+// on every node, the same tables, each with the same CREATE statement.
 //
-// It needs a two-node cluster; test/integration/cluster/docker-compose.yml
-// starts one, and `make test-integration-cluster` runs this test against it.
+// It needs a two-node cluster: `make test-integration-cluster` starts the two
+// ClickHouse nodes of the e2e stack (scripts/test/e2e), with the ports from
+// test/integration/cluster/docker-compose.yml, and runs this test.
 //
 //	CLICKHOUSE_CLUSTER        cluster name (default test_cluster_two_shards)
 //	CLICKHOUSE_NODE_HTTP_URLS space-separated HTTP interfaces of the nodes
@@ -47,14 +49,21 @@ func TestSchemaMigrationsCluster(t *testing.T) {
 			}
 		}
 	}
+	first := map[string]map[string]string{}
 
 	t.Run("every node gets every declared table", func(t *testing.T) {
 		runGigapipe(t, env, 2*time.Minute)
 		checkNodes(t, "first")
+		for _, node := range nodes {
+			first[node] = tableDefinitionsAt(t, node, db)
+		}
 	})
 
 	t.Run("running the migrations again changes nothing", func(t *testing.T) {
 		runGigapipe(t, env, 2*time.Minute)
 		checkNodes(t, "second")
+		for _, node := range nodes {
+			assertSameDefinitions(t, node, first[node], tableDefinitionsAt(t, node, db))
+		}
 	})
 }

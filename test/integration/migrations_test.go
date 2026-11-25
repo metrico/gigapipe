@@ -3,7 +3,9 @@
 // Schema migration lane (M2, #920): gigapipe's start-up migrations run against
 // an empty single-node ClickHouse database must create every table and view
 // the migration scripts declare, and running them again on the same database,
-// as a restart of an existing install does, must succeed and change nothing.
+// as a restart of an existing install does, must succeed and change nothing:
+// the same tables, each with the same CREATE statement (columns, engine, TTL,
+// view query).
 
 package integration
 
@@ -50,12 +52,15 @@ func TestSchemaMigrations(t *testing.T) {
 	db := freshDatabase(t, "m2_migrate")
 	env := processEnv(db, "MODE=init_only")
 	want := declaredTables(t, singleNodeScripts)
+	node := envOr("CLICKHOUSE_HTTP_URL", "http://localhost:8123")
+	var first map[string]string
 
 	t.Run("an empty database gets every declared table", func(t *testing.T) {
 		runGigapipe(t, env, 2*time.Minute)
 		if got := databaseTables(t, db); !slices.Equal(got, want) {
 			t.Errorf("tables after the first run:\n got %v\nwant %v", got, want)
 		}
+		first = tableDefinitionsAt(t, node, db)
 	})
 
 	t.Run("running the migrations again changes nothing", func(t *testing.T) {
@@ -63,5 +68,6 @@ func TestSchemaMigrations(t *testing.T) {
 		if got := databaseTables(t, db); !slices.Equal(got, want) {
 			t.Errorf("tables after the second run:\n got %v\nwant %v", got, want)
 		}
+		assertSameDefinitions(t, node, first, tableDefinitionsAt(t, node, db))
 	})
 }

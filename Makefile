@@ -62,16 +62,23 @@ integration-start:
 test-integration:
 	go test -tags integration -count=1 -v ./test/integration/...
 
-# Run the cluster variant of the schema migration lane: start the two-node
-# ClickHouse cluster in test/integration/cluster, run the test against it and
-# always stop the cluster afterwards. It publishes ClickHouse on ports 9000,
-# 8123 and 8124, so stop the stack of test/integration/run.sh first.
+# The two-node ClickHouse cluster of the e2e stack, with the host ports the
+# cluster migration test needs (test/integration/cluster/docker-compose.yml).
+CLUSTER_COMPOSE = docker compose -p gigapipe-migrations-cluster \
+	-f scripts/test/e2e/docker-compose.yml -f test/integration/cluster/docker-compose.yml
+
+# Run the cluster variant of the schema migration lane: start the cluster, run
+# the test against it and stop the cluster afterwards, also when it fails to
+# start. It publishes ClickHouse on 127.0.0.1 ports 9000, 8123 and 8124, so
+# stop the stack of test/integration/run.sh first.
 test-integration-cluster: build
-	docker compose -f test/integration/cluster/docker-compose.yml up -d --wait
-	go test -tags integration,integration_cluster -count=1 -v -run TestSchemaMigrationsCluster ./test/integration/... ; \
+	$(CLUSTER_COMPOSE) up -d --wait e2e-clickhouse e2e-clickhouse2; status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		go test -tags integration,integration_cluster -count=1 -v -run TestSchemaMigrationsCluster ./test/integration/...; \
 		status=$$?; \
-		docker compose -f test/integration/cluster/docker-compose.yml down -v; \
-		exit $$status
+	fi; \
+	$(CLUSTER_COMPOSE) down -v --remove-orphans; \
+	exit $$status
 
 # Run golangci-lint with the repo's committed config, gating only issues
 # introduced since LINT_NEW_FROM_REV so this doesn't fail on pre-existing
