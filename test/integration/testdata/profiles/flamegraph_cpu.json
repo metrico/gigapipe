@@ -1,60 +1,36 @@
 {
-  "levels": [
+  "maxSelf": 3710000000,
+  "stacks": [
     {
-      "values": [
-        "0",
-        "9940000000",
-        "0",
-        "0"
-      ]
+      "self": 0,
+      "stack": "total",
+      "total": 9940000000
     },
     {
-      "values": [
-        "0",
-        "9940000000",
-        "0",
-        "6"
-      ]
+      "self": 0,
+      "stack": "total;main.main",
+      "total": 9940000000
     },
     {
-      "values": [
-        "0",
-        "9940000000",
-        "0",
-        "3"
-      ]
+      "self": 0,
+      "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP",
+      "total": 9940000000
     },
     {
-      "values": [
-        "0",
-        "9940000000",
-        "3710000000",
-        "4"
-      ]
+      "self": 3710000000,
+      "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout",
+      "total": 9940000000
     },
     {
-      "values": [
-        "0",
-        "3230000000",
-        "3230000000",
-        "5",
-        "0",
-        "3000000000",
-        "3000000000",
-        "2"
-      ]
+      "self": 3000000000,
+      "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;encoding/json.Marshal",
+      "total": 3000000000
     },
-    {}
+    {
+      "self": 3230000000,
+      "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;main.chargePayment",
+      "total": 3230000000
+    }
   ],
-  "maxSelf": "3710000000",
-  "names": [
-    "total",
-    "n/a",
-    "encoding/json.Marshal",
-    "net/http.HandlerFunc.ServeHTTP",
-    "main.handleCheckout",
-    "main.chargePayment",
-    "main.main"
-  ],
-  "total": "9940000000"
+  "total": 9940000000
 }

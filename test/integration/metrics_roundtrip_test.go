@@ -357,20 +357,49 @@ func assertFloatMap(t *testing.T, got, want map[string]float64, tolerance float6
 	}
 }
 
-// matrix normalizes a range query matrix response.
+// matrixResponse is a range query matrix response as gigapipe sends it.
+// Points are decoded as slices and checked to have exactly two elements.
+type matrixResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		ResultType string `json:"resultType"`
+		Result     []struct {
+			Metric map[string]string `json:"metric"`
+			Values [][]any           `json:"values"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+// matrix normalizes a range query matrix response, decoded strictly.
 func (n normalizer) matrix(t *testing.T, raw []byte) any {
 	t.Helper()
+	var wire matrixResponse
+	strictUnmarshal(t, raw, &wire)
+	if wire.Data.ResultType != "matrix" {
+		t.Fatalf("resultType = %q, want matrix", wire.Data.ResultType)
+	}
+	type series struct {
+		Metric map[string]string `json:"metric"`
+		Values [][2]any          `json:"values"`
+	}
 	var resp struct {
 		Status string `json:"status"`
 		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Values [][2]any          `json:"values"`
-			} `json:"result"`
+			ResultType string   `json:"resultType"`
+			Result     []series `json:"result"`
 		} `json:"data"`
 	}
-	mustUnmarshal(t, raw, &resp)
+	resp.Status, resp.Data.ResultType = wire.Status, wire.Data.ResultType
+	for _, w := range wire.Data.Result {
+		r := series{Metric: w.Metric}
+		for _, v := range w.Values {
+			if len(v) != 2 {
+				t.Fatalf("series %v point has %d elements, want 2 (time, value): %v", w.Metric, len(v), v)
+			}
+			r.Values = append(r.Values, [2]any{v[0], v[1]})
+		}
+		resp.Data.Result = append(resp.Data.Result, r)
+	}
 	for i, r := range resp.Data.Result {
 		r.Metric = n.labels(r.Metric)
 		for j, v := range r.Values {

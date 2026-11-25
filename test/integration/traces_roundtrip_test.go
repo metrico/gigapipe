@@ -339,7 +339,8 @@ func normalizeSearch(t *testing.T, raw []byte, run string, start time.Time, trac
 			SpanSets          []spanSet `json:"spanSets"`
 		} `json:"traces"`
 	}
-	mustUnmarshal(t, raw, &resp)
+	// Strict: a field this type doesn't declare fails the pin.
+	strictUnmarshal(t, raw, &resp)
 	fix := func(s spanSet) spanSet {
 		for i := range s.Spans {
 			s.Spans[i].SpanID = rename(s.Spans[i].SpanID)

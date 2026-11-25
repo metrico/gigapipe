@@ -1,53 +1,39 @@
 {
   "flamebearer": {
-    "levels": [
-      [
-        0,
-        9940000000,
-        0,
-        0
-      ],
-      [
-        0,
-        9940000000,
-        0,
-        6
-      ],
-      [
-        0,
-        9940000000,
-        0,
-        3
-      ],
-      [
-        0,
-        9940000000,
-        3710000000,
-        4
-      ],
-      [
-        0,
-        3230000000,
-        3230000000,
-        5,
-        0,
-        3000000000,
-        3000000000,
-        2
-      ],
-      []
-    ],
     "maxSelf": 3710000000,
-    "names": [
-      "total",
-      "n/a",
-      "encoding/json.Marshal",
-      "net/http.HandlerFunc.ServeHTTP",
-      "main.handleCheckout",
-      "main.chargePayment",
-      "main.main"
-    ],
-    "numTicks": 9940000000
+    "numTicks": 9940000000,
+    "stacks": [
+      {
+        "self": 0,
+        "stack": "total",
+        "total": 9940000000
+      },
+      {
+        "self": 0,
+        "stack": "total;main.main",
+        "total": 9940000000
+      },
+      {
+        "self": 0,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP",
+        "total": 9940000000
+      },
+      {
+        "self": 3710000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout",
+        "total": 9940000000
+      },
+      {
+        "self": 3000000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;encoding/json.Marshal",
+        "total": 3000000000
+      },
+      {
+        "self": 3230000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;main.chargePayment",
+        "total": 3230000000
+      }
+    ]
   },
   "groups": null,
   "heatmap": null,

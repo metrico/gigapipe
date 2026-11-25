@@ -1,69 +1,51 @@
 {
   "flamebearer": {
-    "levels": [
-      [
-        0,
-        3330000000,
-        0,
-        0,
-        3670000000,
-        0,
-        0
-      ],
-      [
-        0,
-        3330000000,
-        0,
-        0,
-        3670000000,
-        0,
-        1
-      ],
-      [
-        0,
-        3330000000,
-        0,
-        0,
-        3670000000,
-        0,
-        2
-      ],
-      [
-        0,
-        3330000000,
-        1270000000,
-        0,
-        3670000000,
-        1500000000,
-        3
-      ],
-      [
-        0,
-        900000000,
-        900000000,
-        0,
-        1180000000,
-        1180000000,
-        4,
-        0,
-        1160000000,
-        1160000000,
-        0,
-        990000000,
-        990000000,
-        5
-      ]
-    ],
     "maxSelf": 1500000000,
-    "names": [
-      "total",
-      "main.main",
-      "net/http.HandlerFunc.ServeHTTP",
-      "main.handleCheckout",
-      "encoding/json.Marshal",
-      "main.chargePayment"
-    ],
-    "numTicks": 7000000000
+    "numTicks": 7000000000,
+    "stacks": [
+      {
+        "leftSelf": 0,
+        "leftTotal": 3330000000,
+        "rightSelf": 0,
+        "rightTotal": 3670000000,
+        "stack": "total"
+      },
+      {
+        "leftSelf": 0,
+        "leftTotal": 3330000000,
+        "rightSelf": 0,
+        "rightTotal": 3670000000,
+        "stack": "total;main.main"
+      },
+      {
+        "leftSelf": 0,
+        "leftTotal": 3330000000,
+        "rightSelf": 0,
+        "rightTotal": 3670000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP"
+      },
+      {
+        "leftSelf": 1270000000,
+        "leftTotal": 3330000000,
+        "rightSelf": 1500000000,
+        "rightTotal": 3670000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout"
+      },
+      {
+        "leftSelf": 900000000,
+        "leftTotal": 900000000,
+        "rightSelf": 1180000000,
+        "rightTotal": 1180000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;encoding/json.Marshal"
+      },
+      {
+        "leftSelf": 1160000000,
+        "leftTotal": 1160000000,
+        "rightSelf": 990000000,
+        "rightTotal": 990000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;main.chargePayment"
+      }
+    ]
   },
   "groups": null,
   "heatmap": null,

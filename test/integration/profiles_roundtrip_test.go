@@ -11,11 +11,13 @@ package integration
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -23,7 +25,6 @@ import (
 	querierv1 "github.com/metrico/qryn/v5/reader/prof"
 	typesv1 "github.com/metrico/qryn/v5/reader/prof/types/v1"
 	"github.com/metrico/qryn/v5/test/integration/seed"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -134,13 +135,15 @@ func TestProfilesRoundTrip(t *testing.T) {
 				}
 			}
 			if svc.Name == fixture.Services[0].Name {
-				raw, err := protojson.Marshal(graph)
-				if err != nil {
-					t.Fatal(err)
+				levels := make([][]int64, len(graph.Levels))
+				for i, l := range graph.Levels {
+					levels[i] = l.Values
 				}
-				var v any
-				mustUnmarshal(t, raw, &v)
-				assertPinned(t, "profiles/flamegraph_cpu.json", v)
+				assertPinned(t, "profiles/flamegraph_cpu.json", struct {
+					Total   int64        `json:"total"`
+					MaxSelf int64        `json:"maxSelf"`
+					Stacks  []flameStack `json:"stacks"`
+				}{graph.Total, graph.MaxSelf, singleStacks(t, graph.Names, levels)})
 			}
 		})
 
@@ -162,13 +165,7 @@ func TestProfilesRoundTrip(t *testing.T) {
 			"from":  {strconv.FormatInt(from, 10)},
 			"until": {strconv.FormatInt(to, 10)},
 		})
-		var resp struct {
-			Flamebearer struct {
-				Names    []string `json:"names"`
-				NumTicks int64    `json:"numTicks"`
-			} `json:"flamebearer"`
-		}
-		mustUnmarshal(t, raw, &resp)
+		resp := decodeRender(t, raw)
 		if resp.Flamebearer.NumTicks != total(checkout) {
 			t.Errorf("CPU time = %dns, want %dns", resp.Flamebearer.NumTicks, total(checkout))
 		}
@@ -177,9 +174,7 @@ func TestProfilesRoundTrip(t *testing.T) {
 				t.Errorf("function %q missing from %v", frame, resp.Flamebearer.Names)
 			}
 		}
-		var v any
-		mustUnmarshal(t, raw, &v)
-		assertPinned(t, "profiles/render_cpu.json", v)
+		assertPinned(t, "profiles/render_cpu.json", resp.normalize(t, singleStacks(t, resp.Flamebearer.Names, resp.Flamebearer.Levels)))
 	})
 
 	t.Run("render-diff compares the first and the last upload of "+checkout, func(t *testing.T) {
@@ -192,14 +187,7 @@ func TestProfilesRoundTrip(t *testing.T) {
 			"rightFrom":  {strconv.FormatInt(last.Add(-5*time.Second).UnixMilli(), 10)},
 			"rightUntil": {strconv.FormatInt(last.Add(5*time.Second).UnixMilli(), 10)},
 		})
-		var resp struct {
-			LeftTicks  int64 `json:"leftTicks"`
-			RightTicks int64 `json:"rightTicks"`
-			Metadata   struct {
-				Format string `json:"format"`
-			} `json:"metadata"`
-		}
-		mustUnmarshal(t, raw, &resp)
+		resp := decodeRender(t, raw)
 		if want := cpu[checkout][0]; resp.LeftTicks != want {
 			t.Errorf("left (first upload) CPU time = %dns, want %dns", resp.LeftTicks, want)
 		}
@@ -209,9 +197,7 @@ func TestProfilesRoundTrip(t *testing.T) {
 		if resp.Metadata.Format != "double" {
 			t.Errorf("format = %q, want double", resp.Metadata.Format)
 		}
-		var v any
-		mustUnmarshal(t, raw, &v)
-		assertPinned(t, "profiles/render_diff_cpu.json", v)
+		assertPinned(t, "profiles/render_diff_cpu.json", resp.normalize(t, diffStacks(t, resp.Flamebearer.Names, resp.Flamebearer.Levels)))
 	})
 
 	t.Run("CPU time over time per service", func(t *testing.T) {
@@ -298,6 +284,160 @@ func connectCall(t *testing.T, method string, req, resp proto.Message) {
 	if err := proto.Unmarshal(body, resp); err != nil {
 		t.Fatalf("%s: decode response: %v", method, err)
 	}
+}
+
+// renderResponse is a /pyroscope/render or /pyroscope/render-diff response
+// as gigapipe sends it, decoded strictly. Timeline, groups and heatmap are
+// always null; they are kept raw so a missing key can be told from a null.
+type renderResponse struct {
+	Flamebearer struct {
+		Names    []string  `json:"names"`
+		Levels   [][]int64 `json:"levels"`
+		NumTicks int64     `json:"numTicks"`
+		MaxSelf  int64     `json:"maxSelf"`
+	} `json:"flamebearer"`
+	Metadata struct {
+		Format     string `json:"format"`
+		SpyName    string `json:"spyName"`
+		SampleRate int64  `json:"sampleRate"`
+		Units      string `json:"units"`
+		Name       string `json:"name"`
+	} `json:"metadata"`
+	Timeline   json.RawMessage `json:"timeline"`
+	Groups     json.RawMessage `json:"groups"`
+	Heatmap    json.RawMessage `json:"heatmap"`
+	LeftTicks  int64           `json:"leftTicks"`
+	RightTicks int64           `json:"rightTicks"`
+}
+
+func decodeRender(t *testing.T, raw []byte) renderResponse {
+	t.Helper()
+	var resp renderResponse
+	strictUnmarshal(t, raw, &resp)
+	for name, v := range map[string]json.RawMessage{"timeline": resp.Timeline, "groups": resp.Groups, "heatmap": resp.Heatmap} {
+		if len(v) == 0 {
+			t.Fatalf("field %q missing from the render response", name)
+		}
+	}
+	return resp
+}
+
+// normalize replaces the flame graph's names and levels, whose order the
+// query doesn't define, with its call stacks, and keeps every other field.
+func (r renderResponse) normalize(t *testing.T, stacks any) any {
+	t.Helper()
+	return struct {
+		Flamebearer struct {
+			Stacks   any   `json:"stacks"`
+			NumTicks int64 `json:"numTicks"`
+			MaxSelf  int64 `json:"maxSelf"`
+		} `json:"flamebearer"`
+		Metadata   any             `json:"metadata"`
+		Timeline   json.RawMessage `json:"timeline"`
+		Groups     json.RawMessage `json:"groups"`
+		Heatmap    json.RawMessage `json:"heatmap"`
+		LeftTicks  int64           `json:"leftTicks"`
+		RightTicks int64           `json:"rightTicks"`
+	}{
+		Flamebearer: struct {
+			Stacks   any   `json:"stacks"`
+			NumTicks int64 `json:"numTicks"`
+			MaxSelf  int64 `json:"maxSelf"`
+		}{stacks, r.Flamebearer.NumTicks, r.Flamebearer.MaxSelf},
+		Metadata: r.Metadata, Timeline: r.Timeline, Groups: r.Groups, Heatmap: r.Heatmap,
+		LeftTicks: r.LeftTicks, RightTicks: r.RightTicks,
+	}
+}
+
+// flameStack is one call stack of a flame graph, root first, with its total
+// and self values.
+type flameStack struct {
+	Stack string `json:"stack"`
+	Total int64  `json:"total"`
+	Self  int64  `json:"self"`
+}
+
+// flameDiffStack is one call stack of a diff flame graph with the values of
+// both sides.
+type flameDiffStack struct {
+	Stack      string `json:"stack"`
+	LeftTotal  int64  `json:"leftTotal"`
+	LeftSelf   int64  `json:"leftSelf"`
+	RightTotal int64  `json:"rightTotal"`
+	RightSelf  int64  `json:"rightSelf"`
+}
+
+func singleStacks(t *testing.T, names []string, levels [][]int64) []flameStack {
+	t.Helper()
+	var out []flameStack
+	for _, n := range flameNodes(t, names, levels, 4) {
+		out = append(out, flameStack{n.stack, n.values[1], n.values[2]})
+	}
+	return out
+}
+
+func diffStacks(t *testing.T, names []string, levels [][]int64) []flameDiffStack {
+	t.Helper()
+	var out []flameDiffStack
+	for _, n := range flameNodes(t, names, levels, 7) {
+		out = append(out, flameDiffStack{n.stack, n.values[1], n.values[2], n.values[4], n.values[5]})
+	}
+	return out
+}
+
+type flameNode struct {
+	stack  string
+	x      int64 // start on its level
+	values []int64
+}
+
+// flameNodes rebuilds the call stacks of a flame graph, sorted by stack.
+// Each level lists its nodes as groups of width numbers: the node's offset
+// from the end of the previous node on the level, its total, ..., and last
+// the index of its name (for a diff, width 7, the first three numbers are the
+// left side's and are used for positions). A node's parent is the node one
+// level up whose range contains the node's start, so names order and the
+// order of siblings don't matter.
+func flameNodes(t *testing.T, names []string, levels [][]int64, width int) []flameNode {
+	t.Helper()
+	var all []flameNode
+	var above []flameNode
+	for li, level := range levels {
+		if len(level)%width != 0 {
+			t.Fatalf("flame graph level %d has %d values, not groups of %d", li, len(level), width)
+		}
+		var here []flameNode
+		var x int64
+		for j := 0; j < len(level); j += width {
+			g := level[j : j+width]
+			x += g[0]
+			idx := g[width-1]
+			if idx < 0 || int(idx) >= len(names) {
+				t.Fatalf("flame graph level %d: name index %d out of %d names", li, idx, len(names))
+			}
+			stack := names[idx]
+			if li > 0 {
+				parent := -1
+				for k, p := range above {
+					if p.x <= x && x < p.x+p.values[1] || p.x == x && p.values[1] == 0 {
+						parent = k
+						break
+					}
+				}
+				if parent < 0 {
+					t.Fatalf("flame graph level %d: no parent for %q at %d", li, names[idx], x)
+				}
+				stack = above[parent].stack + ";" + stack
+			}
+			n := flameNode{stack: stack, x: x, values: g}
+			here = append(here, n)
+			all = append(all, n)
+			x += g[1]
+		}
+		above = here
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].stack < all[j].stack })
+	return all
 }
 
 func mergeStacktraces(t *testing.T, profileType, selector string, from, to int64) *querierv1.FlameGraph {
