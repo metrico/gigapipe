@@ -1,0 +1,33 @@
+# Additions to scripts/test/e2e/docker-compose.yml for the cluster variant of
+# the schema migration lane: it runs the e2e stack's two ClickHouse nodes
+# (test_cluster_two_shards; the image version is in
+# scripts/test/docker-compose.clickhouse.yml) and only adds what the test needs
+# from the host. `make test-integration-cluster` uses both files.
+#
+# Ports are published on 127.0.0.1 only: the default user has no password.
+# CLICKHOUSE_SKIP_USER_SETUP keeps the image from limiting that user to
+# connections from inside the container, so the e2e users.xml applies as
+# written.
+services:
+  e2e-clickhouse:
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:8123:8123"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  e2e-clickhouse2:
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    ports:
+      - "127.0.0.1:8124:8123"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
