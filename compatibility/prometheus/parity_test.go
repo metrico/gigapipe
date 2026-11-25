@@ -23,6 +23,7 @@ package prometheus
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -41,6 +42,8 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
+	"github.com/prometheus/client_golang/api"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
@@ -55,11 +58,14 @@ type reference struct {
 	binary string
 	// step, when set, replaces the step of every range query.
 	step string
+	// queryAddr is where Run serves queries, once it has started.
+	queryAddr atomic.Pointer[string]
 }
 
-func (reference) Name() string { return "prometheus" }
+func (*reference) Name() string { return "prometheus" }
 
-func (r reference) Run(ctx context.Context, o promql.Options) error {
+func (r *reference) Run(ctx context.Context, o promql.Options) error {
+	r.queryAddr.Store(&o.QueryHostPort)
 	dir, err := os.MkdirTemp("", "parity-prometheus-*")
 	if err != nil {
 		return err
@@ -158,10 +164,20 @@ type gigapipe struct {
 	base *url.URL
 	// step, when set, replaces the step of every range query.
 	step string
+	// ref is the reference, whose data Run checks against what was sent.
+	ref *reference
 	// nativeHistograms counts native histogram samples that were not sent:
 	// remote write here carries classic float samples only.
 	nativeHistograms atomic.Int64
+	// checkSent, checkFirstMs and checkLastMs describe the checkMetric
+	// samples sent. Only Run's goroutine uses them.
+	checkSent                 int
+	checkFirstMs, checkLastMs int64
 }
+
+// checkMetric is the gauge counted on both sides after the replay, the one
+// the suite's own readiness check uses.
+const checkMetric = "demo_num_cpus"
 
 func (*gigapipe) Name() string { return "gigapipe" }
 
@@ -171,7 +187,13 @@ func (*gigapipe) Name() string { return "gigapipe" }
 // first queries run before the last snapshot is stored. The replayer serves
 // an empty scrape only after its last snapshot, so the first empty scrape
 // means everything was sent.
+//
+// It then waits until the reference holds the same data, and fails the setup
+// if it doesn't: a scrape that misses the reference's timeout loses that
+// snapshot on the reference side only, and every query covering it would
+// differ.
 func (g *gigapipe) Run(ctx context.Context, o promql.Options) error {
+	snapshots := 0
 	for {
 		n, err := g.forwardScrape(ctx, o)
 		if err != nil {
@@ -183,6 +205,16 @@ func (g *gigapipe) Run(ctx context.Context, o promql.Options) error {
 		if n == 0 {
 			break
 		}
+		snapshots++
+	}
+	// The reference scrapes one snapshot per interval; allow it that long,
+	// plus a margin for its start-up.
+	deadline := time.Duration(snapshots)*o.ScrapeInterval + 30*time.Second
+	if err := g.waitReference(ctx, deadline); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
 	}
 	stop, err := serve(o.QueryHostPort, stepProxy(g.base, g.step))
 	if err != nil {
@@ -191,6 +223,71 @@ func (g *gigapipe) Run(ctx context.Context, o promql.Options) error {
 	defer stop()
 	<-ctx.Done()
 	return nil
+}
+
+// waitReference waits until the reference holds as many checkMetric samples
+// as were sent to gigapipe, counted by the reference itself over the whole
+// replay. It fails if the reference has a different count when the deadline
+// passes.
+func (g *gigapipe) waitReference(ctx context.Context, deadline time.Duration) error {
+	if g.checkSent == 0 {
+		return fmt.Errorf("no %s samples in the replay", checkMetric)
+	}
+	end := time.UnixMilli(g.checkLastMs)
+	window := time.Duration(g.checkLastMs-g.checkFirstMs)*time.Millisecond + time.Minute
+	query := fmt.Sprintf("sum(count_over_time(%s[%ds]))", checkMetric, int64(window.Seconds()))
+
+	ctx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	// held is the last count the reference answered, -1 before it has
+	// answered; lastErr is the last query error.
+	held, lastErr := -1, error(nil)
+	for {
+		if addr := g.ref.queryAddr.Load(); addr != nil {
+			n, err := queryCount(ctx, *addr, query, end)
+			if err == nil && n == g.checkSent {
+				return nil
+			}
+			if err == nil {
+				held = n
+			} else {
+				lastErr = err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			if held < 0 {
+				return fmt.Errorf("reference data check: %w", cmp.Or(lastErr, ctx.Err()))
+			}
+			return fmt.Errorf("the reference holds %d %s samples, gigapipe was sent %d: "+
+				"the reference lost scrapes during the replay, so the two sides would be "+
+				"compared on different data", held, checkMetric, g.checkSent)
+		case <-tick.C:
+		}
+	}
+}
+
+// queryCount runs an instant query that returns one number on the Prometheus
+// API at addr. An empty result is 0.
+func queryCount(ctx context.Context, addr, query string, at time.Time) (int, error) {
+	client, err := api.NewClient(api.Config{Address: "http://" + addr})
+	if err != nil {
+		return 0, err
+	}
+	val, _, _, err := v1.NewAPI(client).Query(ctx, query, at)
+	if err != nil {
+		return 0, err
+	}
+	vec, ok := val.(model.Vector)
+	if !ok {
+		return 0, fmt.Errorf("%s: got %s, want a vector", query, val.Type())
+	}
+	if len(vec) == 0 {
+		return 0, nil
+	}
+	return int(vec[0].Value), nil
 }
 
 // forwardScrape scrapes the replayer once and remote-writes what it returned.
@@ -217,6 +314,14 @@ func (g *gigapipe) forwardScrape(ctx context.Context, o promql.Options) (int, er
 		}
 		for i := 0; i+1 < len(extra); i += 2 {
 			lbls[extra[i]] = extra[i+1]
+		}
+		if name == checkMetric {
+			ts := m.GetTimestampMs()
+			if g.checkSent == 0 || ts < g.checkFirstMs {
+				g.checkFirstMs = ts
+			}
+			g.checkLastMs = max(g.checkLastMs, ts)
+			g.checkSent++
 		}
 		ls := make([]prompb.Label, 0, len(lbls))
 		for k, v := range lbls {
@@ -297,6 +402,10 @@ func (g *gigapipe) forwardScrape(ctx context.Context, o promql.Options) (int, er
 	return len(series), nil
 }
 
+// scrapeInterval is the replay's scrape interval on both sides, and so the
+// reference's scrape timeout.
+const scrapeInterval = 250 * time.Millisecond
+
 // TestPromQLParity runs every compliance query against Prometheus and
 // gigapipe. Each query is a subtest named TestPromQLParity/gigapipe/<query>.
 func TestPromQLParity(t *testing.T) {
@@ -309,7 +418,11 @@ func TestPromQLParity(t *testing.T) {
 		t.Fatalf("GIGAPIPE_URL: %v", err)
 	}
 
-	var opts []promql.RunOption
+	// The suite scrapes every 15ms, and Prometheus caps a scrape's timeout at
+	// the interval, so any scrape slower than 15ms lost its snapshot on the
+	// reference side. The suite allows 2 minutes for the replay of 174
+	// snapshots, so the interval can't go much higher than this.
+	opts := []promql.RunOption{promql.WithScrapeInterval(scrapeInterval)}
 	// Gigapipe adds a service_name label to every series, which Prometheus
 	// doesn't have, so it is left out of the comparison by default.
 	// PARITY_KEEP_SERVICE_NAME=1 compares it too.
@@ -332,11 +445,12 @@ func TestPromQLParity(t *testing.T) {
 		t.Logf("range queries use a %s step instead of the suite's 10s", d)
 	}
 
-	target := &gigapipe{base: base, step: step}
+	ref := &reference{binary: promBinary, step: step}
+	target := &gigapipe{base: base, step: step, ref: ref}
 	t.Cleanup(func() {
 		if n := target.nativeHistograms.Load(); n > 0 {
 			t.Logf("native histogram samples not sent to gigapipe: %d", n)
 		}
 	})
-	promql.RunTests(t, reference{binary: promBinary, step: step}, target, promql.ComplianceTests(), opts...)
+	promql.RunTests(t, ref, target, promql.ComplianceTests(), opts...)
 }

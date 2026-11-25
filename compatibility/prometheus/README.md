@@ -16,7 +16,9 @@ The run is report-only for now: differences don't fail it. The suite skips a que
 
 ## How the data gets in
 
-The suite replays a recorded 70-minute dataset (`demo_*` metrics) through a scrape endpoint, and Prometheus scrapes it. Gigapipe doesn't scrape, so the test's gigapipe target scrapes the replayer itself and sends the samples to `/api/v1/prom/remote/write`. It starts answering the suite's queries, by forwarding them to gigapipe, only after the replayer has served every snapshot.
+The suite replays a recorded 70-minute dataset (`demo_*` metrics) through a scrape endpoint, and Prometheus scrapes it. Gigapipe doesn't scrape, so the test's gigapipe target scrapes the replayer itself and sends the samples to `/api/v1/prom/remote/write`. It starts answering the suite's queries, by forwarding them to gigapipe, only after the replayer has served every snapshot and the reference holds the same data.
+
+The replay is scraped every 250ms instead of the suite's 15ms, because Prometheus's scrape timeout is the interval: a scrape slower than that is abandoned, and its snapshot is lost on the reference side only. As a check, the reference must hold as many `demo_num_cpus` samples as were sent to gigapipe; if it doesn't, the setup fails with both counts instead of the run reporting differences that come from different data.
 
 The reference Prometheus has a 2-hour out-of-order window: the replay's samples are up to 70 minutes old, but its `up` sample is stamped now, and without the window samples more than an hour older than the newest one are rejected.
 
