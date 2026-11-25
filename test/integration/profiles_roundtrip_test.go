@@ -16,9 +16,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,7 +290,7 @@ func connectCall(t *testing.T, method string, req, resp proto.Message) {
 
 // renderResponse is a /pyroscope/render or /pyroscope/render-diff response
 // as gigapipe sends it, decoded strictly. Timeline, groups and heatmap are
-// always null; they are kept raw so a missing key can be told from a null.
+// always null, so they are kept raw.
 type renderResponse struct {
 	Flamebearer struct {
 		Names    []string  `json:"names"`
@@ -314,12 +316,40 @@ func decodeRender(t *testing.T, raw []byte) renderResponse {
 	t.Helper()
 	var resp renderResponse
 	strictUnmarshal(t, raw, &resp)
-	for name, v := range map[string]json.RawMessage{"timeline": resp.Timeline, "groups": resp.Groups, "heatmap": resp.Heatmap} {
-		if len(v) == 0 {
-			t.Fatalf("field %q missing from the render response", name)
+	// Several pinned values are zero, empty or null (leftTicks, rightTicks,
+	// spyName, timeline...): a missing key would decode to the same value, so
+	// every key is required.
+	requireFields(t, raw, resp)
+	return resp
+}
+
+// requireFields fails when the JSON object raw lacks a key that the struct v
+// declares, also in nested structs. Together with strict decoding, which
+// rejects keys v doesn't declare, the keys must match exactly.
+func requireFields(t *testing.T, raw []byte, v any) {
+	t.Helper()
+	var check func(path string, raw json.RawMessage, typ reflect.Type)
+	check = func(path string, raw json.RawMessage, typ reflect.Type) {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			t.Fatalf("%s is not a JSON object: %v", strings.TrimSuffix(path, "."), err)
+		}
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if name == "" || name == "-" {
+				continue
+			}
+			value, ok := obj[name]
+			if !ok {
+				t.Fatalf("field %s%s missing from the response", path, name)
+			}
+			if f.Type.Kind() == reflect.Struct {
+				check(path+name+".", value, f.Type)
+			}
 		}
 	}
-	return resp
+	check("", raw, reflect.TypeOf(v))
 }
 
 // normalize replaces the flame graph's names and levels, whose order the
