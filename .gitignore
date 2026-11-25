@@ -5,3 +5,5 @@
 /.claude/
 /.superpowers/
 /gigapipe
+/gigapipe.log
+/gigapipe.pid

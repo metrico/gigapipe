@@ -1,0 +1,92 @@
+{
+  "labelsSet": [
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+      "__sample_type__": "cpu",
+      "__sample_unit__": "nanoseconds",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+      "__sample_type__": "cpu",
+      "__sample_unit__": "nanoseconds",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "payments"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+      "__sample_type__": "cpu",
+      "__sample_unit__": "nanoseconds",
+      "m2_run": "RUN",
+      "pod": "p2",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+      "__sample_type__": "cpu",
+      "__sample_unit__": "nanoseconds",
+      "m2_run": "RUN",
+      "pod": "p3",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:samples:count:cpu:nanoseconds",
+      "__sample_type__": "samples",
+      "__sample_unit__": "count",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:samples:count:cpu:nanoseconds",
+      "__sample_type__": "samples",
+      "__sample_unit__": "count",
+      "m2_run": "RUN",
+      "pod": "p1",
+      "service_name": "payments"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:samples:count:cpu:nanoseconds",
+      "__sample_type__": "samples",
+      "__sample_unit__": "count",
+      "m2_run": "RUN",
+      "pod": "p2",
+      "service_name": "checkout"
+    },
+    {
+      "__name__": "process_cpu",
+      "__period_type__": "cpu",
+      "__period_unit__": "nanoseconds",
+      "__profile_type__": "process_cpu:samples:count:cpu:nanoseconds",
+      "__sample_type__": "samples",
+      "__sample_unit__": "count",
+      "m2_run": "RUN",
+      "pod": "p3",
+      "service_name": "checkout"
+    }
+  ]
+}

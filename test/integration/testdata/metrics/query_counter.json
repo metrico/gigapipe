@@ -1,0 +1,60 @@
+{
+  "data": {
+    "result": [
+      {
+        "metric": {
+          "__name__": "http_requests_total",
+          "app": "checkout",
+          "m2_run": "RUN",
+          "pod": "p1",
+          "service_name": "checkout"
+        },
+        "value": [
+          "+585s",
+          "4200"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "http_requests_total",
+          "app": "checkout",
+          "m2_run": "RUN",
+          "pod": "p2",
+          "service_name": "checkout"
+        },
+        "value": [
+          "+585s",
+          "7721"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "http_requests_total",
+          "app": "checkout",
+          "m2_run": "RUN",
+          "pod": "p3",
+          "service_name": "checkout"
+        },
+        "value": [
+          "+585s",
+          "7219"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "http_requests_total",
+          "app": "payments",
+          "m2_run": "RUN",
+          "pod": "p1",
+          "service_name": "payments"
+        },
+        "value": [
+          "+585s",
+          "2801"
+        ]
+      }
+    ],
+    "resultType": "vector"
+  },
+  "status": "success"
+}

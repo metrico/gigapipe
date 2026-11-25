@@ -1,0 +1,62 @@
+{
+  "flamebearer": {
+    "maxSelf": 1500000000,
+    "numTicks": 7000000000,
+    "stacks": [
+      {
+        "leftSelf": 0,
+        "leftTotal": 3330000000,
+        "rightSelf": 0,
+        "rightTotal": 3670000000,
+        "stack": "total"
+      },
+      {
+        "leftSelf": 0,
+        "leftTotal": 3330000000,
+        "rightSelf": 0,
+        "rightTotal": 3670000000,
+        "stack": "total;main.main"
+      },
+      {
+        "leftSelf": 0,
+        "leftTotal": 3330000000,
+        "rightSelf": 0,
+        "rightTotal": 3670000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP"
+      },
+      {
+        "leftSelf": 1270000000,
+        "leftTotal": 3330000000,
+        "rightSelf": 1500000000,
+        "rightTotal": 3670000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout"
+      },
+      {
+        "leftSelf": 900000000,
+        "leftTotal": 900000000,
+        "rightSelf": 1180000000,
+        "rightTotal": 1180000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;encoding/json.Marshal"
+      },
+      {
+        "leftSelf": 1160000000,
+        "leftTotal": 1160000000,
+        "rightSelf": 990000000,
+        "rightTotal": 990000000,
+        "stack": "total;main.main;net/http.HandlerFunc.ServeHTTP;main.handleCheckout;main.chargePayment"
+      }
+    ]
+  },
+  "groups": null,
+  "heatmap": null,
+  "leftTicks": 3330000000,
+  "metadata": {
+    "format": "double",
+    "name": "cpu",
+    "sampleRate": 1000000000,
+    "spyName": "",
+    "units": "samples"
+  },
+  "rightTicks": 3670000000,
+  "timeline": null
+}
