@@ -1,0 +1,36 @@
+name: Integration (cluster migrations)
+
+# Cluster variant of the schema migration lane (#920): runs gigapipe's
+# migrations ON CLUSTER against a two-node ClickHouse cluster and checks that
+# every node gets every declared table. It runs on the release cadence (pushes
+# to master, or by hand), and on pull requests that change the migrations or
+# this lane.
+on:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - "ctrl/qryn/**"
+      - "test/integration/cluster/**"
+      - "scripts/test/**"
+      - "test/integration/migrations*_test.go"
+      - ".github/workflows/integration-cluster.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  migrations-cluster:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+
+    - name: Cluster migration lane
+      run: make test-integration-cluster

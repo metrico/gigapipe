@@ -22,7 +22,8 @@ DURATION ?= 60s
 LINT_NEW_FROM_REV ?= origin/master
 
 .PHONY: docker e2e-deps e2e-build e2e-test e2e-cleanup e2e-full e2e-ci \
-	fmt-check build test-unit lint fuzz
+	fmt-check build test-unit integration-start test-integration test-integration-cluster \
+	lint fuzz
 
 docker:
 	docker build -t gigapipe .
@@ -39,6 +40,45 @@ build:
 # Run the full unit-test suite with the race detector, matching CI.
 test-unit:
 	go test -race ./...
+
+# Start the binary built by `make build` in the background against the
+# ClickHouse at CLICKHOUSE_SERVER:CLICKHOUSE_PORT and wait until it answers.
+# Output goes to gigapipe.log. Used by the integration CI lane; locally,
+# test/integration/run.sh starts ClickHouse and gigapipe in Docker instead.
+integration-start:
+	CLICKHOUSE_SERVER=$${CLICKHOUSE_SERVER:-localhost} CLICKHOUSE_PORT=$${CLICKHOUSE_PORT:-9000} \
+		PORT=$${PORT:-3100} BULK_MAX_AGE_MS=$${BULK_MAX_AGE_MS:-100} \
+		./gigapipe > gigapipe.log 2>&1 & echo $$! > gigapipe.pid
+	@for i in $$(seq 1 60); do \
+		if curl -sf http://localhost:$${PORT:-3100}/api/v1/status/buildinfo >/dev/null; then \
+			echo "gigapipe ready"; exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "gigapipe never became ready; logs:"; cat gigapipe.log; exit 1
+
+# Run the Go integration tests against the gigapipe at GIGAPIPE_URL
+# (default http://localhost:3100).
+test-integration:
+	go test -tags integration -count=1 -v ./test/integration/...
+
+# The two-node ClickHouse cluster of the e2e stack, with the host ports the
+# cluster migration test needs (test/integration/cluster/docker-compose.yml).
+CLUSTER_COMPOSE = docker compose -p gigapipe-migrations-cluster \
+	-f scripts/test/e2e/docker-compose.yml -f test/integration/cluster/docker-compose.yml
+
+# Run the cluster variant of the schema migration lane: start the cluster, run
+# the test against it and stop the cluster afterwards, also when it fails to
+# start. It publishes ClickHouse on 127.0.0.1 ports 9000, 8123 and 8124, so
+# stop the stack of test/integration/run.sh first.
+test-integration-cluster: build
+	$(CLUSTER_COMPOSE) up -d --wait e2e-clickhouse e2e-clickhouse2; status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		go test -tags integration,integration_cluster -count=1 -v -run TestSchemaMigrationsCluster ./test/integration/...; \
+		status=$$?; \
+	fi; \
+	$(CLUSTER_COMPOSE) down -v --remove-orphans; \
+	exit $$status
 
 # Run golangci-lint with the repo's committed config, gating only issues
 # introduced since LINT_NEW_FROM_REV so this doesn't fail on pre-existing
