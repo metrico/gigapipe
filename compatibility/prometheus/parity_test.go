@@ -1,3 +1,5 @@
+//go:build parity
+
 // Package prometheus runs the PromQL compliance suite
 // (github.com/prometheus/compliance/promql) with a real Prometheus as the
 // reference and gigapipe as the target, so every query answered differently
@@ -8,10 +10,15 @@
 // target scrapes the replayer itself, sends the samples to gigapipe's
 // remote-write endpoint, and forwards the suite's queries to gigapipe.
 //
-// Run it with run.sh, which builds gigapipe from this tree and downloads a
-// pinned Prometheus. Against a running stack:
+// Run it with run.sh, which builds gigapipe from this tree and installs the
+// Prometheus version gigapipe's go.mod uses. Against a running stack, from the
+// repository root:
 //
-//	GIGAPIPE_URL=http://localhost:3100 PROMETHEUS_BINARY=/path/to/prometheus go test -v ./...
+//	GIGAPIPE_URL=http://localhost:3100 PROMETHEUS_BINARY=/path/to/prometheus \
+//		go test -tags parity -v -run '^TestPromQLParity$' ./compatibility/prometheus/
+//
+// PARITY_STEP (for example 60s) replaces the suite's 10s range query step on
+// both sides.
 package prometheus
 
 import (
@@ -20,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -27,6 +35,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,6 +53,8 @@ import (
 // reference runs a Prometheus binary that scrapes the suite's replayer.
 type reference struct {
 	binary string
+	// step, when set, replaces the step of every range query.
+	step string
 }
 
 func (reference) Name() string { return "prometheus" }
@@ -66,21 +77,87 @@ scrape_configs:
     scrape_protocols: [PrometheusProto, OpenMetricsText1.0.0, PrometheusText0.0.4]
     static_configs:
       - targets: [%[3]q]
+# The replay's samples are up to 70 minutes old, but its up sample is stamped
+# now, and without an out-of-order window samples more than an hour older
+# than the newest one are rejected.
+storage:
+  tsdb:
+    out_of_order_time_window: 2h
 `, o.ScrapeInterval, o.ScrapeTargetJobName, o.ScrapeTargetHostPort)
 	cfgFile := filepath.Join(dir, "prometheus.yml")
 	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
 		return err
 	}
+	listen := o.QueryHostPort
+	if r.step != "" {
+		// Prometheus listens elsewhere; the query address is a proxy that
+		// rewrites the step.
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return err
+		}
+		listen = l.Addr().String()
+		l.Close()
+		backend := &url.URL{Scheme: "http", Host: listen}
+		stop, err := serve(o.QueryHostPort, stepProxy(backend, r.step))
+		if err != nil {
+			return err
+		}
+		defer stop()
+	}
 	return promql.RunCommand(ctx, dir, nil, r.binary,
-		"--web.listen-address="+o.QueryHostPort,
+		"--web.listen-address="+listen,
 		"--storage.tsdb.path="+dir,
 		"--config.file="+cfgFile)
+}
+
+// serve listens on addr in the background and returns a function that stops
+// the server.
+func serve(addr string, h http.Handler) (func(), error) {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	srv := &http.Server{Handler: h}
+	go func() { _ = srv.Serve(l) }()
+	return func() { _ = srv.Close() }, nil
+}
+
+// stepProxy forwards requests to target. When step is set, it replaces the
+// step of every range query, sent as a URL parameter or as a form field.
+func stepProxy(target *url.URL, step string) http.Handler {
+	return &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+		pr.SetURL(target)
+		r := pr.Out
+		if step == "" || !strings.HasSuffix(r.URL.Path, "/api/v1/query_range") {
+			return
+		}
+		if q := r.URL.Query(); q.Has("step") {
+			q.Set("step", step)
+			r.URL.RawQuery = q.Encode()
+		}
+		if r.Method != http.MethodPost || r.Body == nil ||
+			!strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		if form, perr := url.ParseQuery(string(body)); err == nil && perr == nil && form.Has("step") {
+			form.Set("step", step)
+			body = []byte(form.Encode())
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
+		r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	}}
 }
 
 // gigapipe feeds the replayer's samples to a running gigapipe through remote
 // write and serves the suite's queries by proxying them to it.
 type gigapipe struct {
 	base *url.URL
+	// step, when set, replaces the step of every range query.
+	step string
 	// nativeHistograms counts native histogram samples that were not sent:
 	// remote write here carries classic float samples only.
 	nativeHistograms atomic.Int64
@@ -88,23 +165,14 @@ type gigapipe struct {
 
 func (*gigapipe) Name() string { return "gigapipe" }
 
+// Run forwards every snapshot before it serves queries. The suite starts
+// querying once a target answers for the replay's end time, which the
+// second-to-last snapshot already does, so serving earlier would let the
+// first queries run before the last snapshot is stored. The replayer serves
+// an empty scrape only after its last snapshot, so the first empty scrape
+// means everything was sent.
 func (g *gigapipe) Run(ctx context.Context, o promql.Options) error {
-	srv := &http.Server{Addr: o.QueryHostPort, Handler: httputil.NewSingleHostReverseProxy(g.base)}
-	srvErr := make(chan error, 1)
-	go func() { srvErr <- srv.ListenAndServe() }()
-	defer srv.Close()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case err := <-srvErr:
-			if errors.Is(err, http.ErrServerClosed) {
-				return nil
-			}
-			return fmt.Errorf("query proxy: %w", err)
-		default:
-		}
 		n, err := g.forwardScrape(ctx, o)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -113,9 +181,16 @@ func (g *gigapipe) Run(ctx context.Context, o promql.Options) error {
 			return err
 		}
 		if n == 0 {
-			time.Sleep(50 * time.Millisecond)
+			break
 		}
 	}
+	stop, err := serve(o.QueryHostPort, stepProxy(g.base, g.step))
+	if err != nil {
+		return fmt.Errorf("query proxy: %w", err)
+	}
+	defer stop()
+	<-ctx.Done()
+	return nil
 }
 
 // forwardScrape scrapes the replayer once and remote-writes what it returned.
@@ -245,11 +320,23 @@ func TestPromQLParity(t *testing.T) {
 		}))
 	}
 
-	target := &gigapipe{base: base}
+	// PARITY_STEP replaces the suite's 10s range query step on both sides,
+	// as seconds, which both APIs accept.
+	var step string
+	if v := os.Getenv("PARITY_STEP"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			t.Fatalf("PARITY_STEP=%q: want a positive duration such as 60s", v)
+		}
+		step = strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
+		t.Logf("range queries use a %s step instead of the suite's 10s", d)
+	}
+
+	target := &gigapipe{base: base, step: step}
 	t.Cleanup(func() {
 		if n := target.nativeHistograms.Load(); n > 0 {
 			t.Logf("native histogram samples not sent to gigapipe: %d", n)
 		}
 	})
-	promql.RunTests(t, reference{binary: promBinary}, target, promql.ComplianceTests(), opts...)
+	promql.RunTests(t, reference{binary: promBinary, step: step}, target, promql.ComplianceTests(), opts...)
 }
