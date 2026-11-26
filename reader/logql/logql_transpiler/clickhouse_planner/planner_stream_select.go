@@ -30,21 +30,24 @@ func (s *StreamSelectPlanner) Process(ctx *shared.PlannerContext) (sql.ISelect, 
 		from = from.Add(ctx.Offset)
 	}
 	var emptyLabels []string
-	for i, v := range slices.Backward(s.LabelNames) {
-		if config.Cloki.Setting.ClokiReader.OmitEmptyValues {
-			break
+	if !config.Cloki.Setting.ClokiReader.OmitEmptyValues {
+		// Build new slices rather than deleting while indexing into the old ones.
+		var names, ops, values []string
+		for i, name := range s.LabelNames {
+			op, value := s.Ops[i], s.Values[i]
+			if (op == "=" || op == "=~") && value == "" {
+				emptyLabels = append(emptyLabels, name)
+				continue
+			}
+			if op == "=~" && value == ".*" {
+				continue
+			}
+			names = append(names, name)
+			ops = append(ops, op)
+			values = append(values, value)
 		}
-		if (s.Ops[i] == "=" || s.Ops[i] == "=~") && s.Values[i] == "" {
-			emptyLabels = append(emptyLabels, v)
-			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
-			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
-			s.Values = append(s.Values[:i], s.Values[i+1:]...)
-		}
-		if s.Ops[i] == "=~" && s.Values[i] == ".*" {
-			s.LabelNames = append(s.LabelNames[:i], s.LabelNames[i+1:]...)
-			s.Ops = append(s.Ops[:i], s.Ops[i+1:]...)
-			s.Values = append(s.Values[:i], s.Values[i+1:]...)
-		}
+		slices.Reverse(emptyLabels)
+		s.LabelNames, s.Ops, s.Values = names, ops, values
 	}
 	clauses := make([]sql.SQLCondition, len(s.LabelNames))
 	for i, name := range s.LabelNames {
