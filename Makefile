@@ -76,3 +76,8 @@ e2e-cleanup:
 e2e-full: e2e-deps e2e-build e2e-test e2e-cleanup
 
 e2e-ci: e2e-build e2e-test e2e-cleanup
+
+# PromQL answers compared with a real Prometheus; see compatibility/prometheus/README.md.
+.PHONY: parity-prom
+parity-prom:
+	compatibility/prometheus/run.sh
